@@ -24,6 +24,8 @@
 | `dsh-qq-bridge` | 0.1.7 | `lib/host.js` | 无需机器人账号的双向 QQ 消息。 |
 | `dsh-bili-subagent` | 0.2.2 | `index.js` | 通过委派子代理浏览 B 站。 |
 
+每个插件的机制、数据文件、跨插件链路、默认状态和改造点见[插件养鱼机制](plugins.zh.md)。
+
 ## 层序
 
 桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。profile 组合与打包细节见[插件与默认层机制](mechanism.zh.md)。

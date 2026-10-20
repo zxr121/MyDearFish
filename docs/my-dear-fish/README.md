@@ -24,6 +24,8 @@ This repository is a DeepSeek Harness fork that ships the six Yuuyuko-uu plugins
 | `dsh-qq-bridge` | 0.1.7 | `lib/host.js` | QQ messaging in both directions without a bot account. |
 | `dsh-bili-subagent` | 0.2.2 | `index.js` | Bilibili browsing through a delegated subagent. |
 
+See [how the plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points.
+
 ## Layer order
 
 The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, then applies the profile's own `cordis.patch.yml`. The fish bundle supplies the persona prefix and the six plugin mounts; the profile layer always wins, so user settings and later edits override the factory defaults. See [the plugin and default layer mechanism](mechanism.md) for profile composition and packaging details.
