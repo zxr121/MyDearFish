@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for mechanism.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/mechanism.md
+/plugin-and-default-layer-mechanism:
+  en: b9ee5f8966668b2c
+  zh: 2f07076bbe29c8d8
+/plugin-and-default-layer-mechanism/layer-composition:
+  en: 681d207909e97630
+  zh: 73625653039ee2bb
+/plugin-and-default-layer-mechanism/bundle-patch:
+  en: b89f2b771824015a
+  zh: 93fa4843ea4719a8
+/plugin-and-default-layer-mechanism/packaging:
+  en: 5a025eda60ba70ff
+  zh: 1b006a7878a55aaa
+/plugin-and-default-layer-mechanism/profile-creation:
+  en: ba02c1ae2f74cb2d
+  zh: f4974fb5edc48851
+/plugin-and-default-layer-mechanism/changing-the-shipped-result:
+  en: 1661ad37113bfd27
+  zh: 0b8f22b650f62230

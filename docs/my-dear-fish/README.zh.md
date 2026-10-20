@@ -26,7 +26,7 @@
 
 ## 层序
 
-桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。
+桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。profile 组合与打包细节见[插件与默认层机制](mechanism.zh.md)。
 
 ## 修改出厂行为
 
