@@ -83,7 +83,7 @@
     "pdfjs-dist": "6.3.289",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "xlsx": "npm:xlsx-republish@0.20.3",
     "yaml": "^2.9.0"
   },
   "files": [
