@@ -26,6 +26,10 @@ This repository is a DeepSeek Harness fork that ships the six Yuuyuko-uu plugins
 
 See [how the plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points.
 
+## Cognition plan
+
+[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The plan is not implemented; align on its boundaries before changing code.
+
 ## Layer order
 
 The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, then applies the profile's own `cordis.patch.yml`. The fish bundle supplies the persona prefix and the six plugin mounts; the profile layer always wins, so user settings and later edits override the factory defaults. See [the plugin and default layer mechanism](mechanism.md) for profile composition and packaging details.
