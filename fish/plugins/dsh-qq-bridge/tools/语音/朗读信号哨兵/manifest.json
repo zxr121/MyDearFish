@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "朗读信号哨兵（配合 DSH 朗读桥）",
+  "version": "0.0.3",
+  "description": "盯朗读桥面板的状态字：出现「点朗读」就通知本机看门狗开录。只读页面，不改任何东西。",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*"
+  ]
+}

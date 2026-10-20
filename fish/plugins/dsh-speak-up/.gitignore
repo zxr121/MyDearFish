@@ -1,0 +1,7 @@
+# 发布/安装时不进 git 的东西
+# 开发时的内部备忘（写给开发者的，不对外）：
+开发者备忘.md
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

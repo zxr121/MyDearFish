@@ -1,0 +1,4 @@
+# DSH「通到 QQ」—— 大肥鱼在 DSH 说的话，自动发到 QQ（先做 DSH→QQ 这半）
+- insert:
+    - id: qq-bridge
+      name: 'dsh-qq-bridge'

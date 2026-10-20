@@ -1,0 +1,5 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+开发者备忘.md

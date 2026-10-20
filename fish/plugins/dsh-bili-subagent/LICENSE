@@ -1,0 +1,32 @@
+MIT License
+
+Copyright (c) 2026 dsh-bili-duty contributors (upstream: https://github.com/c1overzz/dsh-bili-scroll)
+Copyright (c) 2026 Yuuyuko-uu (modifications for dsh-bili-subagent)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---------------------------------------------------------------------------
+
+本插件内含第三方代码：`vendor/bilibili-mcp/`
+  · 项目：bilibili-mcp
+  · 许可证：MIT，Copyright (c) 2026 AGI_Ananas
+  · 完整许可见该目录下的 LICENSE 文件
+
+（如果你要改版权署名 —— 比如换成你自己的名字或 GitHub 用户名 —— 改上面第一行那个
+  "dsh-bili-duty contributors" 就行。）

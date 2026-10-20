@@ -1,0 +1,10 @@
+node_modules/
+.venv/
+.hf-cache/
+*.log
+out/
+tmp/
+.DS_Store
+Thumbs.db
+*.zst
+*.bak

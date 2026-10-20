@@ -1,0 +1,19 @@
+- list "Active reminders":
+  - listitem:
+    - 'button "Open reminder details: Review overdue deployment"': Review overdue deployment
+    - text: Once Next run
+    - time: Aug 25, 2099, {{clock}}
+    - text: (1 minute overdue)
+    - 'button "Delete reminder: Review overdue deployment"'
+  - listitem:
+    - 'button "Open reminder details: Join release review"': Join release review
+    - text: Once Next run
+    - time: Aug 25, 2099, {{clock}}
+    - text: (in 6 minutes)
+    - 'button "Delete reminder: Join release review"'
+  - listitem:
+    - 'button "Open reminder details: Check exact cadence"': Check exact cadence
+    - text: Every 301 seconds Next run
+    - time: Aug 25, 2099, {{clock}}
+    - text: (in 6 minutes)
+    - 'button "Delete reminder: Check exact cadence"'

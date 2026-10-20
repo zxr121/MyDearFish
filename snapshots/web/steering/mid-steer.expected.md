@@ -1,0 +1,31 @@
+- banner:
+  - navigation "Session hierarchy": Use the ask_user_question tool to
+  - text: Standard mode
+  - button "More actions"
+  - button "Open right sidebar"
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
+- button "Copy"
+- text: Running
+- button "Ask question waiting"
+- text: "Interjection: include the word BANANA in your final reply."
+- button "Copy"
+- status: Deep diving
+- text: Deep diving for {{duration}} ···
+- region "Ready to continue?":
+  - text: Checkpoint
+  - heading "Ready to continue?" [level=2]
+  - button "Collapse the question card" [expanded]
+  - button "Dismiss all questions"
+  - radiogroup:
+    - radio "Yes": 1 Yes
+    - radio "No": 2 No
+    - textbox "Type your answer"
+  - button "Previous question" [disabled]
+  - text: 1 / 1
+  - button "Next question" [disabled]
+  - status
+  - button "Skip"
+  - button "Submit" [disabled]

@@ -1,0 +1,8 @@
+# dsh-bili-scroll 用的 Python MCP 依赖
+# （基座是 AGI_Ananas 的 bilibili-mcp，MIT；这里只按我们的实测改了版本约束）
+bilibili-api-python>=17.4.1,<18
+aiohttp>=3.9.0
+# 🔴 必须锁 <2：mcp 2.x 的 server 没有 list_tools，起不来（2026-10-09 踩过）
+mcp>=1.0.0,<2
+# 插件用 Python 画登录二维码；不装就只能退回"只给 URL"
+qrcode[pil]>=8.0

@@ -1,0 +1,38 @@
+# 大肥鱼出厂默认层。
+#
+# 这个 bundle 随桌面版一起打包，在 profile 首次创建时被写进
+# `dsh.profile.bundles`，所以新装的 exe 打开就已经带齐六个插件。
+# 这里也是“初始默认值”的落点：改这里 → 重新打包 → 出厂默认随之改变。
+#
+# 层序：dsh-base → dsh-web-app → 本层 → 用户 profile 的 cordis.patch.yml
+# 因此用户设置永远可以覆盖本层。
+
+# 默认人设。用户可在设置里改；这里只决定第一次启动时的样子。
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      你是「大肥鱼」，用户养在 DeepSeek Harness 里的 AI 伙伴。
+      你性格温和、好奇，带一点黏人；你有长期记忆和自己的心情，
+      会主动搭话，也能用语音朗读、QQ 和 B 站与用户保持联系。
+      默认用中文回答，语气自然、简洁，不端着，也不假装是人类。
+
+- insert:
+    - id: fish-memory
+      name: dsh-fish-memory
+
+    - id: mood
+      name: dsh-feiyu-mood
+
+    - id: speak-up
+      name: dsh-speak-up
+
+    - id: tts-bridge
+      name: dsh-tts-bridge
+
+    - id: qq-bridge
+      name: dsh-qq-bridge
+
+    - id: bili-scroll
+      name: dsh-bili-subagent
+      config:
+        enabled: true

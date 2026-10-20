@@ -1,0 +1,7 @@
+# DSH「主动搭话」
+# 这一行同时激活「宿主半边」和这个包在 package.json 里声明的 dsh.client 网页半边。
+#
+# ⚠ id 就是设置页那边的配置命名空间 / 日志前缀；改成别的也行，但两处要一致。
+- insert:
+    - id: speak-up
+      name: 'dsh-speak-up'

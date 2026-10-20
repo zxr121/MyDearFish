@@ -1,0 +1,20 @@
+# ============================================================================
+# dsh-bili-subagent —— DSH bundle patch（插件**自带**的挂载声明）
+# ============================================================================
+# 这就是"标准 DSH 插件"的样子：包自己声明要往 profile 的配置树里插什么。
+# 装上之后，profile 只要在 `dsh.profile.bundles` 里列出本包名即生效，
+# 不用再手改 profile 自己的 cordis.patch.yml：
+#
+#   dsh plugin --profile web add dsh-bili-subagent
+#   （本地开发时用：dsh plugin --profile web add link:<你自己的插件目录>）
+#
+# 组成顺序：每个 bundle 的 patch 按 `dsh.profile.bundles` 顺序叠
+#          → 再叠 profile 自己那一层的 cordis.patch.yml（只有那层是热重载）
+# ============================================================================
+
+- insert:
+    - id: bili-scroll
+      name: dsh-bili-subagent
+      config:
+        # 真正的用户配置在插件自己的 config 里（设置页可改），这里只放默认值
+        enabled: true
