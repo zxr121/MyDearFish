@@ -1,7 +1,7 @@
 // 「通到 QQ」社交半边的冒烟测试 —— 假 ctx / 假 fetch / 假 llm 跑群聊与好友接话。
 // 验的是：
 //   1) 小模型自己挑 watch：只有挑中的消息进她的社交会话；没挑中的当她没看见
-//   2) 被 @ 不再自动回：照样先判断，可以看、可以不看、可以不回
+//   2) 群友被 @ 不再自动回：照样先判断，可以看、可以不看、可以不回；主人点名叫她时不判断、优先接
 //   3) 只看不回走 inject，不唤醒回复模型；冷却里也只看看、先不回
 //   4) 好友私聊也由她判断回不回；主人在群里没叫她的只当上下文，叫了她可以直接接
 //   5) 静音、试运行、限额、零花钱下限都在判断之前拦住
@@ -9,7 +9,7 @@
 //   7) /models 和 /save 的社交深层合并；旧字段「被叫直接回」被忽略
 //   8) 刷屏时被叫和主人的消息优先保留，不会被挤出待看或判断窗口
 //   9) 兴趣画像成熟前每条都判；成熟后快判挡掉无关消息、整批没兴趣时不调判断模型，
-//      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判
+//      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判，直接开一轮
 // 跑法： node tests/社交半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
@@ -449,20 +449,21 @@ await 等()
 报('判断挑中 → 记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
 报('主人上下文来源标了主人', 注入们.at(-1) && 注入们.at(-1).message.source.owner === true)
 
-// 主人 @ 她也只是提醒注意：先判断，她真感兴趣才开一轮
+// 主人 @ 她：不走兴趣判断，直接优先开一轮
 写配置({ 群: ['1024'] })
 群消息表.set(1024, [一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true })])
-设判断(['1602'], true, 0.9, '这条有意思')
+设判断([], false, 0.1, '不该被问到')
 const 判断之前6b = 判断调用.length
 const 注入之前6b = 注入们.length
 const 群1024之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1024').length
 await 轮询社交()
 await 等()
 const 群1024轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1024')
-报('主人 @ 也要先判断', 判断调用.length === 判断之前6b + 1)
-报('判断觉得有趣 → 开一轮', 群1024轮.length === 群1024之前 + 1, `回合=${群1024轮.length}`)
+报('主人 @ 不走兴趣判断', 判断调用.length === 判断之前6b, `判断=${判断调用.length - 判断之前6b}`)
+报('主人 @ 直接开一轮', 群1024轮.length === 群1024之前 + 1, `回合=${群1024轮.length}`)
 const 主人叫轮 = 群1024轮.at(-1)
 报('主人 @ 的批次里带着主人消息', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('在吗') && String(主人叫轮.message.content[0].text).includes('【主人】'), JSON.stringify(主人叫轮 && String(主人叫轮.message.content[0].text).slice(0, 160)))
+报('主人 @ 的提示说明优先接', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('主人在群里点名叫你'))
 报('主人 @ 的消息来源仍标主人', 主人叫轮 && 主人叫轮.message.source.owner === true)
 报('主人 @ 不塞进只看不发的上下文', 注入们.length === 注入之前6b)
 const 群发之前 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1024).length
@@ -862,18 +863,22 @@ await 等()
 报('判断坏 JSON 会重试一次', 判断调用.length === 判断之前21e + 2, '判断调用=' + (判断调用.length - 判断之前21e))
 设判断([], false, 0.1, '插不上话')
 
-// ---------- 21f 主人明确让收藏：即使她只看不回，也把表情存进 QQ ----------
+// ---------- 21f 主人明确让收藏：主人 @ → 优先开一轮，同时把表情存进 QQ ----------
 写配置({ 群: ['1035'] })
 const 收藏数前21f = QQ收藏.size
+const 判断前21f = 判断调用.length
+const 轮前21f = 回合.filter((r) => r.sid === 'session-qq-social-group-1035').length
 群消息表.set(1035, [
   一条带图群消息(4501, { 是主人: true }),
   一条群消息('收藏下表情包', { 是主人: true, atSelf: true, id: 4502 }),
 ])
-设判断(['4501', '4502'], false, 0.2, '看了但不接')
 await 轮询社交()
 await 等()
-报('主人让收藏 → 只看不回也存进 QQ', QQ收藏.size === 收藏数前21f + 1, `收藏=${QQ收藏.size}`)
-报('主人让收藏 → 不额外回消息', !发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1035))
+报('主人让收藏 → 存进 QQ', QQ收藏.size === 收藏数前21f + 1, `收藏=${QQ收藏.size}`)
+报('主人 @ 让收藏 → 不走判断', 判断调用.length === 判断前21f)
+报('主人 @ 让收藏 → 直接开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1035').length === 轮前21f + 1)
+await 收到回复('session-qq-social-group-1035', '好，收了')
+报('主人 @ 让收藏 → 回话发回群', 发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1035))
 
 // ---------- 21g 聊天节奏：话没断 + 高把握 → 允许顺着问一句 ----------
 写配置({ 群: ['1041'], 判断冷却秒: 10, 冷却秒: 10 })
