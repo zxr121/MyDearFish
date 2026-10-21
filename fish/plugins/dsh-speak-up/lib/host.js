@@ -36,7 +36,7 @@
 //    本插件是被装进 profile 的 node_modules 里的第三方包，那个目录**没有**
 //    @deepseek-ai/schemastery（只有 @deepseek-ai/dsh-home-paths）。
 //    import 失败会让**整个插件加载不了**，所以本版不声明 Config，
-//    配置一律走自己的 json 文件 + 自己的设置页（跟 dsh-write / dsh-fish-memory 一样）。
+//    配置一律走自己的 json 文件 + 自己的设置页（跟 dsh-write 等其他设置插件一样）。
 //    想改成原生「插件配置」页的话，README 里写了要动什么。
 
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
@@ -399,6 +399,41 @@ function 找agent(ctx, id) {
   return undefined
 }
 
+/** 子代理不是「她住的房间」，主动搭话不该往那儿塞话。 */
+function 是子代理(agent) {
+  const header = agent && agent.session && agent.session.header
+  if (!header) return false
+  return header.origin === 'subagent' || (typeof header.delegationDepth === 'number' && header.delegationDepth > 0)
+}
+
+/** 所有活着、非子代理的会话。没勾目标时，她就是在这几个房间里中的某一个开口。 */
+function 活着的会话(ctx) {
+  const ids = []
+  try {
+    for (const agent of ctx.agents.list() || []) {
+      if (!agent || 是子代理(agent)) continue
+      const sid = agent.id || (agent.session && agent.session.id)
+      if (sid && !/^(session-)?qq-social-/.test(String(sid))) ids.push(String(sid))
+    }
+  } catch (error) {}
+  return Array.from(new Set(ids))
+}
+
+/** 没勾目标时，优先她最近真的待过的房间（鱼脑按最近活动给会话排过序）。 */
+function 按最近活跃排序(ctx, ids) {
+  if (ids.length < 2) return ids
+  let 最近 = []
+  try {
+    const mind = typeof ctx.get === 'function' ? ctx.get('fishMind') : undefined
+    if (mind && typeof mind.sessions === 'function') {
+      最近 = (mind.sessions(Math.max(ids.length, 10)) || []).map((x) => String(x.id))
+    }
+  } catch (error) {}
+  if (最近.length === 0) return ids
+  const 位次 = new Map(最近.map((id, i) => [id, i]))
+  return ids.slice().sort((a, b) => (位次.get(a) ?? 999) - (位次.get(b) ?? 999))
+}
+
 /**
  * 手搓一条 user 消息。
  *
@@ -455,6 +490,8 @@ function 造执行体(ctx) {
 
   /** sid -> 她上次说话的时间（ms）。只看 user/message 且来源不是我们自己。 */
   const 她上次说话 = new Map()
+  // 鱼脑的注入警示也走 user/message，但不是主人在说话，不能重置空闲计时。
+  const 非主人来源 = new Set(['fish-mind-injection'])
   /** 已经翻过历史日志的 sid（翻一次就够了，别每轮都翻）。 */
   const 翻过历史 = new Set()
   /** 我们自己上次开口的时间（ms），用来做冷却，避免自己跟自己聊起来。 */
@@ -503,7 +540,7 @@ function 造执行体(ctx) {
         const e = 事件们[i]
         if (!e || e.type !== 'user/message') continue
         const 来源 = e.data && e.data.source
-        if (来源 && 来源.kind === 源标记) continue
+        if (来源 && (来源.kind === 源标记 || 非主人来源.has(String(来源.kind)))) continue
         她上次说话.set(sid, e.time)
         return (Date.now() - e.time) / 60000
       }
@@ -567,9 +604,22 @@ function 造执行体(ctx) {
       }
     }
 
-    if (配置.目标会话.length === 0) return 记账('还没勾「目标会话」，什么都不做（去设置里勾一个）')
+    // 没勾目标时，自动模式从活着的会话里挑 —— 鱼脑是全局的，哪个会话都是她；
+    // 优先最近真的待过的那个房间，别往很久没人的屋里说话。
+    // 手动「真发」仍然要求明确勾选，避免误往没预期的会话里说话。
+    const 候选会话 = 配置.目标会话.length > 0
+      ? 配置.目标会话
+      : (模式 === '真发' ? [] : 按最近活跃排序(ctx, 活着的会话(ctx)))
+    if (候选会话.length === 0) {
+      return 记账(
+        配置.目标会话.length === 0 && 模式 === '真发'
+          ? '还没勾「目标会话」，手动真发需要先勾一个（自动模式会自动使用所有活着的会话）'
+          : '现在没有活着的会话可以开口，这轮什么都不做',
+      )
+    }
 
     // 勾了好几个时：**这次只在其中一个里开口**（随机挑一个活着又不忙的）。
+    // 没勾目标时按最近活跃优先（可用[0]），不去很久没人说话的房间。
     // 为什么不全都发：一次掷中就往每个会话里说一句，等于同时开好几轮、同时烧好几份 token，
     // 而且「她」听起来像分身。挑一个最像真人（她只在一个地方说话）。
     const 可用 = []
@@ -580,7 +630,7 @@ function 造执行体(ctx) {
       const 登记 = ctx.workspaceRegistry || ctx.get('workspaceRegistry')
       for (const x of (登记 && 登记.archivedSessionIds) || []) 归档名单.add(String(x))
     } catch (error) {}
-    for (const id of 配置.目标会话) {
+    for (const id of 候选会话) {
       if (归档名单.has(String(id))) {
         不可用.push(`${短id(id)}(已归档)`)
         continue
@@ -599,13 +649,19 @@ function 造执行体(ctx) {
     }
     if (可用.length === 0) {
       return 记账(
-        `勾的目标会话现在都不能说话（${不可用.join('、') || '（空）'}）—— 按设计**不自动唤醒**，这轮什么都不做`,
+        `候选会话现在都不能说话（${不可用.join('、') || '（空）'}）—— 按设计**不自动唤醒**，这轮什么都不做`,
       )
     }
-    const 挑中 = 可用[Math.floor(Math.random() * 可用.length)]
+    const 挑中 = 配置.目标会话.length > 0
+      ? 可用[Math.floor(Math.random() * 可用.length)]
+      : 可用[0]
     const 目标id = 挑中.id
     const agent = 挑中.agent
-    const 挑的说法 = 可用.length > 1 ? `（勾了 ${可用.length} 个可用，这次挑 ${短id(目标id)}）` : ''
+    const 挑的说法 = 可用.length > 1
+      ? (配置.目标会话.length
+        ? `（勾了 ${可用.length} 个可用，这次挑 ${短id(目标id)}）`
+        : `（没勾目标，从 ${可用.length} 个活着的会话里这次挑 ${短id(目标id)}）`)
+      : (配置.目标会话.length ? '' : `（没勾目标，这次挑 ${短id(目标id)}）`)
 
     // 「主动搭话」之后的冷却（单独一格配置；跟"她多久没说话"那两个阈值是两回事）。
     // ⚠ 0 = 不冷却：刚开口过也照投。
@@ -747,7 +803,7 @@ function 造执行体(ctx) {
     记她说话(session, event) {
       if (!event || event.type !== 'user/message') return
       const 来源 = event.data && event.data.source
-      if (来源 && 来源.kind === 源标记) return
+      if (来源 && (来源.kind === 源标记 || 非主人来源.has(String(来源.kind)))) return
       她上次说话.set(String(session.id), event.time)
     },
     目标活着() {
@@ -944,13 +1000,16 @@ export function apply(ctx) {
       if (会话服务 && typeof 会话服务.list === 'function') {
         for (const s of 会话服务.list()) {
           const id = String((s && s.id) || '')
-          if (id !== '') ids.add(id)
+          if (id !== '' && !/^(session-)?qq-social-/.test(id)) ids.add(id)
         }
       }
     } catch (error) {}
     // 兜底：sessions.list() 拿不到时，至少把活着的 agent 列出来
     try {
-      for (const a of ctx.agents.list()) ids.add(String(a.id))
+      for (const a of ctx.agents.list()) {
+        const id = String(a.id)
+        if (!/^(session-)?qq-social-/.test(id)) ids.add(id)
+      }
     } catch (error) {}
 
     const 勾着 = new Set(体.配置().目标会话)

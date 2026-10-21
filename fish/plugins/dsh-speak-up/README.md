@@ -194,7 +194,7 @@ DSH 自带的 `@deepseek-ai/dsh-schedule` 用的是 `ctx.sessionController.resol
 不是不能做，是**在这个安装位置上有风险**：插件被装进 profile 的 `node_modules`，
 而那里**没有** `@deepseek-ai/schemastery`（`profiles/<p>/node_modules/@deepseek-ai/` 下只有
 `dsh-home-paths`）。`export const Config = z.object({...})` 需要静态 import 它，
-import 一失败整个插件就加载不了。所以本版跟 `dsh-write` / `dsh-fish-memory` 一样：
+import 一失败整个插件就加载不了。所以本版跟 `dsh-write` 等其他设置插件一样：
 自己的 json + 自己的设置页。
 （想改成原生页：`profiles/<p>/node_modules/schemastery` 这个**同名上游包 3.18.0 是在的**，
 可以试着 `import z from 'schemastery'` 再导出 `Config`，但**没验证过** Cordis 认不认这个包身份的
@@ -202,7 +202,7 @@ schema，改之前先备份。）
 
 ### 4. 别的地方也**没验证过**
 
-- `settings.section` 这个槽位名：跟 `dsh-write` / `dsh-fish-memory` 用的是同一个，
+- `settings.section` 这个槽位名：跟 `dsh-write` 等其他设置插件用的是同一个，
   在这台机器上它们是跑通的；换 DSH 版本可能变。
 - 「距她上次说话」用 `ctx.sessionController.inspect(sid)` 翻一次已落盘的历史来找最后一条
   `user/message`。会话特别长的话这一次读会有点重（一个会话只翻一次，之后靠

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This repository is a DeepSeek Harness fork that ships the six Yuuyuko-uu plugins and a factory default layer with the Windows desktop application. A newly created desktop profile starts with all six plugins and the fish persona; later profile edits still override the factory layer.
+This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugins, the fish-mind plugin `dsh-fish-mind`, and a factory default layer with the Windows desktop application. A newly created desktop profile starts with all six plugins and the fish persona; later profile edits still override the factory layer.
 
 ## Repository additions
 
@@ -17,22 +17,22 @@ This repository is a DeepSeek Harness fork that ships the six Yuuyuko-uu plugins
 
 | Plugin | Version | Entry | Capability |
 | --- | --- | --- | --- |
-| `dsh-fish-memory` | 1.1.8 | `lib/index.js` | Long-term memory that fades over time. |
+| `dsh-fish-mind` | 0.2.0 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense. |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | Mood that changes per turn and settles over time. |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | Proactive conversation when nobody is talking. |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | Speech playback through the DeepSeek web voice. |
-| `dsh-qq-bridge` | 0.1.7 | `lib/host.js` | QQ messaging in both directions without a bot account. |
+| `dsh-qq-bridge` | 0.2.0 | `lib/host.js` | QQ messaging in both directions without a bot account; optional autonomous group interjection where she watches only what interests her and decides whether to reply, with a zero-cost fast pass once her interest profile matures. |
 | `dsh-bili-subagent` | 0.2.2 | `index.js` | Bilibili browsing through a delegated subagent. |
 
-See [how the plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points.
+See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points; see the [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md) for the experience stream and permissions.
 
 ## Cognition plan
 
-[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The plan is not implemented; align on its boundaries before changing code. Progress, task breakdown, acceptance data, and handoff steps live in the [development plan](development-plan.md).
+[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The Phase 0 fish-mind code is implemented and currently shadow-running; recall, injection, and background life still follow the plan's phases. Progress, task breakdown, acceptance data, and handoff steps live in the [development plan](development-plan.md).
 
 ## Layer order
 
-The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, then applies the profile's own `cordis.patch.yml`. The fish bundle supplies the persona prefix and the six plugin mounts; the profile layer always wins, so user settings and later edits override the factory defaults. See [the plugin and default layer mechanism](mechanism.md) for profile composition and packaging details.
+The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, then applies the profile's own `cordis.patch.yml`. The fish bundle supplies the persona prefix and the six plugin mounts; the profile layer always wins except for the fish-mind's code-injected fixed private setting, so user settings and later edits override the factory defaults. See [the plugin and default layer mechanism](mechanism.md) for profile composition and packaging details.
 
 ## Changing the shipped behavior
 
@@ -43,7 +43,7 @@ The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, the
 
 ## Repository access
 
-The source lives in the private repository `https://github.com/zxr121/MyDearFish`. Clone it with credentials that can read private repositories.
+The source lives in the public repository `https://github.com/zxr121/MyDearFish` and can be cloned without private-repository credentials.
 
 ```
 git clone https://github.com/zxr121/MyDearFish.git

@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/README.md
 /my-dear-fish:
-  en: 410b78c03f2f1884
-  zh: aa1cb1be864f6029
+  en: 6c0950e85f148adf
+  zh: 239cc255f6fefa2b
 /my-dear-fish/repository-additions:
   en: b963881051c902e3
   zh: bbe52d4f02455855
 /my-dear-fish/plugins:
-  en: 22980da1f5b71152
-  zh: ce432aca43334b69
+  en: 16219292617d3006
+  zh: 0960b51d7469aa69
 /my-dear-fish/cognition-plan:
-  en: fbb84901e85034eb
-  zh: b4e2ddf77c17b909
+  en: 4c26a8c6f06e70a1
+  zh: 0f66f5b239b386b2
 /my-dear-fish/layer-order:
-  en: db4d51e32e30f6eb
-  zh: 6471b12e047d4d63
+  en: a660f745cd16b28b
+  zh: 3e32e91b820c2a0e
 /my-dear-fish/changing-the-shipped-behavior:
   en: e7f5245d28860f6b
   zh: 85371a87314c5653
 /my-dear-fish/repository-access:
-  en: a5c846485bb7c9ac
-  zh: 2527f1c124ac6e71
+  en: ffdd07eaebdf040c
+  zh: eb476c9d25d86fac

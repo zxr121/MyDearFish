@@ -132,12 +132,26 @@ export function apply(ctx) {
       }
     }
 
-    // 盯谁：完全按她勾的那份清单来。一个都没勾就不听任何会话（新用户装完自己选）
+    // 盯谁：勾了就只盯勾的；一个都没勾就听所有活着的会话（子代理除外）。
+    // 归档的会话不听 —— 归档只是藏起来，list() 里还在，得单独查名单。
+    // 群聊/好友社交会话也不听：那是说给外面听的，不该在屋里念出来。
+    const 社交会话 = (id) => /^(session-)?qq-social-/.test(String(id || ''))
     const targets = () => {
       const arch = archivedSet()
+      const ids = cfg.watch.length ? cfg.watch.slice() : []
+      if (ids.length === 0) {
+        try {
+          for (const s of ctx.sessions.list()) {
+            const header = s && s.header
+            if (header && (header.origin === 'subagent' || (typeof header.delegationDepth === 'number' && header.delegationDepth > 0))) continue
+            if (社交会话(s.id)) continue
+            ids.push(String(s.id))
+          }
+        } catch (error) {}
+      }
       const out = []
-      for (const id of cfg.watch) {
-        if (arch.has(id)) continue
+      for (const id of ids) {
+        if (arch.has(id) || 社交会话(id)) continue
         const s = ctx.sessions.get(id)
         if (s !== undefined) out.push(s)
       }
@@ -207,29 +221,76 @@ export function apply(ctx) {
     const remember = (text) => {
       const clean = String(text == null ? '' : text).trim()
       if (!clean) return
-      state.recent.unshift({ id: state.recentId++, text: clean, at: Date.now() })
+      const safe = 脱敏(clean)
+      if (!safe.ok) return
+      state.recent.unshift({ id: state.recentId++, text: safe.text, at: Date.now() })
       state.recent = state.recent.slice(0, 30)
     }
 
-    const enqueue = (text, force, messageId) => {
+    // 一轮话只能从一个出口出去：语音先领到，QQ 就不再发同一条；反过来也一样。
+    const 鱼脑 = () => {
+      try {
+        return ctx.get('fishMind')
+      } catch (error) {
+        return undefined
+      }
+    }
+    // 朗读会把文字交给浏览器里的 DeepSeek 页面，属于离开鱼脑进程的通道：
+    // 脱敏服务不可用、报错或结果异常时一律不念，绝不按原文放行。
+    const 脱敏 = (text) => {
       const clean = String(text == null ? '' : text).trim()
-      if (!clean) return false
+      if (!clean) return { ok: false, text: '', reason: 'empty' }
+      const mind = 鱼脑()
+      if (!mind || typeof mind.redactOutbound !== 'function') {
+        say('鱼脑的对外脱敏不可用，这条不念（失败关闭）')
+        return { ok: false, text: '', reason: 'no-guard' }
+      }
+      try {
+        const result = mind.redactOutbound(clean)
+        if (!result || typeof result.text !== 'string') {
+          say('鱼脑的对外脱敏返回异常，这条不念（失败关闭）')
+          return { ok: false, text: '', reason: 'bad-result' }
+        }
+        if (result.hits > 0) say('对外脱敏：拦下 ' + result.hits + ' 处私密内容（' + (result.reasons || []).join(',') + '）')
+        if (result.text.trim() === '') return { ok: false, text: '', reason: 'empty-after-redact' }
+        return { ok: true, text: result.text }
+      } catch (error) {
+        say('对外脱敏失败，这条不念（失败关闭）：' + (error && error.message))
+        return { ok: false, text: '', reason: 'error' }
+      }
+    }
+    const 认领 = (key, channel) => {
+      const mind = 鱼脑()
+      if (!mind || typeof mind.claimDelivery !== 'function') return { claimed: true, by: channel }
+      try {
+        return mind.claimDelivery(key, channel)
+      } catch (error) {
+        return { claimed: true, by: channel }
+      }
+    }
+
+    const enqueue = (text, force, messageId, deliveryKey) => {
+      const clean = String(text == null ? '' : text).trim()
+      if (!clean) return { ok: false, reason: 'empty' }
+      const safe = 脱敏(clean)
+      if (!safe.ok) return { ok: false, reason: safe.reason }
       if (state.queue.length >= 6) state.queue.shift()
       state.queue.push({
         id: state.nextId++,
-        text: clean,
+        text: safe.text,
         force: !!force,
         messageId: messageId ? String(messageId) : null,
+        deliveryKey: deliveryKey ? String(deliveryKey) : null,
         at: Date.now(),
         claimedBy: null,
         claimedAt: 0,
       })
-      say('排队 ' + state.queue.length + ' 条：' + clean.slice(0, 40).replace(/\s+/g, ' '))
-      return true
+      say('排队 ' + state.queue.length + ' 条：' + safe.text.slice(0, 40).replace(/\s+/g, ' '))
+      return { ok: true, redacted: safe.text !== clean }
     }
 
     // 只认「一整轮说完」的助手文字；工具调用、思考框不念
-    const absorb = (events) => {
+    const absorb = (events, sessionId) => {
       const turnText = new Map()
       for (const ev of events) {
         if (ev.type === 'assistant/message') {
@@ -250,7 +311,7 @@ export function apply(ctx) {
           if (kind === 'completed' && arr && arr.length) {
             const text = arr.join('\n\n')
             remember(text)
-            if (state.auto) enqueue(text, false, null)
+            if (state.auto) enqueue(text, false, null, sessionId ? sessionId + ':' + d.turn : null)
           }
         }
       }
@@ -275,7 +336,7 @@ export function apply(ctx) {
           continue
         }
         seen.set(id, seq)
-        absorb(events)
+        absorb(events, id)
       }
     }
     ctx.effect(() => ctx.interval(scan, 1500))
@@ -311,10 +372,14 @@ export function apply(ctx) {
         reply(res, 200, { ok: false, error: '没找到这条回复的文字' })
         return
       }
-      enqueue(找.text, true, body.messageId)
+      const queued = enqueue(找.text, true, body.messageId)
+      if (!queued.ok) {
+        reply(res, 200, { ok: false, error: '这条包含私密内容，不能朗读' })
+        return
+      }
       const 尾 = state.queue[state.queue.length - 1]
       if (尾 && String(尾.messageId) === String(body.messageId)) 尾.sessionId = 找.sessionId
-      reply(res, 200, { ok: true, waiting: state.queue.length })
+      reply(res, 200, { ok: true, waiting: state.queue.length, ...(queued.redacted ? { redacted: true } : {}) })
     })
 
     // 界面按钮：停止（队列一起清掉，免得后面还排着）
@@ -371,15 +436,25 @@ export function apply(ctx) {
         reply(res, 200, base)
         return
       }
-      const head = state.queue[0]
       let item = null
-      if (head && (state.auto || head.force)) {
-        if (!head.claimedBy || head.claimedBy === client || Date.now() - head.claimedAt > 30000) {
-          head.claimedBy = client
-          head.claimedAt = Date.now()
-          item = { id: head.id, text: head.text }
+      while (state.queue.length) {
+        const head = state.queue[0]
+        if (!(state.auto || head.force)) break
+        if (head.claimedBy && head.claimedBy !== client && Date.now() - head.claimedAt <= 30000) break
+        if (head.deliveryKey) {
+          const 领到 = 认领(head.deliveryKey, 'voice')
+          if (!领到.claimed) {
+            state.queue.shift()
+            say('这一轮已经由 ' + 领到.by + ' 发过，不重复念')
+            continue
+          }
         }
+        head.claimedBy = client
+        head.claimedAt = Date.now()
+        item = { id: head.id, text: head.text }
+        break
       }
+      base.waiting = state.queue.length
       base.item = item
       reply(res, 200, base)
     })
@@ -427,8 +502,12 @@ export function apply(ctx) {
 
     route(P + '/say', async (req, res) => {
       const body = await readJson(req)
-      enqueue(body.text, true, null)
-      reply(res, 200, { ok: true, waiting: state.queue.length })
+      const queued = enqueue(body.text, true, null)
+      if (!queued.ok) {
+        reply(res, 200, { ok: false, error: '没有可念的文字，或内容包含私密信息' })
+        return
+      }
+      reply(res, 200, { ok: true, waiting: state.queue.length, ...(queued.redacted ? { redacted: true } : {}) })
     })
 
     route(P + '/reset', async (req, res) => {
@@ -453,6 +532,7 @@ export function apply(ctx) {
         next: state.queue.length ? state.queue[0].text.slice(0, 80) : null,
         remembered: state.recent.length,
         watch: cfg.watch,
+        watchingAll: cfg.watch.length === 0,
         lastNext: state.lastNext,
         lastHello: state.lastHello,
         everSeen: !!cfg.everSeen,
@@ -502,10 +582,10 @@ export function apply(ctx) {
         })
       }
       list.sort((a, b) => String(a.title).localeCompare(String(b.title), 'zh'))
-      reply(res, 200, { ok: true, sessions: list, watch: watching, live: Array.from(ids) })
+      reply(res, 200, { ok: true, sessions: list, watch: watching, watchingAll: watching.length === 0, live: Array.from(ids) })
     })
 
-    // 加一个 / 去掉一个 要听的会话
+    // 加一个 / 去掉一个 要听的会话；only = 从「全都听」收窄到只留这一个
     route(P + '/watch', async (req, res) => {
       const body = await readJson(req)
       const id = String(body.id || '')
@@ -513,13 +593,17 @@ export function apply(ctx) {
         reply(res, 200, { ok: false, error: '没给会话 id' })
         return
       }
-      const set = new Set(cfg.watch)
-      if (body.remove) set.delete(id)
-      else set.add(id)
-      cfg.watch = Array.from(set)
+      if (body.only) {
+        cfg.watch = [id]
+      } else {
+        const set = new Set(cfg.watch)
+        if (body.remove) set.delete(id)
+        else set.add(id)
+        cfg.watch = Array.from(set)
+      }
       saveCfg(cfg)
-      say('听这些会话：' + (cfg.watch.length ? cfg.watch.join(' , ') : '（一个都没选）'))
-      reply(res, 200, { ok: true, watch: cfg.watch })
+      say('听这些会话：' + (cfg.watch.length ? cfg.watch.join(' , ') : '（全部活着的会话）'))
+      reply(res, 200, { ok: true, watch: cfg.watch, watchingAll: cfg.watch.length === 0 })
     })
 
     // 收藏 / 取消收藏某一条
@@ -538,7 +622,15 @@ export function apply(ctx) {
       } else {
         // ⚠ 桌面端那个插槽不给 sessionId → 靠 locate 自己找出来（收藏那栏要写清是谁说的）
         const 找 = locate(String(body.sessionId || ''), messageId)
-        const text = 找 ? 找.text : ''
+        let text = ''
+        if (找) {
+          const safe = 脱敏(找.text)
+          if (!safe.ok) {
+            reply(res, 200, { ok: false, error: '这条包含私密内容，不能收藏' })
+            return
+          }
+          text = safe.text
+        }
         // 记下「这句话是谁说的」——用会话自己的标题，通用又准确
         const sid = 找 ? 找.sessionId : String(body.sessionId || '')
         const who = titleOf(sid)

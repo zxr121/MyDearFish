@@ -1,0 +1,7 @@
+# 大肥鱼的鱼脑。
+#
+# 这一行把宿主半边挂进 profile。用户配置在 `$DSH_HOME/fish-mind/config.json`，
+# 不放在这里：权限和存储只应该有一个真相源。
+- insert:
+    - id: fish-mind
+      name: dsh-fish-mind

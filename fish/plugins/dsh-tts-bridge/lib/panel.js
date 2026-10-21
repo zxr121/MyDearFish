@@ -275,21 +275,23 @@
         return
       }
       const watching = new Set(r.watch || [])
+      const watchingAll = !!r.watchingAll
       const list = r.sessions || []
       // 签名里要带上标题 —— 不然她改了会话名字，清单不会跟着变
-      const sig = 'w|' + list.map((s) => s.id + ':' + s.title + (watching.has(s.id) ? '1' : '0')).join(',')
+      const sig = 'w|' + (watchingAll ? 'all|' : '') + list.map((s) => s.id + ':' + s.title + (watching.has(s.id) ? '1' : '0')).join(',')
       if (quiet && sig === lastSig) return
       lastSig = sig
       listEl.textContent = ''
-      listEl.appendChild(mkLine('勾上的就会听（只能选开着的对话）', null))
+      listEl.appendChild(mkLine(watchingAll ? '现在听所有活着的会话；点一个就只留它' : '勾上的就会听（只能选开着的对话）', null))
       if (!list.length) {
         listEl.appendChild(mkLine('（现在没有别的对话开着）', null))
       }
       for (const s of list) {
         const name = s.title || s.id.slice(0, 20)
         listEl.appendChild(
-          mkLine((watching.has(s.id) ? '☑ ' : '☐ ') + name, async () => {
-            await post('/watch', { id: s.id, remove: watching.has(s.id) })
+          mkLine((watchingAll || watching.has(s.id) ? '☑ ' : '☐ ') + name, async () => {
+            if (watchingAll) await post('/watch', { id: s.id, only: true })
+            else await post('/watch', { id: s.id, remove: watching.has(s.id) })
             await renderList()
             await refreshState()
           }),

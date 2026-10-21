@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本仓库是 DeepSeek Harness 的一个分支，随 Windows 桌面应用一起打包六个 Yuuyuko-uu 插件和出厂默认层。新建的桌面 profile 一开始就带齐六个插件与大肥鱼人设；之后对 profile 的修改仍会覆盖出厂层。
+本仓库是 DeepSeek Harness 的一个分支，随 Windows 桌面应用一起打包五个 Yuuyuko-uu 插件、鱼脑插件 `dsh-fish-mind` 和出厂默认层。新建的桌面 profile 一开始就带齐六个插件与大肥鱼人设；之后对 profile 的修改仍会覆盖出厂层。
 
 ## 仓库新增内容
 
@@ -17,22 +17,22 @@
 
 | 插件 | 版本 | 入口 | 能力 |
 | --- | --- | --- | --- |
-| `dsh-fish-memory` | 1.1.8 | `lib/index.js` | 随时间淡化的长期记忆。 |
+| `dsh-fish-mind` | 0.2.0 | `lib/index.js` | 共享经历流、情景记忆与原文回查、工具权限判定、隐私与注入防护。 |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | 每轮变化并随时间平复的心情。 |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | 无人说话时主动搭话。 |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | 通过 DeepSeek 网页语音朗读。 |
-| `dsh-qq-bridge` | 0.1.7 | `lib/host.js` | 无需机器人账号的双向 QQ 消息。 |
+| `dsh-qq-bridge` | 0.2.0 | `lib/host.js` | 无需机器人账号的双向 QQ 消息；可选的群内自主接话，只按自己的兴趣挑内容、决定回不回，画像成熟后用零成本快判省判断费。 |
 | `dsh-bili-subagent` | 0.2.2 | `index.js` | 通过委派子代理浏览 B 站。 |
 
-每个插件的机制、数据文件、跨插件链路、默认状态和改造点见[插件养鱼机制](plugins.zh.md)。
+六个插件的机制、数据文件、跨插件链路、默认状态和改造点见[插件养鱼机制](plugins.zh.md)；鱼脑的经历流与权限见 [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md)。
 
 ## 认知方案
 
-[大肥鱼认知方案](cognition.zh.md)从人类记忆与行为的生物学机理出发，提出新增认知核心 `dsh-fish-mind` 的完整设计：经历流、情景与语义记忆、情绪与驱力、自我与关系、语言监控、睡眠固化，以及分阶段实施和验收指标。方案尚未实现；改动前先以此文档对齐边界。进度、任务拆分、验收数据和接手方式见[开发计划](development-plan.zh.md)。
+[大肥鱼认知方案](cognition.zh.md)从人类记忆与行为的生物学机理出发，提出新增认知核心 `dsh-fish-mind` 的完整设计：经历流、情景与语义记忆、情绪与驱力、自我与关系、语言监控、睡眠固化，以及分阶段实施和验收指标。阶段 0 的鱼脑代码已经实现，当前在影子运行；召回、注入和后台生活仍按方案分阶段推进。进度、任务拆分、验收数据和接手方式见[开发计划](development-plan.zh.md)。
 
 ## 层序
 
-桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。profile 组合与打包细节见[插件与默认层机制](mechanism.zh.md)。
+桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；除鱼脑从代码注入的固定私设外，profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。profile 组合与打包细节见[插件与默认层机制](mechanism.zh.md)。
 
 ## 修改出厂行为
 
@@ -43,7 +43,7 @@
 
 ## 仓库访问
 
-源码位于私有仓库 `https://github.com/zxr121/MyDearFish`。请使用有私有仓库读取权限的凭据克隆。
+源码位于公开仓库 `https://github.com/zxr121/MyDearFish`，可以直接克隆，不需要私有仓库权限。
 
 ```
 git clone https://github.com/zxr121/MyDearFish.git

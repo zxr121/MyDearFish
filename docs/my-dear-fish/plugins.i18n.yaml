@@ -3,44 +3,59 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/plugins.md
 /how-the-plugins-keep-the-fish:
-  en: cec503925831bc5e
-  zh: da579f43ff94b29a
+  en: 3346cb278c11897c
+  zh: e771e80218f5483e
 /how-the-plugins-keep-the-fish/the-shared-substrate:
   en: 4b63e9652b0144cc
   zh: a71ad2857a2b804d
 /how-the-plugins-keep-the-fish/the-shared-substrate/timeline-of-one-turn:
-  en: ec6b5673ec2390e1
-  zh: 746d2239d2a90b00
+  en: 0a97b360086301ea
+  zh: 00cf4e7b945fb849
 /how-the-plugins-keep-the-fish/the-shared-substrate/message-sources-and-mutual-recognition:
-  en: 7e49a88487472724
-  zh: bf204a3992b75957
-/how-the-plugins-keep-the-fish/the-shared-substrate/two-prompt-injection-paths:
-  en: 7aad33e2472fa395
-  zh: e6a8fa58934945e9
+  en: 53a2ac4351b2068a
+  zh: f4ecb99f6ffa551c
+/how-the-plugins-keep-the-fish/the-shared-substrate/prompt-injection:
+  en: 4b79b8c6afd0b293
+  zh: dde9bc1c32d11042
 /how-the-plugins-keep-the-fish/the-shared-substrate/data-and-switch-locations:
-  en: 3aebb8ec38a9b437
-  zh: 6d1fbb5c0858937b
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory:
-  en: 8b5db695f68122e3
-  zh: 0f8231790fbc6f64
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory/mounting-and-lifecycle:
-  en: 3716afff431b8d8d
-  zh: 4332e1c0b05c7118
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory/data-files:
-  en: 2cbba1df924b97b2
-  zh: 13d3f0f8fc4dbe1f
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory/recall-from-one-sentence-to-a-few-memories:
-  en: d3e969fcd8d34685
-  zh: 011d82521fd163c5
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory/writing-remember:
-  en: d3ba850a7547a64b
-  zh: a1fe7567c753e106
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory/where-the-model-is-used:
-  en: 1d3508bf6d0e1750
-  zh: 790e5f3e4194331e
-/how-the-plugins-keep-the-fish/memory-dsh-fish-memory/known-limits:
-  en: 02ed8621e65b91f0
-  zh: c47bad02b883c102
+  en: 10e4f931d82d8653
+  zh: 226b786e57b530a9
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind:
+  en: 67049ddee1d82de4
+  zh: 409192d65e79e6d6
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/experience-stream-and-index:
+  en: 5b31366569e8236b
+  zh: e972dee3690d574c
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/episodic-memory:
+  en: effdaee10a272b9d
+  zh: 9e96bea04b66c8ce
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/social-session-isolation:
+  en: 1a57a5cc32f0cb97
+  zh: 4421c00f04513397
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/shared-service:
+  en: c9646b2191bb3f91
+  zh: 2a340878e0c05c75
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/the-allowance-ledger:
+  en: 1a7d03d34516cadb
+  zh: 9ed9bb332cd1455b
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/files-and-visibility:
+  en: 2cc1fc62f705945f
+  zh: 47256e29f97e2980
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/privacy-guard:
+  en: 6e21ce9eb72cdc08
+  zh: 232c263db91937fa
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/legal-red-line:
+  en: 8dbecaba2a44dc73
+  zh: 3dab09d46aa27e8e
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/untrusted-content-injection-defense:
+  en: 0e41ecf3581babe7
+  zh: 9e6eac1933cc3a58
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/permissions-capability-broker:
+  en: eefd392ef0ca9704
+  zh: a0ae8917529d5595
+/how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/phase-1-boundaries:
+  en: 811048e913a865ff
+  zh: fae01673675804a1
 /how-the-plugins-keep-the-fish/mood-dsh-feiyu-mood:
   en: e6a04a314456f23c
   zh: e0be1c7b7c1e41a0
@@ -48,8 +63,8 @@
   en: 5fcf0a231c22a40f
   zh: 3f6149b21cdfccee
 /how-the-plugins-keep-the-fish/mood-dsh-feiyu-mood/judging-each-turn:
-  en: 14b18d16a58f37dc
-  zh: 27511d32d68b38d0
+  en: 5e2cf97eaa78c40d
+  zh: e93214e9e2f85b36
 /how-the-plugins-keep-the-fish/mood-dsh-feiyu-mood/decay-and-injection:
   en: e5b875747c0ed104
   zh: 680cf5b0cf1acec0
@@ -57,14 +72,14 @@
   en: 5f2bc5965ed3a078
   zh: 41d71949dd6c6a69
 /how-the-plugins-keep-the-fish/mood-dsh-feiyu-mood/known-limits:
-  en: fc75747e6daf5b4e
-  zh: 55c8378719d1063f
+  en: 796d149951c119c0
+  zh: 463e99a8c636417f
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up:
   en: e5cb72aae5d61af6
   zh: 4759df21f7d4e319
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/trigger-chain:
-  en: 6faa79eba500263d
-  zh: 27e709b0dc338160
+  en: e947600e70480caa
+  zh: e24105a41b5b8d68
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/hit-line:
   en: 32d4d477f6ef7c96
   zh: 49c3a98210443f86
@@ -72,71 +87,80 @@
   en: 19d9b0a9723d05ab
   zh: bd0bbdd5d4cc0acb
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/known-limits:
-  en: 6071833266200cf0
-  zh: 3a0783ceedabe9fa
+  en: 70b16bd88e1d3a31
+  zh: 2d1092af829294f0
 /how-the-plugins-keep-the-fish/speech-dsh-tts-bridge:
   en: de77129e90ff9d6e
   zh: 3cc7a81949438b6e
 /how-the-plugins-keep-the-fish/speech-dsh-tts-bridge/host-side-collection-and-queueing:
-  en: 0eb3e7dca7094f3e
-  zh: f9a26f8bebcba539
+  en: 44a3e34dbe23e026
+  zh: acb4cf10df945cdf
 /how-the-plugins-keep-the-fish/speech-dsh-tts-bridge/extension-side-speaking-the-text:
   en: e9bf4266b846eed7
   zh: d0b0f7464a0e2094
 /how-the-plugins-keep-the-fish/speech-dsh-tts-bridge/prerequisites-and-limits:
-  en: b5cde147b8cf4e26
-  zh: 63b781809ea11ab9
+  en: 4d227fa7ed35e5b6
+  zh: eb4a2ca50877380b
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge:
-  en: ccec12abd049c1c2
-  zh: 6c0778d8390b2a17
+  en: bbc93ad0ef81d8ac
+  zh: f76dfdf6d2c027a9
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/dsh-to-qq:
-  en: 061ab15af13ad770
-  zh: 8b313f9047c3bd27
+  en: 7bc7665b911fa914
+  zh: 61f561eb14f58f0f
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/qq-to-dsh:
-  en: 1abdd02eac0901d7
-  zh: 923abd7e11ebb7b6
+  en: 8db5946257e9943f
+  zh: a3957b24cdd25eec
+/how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection:
+  en: d3345b7c3e1ddadc
+  zh: a7f888b07e51bf3f
+/how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/local-routes:
+  en: 818685babe585ac0
+  zh: 0d1d5cb09501e741
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/prerequisites-and-defaults:
-  en: 6e042449d36c7ba3
-  zh: 0ab7f8f4dc43346f
+  en: 9f852728135eb5fa
+  zh: 179711f34dff0775
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/known-limits:
-  en: 8ae2acb9c2467da6
-  zh: c9d5b51b16dc3c61
+  en: 6e453e39f70a3b85
+  zh: 0163497f1478e690
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent:
   en: 3384b6baa62008cb
   zh: 455edcffadb839af
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/flow-of-one-automatic-scan:
-  en: c3b8a9b70ba444b2
-  zh: eba9768267fd98a4
+  en: 35d19cdac4ab7300
+  zh: 4df0f92299e1463e
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/tools-and-the-subagent:
   en: 42354fc2922fe7e0
   zh: c2ee9c6f62905336
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/quota-windows-and-target-session:
-  en: 488568be97d8d93d
-  zh: c5242764a23004fd
+  en: 5e61a2d10bf0ae49
+  zh: 700db5a366a57d55
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/delivery-gates:
-  en: cef7a8949a4f472e
-  zh: e89c4370c6c6dfad
+  en: 30dadb67e5727c19
+  zh: 56fa06a592c5602b
+/how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/settings-routes:
+  en: fb95b00fdcb108bf
+  zh: 2a2c0c4344e6c940
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/python-login-and-verification:
   en: c6edcfe7af993b87
   zh: 54be690499ecb1d8
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/known-limits:
-  en: 69050c2ba11ac8f9
+  en: bcf2c87aafb901a9
   zh: 995b35e2fd345eaa
 /how-the-plugins-keep-the-fish/how-the-six-form-a-day:
-  en: 8d90768a7ae71ddd
-  zh: 42054ed63f1abf0c
+  en: 3b8555f39cab8da4
+  zh: 8bc8b8959053fdba
 /how-the-plugins-keep-the-fish/defaults-cost-and-risk:
-  en: 69f4dd57b362179a
-  zh: 87c08eaabc97b469
+  en: 3d9835f5808d8db9
+  zh: 3b64056fb908c8ea
 /how-the-plugins-keep-the-fish/cross-plugin-coupling-and-gaps:
-  en: d389d999c26759f7
-  zh: 4cafe600b31a1ddc
+  en: defe0ee6e0a08487
+  zh: 0c4207f35d28f022
 /how-the-plugins-keep-the-fish/change-map:
-  en: 777c60751f90e5b9
-  zh: de1d242f9b48566c
+  en: 79a369646a68b146
+  zh: 6b9f99f3bc3e9172
 /how-the-plugins-keep-the-fish/observing-and-troubleshooting:
-  en: 2c4cde9b8d2ffa22
-  zh: 674f8b6b9591972d
+  en: 4f8911b4a01741d2
+  zh: 08ecb257e36f8822
 /how-the-plugins-keep-the-fish/conclusion-what-to-decide-first:
-  en: a803f1f92dc39524
-  zh: 077a1953df9a6ce5
+  en: ffe319c80a4e17f6
+  zh: d78c74550490cab8

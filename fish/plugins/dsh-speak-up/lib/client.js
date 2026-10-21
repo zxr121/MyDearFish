@@ -6,7 +6,7 @@
 // ⚠ 这里**不碰会话、不发消息**，只是往宿主那几条 /dsh-speak-up/* 路由上读写。
 //   真正的掷骰和 followup 都在宿主半边（lib/host.js），这样只有一份逻辑。
 //
-// ⚠ 槽位名 'settings.section' 跟 dsh-write / dsh-fish-memory 用的是同一个，
+// ⚠ 槽位名 'settings.section' 跟 dsh-write 等其他设置插件用的是同一个，
 //   是在这个环境里已经跑通的路子（不确定换 DSH 版本会不会变，见 README）。
 
 window.__ModuleLoader__.load({

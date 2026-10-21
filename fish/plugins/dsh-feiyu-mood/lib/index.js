@@ -1,10 +1,12 @@
 // DSH 大肥鱼心情 · 宿主半边
 //
-// 干四件事：
+// 干六件事：
 //   1. 心情**全局一份**（.dsh/feiyu-mood/state.json），属于「大肥鱼」这个人，跨会话共享
-//   2. 只在目标会话（大肥鱼×小鱿鱼）里，每轮聊完用 DSH 自己的模型判断心情涨跌（不是关键词硬猜）
-//   3. 把当前心情注入目标会话（用 systemPrompt.context，保住 DeepSeek 前缀缓存）
-//   4. 开 /dsh-feiyu-mood/state 给界面面板读
+//   2. 默认挂在所有会话上；设置了目标会话才只挂那一个
+//   3. 每轮聊完用 DSH 自己的模型判断心情涨跌（不是关键词硬猜）
+//   4. 把当前心情注入会话（用 systemPrompt.context，保住 DeepSeek 前缀缓存）
+//   5. 每次心情变化同时写成 fish-mind 的 affect 经历，成为鱼脑的一部分
+//   6. 开 /dsh-feiyu-mood/state 给界面面板读
 //
 // 设计要点（主人定过的）：
 //   - 总心情 mood 0~100，基线 70；**没有底线**——真发生大事可以一直降到 0（很低落），靠时间衰减慢慢回稳
@@ -75,6 +77,41 @@ function sessionIdOf(session) {
   return ''
 }
 
+function 是子代理(session) {
+  const header = session && session.header
+  if (!header) return false
+  return header.origin === 'subagent' || (typeof header.delegationDepth === 'number' && header.delegationDepth > 0)
+}
+
+function 鱼脑(ctx) {
+  try { return ctx && typeof ctx.get === 'function' ? ctx.get('fishMind') : undefined } catch (e) { return undefined }
+}
+
+/** 心情变化是鱼脑的经历，不是另一份只存在心情插件里的真相。 */
+function 写进鱼脑(ctx, sid, s, delta, mode) {
+  const mind = 鱼脑(ctx)
+  if (!mind || typeof mind.observe !== 'function') return
+  try {
+    mind.observe({
+      at: Date.now(),
+      sessionId: sid,
+      kind: 'affect',
+      role: 'system',
+      actor: 'fish',
+      source: 'mood',
+      text: delta.reason || '心情有变化',
+      meta: {
+        mood: s.mood,
+        dims: { ...s.dims },
+        moodDelta: delta.moodDelta,
+        dimsDelta: { ...delta.dims },
+        mode: mode || 'talk',
+        trust: 0.9,
+      },
+    })
+  } catch (e) { diag('写入鱼脑失败：' + (e && e.message)) }
+}
+
 function textOfMessage(p) {
   if (!p) return ''
   if (typeof p === 'string') return p.slice(0, 2000)
@@ -94,10 +131,8 @@ function textOfMessage(p) {
 // --------------------------------------------------------------------------
 // 配置（本地 json，DSH 插件设置外自己管；没有就用默认）
 // --------------------------------------------------------------------------
-const DEFAULT_SESSION = 'session-4d6beaf3-3d88-4548-8dc3-63a109d36e37'
-
 const DEFAULTS = {
-  targetSession: DEFAULT_SESSION,
+  targetSession: '', // 空 = 所有会话共享同一颗心情；填了才只挂那一个
   selfName: '大肥鱼',
   ownerName: '小鱿鱼',
   selfAliases: '',   // TA 平时怎么叫你（逗号分隔）：判断时这些词是「在叫你」，不是名词的一部分
@@ -113,7 +148,7 @@ function loadConfig() {
   try {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'))
     return {
-      targetSession: String(raw.targetSession || DEFAULT_SESSION).trim() || DEFAULT_SESSION,
+      targetSession: String(raw.targetSession || '').trim(),
       selfName: String(raw.selfName || DEFAULTS.selfName).trim().slice(0, 16) || DEFAULTS.selfName,
       ownerName: String(raw.ownerName || DEFAULTS.ownerName).trim().slice(0, 16) || DEFAULTS.ownerName,
       selfAliases: String(raw.selfAliases || '').trim().slice(0, 60),
@@ -141,7 +176,7 @@ function saveConfig(next) {
 // 把前端传来的补丁合并进 cfg（**原地改**：mountFor / tick 里的闭包都看得到新值）
 function patchConfig(cfg, patch) {
   const next = { ...cfg }
-  if (typeof patch?.targetSession === 'string') next.targetSession = patch.targetSession.trim() || DEFAULT_SESSION
+  if (typeof patch?.targetSession === 'string') next.targetSession = patch.targetSession.trim()
   if (typeof patch?.selfName === 'string' && patch.selfName.trim()) next.selfName = patch.selfName.trim().slice(0, 16)
   if (typeof patch?.ownerName === 'string' && patch.ownerName.trim()) next.ownerName = patch.ownerName.trim().slice(0, 16)
   if (typeof patch?.selfAliases === 'string') next.selfAliases = patch.selfAliases.trim().slice(0, 60)
@@ -290,11 +325,15 @@ function moodLine(s) {
 // ⭐ 宿主每轮自动塞进来的「上下文消息」——不是人说的，也不是定时任务，判断时**必须跳过**
 //    2026-10-19 踩过：runtime-context / time-context 被当成"小鱿鱼这轮说的话"，
 //    结果每一轮都被判成"被叫起来干活"，真人说的话反而被跳过 ✗
-const 注入上下文 = new Set(['runtime-context', 'time-context', 'system-reminder', 'system', 'time-sampled'])
+const 注入上下文 = new Set(['runtime-context', 'time-context', 'system-reminder', 'system', 'time-sampled', 'fish-mind-injection'])
 // ⭐ 真正的外部触发（定时任务）。只有名单里的才算「不是她在说话」
 const 外部触发 = new Set(['bili-duty-scan'])
 // ⭐ 你自己的主动搭话（「可以去找她聊天了」）—— 这不是干活，判成干活就全错了
 const 自主搭话 = new Set(['speak-up'])
+// ⭐ 从别处进来的主人消息也算真人在说话；QQ 不再被当成插件噪声跳过
+const 真人在说话 = new Set(['user', 'qq', 'qq-group', 'qq-friend'])
+// 群聊/好友会话由 QQ 桥单独开，不在那里判心情（省一次模型调用，也避免把私事带进群）
+const 社交会话 = (sid) => /^(session-)?qq-social-/.test(String(sid || ''))
 
 // 返回 { text, sourceKind }：从最后往前找**第一条真人/真触发**的消息
 function lastUserTurnOf(session) {
@@ -310,8 +349,8 @@ function lastUserTurnOf(session) {
       const src = p && p.source && p.source.kind ? String(p.source.kind) : ''
       if (注入上下文.has(src)) continue          // 宿主注入的上下文：跳过
       if (外部触发.has(src) || 自主搭话.has(src)) return { text: txt, sourceKind: src }
-      if (src && src !== 'user') continue        // 其它插件消息：也不是她在说话
-      return { text: txt, sourceKind: 'user' }
+      if (src && !真人在说话.has(src)) continue   // 其它插件消息：不是她在说话
+      return { text: txt, sourceKind: src || 'user' }
     }
   } catch (e) { /* ignore */ }
   return null
@@ -531,7 +570,7 @@ export function apply(ctx) {
     // 2) 这轮结束 → 判断心情（异步，不阻塞对话）
     try {
       offs.push(agent.ctx.on('agent/turn-stopping', () => {
-        if (!cfg.autoJudge) return
+        if (!cfg.autoJudge || 社交会话(sid)) return
         // 以会话事件为准（带 source.kind），拿不到才退回 inbox 缓存
         const info = lastUserTurnOf(agent.session) || (lastText ? { text: lastText, sourceKind: lastSrc } : null)
         if (!info || !info.text) return
@@ -553,6 +592,7 @@ export function apply(ctx) {
           }
           applyDelta(s, delta, cfg.moodFloor)
           saveState(s)
+          写进鱼脑(ctx, sid, s, delta, mode)
           diag('心情更新：mood=' + s.mood + '，' + (delta.reason || '（无理由）') + (mode ? '（' + (mode === 'talk' ? '自己搭话' : '定时任务') + '）' : ''))
         }).catch((e) => { diag('判断失败：' + (e && e.message)) })
       }))
@@ -586,21 +626,22 @@ export function apply(ctx) {
   function tick() {
     try {
       const list = ctx.agents.list() || []
-      const target = cfg.targetSession
-      // 只给目标会话（大肥鱼）挂
+      const target = String(cfg.targetSession || '').trim()
+      // 没有指定目标 = 所有会话都是她，共享同一颗心情；指定了才收窄。
       for (const agent of list) {
         const sid = sessionIdOf(agent.session)
-        if (!sid || sid !== target || mounted.has(sid)) continue
+        if (!sid || 是子代理(agent.session) || mounted.has(sid)) continue
+        if (target && sid !== target) continue
         try {
           const off = mountFor(agent, sid)
           mounted.set(sid, { sid, off })
           diag('已挂心情到 ' + sid)
         } catch (e) { diag('挂 ' + sid + ' 失败：' + (e && e.message)) }
       }
-      // 目标会话不在的、或者已经被改成别的会话了 → 卸掉
+      // 会话不在了、变成子代理、或者目标被收窄到别的会话 → 卸掉
       for (const [sid, v] of mounted) {
-        const gone = !list.some((a) => sessionIdOf(a.session) === sid)
-        if (gone || sid !== target) {
+        const still = list.find((a) => sessionIdOf(a.session) === sid)
+        if (!still || 是子代理(still.session) || (target && sid !== target)) {
           try { v.off() } catch (e) { /* ignore */ }
           mounted.delete(sid)
         }

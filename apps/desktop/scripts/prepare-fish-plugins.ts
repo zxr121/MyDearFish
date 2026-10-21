@@ -8,7 +8,7 @@ const FISH_ROOT = join(REPOSITORY_ROOT, 'fish')
 const BUNDLE_SOURCE = join(FISH_ROOT, 'bundle')
 const BUNDLE_NAME = '@mydearfish/dsh-fish-bundle'
 const PLUGIN_NAMES = [
-  'dsh-fish-memory',
+  'dsh-fish-mind',
   'dsh-feiyu-mood',
   'dsh-speak-up',
   'dsh-tts-bridge',
@@ -35,7 +35,7 @@ function install(source: string, destination: string, expectedName: string, main
   rmSync(destination, { recursive: true, force: true })
   cpSync(source, destination, {
     recursive: true,
-    filter: path => {
+    filter: (path) => {
       const name = path.split(/[\\/]/u).at(-1)
       return name !== '.git' && name !== 'node_modules' && name !== 'tests' && name !== '.github'
     },

@@ -35,7 +35,7 @@ pnpm run package:desktop:win:x64:unsigned
 
 ## What the build adds
 
-Packaging calls [prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts), which copies `@mydearfish/dsh-fish-bundle` and the six plugin packages into the prepared runtime's `node_modules` and declares them in the dependencies of `@deepseek-ai/dsh`. It fails the build when a package name or entry file is missing.
+Packaging calls [prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts), which copies `@mydearfish/dsh-fish-bundle` and the seven plugin packages into the prepared runtime's `node_modules` and declares them in the dependencies of `@deepseek-ai/dsh`. It fails the build when a package name or entry file is missing.
 
 At runtime, [project-manager.ts](../../apps/desktop/src/project-manager.ts) appends the bundle to `DESKTOP_PROFILE_BUNDLES`, so every newly created desktop profile composes `dsh-base`, `dsh-web-app`, the fish bundle, and the profile's own patch.
 

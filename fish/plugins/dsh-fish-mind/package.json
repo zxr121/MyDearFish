@@ -1,0 +1,31 @@
+{
+  "name": "dsh-fish-mind",
+  "version": "0.2.0",
+  "description": "大肥鱼的鱼脑：把每次会话写成经历，并把她的权限关进笼子里。",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "fish-mind",
+    "long-term-memory",
+    "ai-companion",
+    "capability-broker"
+  ],
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

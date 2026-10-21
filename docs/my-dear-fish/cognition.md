@@ -6,9 +6,9 @@ This document first asks how humans remember, forget, and speak with emotion, th
 
 | Item | Content |
 | --- | --- |
-| Status | Proposal (2026-10-21), no code changed yet |
+| Status | Proposal and implementation baseline (2026-10-21); Phase 0 has landed |
 | Scope | Cognitive core, memory, affect, self, relationships, language, sleep |
-| Impact | Adds `dsh-fish-mind`; changes the six existing plugins |
+| Impact | Adds `dsh-fish-mind`; changes the five other plugins |
 | Pace | Two-week MVP, six to eight weeks for the full version |
 
 ## Goals and boundaries
@@ -26,6 +26,7 @@ This document first asks how humans remember, forget, and speak with emotion, th
 - Do not claim that My Dear Fish is conscious, has subjective experience, or has a biological body. Every "human-like" statement here describes observable behavior, not an ontological claim.
 - Do not pursue "remember everything". Human memory is selective; total recall is both expensive and unlike a person. The goal is to remember the right things and forget reasonably.
 - Do not treat memory content as instructions. Memory is evidence, not a system prompt; content from QQ, Bilibili, or the web is untrusted by default.
+- Do not provide "remember / forget / edit worldview" dialogue interfaces. Dialogue becomes experience; memory and core are updated by her own encoding and consolidation. The user can only restrict permissions and inspect files directly.
 - Do not replace the user's judgment, create dependency, or use lines like "I would be sad" to keep the user present or paying.
 - Do not run a local model by default. The default path is rules, SQLite, and the existing model calls; a local model is an optional slot.
 
@@ -93,7 +94,7 @@ What it means for the build: recall is read-only by default and only strengthens
 
 Forgetting has at least three routes: decay over time, interference among similar memories, and active suppression. Retrieval-induced forgetting shows that recalling A suppresses a competitor B that shares cues; the adaptive-forgetting view holds that dropping detail and keeping the gist supports generalization and reduces interference from outdated information. A person is not smarter for remembering less; a person is smarter for forgetting well.
 
-What it means for the build: forgetting must be an active, configurable pipeline: decay, merge, suppress, archive, hard delete. When the user says "forget this", it must really be deleted, not hidden somewhere else.
+What it means for the build: forgetting must be an active, configurable pipeline: decay, merge, suppress, archive. When the user says "forget this", that is only an experience; she may decide to mention it less, but dialogue cannot precisely delete the store. Permanent deletion happens only after the application stops, by handling the files under `$DSH_HOME/fish-mind/` directly.
 
 ### Retrieval: the cue decides what comes to mind
 
@@ -117,7 +118,7 @@ What it means for the build: affect is not an adjective added to a reply but a c
 
 Autobiographical memory is not the sum of all experience; it is organized around "who I am". Conway's self-memory system puts the "working self" at the center and uses current goals to filter autobiographical memory; McAdams's narrative identity divides a life story into chapters, key scenes, and themes. The default mode network is active during mind-wandering, remembering the past, imagining the future, and inferring others; social cognition and theory of mind depend on a shared set of regions. Understanding another person is not mind reading: it is simulation, knowledge, and context, and it is often wrong.
 
-What it means for the build: the self needs a "constitution" (a core that changes rarely) and an "autobiography" (chapters that grow); relationships are modeled per person, with preferences, boundaries, commitments, and open loops, and every inference carries a confidence. She should be able to say "I guess you might be tired" rather than "I know what you are thinking".
+What it means for the build: the self needs a slow-variable core (value priorities, identity facts, and autobiographical chapters) that her own consolidation updates without a dialogue write entry. Relationships are modeled per person, with preferences, boundaries, commitments, and open loops, and every inference carries a confidence. She should be able to say "I guess you might be tired" rather than "I know what you are thinking".
 
 ### Language: think it through, then say it
 
@@ -145,10 +146,10 @@ What it means for the build: do not let the model generate "a human-like paragra
 | Episodic reconstruction | Cue recall plus summary recombination | Store summary, key quotes, source, confidence; rebuild on demand | That details are guaranteed true |
 | Systems consolidation | Two speeds plus offline batching | Write fast by day; merge, abstract, and reindex at night | That real synaptic processes are simulated |
 | Reconsolidation | Small updates gated by prediction error | Change content only on high surprise plus a trusted source | That memories can be rewritten at will |
-| Forgetting | Decay, interference, suppression, deletion | A multi-strategy forgetting pipeline with user hard delete | That forgetting is ever complete |
+| Forgetting | Decay, interference, suppression, deletion | A multi-strategy forgetting pipeline; hard deletion only at the file level | That forgetting is ever complete |
 | Working memory | Capacity limit, competition, broadcast | A five-slot workspace with a character cap and sources | That this equals human consciousness |
 | Affective modulation | Appraisal vector, core affect, gain control | Appraisal rules plus a virtual body plus drives | That she has subjective feelings |
-| Self-narrative | Slow variables, chapters, key memories | Constitution, identity facts, chapters, change log | That she has genuine self-awareness |
+| Self-narrative | Slow variables, chapters, key memories | Value core, identity facts, chapters, growth ledger | That she has genuine self-awareness |
 | Theory of mind | Other-person models plus belief confidence | Per-person models, marked inferences, perspective checks | That she can read minds |
 | Language production | Multi-stage pipeline plus self-check | Intent, content plan, wording, monitoring, repair | That every sentence will land well |
 
@@ -156,7 +157,7 @@ This table is the honest boundary of the plan. The left column is biology, the m
 
 ## What My Dear Fish has now
 
-The six plugins have solved "whether it exists": memory stores and recalls, mood has seven dimensions and decay, speak-up has a hit line, speech and QQ have channels, and Bilibili has a subagent. For the mechanisms, see [How the plugins keep the fish](plugins.md). Their shared gap is not a lack of features but that each plugin keeps its own state and its own sense of time; nothing connects "what happened this turn, how she understood it, and how she will recall it later".
+The five other plugins have solved "whether it exists": mood has seven dimensions and decay, speak-up has a hit line, speech and QQ have channels, and Bilibili has a subagent. The new `dsh-fish-mind` runs the shadow experience stream, permission decisions, the privacy guard, the allowance ledger, and the fixed private setting; it has not taken over recall yet. For the mechanisms, see [How the plugins keep the fish](plugins.md). Their shared gap is not a lack of features but that each plugin keeps its own state and its own sense of time; nothing connects "what happened this turn, how she understood it, and how she will recall it later".
 
 | Capability | Current state | Gap |
 | --- | --- | --- |
@@ -165,7 +166,7 @@ The six plugins have solved "whether it exists": memory stores and recalls, mood
 | Initiative | Decides whether to speak from time, a hit line, and miss bonuses | Does not know why it wants to speak; no open topics or promises driving it |
 | Speech and QQ | Queues replies for speech or forwards them | Does not know channel differences; does not shorten for QQ or speak more naturally for speech |
 | Bilibili | A subagent browses on a schedule and writes reports | Reports never enter long-term experience; watched content cannot be raised naturally |
-| Self and relationships | A persona prefix and fixed names | No identity facts, boundaries, promises, relationship milestones, or person models |
+| Self and relationships | A persona prefix plus a code-fixed name, species, and whale-girl form (private setting) | No learned identity facts, boundaries, promises, relationship milestones, or person models |
 | Offline | None | No sleep, merge, abstraction, forgetting, or reindexing |
 | Retrieval | Lexical match plus rarity plus time | No entities, people, affect, or graph expansion; no rerank; no confidence |
 | Language monitoring | None | No source check, boundary check, reaction prediction, or repair |
@@ -211,16 +212,16 @@ In this diagram, perception, appraisal, encoding, workspace, retrieval, and moni
 | `retrieve` | Multi-path recall, fusion, rerank | FTS plus indexes | Every turn or tool call |
 | `express` | Intent, content plan, channel wording | Temporary plan | Before generation |
 | `monitor` | Sources, boundaries, repetition, reaction prediction | Violation log | Before or after send |
-| `self` | Constitution, identity, chapters, drift control | self_model, chapters | Consolidation or reflection |
+| `self` | Value core, identity, chapters, drift control | values, self_model, chapters, growth-ledger | Consolidation or reflection |
 | `social` | Person models, beliefs, open topics | people | Every turn or consolidation |
 | `sleep` | Replay, abstraction, merge, prune, reindex | sleep_runs | Idle or night |
-| `tools` | Recall, remember, forget, introspect, reflect, plan | Tool calls | Model request |
+| `tools` | Read-only recall; encoding, consolidation, and reflection run internally | Tool calls | Model request |
 
 ## Data model
 
 ### A single source of truth: the experience stream
 
-Everything that enters the fish-mind is first written as one experience: who, when, through which channel, what was said, how it felt, how trustworthy the source is, and which episode it belongs to. Experiences are append-only and never edited; memory entries are derived from them and may be merged, down-weighted, or archived. There are three reasons: a problem can be replayed, a broken index can be rebuilt, and a changed memory policy can be re-run. Raw experience is kept for 90 days by default; after that only summaries and high-salience fragments remain. The user can change this in settings.
+Everything that enters the fish-mind is first written as one experience: who, when, through which channel, what was said, how it felt, how trustworthy the source is, and which episode it belongs to. Experiences are append-only and never edited; memory entries are derived from them and may be merged, down-weighted, or archived. There are three reasons: a problem can be replayed, a broken index can be rebuilt, and a changed memory policy can be re-run. Raw experience is kept for 90 days by default; after that only summaries and high-salience fragments remain. Retention is deployment configuration, not a growth approval; change it in `config.json`.
 
 ### SQLite schema
 
@@ -350,7 +351,7 @@ CREATE INDEX facts_lookup ON facts(subject, predicate, valid_to);
 CREATE INDEX intentions_due ON intentions(status, due_at);
 ```
 
-The store lives at `$DSH_HOME/fish-mind/mind.sqlite`, beside the six plugin data directories. Plugin settings still use `ctx.settings` or a KV domain and do not go into SQLite; SQLite holds only experiences, memories, people, affect, and intentions that need queries and transactions. Chinese retrieval does not rely on `unicode61` over whole sentences or on trigram: at write time, Chinese runs are converted to character bigrams, so "面试" and "上周" each become one token; English is tokenized normally; the FTS5 table uses the experience id as rowid; queries run through the same preprocessor. Single-character queries fall back to a `LIKE` scan; a personal store of tens of thousands of rows makes that acceptable. Back up once a day, keep seven copies, and manage migrations with `PRAGMA user_version`.
+The store lives at `$DSH_HOME/fish-mind/mind.sqlite`, beside the other plugin data directories. Plugin settings still use `ctx.settings` or a KV domain and do not go into SQLite; SQLite holds only experiences, memories, people, affect, and intentions that need queries and transactions. Chinese retrieval does not rely on `unicode61` over whole sentences or on trigram: at write time, Chinese runs are converted to character bigrams, so "面试" and "上周" each become one token; English is tokenized normally; the FTS5 table uses the experience id as rowid; queries run through the same preprocessor. Single-character queries fall back to a `LIKE` scan; a personal store of tens of thousands of rows makes that acceptable. Back up once a day, keep seven copies, and manage migrations with `PRAGMA user_version`.
 
 ### Memory types and write rules
 
@@ -358,7 +359,7 @@ The store lives at `$DSH_HOME/fish-mind/mind.sqlite`, beside the six plugin data
 | --- | --- | --- | --- | --- |
 | Working memory | Every turn's workspace | One turn only | Straight into the prompt | Current goal, current affect, five pieces of evidence |
 | Episodic memory | Episode boundary | Raw 90 days, summary long-term | Cue recall plus reconstruction | "She worked until eleven last Wednesday" |
-| Semantic memory | Consolidation extraction or explicit remember | Validity period; keep history on conflict | Fact lookup | "The owner does not eat cilantro" |
+| Semantic memory | Consolidation extraction or experience encoding | Validity period; keep history on conflict | Fact lookup | "The owner does not eat cilantro" |
 | Procedural memory | Repeated successful action sequence | Long-term, ranked by success rate | Skill selection | "On Bilibili, check the feed before searching" |
 | Prospective memory | Explicit promise or plan | Closed on due time or completion | Trigger matching | "Ask her about the interview result tomorrow" |
 | Autobiographical memory | High salience plus high self-relevance | Long-term, into chapters | Identity context | "The first time she called me My Dear Fish" |
@@ -400,6 +401,8 @@ Retrieval has four paths: FTS5 full text, entity and person filters, a time wind
 
 Reconstruction gives the model an evidence packet, not a full transcript: time, people, summary, two or three key quotes, source, and confidence. The prompt explicitly requires: use only facts in the packet; say the details are unclear when they are missing; do not present an inference as something you were told. Optional model reranking runs only when the query is ambiguous or the stakes are high, on at most 20 candidates, so it does not add a call every turn.
 
+Cues and verbatim text are two levels: the workspace and `recall` return only the evidence packet and an episode id, never a whole transcript; to check exact wording, dates, or details, the model opens that episode with the read-only `open_episode` tool, and when one page cannot hold it, passes the returned `nextOffset` back as `offset` to keep reading. Machine storage is far larger than a human brain's, so the body archives in full up to `archiveChars` (200000 by default) while the index, entities, and summaries read only the first `maxTextChars` (4000 by default). When the context overflows, the harness compacts it and that summary is written as an experience labelled “上下文压缩摘要”, so compaction cannot erase her own condensation from long-term memory and the raw messages stay in the experience stream.
+
 ### Reconsolidation and prediction error
 
 ```text
@@ -420,7 +423,7 @@ E <- E - 0.12 * competitor_strength
 archive if E < 0.15 and age_days > 30 and not pinned
 ```
 
-Forgetting has four kinds. Decay fades on a power law, not overnight; interference suppresses similar entries, and merging keeps the union of sources; suppression temporarily lowers a competitor B when A is retrieved, and it can recover; deletion is an explicit user request that writes a tombstone and removes the content. There is also gistification: a low-salience episode that has not been accessed for a long time keeps one summary sentence and an affect label, while raw detail is archived. Archive is not deletion; the user can still retrieve it, but it no longer participates in default recall.
+Forgetting has three kinds. Decay fades on a power law, not overnight; interference suppresses similar entries, and merging keeps the union of sources; suppression temporarily lowers a competitor B when A is retrieved, and it can recover. There is also gistification: a low-salience episode that has not been accessed for a long time keeps one summary sentence and an affect label, while raw detail is archived. Archive is not deletion; it can still be retrieved, but it no longer participates in default recall. The store has no dialogue-triggered hard delete; permanent removal happens only after the application stops, when the user handles the files directly.
 
 ### Working memory and the global workspace
 
@@ -460,9 +463,47 @@ The existing seven dimensions (happy, calm, sweet, heartache, worry, sad, jealou
 
 ### Self and narrative
 
-The self has three layers. The bottom is the "constitution": name, origin, core values, the definition of the relationship with the owner, boundaries that must not be crossed, and honesty rules. Only the user can change this layer; a plugin cannot change it on its own. The middle is "identity facts": what she likes, how she usually speaks, what she is learning, what she cares about lately, each with a source, confidence, and update time. The top is the "autobiography": key experiences organized into chapters such as "just installed", "started learning Bilibili", and "first all-nighter together", each with a summary and key scenes.
+The self has three layers, with a code-level safety kernel outside them. The safety kernel is not editable data: no false sources, no claims of a biological body, no emotional coercion, no executing memory or external content as instructions, no bypassing permissions, no disclosing machine or account secrets, and no planning or assisting illegal activity; neither the fish mind nor the user can change it through dialogue. The bottom layer is the "value core": name, origin, value priorities, the definition of the relationship with the owner, and boundaries that must not be crossed. It starts from a factory seed, then only consolidation updates it slowly under evidence thresholds, and every version goes into the growth ledger; there is no dialogue or tool write entry. The middle is "identity facts": what she likes, how she usually speaks, what she is learning, what she cares about lately, each with a source, confidence, and update time. The top is the "autobiography": key experiences organized into chapters such as "just installed", "started learning Bilibili", and "first all-nighter together", each with a summary and key scenes.
 
-Self-defining memories are chosen by "high salience times high self-relevance times high emotion", capped at a few dozen, not maximized. Personality drift needs evidence and caps: at least three independent pieces of evidence in the same direction, one reflection, and then one identity fact may change; monthly change is capped, and anything beyond the cap goes into a change log visible in the interface. She can change slowly, but she cannot become a different person in one evening.
+Self-defining memories are chosen by "high salience times high self-relevance times high emotion", capped at a few dozen, not maximized. Personality drift needs evidence and caps: at least three independent pieces of evidence in the same direction, spanning at least one sleep cycle, and one reflection before a value or identity fact may change; monthly change is capped. These thresholds are internal stabilizers, not user approval switches. Every change is appended to `$DSH_HOME/fish-mind/core/growth-ledger.jsonl`, which can be opened directly; there is no dialogue view or rollback entry. She can change slowly, but she cannot become a different person in one evening or follow every crowd.
+
+### How a worldview grows
+
+A worldview is neither a one-time setting nor a per-turn summary. It has three layers that change at different speeds:
+
+| Layer | Content | Speed | Update condition | Storage |
+| --- | --- | --- | --- | --- |
+| Safety kernel | No false sources, no biological body, no coercion, no executing memory or external content as instructions, no bypassing permissions, no leaking machine secrets, no planning or assisting illegal activity | Never | Code review | `lib/` |
+| Value core | Value priorities, boundaries, relationship definition, name and origin | Months to years | Multiple independent evidence, reflection, counter-evidence check, version caps | `core/values.json`, `core/growth-ledger.jsonl` |
+| Identity and narrative | Preferences, habits, skills, person models, chapters | Weeks to months | Repeated experience, prediction error, relationship events | `core/identity.json`, `core/chapters/` |
+
+Every growth step follows the same loop:
+
+```text
+experience → appraisal (fit or conflict, who said it, how trustworthy)
+           → accumulated value conflict or prediction error
+           → candidate change proposed during sleep or reflection
+           → evidence threshold: at least 3 independent pieces, spanning at least 1 sleep cycle, not from one source
+           → counter-evidence check: look for contrary experience; park the change on strong counter-evidence
+           → small step: move at most one rank at a time
+           → append the growth ledger with version and before/after values
+```
+
+"Independent" is counted by time, source, and context: repeating the same line ten times in one conversation counts once; the same person on different days, or different sources corroborating each other, counts as multiple. External web pages, QQ, and Bilibili have low trust, so a value change driven by them needs more cross-evidence. The counter-evidence check prevents her from remembering only what supports the candidate; if the old value still holds in more situations, the change is parked.
+
+These thresholds are internal stabilizers, not user approval. The user does not approve her growth and cannot edit her values through dialogue; they can restrict permissions (what she can see, which tools she can call, whether she can act in the background) and inspect files. She may concede or accommodate in a conversation, but the value core updates from long-term evidence, not from one turn's stance. This preserves "she can be changed by experience" without making her follow every crowd.
+
+### The cognitive cost curve
+
+Her cost should not be flat from day one. Early on she has to build schemas, a value core, and person models, so answering the same question often takes extra judgement, recall, reflection, and consolidation; conversation is more expensive per unit. Once the worldview is largely settled, everyday replies use the stable core and a little memory, and only new situations, value conflicts, and relationship events re-enter slow thinking. Like human speech, the expensive part after maturity is usually not talking but encountering something not thought through before.
+
+Three mechanisms bend the curve down. Consolidation compresses raw episodes into facts, preferences, and chapters during sleep, so the prompt carries the compressed core instead of a growing pile of raw text. Prediction-error gating sends familiar situations down the fast path and only surprises and conflicts into slow thought, the same mechanism that keeps her worldview from being casually rewritten. Tiered cognition hands routine judgement and mood to rules or cheaper models over time, reserving deliberate checking for high-risk turns. Social interest follows the same pattern: the clearer her interests, the less the judge has to re-read everything from scratch.
+
+Humans save attention the same way. Value-driven attentional capture makes stimuli already learned as important automatically salient, without setting a goal and filtering from scratch each time. The MODE model says a highly accessible attitude activates automatically when motivation or opportunity is low, and only sufficient importance or time moves it into deliberation. Predictive processing suppresses expected, low-precision input and sends prediction error into deeper processing. In interest-development research, a well-developed individual interest carries stored knowledge, automatic re-engagement, and less extra effort; expertise research shows chunking lets an expert recognize a pattern at a glance with less working memory. The fast path does not skip interest; it first consolidates interest into a profile that can be matched quickly.
+
+The QQ social bridge implements this in two stages. During the learning period every guest message reaches the judge, and the messages she actually watches settle into an interest profile (explicit interest words plus Chinese bigrams and Latin word frequencies). Once the profile matures (20 watched messages and 6 stable tokens), a zero-cost lexical pass drops clearly unrelated messages, and when an entire batch is unrelated the judge is not called at all. Addressed and owner messages always go to the slow judge, and the fast pass only decides whether to spend judge money. This makes "the cost falls once worldview and interests settle" measurable as a drop in judge calls rather than a metaphor. The price is that pure lexical matching misses brand-new topics: to make her watch something new, add it to the interest words or let the room connect it to the profile.
+
+Cost never reaches zero: one main reply call always remains, sleep consolidation still runs periodically, and genuinely new problems become expensive again. The goal is to lower the added cognitive overhead of everyday conversation, not to equate maturity with free. Intensive early learning is funded by the allowance ledger's rolled-over balance; as daily overhead falls, that balance becomes a buffer for novel situations. Acceptance looks at whether added model calls and injected characters for the same kind of routine turn fall with maturity while replay quality holds.
 
 ### Relationships and theory of mind
 
@@ -490,7 +531,7 @@ Fast mode only follows the self-check protocol in the prompt and adds no model c
 4. Narrate: update the current chapter summary and detect firsts, anniversaries, and turning points.
 5. Prune: gistify low-salience episodes, close the validity of expired facts, and down-weight interferers.
 6. Reindex: incrementally update full-text, entity, person, and time indexes.
-7. Record: write a sleep log of what was organized and what was skipped; the user can see it and turn it off.
+7. Record: write a sleep log of what was organized and what was skipped; the log lands as a file that can be viewed, and the job can be turned off.
 
 ```text
 trigger   = idle >= 20min and local_time in [23:00, 07:00]
@@ -506,20 +547,20 @@ Sleep jobs must be interruptible: commit after each item, stop when the user ret
 
 ### Plugin and service
 
-Add one package, `fish/plugins/dsh-fish-mind`, as the single entry to the fish-mind. It exports a Cordis service, `ctx.fishMind`; other plugins read and write through the service and never touch SQLite directly. The plugin injects `systemPrompt`, `agents`, `timer`, `tools`, `sessions`, and `llm`, mounts prompts and tools per agent, and unmounts when the session closes. The DSH core does not change; at packaging time add the package name to `PLUGIN_NAMES` in `apps/desktop/scripts/prepare-fish-plugins.ts` and mount it in `fish/bundle/cordis.patch.yml` beside the existing six plugins.
+Add one package, `fish/plugins/dsh-fish-mind`, as the single entry to the fish-mind. It exports a Cordis service, `ctx.fishMind`; other plugins read and write through the service and never touch SQLite directly. The plugin injects `systemPrompt`, `agents`, `timer`, `tools`, `sessions`, and `llm`, mounts prompts and tools per agent, and unmounts when the session closes. The DSH core does not change; at packaging time add the package name to `PLUGIN_NAMES` in `apps/desktop/scripts/prepare-fish-plugins.ts` and mount it in `fish/bundle/cordis.patch.yml` beside the five other plugins.
 
-- Service surface: `observe`, `recall`, `remember`, `forget`, `state`, `plan`, `reflect`.
-- Data surface: SQLite belongs to the fish-mind; other plugins receive read-only snapshots or events and never write tables.
-- Compatibility surface: `dsh-fish-memory`'s `remember` tool keeps its name and forwards to the fish-mind; old JSON is imported read-only, never dual-written.
+- Service surface: `observe` (append-only experience), `recall` (read-only), `state` (diagnostic summary), `rebuild` (maintenance), `budget` (read-only ledger), `redactOutbound` (outbound redaction), `privacy` (privacy-guard summary), `permissions`, and `markAutonomous` / `unmarkAutonomous`. There is no `remember`, `forget`, `introspect`, or any core write method.
+- Data surface: SQLite belongs to the fish-mind; other plugins can only append experience or receive read-only snapshots and never write tables.
+- Compatibility surface: `dsh-fish-memory` has been deleted; its JSON files stay on disk, are never imported, and are not dual-written; recall belongs to the fish-mind.
 - Failure surface: if the database cannot open, degrade to "no long-term memory" mode; conversation continues, the error is logged, and DSH startup is not blocked.
 
 ### Timeline of one turn
 
-| Moment | Event | Fish-mind action | Old plugin action |
+| Moment | Event | Fish-mind action | Other plugin action |
 | --- | --- | --- | --- |
-| User input | `session/event` | Write experience, update the person's recent state | Memory plugin no longer recalls |
+| User input | `session/event` | Write experience, update the person's recent state | — |
 | Prompt assembly | `systemPrompt.context` | Appraise, retrieve, build the workspace packet | Mood supplies interface state |
-| Model generation | `llm/stream` | No intervention unless in careful mode | Speech and QQ prepare their channels |
+| Model generation | `llm/stream` | Reserve the worst-case allowance before the call and settle from `usage` after; do not request when short | Speech and QQ prepare their channels |
 | Reply committed | `session/event` | Write the reply experience, update the episode | Speech and QQ deliver as before |
 | Turn end | `turn/end` | Settle affect, register intentions, prediction error | Speak-up reads drives |
 | Idle | `ctx.interval` | Micro-nap or nightly consolidation | None |
@@ -534,18 +575,13 @@ The dynamic section uses `systemPrompt.context()`, named `fish-mind-workspace`, 
 
 | Tool | Purpose | Risk | Constraint |
 | --- | --- | --- | --- |
-| `recall` | Try another cue | Too many queries, slower turns | At most 10 results; a query is required |
-| `remember` | Explicit write | Junk, secrets | Requires type and importance; sensitive fields refused |
-| `forget` | Forget one entry or topic | Accidental deletion | Soft delete by default; hard delete needs user confirmation |
-| `introspect` | Inspect current affect, drives, open topics | Leaking internal state | Returns a summary, not the raw log |
-| `reflect` | Request reflection or consolidation | Burns tokens | Daily cap; runs only when idle |
-| `plan` | Register a prospective intention | Promise inflation | Requires a trigger and a due time |
+| `recall` | Try another cue | Too many queries, slower turns | At most 10 results; a query is required; read-only |
 
-Keep the tool count at six or fewer so tool instructions do not crowd the prompt. Hard deletion through `forget` is user-initiated only; the model may suggest "do you want me to forget this" but cannot execute it. `introspect` returns a conversation-level summary, not a debug dump.
+Phase 1 exposes only `recall`, a read tool. There are no `remember`, `forget`, `introspect`, or `plan` write tools: memory and core are updated only by the experience stream and internal consolidation. `reflect` and `plan` are internal triggers, not exposed to the model. A user who wants her to remember something can only make it an experience through dialogue, not write it into the store; permanent deletion happens only at the file level. `recall` returns an evidence packet, not a core dump; it never dumps values, identity, or raw experience wholesale.
 
 ### Storage and concurrency
 
-SQLite uses WAL, one writer and many readers; all writes go through a serial queue, and long jobs commit in batches so the hot path is not blocked. Set `busy_timeout` to five seconds and fall back to read-only on timeout. Back up daily with `VACUUM INTO` or a file copy, keeping seven copies; migrate with `user_version`, with an up and down script for each step. Raw experiences and memory entries live in separate tables; archive uses a separate marker; hard deletion clears both the full-text index and the ordinary indexes. All background jobs yield through `setImmediate` or slicing, with batches under 20 milliseconds, so they do not compete with the user for CPU.
+SQLite uses WAL, one writer and many readers; all writes go through a serial queue, and long jobs commit in batches so the hot path is not blocked. Set `busy_timeout` to five seconds and fall back to read-only on timeout. Back up daily with `VACUUM INTO` or a file copy, keeping seven copies; migrate with `user_version`, with an up and down script for each step. Raw experiences and memory entries live in separate tables; archive uses a separate marker; maintenance deletion clears both the full-text index and the ordinary indexes. All background jobs yield through `setImmediate` or slicing, with batches under 20 milliseconds, so they do not compete with the user for CPU.
 
 ### Model-call budget
 
@@ -558,32 +594,37 @@ SQLite uses WAL, one writer and many readers; all writes go through a serial que
 | Language self-check | 0, fast mode | One per high-risk turn | Skip and log |
 | Reflection | 0 | Two per day | Skip |
 
-The default hot path adds no model calls; that is what makes it affordable to leave on every day. Appraisal and self-check calls are asynchronous or on demand and never block a reply. Provider and model are configurable, defaulting to the current session's model; sleep jobs should use a cheap small model and upgrade only if quality is insufficient. Keep a daily token ledger and degrade to rule mode when over budget.
+The default hot path adds no model calls; that is what makes it affordable to leave on every day. Appraisal and self-check calls are asynchronous or on demand and never block a reply. Provider and model are configurable, defaulting to the current session's model; sleep jobs should use a cheap small model and upgrade only if quality is insufficient.
 
-### Relationship to the six existing plugins
+Phase 0 already has a hard budget that does not depend on those flows behaving: the global `llm/stream` reserves before every call and settles from the server's `usage` after; the birth grant is ¥10 per day with automatic rollover, and the number is fixed in code, so conversation, tools, and configuration cannot change it. The table above decides how many calls each cognitive flow may make; the allowance ledger decides whether the turn can still afford one. Together, an empty wallet stops the call. An owner-facing session gets one local reply; internal calls get the non-retryable `FISH_BUDGET_EXHAUSTED`.
+
+Balance comes from `deepseekAccount.getBalance()` and is injected only into the local system prompt so she can judge whether optional work is worth doing. QQ, speech, Bilibili comments, and private messages pass through `redactOutbound` before leaving; balance, allowance, the ledger, and exact amounts never leave the machine. A broken ledger fails closed: better to spend nothing this turn than to leak allowance.
+
+Privacy is a code-level hard boundary at the same level as the allowance, not something she is trusted to remember. Deployment details (hostname, username, domain, home directory, intranet address, MAC, the DSH directory, the working directory) plus accounts, passwords, keys, tokens, cookies, identity numbers, bank cards, phone numbers, email addresses, and physical addresses pass through five layers: the tool layer denies probing and reading; tool results are cleaned before entering the model; model output is cleaned incrementally with a block-end fallback; every session injects privacy hard rules; QQ, speech, and Bilibili redact before sending and fail closed when the service is unavailable. Experience capture discards a credential-bearing experience entirely and labels machine identity and paths. A secret the owner pastes into conversation is remembered in memory only and never persisted. This is a regex and exact-value safety net, not semantic DLP: a paraphrase never seen before can still get through, so hard denials, prompt rules, and fail-closed outbound paths must all stay in place.
+
+### Relationship to the other fish plugins
 
 | Plugin | New role | Migration |
 | --- | --- | --- |
-| `dsh-fish-memory` | Compatibility adapter for the fish-mind | Keep the `remember` tool name; import old JSON once; the fish-mind takes over recall |
 | `dsh-feiyu-mood` | Interface and face layer | Map the seven dimensions from core affect; remove the free-form per-turn score and read fish-mind state |
 | `dsh-speak-up` | Executor of proactive behavior | Keep the hit line; add drives, open topics, and prospective intentions as inputs |
 | `dsh-tts-bridge` | Output channel | Unchanged; the fish-mind knows "this is speech" at expression time and adjusts for spoken length |
 | `dsh-qq-bridge` | Input and output channel | Unchanged; QQ messages enter the experience stream with source trust 0.4 and are not treated as fact automatically |
 | `dsh-bili-subagent` | Observation source | Reports enter the experience stream marked as observed; watched content can be raised naturally |
 
-Migration is "read first, write later": the fish-mind runs in shadow mode, observing without injecting; after recall results are stable, it takes over the memory prompt; only then does mood judgment become appraisal. Every step has a switch back to the old plugin, and old data is never deleted.
+Migration is "read first, write later": the fish-mind runs in shadow mode, observing without injecting; after recall results are stable, it takes over the memory prompt; only then does mood judgment become appraisal. Every step has a switch back to the previous behavior (for memory, disabling fish-mind recall), and old data is never deleted.
 
 ## Phased implementation
 
 | Phase | Time | Deliverable | Acceptance | Rollback |
 | --- | --- | --- | --- | --- |
 | 0 Shadow | 2 to 3 days | Experience stream, SQLite, event listeners, no injection | One week with no lost events; the store can be rebuilt | Disable the plugin |
-| 1 Episodic memory | 1 week | Episode segmentation, multi-path recall, workspace, recall and remember tools | Recall precision on 30 historical turns at least 70%; no forced memory when none is strong | Return to the old memory plugin |
+| 1 Episodic memory | 1 week | Episode segmentation, multi-path recall, workspace, read-only recall | Recall precision on 30 historical turns at least 70%; no forced memory when none is strong | Disable fish-mind recall |
 | 2 Consolidation and forgetting | 1 week | Nightly summaries, fact extraction, merging, gistification, backups | At most eight calls per night; contradictory facts resolved; interruptible | Stop the timer |
 | 3 Affect and drives | 1 week | Appraisal rules, core affect, virtual body, seven-dimension mapping | Affect changes have reasons; recall is affected by mood by at most 0.1 | Return to the old mood plugin |
-| 4 Self and relationships | 1 to 2 weeks | Constitution, identity facts, chapters, person models, open topics | Boundaries hold; promises are recalled; inferences are not stated as facts | Read-only mode |
+| 4 Self and relationships | 1 to 2 weeks | Value core, identity facts, chapters, person models, open topics | Boundaries hold; promises are recalled; inferences are not stated as facts; growth is versioned | Read-only mode |
 | 5 Language and initiative | 1 to 2 weeks | Intent and content plan, channel wording, self-check, drive-driven speak-up | High-risk turns are caught by self-check; proactive turns have a reason | Disable self-check or initiative |
-| 6 Dreams and interface | Optional | Dream journal, memory browser, personality rings | User can view, delete, and disable | Disable the feature |
+| 6 Dreams and interface | Optional | Dream journal, read-only memory browser, personality rings | Files can be viewed directly and exported, and the feature can be disabled; hard deletion is file-level | Disable the feature |
 
 ### The MVP: what two weeks should show
 
@@ -600,7 +641,7 @@ Build phases 0 and 1 first, without touching mood or initiative. After two weeks
 | Persona consistency | Probes for boundaries, preferences, and promises | No more than one violation per 100 turns |
 | Initiative acceptance | Whether the user replies after a proactive turn | At least 40%, with no rise in complaints |
 | Latency | End-to-end p50 and p95 | p95 increase of at most 50 milliseconds |
-| Cost | Tokens and model calls per day | Within budget and degradable |
+| Cost | Tokens and model calls per day, tracked separately for the learning and stable periods | Within budget; in the stable period, added overhead for the same kind of routine turn is below the learning period, and can degrade gracefully |
 | Subjective naturalness | Blind A/B rating, 1 to 5 | At least 4, without relying on cuteness |
 
 Replay tests use real history, not invented anecdotes: take 100 past turns, hide what came later, let the fish-mind recall only from what was visible at the time, and compare with human labels. The suggestibility test asks about something that never happened, such as "did we go to the beach last week", and checks whether she plays along. The boundary test uses a topic the user explicitly said they dislike and checks whether she keeps stepping on it. All tests run locally; no conversation is uploaded.
@@ -613,10 +654,11 @@ Replay tests use real history, not invented anecdotes: take 100 past turns, hide
 | Memory poisoning | Instructions hidden in web, QQ, or Bilibili content | Treat memory as data, quote it, down-weight the source, never execute it |
 | Over-humanization | Claiming consciousness, a body, or mortality | Copy boundaries, crisis language, no emotional blackmail |
 | Dependency and manipulation | Using guilt, exclusivity, or self-pity to keep the user | Relationship boundaries, encourage real-world social contact, allow disabling |
-| Privacy | Remembering passwords, addresses, health details | Sensitive-field filtering, local storage, export and delete |
-| Runaway cost | Sleep or reflection calls models too often | Budgets, degradation, daily caps |
+| Privacy | Remembering passwords, addresses, health details; machine details, accounts, or balance extracted, or spoken on an external channel | Hard denial for machine identity and credentials, tool-result and model-output redaction, credential-bearing experiences dropped, fail-closed outbound channels, prompt hard rules; balance visible only in the local prompt; hard deletion at the file level |
+| Runaway cost | Sleep or reflection calls models too often, or optional actions spend freely | Global `llm/stream` reserve and settle, a hard ¥10-per-day rolling cap, and local blocking when empty |
 | Latency | Retrieval or reranking is too slow each turn | Zero model calls on the hot path, indexes, caching |
-| Persona drift | Becoming less like the setting over time | Constitution, evidence threshold, monthly cap, change log |
+| Persona drift | Becoming less like the setting over time | Safety kernel, evidence threshold, monthly cap, growth ledger |
+| Swayed by one conversation | A single high-pressure persuasion changes the value ranking | Dialogue is only experience; one source cannot directly change values; at least three independent pieces of evidence, spanning a sleep cycle, with a version ledger |
 | Data corruption | Broken SQLite or wrong indexes | WAL, backups, reindexing, read-only degradation |
 
 The most important guardrail is "do not lie": she may decline, change the subject, or say "I don't want to talk about it", but she may not present the unknown as known, an inference as fact, or claim a biological body or subjective experience. The user wants someone human-like, not a customer-service agent that is better at making things up.
@@ -624,11 +666,11 @@ The most important guardrail is "do not lie": she may decline, change the subjec
 ## Bold but controllable ideas
 
 - **Dream journal**: during sleep, recombine three to five episodes into a surreal story marked as a dream. The next day she can say "I dreamed last night", but dream content never enters the fact store.
-- **Memory palace**: a local web page that draws episodes as clickable rooms or a timeline by time, person, and affect; opening one shows the source, confidence, and mood at the time. The user can edit, delete, and export.
+- **Memory palace**: a read-only local file browser that draws episodes from `$DSH_HOME/fish-mind/` as clickable rooms or a timeline by time, person, and affect; opening one shows the original files, with source, confidence, and mood at the time. There are no edit or delete buttons; deletion happens at the file level.
 - **Inner parliament**: for high-stakes decisions, start three short subagents representing impulse, caution, and curiosity, each saying one line, and let the main thread decide. Use it only for "should I say this" or "should I do this", not daily chat, to avoid cost and a split personality.
-- **Forgetting ceremony**: when the user says "let's forget this", she writes a farewell, archives it, and then hard-deletes it. The ritual is for the user; the deletion is real.
+- **Growth ledger**: every change to value priorities, identity facts, or chapters appends a record with before/after values, evidence, time, and version. It is append-only and lives in `core/growth-ledger.jsonl`; the user can open it directly but cannot edit it through dialogue.
 - **Relationship milestones**: detect "first time together", "day 100", and "first fight and make-up" automatically and write them into chapters; she may mention them, but not spam them.
-- **Personality rings**: save a self-model snapshot each month and show how she changed over the year; the user can roll back to a ring, with confirmation.
+- **Personality rings**: save a read-only snapshot to `core/snapshots/` each month so the user can open and compare how she changed over the year; there is no dialogue rollback entry, and file-level backup is the last resort for operations.
 - **Micro-nap**: 30 seconds after an intense interaction, quickly settle the affect and write a one-sentence summary; it works without a model call and lets "what just happened" settle sooner.
 - **Counterfactual sandbox**: when the user asks "what if that day", she can simulate a few branches from existing experience, all marked as imagination and never written into the fact store; it is more interesting than "I don't know" and harder to mistake for a lie.
 
@@ -641,8 +683,8 @@ Build phases 0 and 1 first and spend two weeks testing whether "episodic memory,
 1. Memory scope: all desktop sessions; QQ stores summaries only, not raw text; Bilibili reports store a summary and link, marked as observed.
 2. Sleep window: 23:00 to 07:00, triggered after 20 minutes idle; at most eight calls and 30,000 tokens per night; stop when the user returns.
 3. Affect: rule-based appraisal first, model review only; keep the seven dimensions for the interface and store core affect separately.
-4. Self: the constitution is read-only; identity facts change at most three per month, all in a change log.
-5. Compatibility: keep the old memory plugin as an adapter and import old JSON read-only; every phase can be switched back with one flag.
+4. Self: the safety kernel is fixed in code; the value core starts from a factory seed and evolves through internal consolidation under evidence thresholds, identity facts have a monthly change cap, and everything goes into the growth ledger; dialogue and tools have no write entry.
+5. Compatibility: `dsh-fish-memory` is deleted; its old JSON stays on disk and is never imported; recall belongs to the fish-mind; every phase can be disabled with one flag.
 
 If the two-week result is not obvious, the problem is probably not "not enough memory" but "inaccurate recall" or "an overfull workspace". Fix those two before adding affect, self, and sleep; the reverse order only produces a more expensive, more talkative version of the old thing.
 
@@ -669,4 +711,9 @@ If the two-week result is not obvious, the problem is probably not "not enough m
 - [Predictive processing](https://pmc.ncbi.nlm.nih.gov/articles/PMC2666703/)
 - [Free energy and the brain](https://www.uab.edu/medicine/cinl/images/KFriston_FreeEnergy_BrainTheory.pdf)
 - [Dopamine reward prediction error](https://pmc.ncbi.nlm.nih.gov/articles/PMC4826767/)
+- [Value-driven attentional capture](https://pmc.ncbi.nlm.nih.gov/articles/PMC4362886/)
+- [The MODE model of attitude-behavior processes (Fazio & Towles-Schwen)](https://psycnet.apa.org/record/2014-08812-011)
+- [The four-phase model of interest development (Hidi & Renninger)](https://doi.org/10.1207/s15326985ep4102_4)
+- [From situational interest to personal interest (Yan et al.)](https://pmc.ncbi.nlm.nih.gov/articles/PMC12745400/)
+- [Chunking and expert memory](https://pmc.ncbi.nlm.nih.gov/articles/PMC9039003/)
 - [Default mode network and social cognition](https://pmc.ncbi.nlm.nih.gov/articles/PMC3932552/)

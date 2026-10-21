@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/cognition.md
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind:
-  en: 543f73026075f974
-  zh: e483cb60926ec333
+  en: b93b4645d3828f9b
+  zh: 4c067a708d9bfeb4
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/goals-and-boundaries:
   en: 55ed5f457bb6b070
   zh: f6467c82c8cbf9a1
@@ -12,8 +12,8 @@
   en: ce63a5700e831dcc
   zh: ca9f547e6addb8a8
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/goals-and-boundaries/what-not-to-build:
-  en: 0e6ec7b35b72dc34
-  zh: 1b69eb52583e410c
+  en: b6b04fee479b6ff9
+  zh: 9a51684b5dca0980
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/how-humans-do-it:
   en: f05993d346e925fc
   zh: 1769dc0b8718fde8
@@ -36,8 +36,8 @@
   en: ee2087fdb6a0bac1
   zh: 9bb7d2218baa76d8
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/how-humans-do-it/forgetting-is-a-function-not-a-failure:
-  en: b77762549ac933d3
-  zh: 931e09b573bf74ee
+  en: f2e6c83f66c3bf96
+  zh: 3a50ed0188989b92
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/how-humans-do-it/retrieval-the-cue-decides-what-comes-to-mind:
   en: 8cb1f3bb837d22b0
   zh: 541b25d5f516ade2
@@ -48,8 +48,8 @@
   en: 8bd119ac92cd6c37
   zh: 261aa98659e29e4e
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/how-humans-do-it/self-narrative-and-mind-reading:
-  en: a5392708b09ad502
-  zh: da78d23439160eea
+  en: 59a210c1239a2848
+  zh: e61da9892e6fffd8
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/how-humans-do-it/language-think-it-through-then-say-it:
   en: 77513f7ba6f20f6d
   zh: 1966e9511115cf9c
@@ -57,11 +57,11 @@
   en: e9ca91b196d79081
   zh: bfa0a7d24110f634
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/what-can-be-copied-and-what-cannot:
-  en: 10d4c92d84c3658a
-  zh: acc2e6735129e0ef
+  en: d829f5c37c4a8879
+  zh: ae90b9c9e9e2577d
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/what-my-dear-fish-has-now:
-  en: cce39949377c6ae9
-  zh: b073e379386a37dc
+  en: cc6367725e482117
+  zh: 416b612574cd0b3f
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/overall-architecture-the-fish-mind:
   en: d46a72ddb5407bdf
   zh: bfdc63897a8a7bc7
@@ -72,20 +72,20 @@
   en: da17e0e1609a5d3d
   zh: b7098bd76c3c1d8b
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/overall-architecture-the-fish-mind/module-list:
-  en: 1cd93be2190712ff
-  zh: b84c984c9dac7a31
+  en: f4daff107f94a86e
+  zh: 12fd459ce9d32080
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/data-model:
   en: 388f71d1a5879d94
   zh: a59d1a022296e5a0
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/data-model/a-single-source-of-truth-the-experience-stream:
-  en: dfafbf7a91e89853
-  zh: 5249cb53598e4c23
+  en: bc6ea1ff946b8a4f
+  zh: 1da259a1d4a55ec7
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/data-model/sqlite-schema:
-  en: c694358ce30227b0
-  zh: 0978b24c8471af96
+  en: 1a45c613db5862d2
+  zh: 74154c1d9ba99d16
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/data-model/memory-types-and-write-rules:
-  en: e0085ca32f66dc6b
-  zh: 4c8c8dc106f82eb2
+  en: 3f92b4933677fc49
+  zh: 16532bdfd13fb490
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms:
   en: 22d70770889d163a
   zh: b91e665a7c8c7594
@@ -93,14 +93,14 @@
   en: 04bf1682b30da05b
   zh: adce5cb726ef1161
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/retrieval-and-reconstruction:
-  en: 36bc2062a50f834c
-  zh: 6ee344734ef57005
+  en: 8e417ca2679ad947
+  zh: 9357f02d068cc8f9
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/reconsolidation-and-prediction-error:
   en: 90e9224ede461553
   zh: 3287583487aa4c3e
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/forgetting-and-interference:
-  en: 2ba53bc94c77c641
-  zh: d6ec55d6ef037367
+  en: 5e10d203ce32c2de
+  zh: 5822ccbbb6a48e6a
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/working-memory-and-the-global-workspace:
   en: b7213d765c53828f
   zh: d20ecf72f5817b0c
@@ -108,8 +108,14 @@
   en: 1305de4f50d2c0fb
   zh: 106d9991e0002e72
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/self-and-narrative:
-  en: fb799764610b0e98
-  zh: 7f2ddd88ac268b42
+  en: ab53b5ed2a7cbd4f
+  zh: 9b3ddc8a4cb186ea
+/my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/how-a-worldview-grows:
+  en: f76b405c98fd1b58
+  zh: 751a1e042e04cde5
+/my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/the-cognitive-cost-curve:
+  en: f266b4b5b18190f3
+  zh: 5f979d697bb7d41c
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/relationships-and-theory-of-mind:
   en: b486f118a050d4e5
   zh: 743b2204861d0582
@@ -117,50 +123,50 @@
   en: 58b1b1a00f397f38
   zh: 79e5eaf54d1fd534
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/core-mechanisms/sleep-consolidation:
-  en: 0125f8a6589865ab
-  zh: 21bf6806e71f9c7f
+  en: 2304412811e09b4c
+  zh: f867f7ae0bac892a
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh:
   en: 75312fe75c96f4e4
   zh: ee72c647aceca8e2
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/plugin-and-service:
-  en: 62a6643455d7a95d
-  zh: f4140bd1c92fe843
+  en: c4638458e2c5a10d
+  zh: a245684a150017cc
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/timeline-of-one-turn:
-  en: a70be86bf9a0da8e
-  zh: c98fab5f42f760ca
+  en: 6f6220f195013785
+  zh: d1bcc3178ed6672c
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/prompt-injection:
   en: 091ff00167f8989a
   zh: 5d9b2010bf2a7ff7
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/tools:
-  en: 14bfd57700fb52c7
-  zh: 80fef8fa0115b4d1
+  en: e03b8db6465de207
+  zh: 2ad3e0ac04f1b45b
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/storage-and-concurrency:
-  en: c6dc8f118b21a2f0
-  zh: 0080eeb8005ee2fc
+  en: c56eca1ac5f2030a
+  zh: 078a5d78257700a4
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/model-call-budget:
-  en: c0aa4968e1096d5b
-  zh: 7033312551aa1e51
-/my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/relationship-to-the-six-existing-plugins:
-  en: f3939a60694fcfc6
-  zh: e69def6b6e91001d
+  en: a1d0ae97faa4b7a0
+  zh: b49cbf9a44a319f0
+/my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/integrating-with-dsh/relationship-to-the-other-fish-plugins:
+  en: 4ec080c37b3bd2bf
+  zh: 9f3d3a8279f84464
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/phased-implementation:
-  en: 9bd8b302a0edc410
-  zh: 4b6535ca7ececb22
+  en: 92acb674a8f8f2fe
+  zh: aaf44a6aa99d7667
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/phased-implementation/the-mvp-what-two-weeks-should-show:
   en: eb85aee681494186
   zh: 37a6a2eb29d02c33
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/how-to-tell-whether-it-feels-human:
-  en: 22f3f3bcb0cecc97
-  zh: f067af60af024202
+  en: 219bf2075b9b38a6
+  zh: 15671426a2f3ae6f
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/risks-and-guardrails:
-  en: 9cd316cd62c230c9
-  zh: 91f0a7e87f081ff9
+  en: a403d3bc467be270
+  zh: 67a3f5b675861ac2
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/bold-but-controllable-ideas:
-  en: 32aaa18422ad5cbe
-  zh: 83675c2e36729387
+  en: 24bb4b452dd09aa2
+  zh: 64baa7da3b55e375
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/recommended-next-step:
-  en: 7954dc234b268fae
-  zh: 2768f7abba1f5cbb
+  en: 65850c7550bb0250
+  zh: 4dd819806061858c
 /my-dear-fish-cognition-plan-from-human-memory-to-a-fish-mind/references:
-  en: 2c854fdb5451797a
-  zh: ed2c9c1bbfc6f6cc
+  en: ebfa9dddb4d5268c
+  zh: 1dfc659cba756ab5
