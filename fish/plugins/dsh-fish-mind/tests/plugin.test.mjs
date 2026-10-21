@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -88,14 +88,18 @@ function memoryHarness(ctx) {
   const sections = []
   const contexts = []
   const tools = new Map()
+  const drop = (list, entry) => {
+    const index = list.indexOf(entry)
+    if (index >= 0) list.splice(index, 1)
+  }
   ctx.set('systemPrompt', {
     section(entry) {
       sections.push(entry)
-      return () => {}
+      return () => drop(sections, entry)
     },
     context(entry) {
       contexts.push(entry)
-      return () => {}
+      return () => drop(contexts, entry)
     },
   })
   ctx.set('tools', {
@@ -872,4 +876,201 @@ test('卸载时收摊，不留下服务', () => {
   assert.ok(ctx.get('fishMind'))
   ctx.dispose()
   assert.equal(ctx.get('fishMind'), undefined)
+})
+
+test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+  assert.deepEqual(harness.contexts, [], '没有代理时不该挂任何东西')
+  assert.equal(harness.tools.size, 0)
+
+  const agent = { session: session('session-new'), ctx }
+  agents.push(agent)
+  await ctx.emit('agent/created', { agent })
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'])
+  const names = harness.contexts.map((entry) => entry.name)
+  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy']) {
+    assert.ok(names.includes(name), name)
+  }
+  assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
+  const orderOf = (name) => harness.contexts.find((entry) => entry.name === name).order
+  assert.ok(orderOf('fish-mind-shortterm') < orderOf('fish-mind-workspace'), '短期窗口排在长期线索之前')
+
+  // 同一会话重复创建只挂一次；子代理会话完全不挂。
+  await ctx.emit('agent/created', { agent })
+  assert.equal(harness.contexts.length, names.length)
+  const child = { session: session('child', { origin: 'subagent' }), ctx }
+  agents.push(child)
+  await ctx.emit('agent/created', { agent: child })
+  assert.equal(harness.contexts.length, names.length)
+
+  await ctx.emit('agent/disposed', { agent })
+  assert.deepEqual(harness.contexts, [])
+  assert.deepEqual(harness.sections, [])
+  assert.equal(harness.tools.size, 0)
+  ctx.dispose()
+})
+
+test('挂载失败不影响宿主创建，只记一条日志', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+
+  const broken = {
+    session: session('session-broken'),
+    ctx: { get: (name) => (name === 'systemPrompt' ? { context() { throw new Error('装不上') } } : undefined) },
+  }
+  agents.push(broken)
+  await ctx.emit('agent/created', { agent: broken })
+  assert.deepEqual(harness.contexts, [])
+
+  const good = { session: session('session-good'), ctx }
+  agents.push(good)
+  await ctx.emit('agent/created', { agent: good })
+  assert.ok(harness.contexts.some((entry) => entry.name === 'fish-mind-workspace'))
+  ctx.dispose()
+})
+
+test('短期窗口只补别的窗口刚说过的话，过时效就不占提示', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true, working: { ttlMinutes: 30, rows: 12, chars: 1200 } })
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  apply(ctx)
+  const now = Date.now()
+
+  await ctx.emit('session/event', session('session-other'), messageEvent('user/message', '我叫EMT，QQ也叫这个', {
+    time: now - 5 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-other'), messageEvent('assistant/message', '好，EMT', {
+    seq: 2,
+    time: now - 4 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-qq-social-group-7'), messageEvent('user/message', '群里说晚上开黑', {
+    seq: 3,
+    time: now - 3 * 60_000,
+    source: { kind: 'qq-group' },
+  }))
+  await ctx.emit('session/event', session('session-long-ago'), messageEvent('user/message', '很久以前聊过的潜水', {
+    seq: 4,
+    time: now - 3 * 3_600_000,
+  }))
+  await ctx.emit('session/event', session('session-current'), messageEvent('user/message', '我是谁', { seq: 5 }))
+
+  const shortTerm = harness.contexts.find((entry) => entry.name === 'fish-mind-shortterm')
+  const text = shortTerm.text({ agent: { session: session('session-current') } })
+  assert.ok(text.includes('刚才在聊的'), text)
+  assert.ok(text.includes('我叫EMT'), '另一个窗口的原话要当场想得起')
+  assert.ok(text.includes('主人：'), '标是谁说的')
+  assert.ok(!text.includes('我是谁'), '当前会话自己的话不进短期窗口')
+  assert.ok(!text.includes('晚上开黑'), '群里的话不跟到私下')
+  assert.ok(!text.includes('很久以前聊过的潜水'), '过了 TTL 就不再当场想起')
+
+  const inGroup = shortTerm.text({ agent: { session: session('session-qq-social-group-7') } })
+  assert.ok(inGroup.includes('晚上开黑'), '群里只看得到这间屋子刚才的事')
+  assert.ok(!inGroup.includes('我叫EMT'), '主人私下的对话不进群')
+
+  // 关掉短期注入就一个字都不给；影子模式同样不注入。
+  writeConfig(home, { mode: 'live', inject: true, working: { ttlMinutes: 30, inject: false } })
+  ctx.get('fishMind').reload()
+  assert.equal(shortTerm.text({ agent: { session: session('session-current') } }), '')
+  ctx.dispose()
+})
+
+test('短期放凉后转长期：提炼成事实并写回经历流，再跑一次不重复烧模型', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'shadow', inject: true, working: { idleMinutes: 20, minRows: 2 } })
+  const ctx = fakeContext()
+  memoryHarness(ctx)
+  ctx.set('agents', { list: () => [{ session: session('session-1'), ctx, options: { provider: 'deepseek', model: 'dsh-test' } }] })
+  const calls = []
+  let reply = '[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}]'
+  ctx.set('llm', {
+    async * stream(options) {
+      calls.push(options)
+      yield { type: 'text-delta', text: reply }
+      yield { type: 'finish', reason: { kind: 'done' } }
+    },
+  })
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+
+  // 影子模式连模型都不碰。
+  assert.deepEqual(await mind.consolidate('shadow'), { ran: false, reason: 'disabled' })
+  assert.equal(calls.length, 0)
+
+  writeConfig(home, { mode: 'live', inject: true, working: { idleMinutes: 20, minRows: 2 } })
+  mind.reload()
+  const now = Date.now()
+  await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '我叫EMT，QQ也叫这个', {
+    time: now - 40 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-a'), messageEvent('assistant/message', '好，EMT，记住了', {
+    seq: 2,
+    time: now - 39 * 60_000,
+  }))
+
+  const first = await mind.consolidate('test')
+  assert.equal(first.ran, true)
+  assert.equal(first.written, 1)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].provider, 'deepseek')
+  assert.equal(calls[0].model, 'dsh-test')
+  assert.ok(calls[0].system.includes('只输出 JSON 数组'))
+  assert.ok(calls[0].messages[0].content[0].text.includes('我叫EMT'), '原文要交给模型看')
+
+  const [fact] = mind.facts(10)
+  assert.equal(fact.subject, '主人')
+  assert.equal(fact.predicate, '昵称')
+  assert.equal(fact.object, 'EMT')
+  assert.equal(fact.confidence, 0.9)
+  const state = mind.state()
+  assert.equal(state.storage.facts, 1)
+  assert.equal(state.storage.runs, 1)
+  assert.equal(state.memory.working.lastStatus, 'ok:test')
+  assert.equal(state.memory.working.factsWritten, 1)
+  // 提炼出来的说法写回经历流，长期召回才查得到这句话。
+  const jsonl = readFileSync(join(home, 'fish-mind', 'experience.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  const written = jsonl.filter((row) => row.role === 'system')
+  assert.equal(written.length, 1)
+  assert.equal(written[0].text, '【我自己想明白的】主人的昵称是EMT')
+  assert.equal(written[0].source, 'consolidation')
+  assert.equal(mind.recentWindow({ rows: 100 }).length, 2, '短期窗口只收主人和我的原话')
+
+  // 水位已经推过这批原文：没有新料就不再烧模型。
+  assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'not-enough' })
+  assert.equal(calls.length, 1)
+
+  // 新的两句原文 + 模型又给出同一件事：只多一次调用，不多存一份。
+  reply = '[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}]'
+  await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '以后也叫我EMT', {
+    seq: 3,
+    time: now - 25 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-a'), messageEvent('assistant/message', '好，就一直这么叫', {
+    seq: 4,
+    time: now - 24 * 60_000,
+  }))
+  const third = await mind.consolidate('test')
+  assert.equal(third.ran, true)
+  assert.equal(third.facts, 1)
+  assert.equal(third.written, 0)
+  assert.equal(mind.state().storage.facts, 1)
+  assert.equal(mind.facts(10).length, 1)
+  assert.equal(calls.length, 2)
+  ctx.dispose()
 })

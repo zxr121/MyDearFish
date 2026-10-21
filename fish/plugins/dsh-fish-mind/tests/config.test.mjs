@@ -166,14 +166,67 @@ test('情景切分和召回参数有默认值，比例不会被四舍五入', ()
 test('情景或召回配置不是对象时退回默认值并记诊断', () => {
   const home = tempHome()
   const lines = []
-  const config = normalizeConfig({ episodes: 'nope', recall: [] }, {
+  const config = normalizeConfig({ episodes: 'nope', recall: [], working: 'nope' }, {
     dshHome: home,
     diag: (line) => lines.push(line),
   })
   assert.equal(config.episodes.gapMinutes, 45)
   assert.equal(config.recall.workspaceChars, 900)
+  assert.equal(config.working.ttlMinutes, 30)
   assert.ok(lines.some((line) => line.includes('episodes 不是对象')))
   assert.ok(lines.some((line) => line.includes('recall 不是对象')))
+  assert.ok(lines.some((line) => line.includes('working 不是对象')))
+})
+
+test('短期层默认开，取值被夹到能用范围内', () => {
+  const home = tempHome()
+  const defaults = buildDefaults(home)
+  assert.deepEqual(defaults.working, {
+    enabled: true,
+    inject: true,
+    ttlMinutes: 30,
+    rows: 12,
+    chars: 1200,
+    idleMinutes: 20,
+    maxRows: 40,
+    minRows: 2,
+    consolidate: true,
+    maxFacts: 8,
+    maxTokens: 600,
+    tickSeconds: 60,
+  })
+
+  const config = normalizeConfig({
+    working: {
+      enabled: 'yes',
+      inject: false,
+      consolidate: false,
+      ttlMinutes: 99999,
+      rows: 1,
+      chars: 10,
+      idleMinutes: -5,
+      maxRows: 9999,
+      minRows: 99,
+      maxFacts: 0,
+      maxTokens: 1,
+      tickSeconds: 1,
+    },
+  }, { dshHome: home })
+  assert.equal(config.working.enabled, true, '非布尔退回默认')
+  assert.equal(config.working.inject, false)
+  assert.equal(config.working.consolidate, false)
+  assert.equal(config.working.ttlMinutes, 1440)
+  assert.equal(config.working.rows, 2)
+  assert.equal(config.working.chars, 200)
+  assert.equal(config.working.idleMinutes, 1)
+  assert.equal(config.working.maxRows, 200)
+  assert.equal(config.working.minRows, 20)
+  assert.equal(config.working.maxFacts, 1)
+  assert.equal(config.working.maxTokens, 128)
+  assert.equal(config.working.tickSeconds, 10)
+
+  const narrowed = normalizeConfig({ working: { maxRows: 2, minRows: 20 } }, { dshHome: home })
+  assert.equal(narrowed.working.minRows, 2, '门槛不能高于窗口容量，否则永远攒不够')
 })
 
 test('~ 和 $DSH_HOME 会展开', () => {

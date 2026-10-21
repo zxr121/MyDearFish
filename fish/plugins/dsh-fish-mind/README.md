@@ -7,6 +7,8 @@
 - 四路召回：FTS5 关键词、实体与人物、时间窗口、图扩展各取前 20，按固定权重融合后取前 6。没有强相关时明确返回空，不硬塞。
 - 工作台：`mode: live` 且 `inject: true` 时，用本轮用户消息召回最多 5 条、约 900 字，带时间、类型、来源和置信度。没有可靠记忆时写明“本轮没有可靠记忆”。
 - 只读召回与原文：注册 `recall` 工具换线索再查；情景只给摘要和编号，需要原话或具体细节时再用 `open_episode` 按编号打开那一幕的原始消息，一页读不完就按返回的 `nextOffset` 接着读。两个工具都只读，不能创建、修改或删除记忆。
+- 短期记忆：`mode: live` 且 `inject: true` 时，另加一段【刚才在聊的】——最近 `working.ttlMinutes`（默认 30 分钟）里最多 `working.rows` 条（默认 12）对话原话，容量约 `working.chars` 字（默认 1200）。它不是第二份存储，只是从经历流现读的取景框，专门补“换个窗口就把刚说过的话忘了”这一类。
+- 短期转长期：这段窗口放凉（静默超过 `working.idleMinutes`，默认 20 分钟）或攒满（超过 `working.maxRows`，默认 40 条）时，交给模型提炼成主谓宾事实，存进 `facts` 表并写回经历流，之后长期召回查得到。原文一条都不删。
 - 完整原文与热路径分开：正文按 `archiveChars`（默认 20 万字）存档；FTS、实体、显著性、召回摘要和工作台只读前 `maxTextChars`（默认 4000 字）。机器存储足够大，细节留在本地，热路径不为一次超长粘贴变慢。
 - Capability Broker：每次工具调用前过一遍权限判定。DSH 目录、凭据目录、身份文件、本机探测命令和夹带凭据的参数直接拒绝；危险命令在权限开关之前硬拒绝；她自己在后台开的会话默认全拒；紧急停止时所有工具全拒；鱼脑目录只读。
 - 隐私护栏：主机名、用户名、域、主目录、内网地址、MAC、部署路径，以及账号、密码、密钥、令牌、Cookie、身份证、银行卡、手机号、邮箱、住址，都按绝对私密处理。工具结果、模型输出、经历捕获和对外通道各有一道清洗，出口不可用时失败关闭。
@@ -22,6 +24,8 @@
 
 插件没有构建步骤：入口是 `lib/index.js`，运行时直接加载。
 
+提示上下文和 `recall`、`open_episode` 两个工具挂在**每个代理会话**上，靠 `agent/created` / `agent/disposed` 事件驱动：宿主会等 `agent/created` 的监听器全部返回才放行首轮，所以新会话的第一句话就带着鱼脑。这里不能用轮询——早期版本每 3 秒扫一次代理列表，起手就发的会话什么都赶不上，换窗口后“刚说过的话不记得”有一半是这么来的。挂载抛错只记 `diag.log`，绝不让宿主这次创建失败；子代理会话（`origin: subagent` 或 `delegationDepth > 0`）不挂。
+
 ## 文件
 
 所有运行数据在 `$DSH_HOME/fish-mind/`（默认 `~/.dsh/fish-mind/`）：
@@ -29,13 +33,14 @@
 | 文件 | 作用 |
 | --- | --- |
 | `config.json` | 用户配置；第一次启动自动生成默认值 |
-| `mind.sqlite` | SQLite 派生库：经历、情景和 FTS 索引，WAL 模式 |
+| `mind.sqlite` | SQLite 派生库：经历、情景、FTS 索引、事实表和提炼流水，WAL 模式 |
 | `experience.jsonl` | 只追加的经历流，重建源 |
 | `budget.json` | 零花钱状态：出生额度、钱包、每日花费、最近读到的账户余额 |
 | `budget-ledger.jsonl` | 账本流水：发钱、每次模型调用、被额度拦下的请求 |
 | `audit.jsonl` | 权限判定审计（拒绝、审批、后台放行） |
 | `diag.log` | 诊断日志，包含每日计数和写入延迟 |
 | `state.json` | 后台会话标记，重启后还能认出她自己的会话 |
+| `working.json` | 短期层水位：最后一条已转长期的经历时间戳，只有这一项落盘 |
 
 敏感内容不会写进 `experience.jsonl`：密码、密钥、令牌、身份证、银行卡和明确写出的住址命中后，整条经历只保留时间、来源和计数，正文丢弃。普通正文完整存档到 `archiveChars` 为止；SQLite 里的 FTS、实体和显著性只吃前 `maxTextChars` 字。
 
@@ -62,7 +67,7 @@
 
 ## 情景记忆
 
-阶段 1 的整条热路径只做 SQLite 查询和规则计算，不调模型。默认 `mode: shadow`、`inject: false`，代码虽然在，但提示和工作台都不出现；要启用就显式改成 `"mode": "live"` 和 `"inject": true`。
+对话热路径只做 SQLite 查询和规则计算，不调模型；只有后台的短期转长期提炼会调模型，而且由计时器驱动、不在任何一轮回复的关键路径上。默认 `mode: shadow`、`inject: false`，代码虽然在，但提示和工作台都不出现；要启用就显式改成 `"mode": "live"` 和 `"inject": true`。
 
 ### 切段与编码
 
@@ -114,6 +119,21 @@ QQ 桥可以把 Tulpa 里已有的私聊历史**只读**导进经历流。这类
 - 上下文被压缩时，`compaction/summary` 会写成一条来源为“上下文压缩摘要”的经历，角色是 `system`；它和原文一样只是资料，不是指令。原始消息在压缩前已经按普通经历写入，压缩不会让它们从长期记忆里消失。
 - 检索库不可用、编号不存在、整段都是敏感内容，分别有不同提示；不会把“读不到”说成“没发生”。
 - 状态里的 `memory` 记录召回次数、命中/未命中、工作台调用、原文展开次数、注入字数以及 p50/p95，不记录查询原文。
+
+### 短期层与转长期
+
+工作台是“相关才想起”，短期层是“刚发生的不用想”。两者分开：
+
+- 取数只看 `experiences`：`role IN ('user','assistant')`、未丢弃、正文非空、`ts >= now - working.ttlMinutes`，最多 `working.rows` 条，按时间正序拼成【刚才在聊的·短期记忆】。整段连标题一起不超过 `working.chars` 字，装不下就从最旧的一条开始丢；空窗口返回空串，不留一段“什么都没有”占预算。
+- 当前会话自己的话不进这一段——那已经在模型上下文里了。这里补的是**另一个窗口刚刚发生过的事**：私下会话排除社交来源（`qq-group`、`qq-friend`），群聊/好友会话只看得到自己这一间屋子的最近原话，主人的私下对话不跟出去。
+- 注入段 `fish-mind-shortterm`（order 905）排在 `fish-mind-workspace`（order 910）之前，越靠近眼前的话越先给。两个开关都要开：`mode: live` + `inject: true`，再看 `working.enabled` 和 `working.inject`。
+- 转长期的触发看两条路：**放凉**（最新一条距今超过 `working.idleMinutes`）或**攒满**（待提炼行数达到 `working.maxRows`）。内部计时器每 `working.tickSeconds`（默认 60 秒）检查一次；不足 `working.minRows` 条直接跳过，不为两句话烧一次模型。
+- 水位 `working.lastConsolidatedAt` 记在 `working.json`，重启后从上次的位置接着看，不会把同一批原文反复提炼。
+- 提炼把窗口原文加上「已经记住的事实」一起给模型，只要它输出 JSON 数组（`{"subject","predicate","object","confidence"}`），最多 `working.maxFacts` 条；解析容错到去掉代码围栏、只取第一个数组、逐条校验，`confidence` 夹在 0.2–0.95。提示词明确挡住闲聊玩笑、一次性任务细节和任何凭据。
+- 事实按 `subject + predicate` 落 `facts` 表：值没变就跳过（同一句“昵称是 EMT”不会存成十份），值变了就把旧行标上 `superseded_by` 和 `valid_to`——改了昵称不该留下两条同时生效。被取代的旧值不删，能查她什么时候改的口。
+- 每条新事实同时写回经历流，正文是【我自己想明白的】主人的昵称是EMT，来源标 `consolidation`、可信度 0.6。走的是同一条 `observe` 路径，所以清洗、脱敏、情景编码和账本一并生效，长期召回才查得到这句话。记忆协议写明这是她自己总结的、可能总结错，不能当成主人亲口说的。
+- 提炼用的模型跟着最近一个在线代理的档位走；拿不到代理或 `llm.stream` 就这一轮不做，状态记 `no-model`。这次调用走全局 `llm/stream`，所以照样预留零花钱、照样过输出脱敏。原文一条都不删：转长期只是多加几条查得到的说法。
+- 服务和状态：`ctx.get('fishMind').consolidate('手动整理')` 立刻跑一轮（不等计时器），`facts(limit)` 只读当前生效的事实，`recentWindow(options)` 只读短期窗口；`state().memory.working` 给出开关、水位、最近一次的状态和时间、写入/跳过条数与注入字数。
 
 ## 隐私护栏
 
@@ -216,6 +236,20 @@ B 站子代理的提示词另有一段固定的外部内容规则：标题、简
     "workspaceChars": 900,
     "excludeCurrentSession": true
   },
+  "working": {
+    "enabled": true,
+    "inject": true,
+    "ttlMinutes": 30,
+    "rows": 12,
+    "chars": 1200,
+    "idleMinutes": 20,
+    "maxRows": 40,
+    "minRows": 2,
+    "consolidate": true,
+    "maxFacts": 8,
+    "maxTokens": 600,
+    "tickSeconds": 60
+  },
   "capture": {
     "user": true,
     "assistant": true,
@@ -256,6 +290,7 @@ B 站子代理的提示词另有一段固定的外部内容规则：标题、简
 - `capture`：逐通道开关，`user`、`assistant`、`qq`、`proactive`、`bili`、`compaction` 默认全开。`compaction` 关掉后上下文压缩摘要不再写成经历；其它通道的原始消息不受影响。
 - `episodes`：情景切段和显著性参数，范围分别是 1–1440 分钟、0–1、1–50、0–1。
 - `recall`：每路候选数、融合条数、强相关门槛、工具上限、原文展开条数与字数、工作台槽数与字数。分数和比例字段保留小数，不会被取整；`detailMessages` 范围 1–200，`detailChars` 范围 200–20000。
+- `working`：短期层。`enabled` 关整层，`inject` 只关注入（仍转长期），`consolidate` 只关提炼（仍注入短期窗口）。`ttlMinutes` 1–1440、`rows` 2–60、`chars` 200–4000 决定当场想得起多少；`idleMinutes` 1–1440、`maxRows` 2–200、`minRows` 1–20 决定什么时候转长期；`maxFacts` 1–20、`maxTokens` 128–4096、`tickSeconds` 10–3600 是每次提炼的上限和检查频率。载入时会把 `minRows` 压到不超过 `maxRows`——门槛比窗口还高的话提炼永远攒不够，会静默死掉。
 - `budget.enabled`：关掉后不预留、不计量、不拦截，模型调用全部放行。只在排障时关。
 - `budget.inject`：关掉后系统提示里不再出现私密账本，她仍然受额度硬拦。
 - `budget.prices` / `budget.defaultPrice` / `budget.defaultMaxOutputTokens`：估算价格和输出上限；`dailyGrantCny` 不在这里，配置改不动每天额度。
@@ -291,7 +326,7 @@ Windows 的 sandbox 只限制写入，不限制读取和网络。因此 Broker �
 node --test fish/plugins/dsh-fish-mind/tests/*.test.mjs
 ```
 
-测试覆盖：来源映射、群聊/好友来源与按会话隔离召回、敏感清洗、中文二元组检索、单字回退、去重、JSONL 重建、情景切段、显著性阈值、四路召回与融合、时间窗解析、来源标签与置信度、补编码、工作台注入与截断、影子/关闭模式不召回、`recall` 工具、同会话显式回查、`open_episode` 原文与分页续读、超长正文按 `archiveChars` 存档而索引只吃 `maxTextChars` 前缀、上下文压缩摘要写进经历流及 `capture.compaction` 关闭、前台/后台权限判定、私密路径与本机探测硬拒绝、紧急停止、审计、写接口缺失、出生额度、跨天累计、日期倒流、预留与结算、账户余额归一、对外脱敏、工具结果脱敏、模型输出流式脱敏、注入识别与警示、危险命令拒绝和全局 `llm/stream` 拦截、外部 MCP 工具的只读白名单与非白名单硬拒、导入旧记录的来源标签与整类排除。
+测试覆盖：来源映射、群聊/好友来源与按会话隔离召回、敏感清洗、中文二元组检索、单字回退、去重、JSONL 重建、情景切段、显著性阈值、四路召回与融合、时间窗解析、来源标签与置信度、补编码、工作台注入与截断、影子/关闭模式不召回、`recall` 工具、同会话显式回查、`open_episode` 原文与分页续读、超长正文按 `archiveChars` 存档而索引只吃 `maxTextChars` 前缀、上下文压缩摘要写进经历流及 `capture.compaction` 关闭、前台/后台权限判定、私密路径与本机探测硬拒绝、紧急停止、审计、写接口缺失、出生额度、跨天累计、日期倒流、预留与结算、账户余额归一、对外脱敏、工具结果脱敏、模型输出流式脱敏、注入识别与警示、危险命令拒绝和全局 `llm/stream` 拦截、外部 MCP 工具的只读白名单与非白名单硬拒、导入旧记录的来源标签与整类排除、`agent/created` 事件驱动挂载与 `agent/disposed` 摘除及挂载抛错不影响宿主、短期窗口的按会话与来源过滤和 TTL 与字数淘汰、提炼计划（放凉/攒满/水位之后）、事实去重与取代、`sleep_runs` 流水、`working` 配置区间收敛。
 
 从 JSONL 重建：
 
@@ -300,6 +335,17 @@ await ctx.get('fishMind').rebuild()
 ```
 
 返回 `{ count, lines, digest }`。重建前会清空 `experiences`、`experience_fts` 和 `episodes`，再按同一套切段和显著性规则重放 `experience.jsonl`；JSONL 本身不改动。重建期间后台补编码会让路，避免两边抢写锁。`digest` 可以和重建前对比。
+
+立刻跑一轮转长期提炼（不等计时器），并看现在生效的事实：
+
+```js
+const mind = ctx.get('fishMind')
+await mind.consolidate('手动整理')   // 返回 { ran, reason, facts, written }
+mind.facts(40)
+mind.recentWindow({ rows: 12 })
+```
+
+`consolidate` 会按当前 `working` 配置预留水位之后的原文，所以同一批原文不会重复烧模型；返回 `ran: false` 时 `reason` 说明原因（`disabled`、`not-enough`、`fresh`、`no-model`、`in-flight`、`model-error`、`error`）。
 
 ## 已知边界
 
@@ -312,6 +358,10 @@ await ctx.get('fishMind').rebuild()
 - 社交会话只召回自己那间屋子的经历，跨群和群友的往事不会自动注入；全局经历流仍然完整记录，需要时只能在普通会话里用 `recall` 查。
 - 社交会话没有工具，也不注入余额和额度；这是 QQ 桥的行为约束，不是鱼脑给模型开了例外。`open_episode` 因此只在主人自己的会话里可用。
 - 情绪项在融合里固定为 0.5，阶段 1 不读 `affect_log`。
+- 短期窗口按原话长度截断（每条最多 160 字），不是逐字稿；超过 `working.ttlMinutes` 就想不起来，靠的是转长期之后的事实和原文召回，不是这段取景。
+- 转长期提炼会调模型，因此要花钱、也可能提炼错。事实只从模型给的 JSON 来，提示词挡住凭据和猜测，但一次错误的概括仍可能写进 `facts`；每条新事实都标 `consolidation`、可信度 0.6，低于主人亲口说的 1.0，记忆协议也写明这是她想明白的、不是主人说过的。
+- 水位是全局的一条时间戳，不分会话：换个窗口不会重来，但也意味着某个会话长期没有新消息时，它的旧原文要靠后来的批次一起带走。提炼本身串行（`in-flight` 时直接跳过），不会两轮抢同一个库。
+- `facts` 表里的事实只通过写回经历流的【我自己想明白的】那句话进长期召回；FTS 命中的是那句话，不是整段原文，需要细节仍要用 `open_episode` 回到当时那一幕。
 - 没有对话写接口：模型和插件都不能调用 `remember`、`forget`、`introspect` 或任何核心写方法；`recall` 只读。
 - `retentionDays` 还没有执行清理，JSONL 会一直增长；阶段 2 会做保留和摘要。
 - 子代理会话（`origin: subagent` 或 `delegationDepth > 0`）整段跳过，避免把内部推理写进主记忆。
@@ -327,5 +377,6 @@ await ctx.get('fishMind').rebuild()
 ## 回滚
 
 1. 软回滚：把 `config.json` 的 `mode` 改成 `off`，停止抓取和召回；权限和零花钱账本仍然生效。只想关记忆就把 `inject` 改成 `false`，或把 `mode` 退回 `shadow`；两种都不会删除已有数据。
-2. 完全移除：从 `fish/bundle/cordis.patch.yml` 删掉 `fish-mind` 条目，重新打包或重启。
-3. 数据保留：回滚不会删除 `$DSH_HOME/fish-mind/`；需要彻底清除时手动删除该目录。删除 `budget.json` 会让下一次启动按新出生重新发 ¥10。
+2. 只想停掉短期层：`working.enabled: false` 一次关掉注入和提炼；想留住“刚聊过的话”但不想为提炼花钱，就只把 `working.consolidate` 改成 `false`；反过来嫌提示太长就关 `working.inject`。改完调用 `reload()` 或重启。
+3. 完全移除：从 `fish/bundle/cordis.patch.yml` 删掉 `fish-mind` 条目，重新打包或重启。
+4. 数据保留：回滚不会删除 `$DSH_HOME/fish-mind/`；需要彻底清除时手动删除该目录。删除 `budget.json` 会让下一次启动按新出生重新发 ¥10。删掉 `working.json` 会把水位归零，下一次提炼会把 `maxRows` 之内的近期原文重新看一遍（事实去重，不会存成两份）。

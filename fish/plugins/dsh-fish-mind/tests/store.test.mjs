@@ -429,3 +429,112 @@ test('会话摘要按最近活动倒序，空会话不出现', () => {
   assert.deepEqual(store.sessionOverview(1).map((item) => item.id), ['session-new'])
   store.close()
 })
+
+test('短期窗口按时间正序给当场想得起的原话，工具消息和被丢弃的不进', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  store.insert(record('我是EMT', { sessionId: 'session-a', seq: 1, at: now - 30_000 }))
+  store.insert(record('记住了，EMT。', {
+    sessionId: 'session-a', seq: 2, at: now - 20_000, kind: 'assistant', role: 'assistant', source: 'model',
+  }))
+  store.insert(record('工具回显的一大段', { sessionId: 'session-a', seq: 3, at: now - 15_000, kind: 'tool', role: 'tool' }))
+  store.insert(record('', { sessionId: 'session-a', seq: 4, at: now - 12_000, dropped: 'password' }))
+  store.insert(record('太久了想不起来', { sessionId: 'session-a', seq: 5, at: now - 90 * 60_000 }))
+
+  const rows = store.recentWindow({ since: now - 60 * 60_000, rows: 10 })
+  assert.deepEqual(rows.map((row) => row.text), ['我是EMT', '记住了，EMT。'])
+  assert.deepEqual(rows.map((row) => row.role), ['user', 'assistant'])
+  assert.ok(rows[0].at < rows[1].at, '必须是从早到晚')
+  assert.equal(rows[0].sessionId, 'session-a')
+  assert.equal(rows[0].source, 'user')
+  store.close()
+})
+
+test('短期窗口能只看某个会话，也能排除某个会话或来源', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  store.insert(record('私聊里说的', { sessionId: 'session-me', seq: 1, at: now - 10_000 }))
+  store.insert(record('群里说的', { sessionId: 'session-qq', seq: 1, at: now - 9_000, source: 'qq-group' }))
+  store.insert(record('好友说的', { sessionId: 'session-friend', seq: 1, at: now - 8_000, source: 'qq-friend' }))
+
+  assert.deepEqual(
+    store.recentWindow({ onlySessionId: 'session-qq' }).map((row) => row.text),
+    ['群里说的'],
+  )
+  assert.deepEqual(
+    store.recentWindow({ excludeSessionId: 'session-me' }).map((row) => row.text),
+    ['群里说的', '好友说的'],
+  )
+  assert.deepEqual(
+    store.recentWindow({ excludeSources: ['qq-group', 'qq-friend'] }).map((row) => row.text),
+    ['私聊里说的'],
+  )
+  store.close()
+})
+
+test('短期窗口只要最近几行，超出的旧行不再返回', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  for (let i = 0; i < 20; i += 1) {
+    store.insert(record(`第${i}句`, { sessionId: 'session-a', seq: i + 1, at: now - (20 - i) * 1_000 }))
+  }
+  const rows = store.recentWindow({ rows: 5 })
+  assert.equal(rows.length, 5)
+  assert.deepEqual(rows.map((row) => row.text), ['第15句', '第16句', '第17句', '第18句', '第19句'])
+  store.close()
+})
+
+test('事实写入：同一件事重复提炼不会存成两份', () => {
+  const { store } = tempStore()
+  const at = Date.now()
+  const base = { subject: '主人', predicate: '昵称', object: 'EMT', at }
+  assert.equal(store.upsertFact(base).action, 'added')
+  assert.equal(store.upsertFact({ ...base, object: 'EMT' }).action, 'same')
+  assert.equal(store.upsertFact({ ...base, object: '  EMT  ' }).action, 'same', '首尾空格不算改变')
+  assert.equal(store.stats().facts, 1)
+
+  const changed = store.upsertFact({ ...base, object: '小鱼', at: at + 1_000 })
+  assert.equal(changed.action, 'superseded')
+  assert.equal(store.stats().facts, 1, '旧值被取代，生效的还是一条')
+  assert.deepEqual(store.listFacts(), [{
+    subject: '主人', predicate: '昵称', object: '小鱼', confidence: 0.7, validFrom: at + 1_000,
+  }])
+
+  const rows = store._db().prepare('SELECT id, object, valid_to, superseded_by FROM facts ORDER BY id').all()
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].object, 'EMT')
+  assert.equal(rows[0].superseded_by, rows[1].id)
+  assert.equal(rows[0].valid_to, at + 1_000)
+
+  for (const bad of [{ subject: '', predicate: '昵称', object: 'EMT' }, { subject: '主人', predicate: '昵称', object: '   ' }]) {
+    assert.deepEqual(store.upsertFact(bad), { action: 'skipped', reason: 'empty' })
+  }
+  store.close()
+})
+
+test('事实按主谓存，不同主语互不覆盖', () => {
+  const { store } = tempStore()
+  const at = Date.now()
+  store.upsertFact({ subject: '主人', predicate: '职业', object: '急诊技师', at })
+  store.upsertFact({ subject: '小蓝', predicate: '职业', object: '程序员', at })
+  assert.equal(store.stats().facts, 2)
+  assert.deepEqual(store.listFacts(1).map((fact) => fact.subject), ['小蓝'])
+  store.close()
+})
+
+test('转长期流水记进 sleep_runs，状态页能计数', () => {
+  const { store } = tempStore()
+  const at = Date.now()
+  assert.equal(store.recordRun({ startedAt: at, finishedAt: at + 500, status: 'ok', tasks: ['facts'], notes: '提炼 2 条' }), true)
+  store.upsertFact({ subject: '主人', predicate: '昵称', object: 'EMT', at })
+  const stats = store.stats()
+  assert.equal(stats.runs, 1)
+  assert.equal(stats.facts, 1)
+
+  const row = store._db().prepare('SELECT started_at, status, tasks, notes FROM sleep_runs').get()
+  assert.equal(row.started_at, at)
+  assert.equal(row.status, 'ok')
+  assert.deepEqual(JSON.parse(row.tasks), ['facts'])
+  assert.equal(row.notes, '提炼 2 条')
+  store.close()
+})

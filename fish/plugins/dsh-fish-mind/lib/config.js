@@ -87,6 +87,21 @@ export function buildDefaults(dshHome) {
       workspaceChars: 900,
       excludeCurrentSession: true,
     },
+    // 短期记忆：最近这半小时的原话直接进提示，放凉或攒多了就提炼成能查的事实转长期。
+    working: {
+      enabled: true,
+      inject: true,
+      ttlMinutes: 30,
+      rows: 12,
+      chars: 1200,
+      idleMinutes: 20,
+      maxRows: 40,
+      minRows: 2,
+      consolidate: true,
+      maxFacts: 8,
+      maxTokens: 600,
+      tickSeconds: 60,
+    },
     capture: {
       user: true,
       assistant: true,
@@ -223,6 +238,28 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     )
   } else if (raw.recall !== undefined) {
     diag('config: recall 不是对象，使用默认值')
+  }
+
+  if (isPlainObject(raw.working)) {
+    const w = raw.working
+    config.working.enabled = pickBoolean(w.enabled, config.working.enabled)
+    config.working.inject = pickBoolean(w.inject, config.working.inject)
+    config.working.consolidate = pickBoolean(w.consolidate, config.working.consolidate)
+    config.working.ttlMinutes = pickNumber(w.ttlMinutes, config.working.ttlMinutes, 1, 1440)
+    config.working.rows = pickNumber(w.rows, config.working.rows, 2, 60)
+    config.working.chars = pickNumber(w.chars, config.working.chars, 200, 4000)
+    config.working.idleMinutes = pickNumber(w.idleMinutes, config.working.idleMinutes, 1, 1440)
+    config.working.maxRows = pickNumber(w.maxRows, config.working.maxRows, 2, 200)
+    config.working.minRows = pickNumber(w.minRows, config.working.minRows, 1, 20)
+    config.working.maxFacts = pickNumber(w.maxFacts, config.working.maxFacts, 1, 20)
+    config.working.maxTokens = pickNumber(w.maxTokens, config.working.maxTokens, 128, 4096)
+    config.working.tickSeconds = pickNumber(w.tickSeconds, config.working.tickSeconds, 10, 3600)
+    // 待提炼窗口最多只看 maxRows 行，门槛比它还高的话永远攒不够，提炼会静默死掉。
+    if (config.working.minRows > config.working.maxRows) {
+      config.working.minRows = config.working.maxRows
+    }
+  } else if (raw.working !== undefined) {
+    diag('config: working 不是对象，使用默认值')
   }
 
   if (isPlainObject(raw.capture)) {

@@ -560,6 +560,31 @@ export function openStore({ dir, config, diag = () => {} }) {
     WHERE episode_id = ? AND dropped IS NULL AND content <> ''
     ORDER BY ts ASC, id ASC
   `)
+  const windowStmt = db && db.prepare(`
+    SELECT ts, session_id, role, actor, source_kind, content
+    FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND ts >= ? AND role IN ('user', 'assistant')
+    ORDER BY ts DESC, id DESC LIMIT ?
+  `)
+  const factActiveStmt = db && db.prepare(`
+    SELECT id, object FROM facts
+    WHERE subject = ? AND predicate = ? AND superseded_by IS NULL
+    ORDER BY id DESC LIMIT 1
+  `)
+  const factInsertStmt = db && db.prepare(`
+    INSERT INTO facts (subject, predicate, object, valid_from, confidence, source, source_ids)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+  const factSupersedeStmt = db && db.prepare(`
+    UPDATE facts SET superseded_by = ?, valid_to = ? WHERE id = ?
+  `)
+  const factListStmt = db && db.prepare(`
+    SELECT subject, predicate, object, confidence, valid_from AS validFrom
+    FROM facts WHERE superseded_by IS NULL ORDER BY id DESC LIMIT ?
+  `)
+  const runInsertStmt = db && db.prepare(`
+    INSERT INTO sleep_runs (started_at, finished_at, status, tasks, notes) VALUES (?, ?, ?, ?, ?)
+  `)
 
   function appendJsonl(record) {
     appendFileSync(jsonlPath, JSON.stringify(record) + '\n', 'utf8')
@@ -1143,6 +1168,117 @@ export function openStore({ dir, config, diag = () => {} }) {
   }
 
   /**
+   * 短期窗口：最近一段时间里还“当场想得起”的对话原文。
+   * 只读 experiences，不写派生表——它是长期记忆的取景框，不是第二份存储。
+   * @param {{ since?: number, rows?: number, onlySessionId?: string, excludeSessionId?: string, excludeSources?: string[] }} [options]
+   * @returns {{ at: number, sessionId: string, role: string, actor: string, source: string, text: string }[]} 按时间正序
+   */
+  function recentWindow(options = {}) {
+    if (db === null) return []
+    const since = Number.isFinite(options.since) ? Number(options.since) : 0
+    const want = Math.min(Math.max(1, Number(options.rows) || 12), 200)
+    const only = typeof options.onlySessionId === 'string' ? options.onlySessionId : ''
+    const exclude = typeof options.excludeSessionId === 'string' ? options.excludeSessionId : ''
+    const skip = new Set(Array.isArray(options.excludeSources) ? options.excludeSources : [])
+    let raw
+    try {
+      raw = windowStmt.all(since, want * 3)
+    } catch (error) {
+      diag(`store: 短期窗口读失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+    const out = []
+    for (const row of raw) {
+      const sessionId = String(row.session_id ?? '')
+      const source = String(row.source_kind ?? '')
+      if (only !== '' && sessionId !== only) continue
+      if (exclude !== '' && sessionId === exclude) continue
+      if (skip.has(source)) continue
+      out.push({
+        at: Number(row.ts) || 0,
+        sessionId,
+        role: String(row.role ?? ''),
+        actor: String(row.actor ?? ''),
+        source,
+        text: String(row.content ?? ''),
+      })
+      if (out.length >= want) break
+    }
+    out.reverse()
+    return out
+  }
+
+  /**
+   * 写一条从对话里提炼出来的事实。同一 subject+predicate 已经有现值时：
+   * 内容相同就跳过（别把“昵称是 EMT”存成十份），内容不同就把旧值标成被取代
+   * ——改了昵称不该留下两条同时生效。
+   * @param {{ subject: string, predicate: string, object: string, confidence?: number, source?: string, sourceIds?: number[], validFrom?: number, at?: number }} fact
+   * @returns {{ action: string, id?: number, reason?: string }}
+   */
+  function upsertFact(fact) {
+    if (db === null) return { action: 'skipped', reason: 'degraded' }
+    const trim = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+    const subject = trim(fact.subject, 60)
+    const predicate = trim(fact.predicate, 60)
+    const object = trim(fact.object, 240)
+    if (subject === '' || predicate === '' || object === '') return { action: 'skipped', reason: 'empty' }
+    const at = Number.isFinite(fact.at) ? Number(fact.at) : Date.now()
+    try {
+      const active = factActiveStmt.get(subject, predicate)
+      if (active && String(active.object) === object) return { action: 'same', id: Number(active.id) }
+      const info = factInsertStmt.run(
+        subject,
+        predicate,
+        object,
+        Number.isFinite(fact.validFrom) ? Number(fact.validFrom) : at,
+        clamp01(Number.isFinite(fact.confidence) ? Number(fact.confidence) : 0.7),
+        trim(fact.source || 'consolidation', 40),
+        JSON.stringify(Array.isArray(fact.sourceIds) ? fact.sourceIds.slice(0, 40) : []),
+      )
+      const id = Number(info.lastInsertRowid)
+      if (active) factSupersedeStmt.run(id, at, Number(active.id))
+      return { action: active ? 'superseded' : 'added', id }
+    } catch (error) {
+      diag(`store: 事实写入失败（${String((error && error.message) || error)}）`)
+      return { action: 'skipped', reason: 'error' }
+    }
+  }
+
+  /** 当前生效的事实（被取代的不返回）；给状态页和提炼前的粗筛用。 */
+  function listFacts(limit = 40) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 40), 500)
+    try {
+      return factListStmt.all(max).map((row) => ({
+        subject: String(row.subject ?? ''),
+        predicate: String(row.predicate ?? ''),
+        object: String(row.object ?? ''),
+        confidence: Number(row.confidence) || 0,
+        validFrom: Number(row.validFrom) || 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** 记一次转长期提炼的流水，方便事后看“她什么时候把什么变成了长期记忆”。 */
+  function recordRun({ startedAt, finishedAt, status, tasks = [], notes = '' }) {
+    if (db === null) return false
+    try {
+      runInsertStmt.run(
+        Number(startedAt) || Date.now(),
+        Number(finishedAt) || null,
+        String(status || 'ok').slice(0, 40),
+        JSON.stringify(Array.isArray(tasks) ? tasks.slice(0, 20) : []),
+        String(notes ?? '').slice(0, 400),
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * 按会话聚合最近经历，给其他插件选“她最近待在哪个会话”用。
    * @param {number} limit - 最多返回多少个会话。
    * @returns {{ id: string, lastAt: number, events: number }[]} 按最近活动倒序。
@@ -1164,13 +1300,15 @@ export function openStore({ dir, config, diag = () => {} }) {
   /** 经历条数、情景条数、丢弃条数与文件体积。 */
   function stats() {
     if (db === null) {
-      return { degraded: true, total: 0, dropped: 0, episodes: 0, lastEpisodeAt: 0, dbBytes: 0, jsonlBytes: fileSize(jsonlPath) }
+      return { degraded: true, total: 0, dropped: 0, episodes: 0, facts: 0, runs: 0, lastEpisodeAt: 0, dbBytes: 0, jsonlBytes: fileSize(jsonlPath) }
     }
     const total = Number(db.prepare('SELECT COUNT(*) AS n FROM experiences').get()?.n ?? 0)
     const dropped = Number(db.prepare('SELECT COUNT(*) AS n FROM experiences WHERE dropped IS NOT NULL').get()?.n ?? 0)
     const episodes = Number(db.prepare('SELECT COUNT(*) AS n FROM episodes').get()?.n ?? 0)
+    const facts = Number(db.prepare('SELECT COUNT(*) AS n FROM facts WHERE superseded_by IS NULL').get()?.n ?? 0)
+    const runs = Number(db.prepare('SELECT COUNT(*) AS n FROM sleep_runs').get()?.n ?? 0)
     const lastEpisodeAt = Number(db.prepare('SELECT MAX(end_ts) AS at FROM episodes').get()?.at ?? 0)
-    return { degraded: false, total, dropped, episodes, lastEpisodeAt, dbBytes: fileSize(dbPath), jsonlBytes: fileSize(jsonlPath) }
+    return { degraded: false, total, dropped, episodes, facts, runs, lastEpisodeAt, dbBytes: fileSize(dbPath), jsonlBytes: fileSize(jsonlPath) }
   }
 
   /** 今天的经历条数（按本地日期）。 */
@@ -1315,6 +1453,10 @@ export function openStore({ dir, config, diag = () => {} }) {
     openEpisode,
     encodePending,
     sessionOverview,
+    recentWindow,
+    upsertFact,
+    listFacts,
+    recordRun,
     stats,
     countToday,
     countBetween,
