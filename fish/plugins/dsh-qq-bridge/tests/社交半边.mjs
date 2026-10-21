@@ -45,6 +45,10 @@ const 段 = 模.解析消息段({
   ],
 }, '999')
 报('消息段：@ 我 + 正文 + 回复 id', 段.at我 && 段.文字.includes('在吗') && 段.回复id === '42', JSON.stringify(段))
+const 图片段 = 模.解析消息段({
+  message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } }],
+}, '999')
+报('消息段：图片带 url/file/summary', 图片段.文字 === '[图片]' && 图片段.图片们.length === 1 && 图片段.图片们[0].url.includes('qq.com.cn') && 图片段.图片们[0].file === 'a.jpg', JSON.stringify(图片段))
 
 // ---------- 假配置 / 假 ctx ----------
 const 写配置 = (社交 = {}) => {
@@ -74,6 +78,7 @@ const 工具闸门 = []
 const 判断调用 = []
 const 存储 = []
 const 发的 = []
+const 附件们 = []
 const 鱼脑 = { availableCny: 5, 脱敏坏: false, 脱敏空: false }
 let 判断输出 = JSON.stringify({ watch: [], reply: false, confidence: 0.1, reason: '插不上话' })
 let 发送序号 = 100
@@ -90,6 +95,31 @@ const 假llm = {
   },
   async listProviders() { return [{ id: 'fake', name: 'Fake 提供方' }] },
   async listModels(id) { return id === 'fake' ? [{ id: 'cheap', name: '便宜模型' }, { id: 'chat', name: '聊天模型' }] : [] },
+}
+
+const 假附件 = {
+  imageLimits: {
+    maxImageBytes: 5_000_000,
+    maxImagesPerMessage: 4,
+    maxMessageImageBytes: 10_000_000,
+    maxImagePixels: 10_000_000,
+    maxImageDimension: 4096,
+    mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+  },
+  async saveImages(inputs) {
+    return inputs.map((输入) => {
+      const ref = {
+        attachmentId: 'att-' + 附件们.length,
+        mediaType: 输入.mediaType,
+        bytes: 输入.data.length,
+        width: 1,
+        height: 1,
+        name: 输入.name,
+      }
+      附件们.push(ref)
+      return ref
+    })
+  },
 }
 
 const 造agent = (sid) => ({
@@ -141,6 +171,7 @@ const ctx = {
       }
     }
     if (名字 === 'llm') return 假llm
+    if (名字 === 'attachments') return 假附件
     return undefined
   },
 }
@@ -166,6 +197,14 @@ globalThis.fetch = async (url, 选项) => {
     const list = 好友消息表.get(Number(体.user_id)) || []
     return { json: async () => ({ status: 'ok', retcode: 0, data: { messages: list } }) }
   }
+  if (u.includes('multimedia.nt.qq.com.cn')) {
+    return {
+      ok: true,
+      url: u,
+      headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? '4' : null) },
+      async arrayBuffer() { return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer },
+    }
+  }
   发的.push({ url: u, 体 })
   return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: ++发送序号 } }) }
 }
@@ -180,6 +219,17 @@ const 一条群消息 = (文本, { uid = 888, id, time, atSelf = false, replyId 
     ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
     ...(replyId === '' ? [] : [{ type: 'reply', data: { id: String(replyId) } }]),
     { type: 'text', data: { text: 文本 } },
+  ],
+})
+
+const 一条带图群消息 = (id, { 是主人 = false, atSelf = false } = {}) => ({
+  user_id: 是主人 ? 123 : 888,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: id,
+  sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
+  message: [
+    ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
+    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } },
   ],
 })
 
@@ -233,6 +283,20 @@ const 第一轮 = 回合.at(-1)
 报('看完待看队列清空', (await 目标状态('group:1001')).待看 === 0)
 await 收到回复('session-qq-social-group-1001', '在呀，怎么啦')
 报('她的话发回原群', 发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1001 && x.体.message[0].data.text === '在呀，怎么啦'), JSON.stringify(发的.at(-1)))
+await new Promise((r) => setTimeout(r, 200)) // 等社交落地把她刚说的话放回缓冲
+
+// 下一轮回复要带上最近聊过的上下文，不能只回一条孤零零的新消息
+写配置({ 群: ['1001'], 冷却秒: 10, 判断冷却秒: 10 })
+时间偏移 += 11_000 // 过掉判断冷却和接话冷却
+群消息表.set(1001, [
+  ...(群消息表.get(1001) || []),
+  一条群消息('鲸鱼刚刚又冒头了', { id: 1103, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+设判断(['1103'], true, 0.9, '接着聊')
+await 轮询社交()
+await 等()
+const 上下文轮 = 回合.at(-1)
+报('回复轮带上了最近聊过的上下文', 上下文轮 && String(上下文轮.message.content[0].text).includes('【最近聊过】') && String(上下文轮.message.content[0].text).includes('在呀，怎么啦'), JSON.stringify(上下文轮 && String(上下文轮.message.content[0].text).slice(0, 300)))
 
 // ---------- 2 判断说不看也不回 ----------
 写配置({ 群: ['1002'] })
@@ -331,6 +395,18 @@ const 主人叫轮 = 回合.at(-1)
 const 发之前6b = 发的.length
 await 收到回复('session-qq-social-group-1014', '在呀，怎么啦')
 报('主人 @ 后她的回话发回群', 发的.length === 发之前6b + 1 && 发的.at(-1).url.endsWith('/send_group_msg') && 发的.at(-1).体.group_id === 1014 && 发的.at(-1).体.message[0].data.text === '在呀，怎么啦', JSON.stringify(发的.at(-1)))
+
+// ---------- 6c 图片：下载进附件库，作为 image 块进会话 ----------
+写配置({ 群: ['1016'] })
+群消息表.set(1016, [一条带图群消息(1603, { 是主人: true })])
+const 之前6c = 回合.length
+const 附件之前6c = 附件们.length
+await 轮询社交()
+await 等()
+const 图轮 = 回合.at(-1)
+报('主人发图 → 图片下载并进会话', 回合.length === 之前6c + 1 && 附件们.length === 附件之前6c + 1, `回合=${回合.length} 附件=${附件们.length}`)
+报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
+报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人】'))
 
 // ---------- 7 她自己的发言不接 ----------
 写配置({ 群: ['1006'] })
