@@ -365,69 +365,74 @@ await 轮询社交()
 await 等()
 报('好友私聊也能拒绝', 回合.length === 之前5b && 注入们.length === 注入之前5b + 1, JSON.stringify(注入们.at(-1)))
 
-// ---------- 6 主人在群里：没叫只当上下文；叫了可以接 ----------
+// ---------- 6 群聊里主人和群友走同一套规则 ----------
 写配置({ 群: ['1005'] })
 群消息表.set(1005, [一条群消息('晚上吃啥', { id: 1601, 是主人: true })])
-const 之前6 = 回合.length
+设判断(['1601'], false, 0.4, '只想看看')
 const 判断之前6 = 判断调用.length
 const 注入之前6 = 注入们.length
+const 群1005之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1005').length
 await 轮询社交()
 await 等()
-报('主人没叫 → 不另开社交轮', 回合.length === 之前6)
-报('主人没叫 → 不花判断钱', 判断调用.length === 判断之前6)
-报('主人没叫 → 记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
-报('主人消息的上下文来源标了主人', 注入们.at(-1) && 注入们.at(-1).message.source.owner === true)
+报('主人没叫 → 也走同一套判断', 判断调用.length === 判断之前6 + 1)
+报('主人没叫 → 不另开社交轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1005').length === 群1005之前)
+报('判断挑中 → 记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
+报('主人上下文来源标了主人', 注入们.at(-1) && 注入们.at(-1).message.source.owner === true)
 
-// 主人在群里 @ 她 / 叫名字 → 明确召唤，直接开一轮，不问兴趣判断
-写配置({ 群: ['1014'] })
+// 主人在群里 @ 她 / 叫名字 → 和群友一样，开关开着就直通
+写配置({ 群: ['1014'], 被叫直接接: true })
 群消息表.set(1014, [一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true })])
 设判断([], false, 0.1, '不想接')
-const 之前6b = 回合.length
 const 判断之前6b = 判断调用.length
 const 注入之前6b = 注入们.length
+const 群1014之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1014').length
 await 轮询社交()
 await 等()
-报('主人 @ 她 → 开一轮，不等兴趣小模型', 回合.length === 之前6b + 1 && 判断调用.length === 判断之前6b, `回合=${回合.length} 判断=${判断调用.length}`)
-const 主人叫轮 = 回合.at(-1)
+const 群1014轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1014')
+报('主人 @ 她 → 开一轮，不等兴趣小模型', 群1014轮.length === 群1014之前 + 1 && 判断调用.length === 判断之前6b, `回合=${群1014轮.length} 判断=${判断调用.length}`)
+const 主人叫轮 = 群1014轮.at(-1)
 报('主人 @ 的批次里带着主人消息', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('在吗') && String(主人叫轮.message.content[0].text).includes('【主人】'), JSON.stringify(主人叫轮 && String(主人叫轮.message.content[0].text).slice(0, 160)))
 报('主人 @ 的消息来源仍标主人', 主人叫轮 && 主人叫轮.message.source.owner === true)
 报('主人 @ 不塞进只看不发的上下文', 注入们.length === 注入之前6b)
-const 发之前6b = 发的.length
+const 群发之前 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1014).length
 await 收到回复('session-qq-social-group-1014', '在呀，怎么啦')
-报('主人 @ 后她的回话发回群', 发的.length === 发之前6b + 1 && 发的.at(-1).url.endsWith('/send_group_msg') && 发的.at(-1).体.group_id === 1014 && 发的.at(-1).体.message[0].data.text === '在呀，怎么啦', JSON.stringify(发的.at(-1)))
+const 群发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1014)
+报('主人 @ 后她的回话发回群', 群发.length === 群发之前 + 1 && 群发.at(-1).体.message[0].data.text === '在呀，怎么啦', JSON.stringify(群发.at(-1)))
 
 // ---------- 6c 图片：下载进附件库，作为 image 块进会话 ----------
 写配置({ 群: ['1016'] })
 群消息表.set(1016, [一条带图群消息(1603, { 是主人: true })])
-const 之前6c = 回合.length
 const 附件之前6c = 附件们.length
+const 群1016之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1016').length
 await 轮询社交()
 await 等()
-const 图轮 = 回合.at(-1)
-报('主人发图 → 图片下载并进会话', 回合.length === 之前6c + 1 && 附件们.length === 附件之前6c + 1, `回合=${回合.length} 附件=${附件们.length}`)
+const 图轮s = 回合.filter((r) => r.sid === 'session-qq-social-group-1016')
+const 图轮 = 图轮s.at(-1)
+报('主人发图 → 图片下载并进会话', 图轮s.length === 群1016之前 + 1 && 附件们.length === 附件之前6c + 1, `回合=${图轮s.length} 附件=${附件们.length}`)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人】'))
 
-// 群友 @ 她也要直接接；不能只有主人有反应
+// 群友 @ 她也要直接接；和主人同一套
 写配置({ 群: ['1017'], 被叫直接接: true })
 群消息表.set(1017, [一条群消息('在吗', { atSelf: true, id: 1604 })])
 设判断([], false, 0.1, '不想接')
-const 之前6d = 回合.length
 const 判断之前6d = 判断调用.length
+const 群1017之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1017').length
 await 轮询社交()
 await 等()
-const 群友叫轮 = 回合.at(-1)
-报('群友 @ 她 → 也直接开一轮，不等判断模型', 回合.length === 之前6d + 1 && 判断调用.length === 判断之前6d, `回合=${回合.length} 判断=${判断调用.length}`)
+const 群1017轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1017')
+const 群友叫轮 = 群1017轮.at(-1)
+报('群友 @ 她 → 也直接开一轮，不等判断模型', 群1017轮.length === 群1017之前 + 1 && 判断调用.length === 判断之前6d, `回合=${群1017轮.length} 判断=${判断调用.length}`)
 报('群友 @ 的批次带群友消息', 群友叫轮 && String(群友叫轮.message.content[0].text).includes('在吗') && 群友叫轮.message.source.owner === false, JSON.stringify(群友叫轮 && String(群友叫轮.message.content[0].text).slice(0, 160)))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })
 群消息表.set(1018, [一条群消息('随便聊聊', { id: 1605 })])
 判断输出 = '不是 JSON'
-const 之前坏判 = 回合.length
+const 坏判之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1018').length
 await 轮询社交()
 await 等()
-报('判断失败 → 不开轮', 回合.length === 之前坏判)
+报('判断失败 → 不开轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1018').length === 坏判之前)
 报('判断失败 → 消息留在待看', (await 目标状态('group:1018')).待看 >= 1, JSON.stringify(await 目标状态('group:1018')))
 报('判断失败写进日志', String(await 日志文本()).includes('判断暂时失败'))
 设判断([], false, 0.1, '插不上话')
@@ -690,7 +695,7 @@ await 等()
 const 提示21 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
 报('快判只把有兴趣的消息送进判断窗口', 判断调用.length === 判断之前21 + 1 && 提示21.includes('[#3125]') && 提示21.includes('鲸鱼又浮上来了'))
 报('被叫的消息不因快判被挡', 提示21.includes('[#3123]') && 提示21.includes('[被叫]'))
-报('主人的消息不因快判被挡', 提示21.includes('[#3124]') && 提示21.includes('[主人]'))
+报('主人的消息也走同一套快判', !提示21.includes('[#3124]'))
 报('明显无关的群友消息被快判挡掉', !提示21.includes('[#3122]') && !提示21.includes('食堂还是'))
 报('快判不替她决定回不回', 回合.length === 回合之前21 && 注入们.length === 注入之前21 + 1)
 报('只看过的消息才算进画像', (await 目标状态('group:1019')).画像.样本 === 21, JSON.stringify((await 目标状态('group:1019')).画像))
@@ -715,7 +720,7 @@ const 回合之前21b = 回合.length
 await 轮询社交()
 await 等()
 报('整批没兴趣 → 一次判断都不花', 判断调用.length === 判断之前21b && 回合.length === 回合之前21b)
-报('整批没兴趣时主人消息仍当上下文', 注入们.length === 注入之前21b + 1 && String(注入们.at(-1).message.content[0].text).includes('主人再说一句') && !String(注入们.at(-1).message.content[0].text).includes('食堂关门'))
+报('整批没兴趣时主人消息也不特殊', 注入们.length === 注入之前21b)
 报('整批没兴趣 → 待看清空', (await 目标状态('group:1019')).待看 === 0)
 报('快判跳过批数进状态', (await 目标状态('group:1019')).画像.快判跳过 >= 1)
 
