@@ -875,6 +875,49 @@ await 等()
 报('主人让收藏 → 只看不回也存进 QQ', QQ收藏.size === 收藏数前21f + 1, `收藏=${QQ收藏.size}`)
 报('主人让收藏 → 不额外回消息', !发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1035))
 
+// ---------- 21g 聊天节奏：话没断 + 高把握 → 允许顺着问一句 ----------
+写配置({ 群: ['1041'], 判断冷却秒: 10, 冷却秒: 10 })
+群消息表.set(1041, [一条群消息('今天海边风好大', { id: 4601 })])
+设判断(['4601'], true, 0.9, '聊到海，来劲了')
+await 轮询社交()
+await 等()
+时间偏移 += 11_000
+群消息表.set(1041, [
+  一条群消息('今天海边风好大', { id: 4601 }),
+  一条群消息('浪都拍到路上了', { id: 4602, uid: 889 }),
+])
+设判断(['4602'], true, 0.9, '顺着海边聊')
+await 轮询社交()
+await 等()
+const 热提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('话没断 + 高把握 → 分寸提示允许问一句', 回合.length >= 2 && 热提示.includes('【这一轮的分寸】') && 热提示.includes('来劲') && 热提示.includes('问一句'), 热提示.slice(-240))
+
+// ---------- 21h 聊天节奏：额度快满 → 收着说，不开新话题 ----------
+写配置({ 群: ['1043'], 每小时上限: 2, 判断冷却秒: 10, 冷却秒: 10 })
+群消息表.set(1043, [一条群消息('今晚吃什么', { id: 4701 })])
+设判断(['4701'], true, 0.9, '想接')
+await 轮询社交()
+await 等()
+时间偏移 += 11_000
+群消息表.set(1043, [
+  一条群消息('今晚吃什么', { id: 4701 }),
+  一条群消息('火锅还是面', { id: 4702, uid: 889 }),
+])
+设判断(['4702'], true, 0.9, '继续')
+await 轮询社交()
+await 等()
+const 省提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('额度快满 → 收着说、不主动开新话题', 回合.length >= 2 && 省提示.includes('收着点') && 省提示.includes('不主动开新话题'), 省提示.slice(-240))
+
+// ---------- 21i 聊天节奏：把握一般 → 短应一声，不追问 ----------
+写配置({ 群: ['1045'], 判断冷却秒: 10, 冷却秒: 10 })
+群消息表.set(1045, [一条群消息('今天天气一般', { id: 4801 })])
+设判断(['4801'], true, 0.32, '有点意思')
+await 轮询社交()
+await 等()
+const 温提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('把握一般 → 回一句就够、不追问', 温提示.includes('有点兴趣') && 温提示.includes('回一句就够'), 温提示.slice(-240))
+
 // ---------- 22 /models 与 /save 深层合并 ----------
 写配置({ 群: ['1019'], 快判: false })
 const fakeRes = { statusCode: 200, setHeader: () => {}, end: (s) => { 存储.push(JSON.parse(s)) } }
@@ -894,6 +937,7 @@ const 存盘 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8
 await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 关注上限: 99 } }), fakeRes)
 const 存盘2 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('关注上限夹在 1~30', 存盘2.社交.关注上限 === 30, String(存盘2.社交.关注上限))
+报('社交场景提示写进聊天节奏', 场景提示.some((x) => String(x.text).includes('【聊天的节奏】') && String(x.text).includes('一次最多问一个问题')))
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
