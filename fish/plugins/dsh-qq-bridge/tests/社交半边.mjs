@@ -408,6 +408,30 @@ const 图轮 = 回合.at(-1)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人】'))
 
+// 群友 @ 她也要直接接；不能只有主人有反应
+写配置({ 群: ['1017'], 被叫直接接: true })
+群消息表.set(1017, [一条群消息('在吗', { atSelf: true, id: 1604 })])
+设判断([], false, 0.1, '不想接')
+const 之前6d = 回合.length
+const 判断之前6d = 判断调用.length
+await 轮询社交()
+await 等()
+const 群友叫轮 = 回合.at(-1)
+报('群友 @ 她 → 也直接开一轮，不等判断模型', 回合.length === 之前6d + 1 && 判断调用.length === 判断之前6d, `回合=${回合.length} 判断=${判断调用.length}`)
+报('群友 @ 的批次带群友消息', 群友叫轮 && String(群友叫轮.message.content[0].text).includes('在吗') && 群友叫轮.message.source.owner === false, JSON.stringify(群友叫轮 && String(群友叫轮.message.content[0].text).slice(0, 160)))
+
+// 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
+写配置({ 群: ['1018'] })
+群消息表.set(1018, [一条群消息('随便聊聊', { id: 1605 })])
+判断输出 = '不是 JSON'
+const 之前坏判 = 回合.length
+await 轮询社交()
+await 等()
+报('判断失败 → 不开轮', 回合.length === 之前坏判)
+报('判断失败 → 消息留在待看', (await 目标状态('group:1018')).待看 >= 1, JSON.stringify(await 目标状态('group:1018')))
+报('判断失败写进日志', String(await 日志文本()).includes('判断暂时失败'))
+设判断([], false, 0.1, '插不上话')
+
 // ---------- 7 她自己的发言不接 ----------
 写配置({ 群: ['1006'] })
 群消息表.set(1006, [一条群消息('我刚说的', { uid: 999, id: 1701 })])
