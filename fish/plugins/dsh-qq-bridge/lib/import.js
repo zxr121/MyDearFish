@@ -11,6 +11,10 @@
 //
 // Tulpa 是闭源程序，工具名和参数名只能按 MCP 的 tools/list 现学现用；
 // 认不出来的形状一律跳过并如实报出来，不猜、不编。
+//
+// 实测它有两套翻页形状：老一套拿时间当游标（end_time 往前翻），
+// 新一套（0.5.x）拿 offset 翻、拿 snapshot_max_id 冻结入库上界——
+// 快照不冻结的话，导到一半新消息入库，页界会挪动。两套都认，按参数表自己分。
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -31,6 +35,11 @@ const 只读前缀 = ['get', 'list', 'search', 'read', 'describe', 'query', 'cou
 const 会话词 = ['conversation', 'friend', 'contact', 'session', '会话', '好友', '联系人']
 const 历史词 = ['message', 'history', 'record', '聊天', '消息', '记录']
 const 时间原字段 = ['time', 'timestamp', 'sent_time', 'send_time', 'created_at', 'createTime', 'date']
+/** 整条只剩占位（[动画表情]、[图片] 一类）：没有可记的内容，如实跳过。 */
+const 纯占位 = /^(?:\[[^\[\]]{1,16}\]\s*)+$/
+/** 聊天记录里夹带的令牌样式（OpenAI/DeepSeek/Anthropic/GitHub/Slack/Google）：进经历流之前换成 [机密]，
+ *  事情记得住，原文留不下。 */
+const 机密样 = /\b(?:sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})/g
 
 const 是对象 = (值) => 值 !== null && typeof 值 === 'object' && !Array.isArray(值)
 const 文本 = (值) => (typeof 值 === 'string' ? 值.trim() : typeof 值 === 'number' ? String(值) : '')
@@ -40,6 +49,12 @@ const 短 = (值, 限) => {
 }
 const 名段 = (小) => String(小).toLowerCase().split(/[^a-z0-9]+/)
 const 归名 = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/** 参数表里声明的条数上限（schema 的 maximum）；没声明就返回 0。 */
+const 上限 = (项) => {
+  const 值 = Number(是对象(项) ? 项.maximum : NaN)
+  return Number.isFinite(值) && 值 > 0 ? 值 : 0
+}
 
 /** 32 位稳定整数：observe 的经历指纹里带 seq，不给稳定 seq 就每次都是新条目，重放会写两遍。 */
 function 稳定序号(文字) {
@@ -115,6 +130,17 @@ function 挑列表(值, 候选, 层 = 0) {
   return null
 }
 
+/** 按名字找数字字段（next_offset、snapshot_max_id 这类分页信号）；null、空串、布尔都不算数。 */
+function 挑数字(对象, 键们) {
+  if (!是对象(对象)) return null
+  for (const 键 of 键们) {
+    const 原始 = 对象[键]
+    if (typeof 原始 === 'number' && Number.isFinite(原始)) return 原始
+    if (typeof 原始 === 'string' && 原始.trim() !== '' && Number.isFinite(Number(原始))) return Number(原始)
+  }
+  return null
+}
+
 /** 名字段或描述里带这些词，才认为它干这一类活；必须是只读前缀开头的动作。 */
 function 挑工具(清单, 词) {
   let 最佳 = null
@@ -129,6 +155,41 @@ function 挑工具(清单, 词) {
     if (分 === 0 && 词.some((w) => 描述.includes(w))) 分 = 1
     if (分 === 0) continue
     if (!只读前缀.some((p) => 段[0] === p)) 分 = 0
+    if (分 > 最佳分) {
+      最佳分 = 分
+      最佳 = tool
+    }
+  }
+  return 最佳
+}
+
+/**
+ * 历史工具得会「翻一间屋的整段记录」。光看名字会翻车：Tulpa 的 read_conversation
+ * 名字里没有 message，而 get_messages_since 有——按名字挑会挑中那个增量工具，
+ * 整段历史永远只能读到最新一页。所以把参数表也算进分：有会话参数、能翻页、
+ * 能定方向的才是整段读取器；带关键词过滤（搜索类）和 since/after（增量类）的减分。
+ */
+function 挑历史工具(清单) {
+  let 最佳 = null
+  // 门槛 3：光沾一个「消息」词的不算——参数表里得有会话参数或翻页参数的证据。
+  let 最佳分 = 2
+  for (const tool of 清单) {
+    const 名 = 文本(tool && tool.name)
+    if (名 === '') continue
+    const 段 = 名段(名)
+    if (拒绝词.some((w) => 段.some((s) => s === w || s.startsWith(w)))) continue
+    if (!只读前缀.some((p) => 段[0] === p)) continue
+    const 描述 = String((tool && tool.description) || '').toLowerCase()
+    const 属性 = 是对象(tool && tool.inputSchema) && 是对象(tool.inputSchema.properties) ? tool.inputSchema.properties : {}
+    let 分 = 0
+    if (段.some((s) => 历史词.some((w) => s === w || s.startsWith(w)))) 分 += 2
+    else if (历史词.some((w) => 描述.includes(w))) 分 += 1
+    if (段.some((s) => 会话词.some((w) => s === w || s.startsWith(w)))) 分 += 2
+    if (挑字段(属性, ['conversation_id', 'chat_id', 'conversationId', 'chatId'], ['conversation', 'chat']) !== '') 分 += 2
+    if (挑字段(属性, ['offset', 'cursor'], ['offset', 'cursor']) !== '') 分 += 1
+    if (挑字段(属性, ['order', 'sort'], ['order', 'sort']) !== '') 分 += 1
+    if (挑字段(属性, ['query', 'keyword', 'q', 'search'], ['query', 'keyword']) !== '') 分 -= 2
+    if (段.some((s) => ['since', 'after', 'latest', 'new', 'recent'].some((w) => s === w || s.startsWith(w)))) 分 -= 3
     if (分 > 最佳分) {
       最佳分 = 分
       最佳 = tool
@@ -171,11 +232,35 @@ function 时间原值(条) {
   return 0
 }
 
-/** 存进经历的时刻统一成毫秒。 */
+/** Tulpa 的时刻是「2026-10-21 08:04:35 +08:00」这类文本；不带时区按北京时间算，认不出返回 0。 */
+function 解析时刻串(文) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\s*(Z|[+-]\d{2}:?\d{2}))?$/.exec(String(文).trim())
+  if (m === null) return 0
+  const [, 年, 月, 日, 时, 分, 秒, 区] = m
+  if (Number(月) < 1 || Number(月) > 12 || Number(日) < 1 || Number(日) > 31
+    || Number(时) > 23 || Number(分) > 59 || Number(秒) > 59) return 0
+  let 毫秒 = Date.UTC(Number(年), Number(月) - 1, Number(日), Number(时), Number(分), Number(秒 || 0))
+  if (区 === undefined) 毫秒 -= 8 * 3600000
+  else if (区 !== 'Z') {
+    const 号 = 区[0] === '-' ? -1 : 1
+    毫秒 -= 号 * (Number(区.slice(1, 3)) * 60 + Number(区.slice(-2))) * 60000
+  }
+  return 毫秒
+}
+
+/** 存进经历的时刻统一成毫秒：数字按秒/毫秒换算，文本按上表解析。 */
 function 消息时刻(条) {
-  const 值 = 时间原值(条)
-  if (值 === 0) return 0
-  return 值 < 1e11 ? 值 * 1000 : 值
+  for (const 键 of 时间原字段) {
+    const 原始 = 条[键]
+    if (typeof 原始 === 'string') {
+      const 毫秒 = 解析时刻串(原始)
+      if (毫秒 > 0) return 毫秒
+    } else {
+      const 值 = Number(原始)
+      if (Number.isFinite(值) && 值 > 0) return 值 < 1e11 ? 值 * 1000 : 值
+    }
+  }
+  return 0
 }
 
 /** 会话列表里的条目没有 id 字段时，才退回去拿名字当标识。 */
@@ -342,8 +427,11 @@ export function 创建历史导入({ 鱼脑, 状态文件, 日志 = () => {} }) 
   function 写入(条, 会话id, 每轮条数) {
     if (!是对象(条)) return '跳'
     if (状态.计数.写 >= 每轮条数) return '满'
-    const 文字 = 消息正文(条)
-    if (文字 === '') return '跳'
+    const 原文 = 消息正文(条)
+    if (原文 === '' || 纯占位.test(原文)) return '跳'
+    // 占位判断看原文（纯密钥消息不是占位，替换成 [机密] 后仍保留这条事件），
+    // 落库与指纹一律用替换后的文字。
+    const 文字 = 原文.replace(机密样, '[机密]')
     const id = 挑值(条, ['message_id', 'messageId', 'id', 'seq'])
     const 时刻 = 消息时刻(条)
     // 这一条属于哪间屋以「正在导的这间」为准：消息里的 sender_id 是说话人，不是会话。
@@ -395,7 +483,7 @@ export function 创建历史导入({ 鱼脑, 状态文件, 日志 = () => {} }) 
     if (清单.length === 0) throw new Error('Tulpa 没有暴露任何工具：检查它有没有把 MCP 开放给智能体')
 
     const 会话工具 = 挑工具(清单, 会话词)
-    const 历史工具 = 挑工具(清单, 历史词)
+    const 历史工具 = 挑历史工具(清单)
     if (历史工具 === null) throw new Error(`Tulpa 的 ${清单.length} 个工具里没有能读聊天记录的`)
     状态.工具 = 历史工具.name + (会话工具 === null ? '' : ` + ${会话工具.name}`)
 
@@ -409,11 +497,45 @@ export function 创建历史导入({ 鱼脑, 状态文件, 日志 = () => {} }) 
       ['end_time', 'to_time', 'before', 'max_time', 'start_time', 'begin_time', 'from_time', 'time'],
       ['time', 'date'])
     const 条数键 = 挑字段(参数表, ['count', 'limit', 'page_size', 'pageSize', 'size', 'max'], ['count', 'limit', 'size'])
+    const 偏移键 = 挑字段(参数表, ['offset', 'cursor', 'next_offset'], ['offset', 'cursor'])
+    const 顺序键 = 挑字段(参数表, ['order', 'sort_order', 'sortOrder', 'sort'], ['order', 'sort'])
+    const 快照键 = 挑字段(参数表, ['snapshot_max_id', 'snapshotMaxId', 'snapshot_id'], ['snapshot'])
+    const 平台键 = 挑字段(参数表, ['platform'], ['platform'])
+    const 顺序枚举 = 顺序键 !== '' && 是对象(参数表[顺序键]) && Array.isArray(参数表[顺序键].enum)
+      ? 参数表[顺序键].enum.map(文本)
+      : null
+    const 顺序值 = 顺序枚举 === null ? '' : (顺序枚举.includes('newest') ? 'newest' : (顺序枚举.includes('desc') ? 'desc' : ''))
+    // 有时间游标的老服务走时间翻页；没有时间参数但有 offset 的（Tulpa）走偏移翻页。
+    const 用偏移 = 偏移键 !== '' && 时间键 === ''
 
+    const 平台表 = new Map()
     let 房间 = []
-    if (状态.会话 !== null && 状态.会话.到 > Date.now()) 房间 = 状态.会话.列表
-    else if (会话工具 !== null) {
-      房间 = 挑列表(解析返回(await 接.调(会话工具.name, {})), ['list', 'items', 'data', 'conversations', 'friends', 'result']) || []
+    if (状态.会话 !== null && 状态.会话.到 > Date.now()) {
+      房间 = 状态.会话.列表
+    } else if (会话工具 !== null) {
+      // 会话目录自己也分页（Tulpa 每页至多 20 间），翻完才算数。
+      const 会话参数表 = 是对象(会话工具.inputSchema) && 是对象(会话工具.inputSchema.properties)
+        ? 会话工具.inputSchema.properties
+        : {}
+      const 会话条数键 = 挑字段(会话参数表, ['count', 'limit', 'page_size', 'pageSize', 'size', 'max'], ['count', 'limit', 'size'])
+      const 会话偏移键 = 挑字段(会话参数表, ['offset', 'cursor', 'next_offset'], ['offset', 'cursor'])
+      const 会话平台键 = 挑字段(会话参数表, ['platform'], ['platform'])
+      const 基础 = {}
+      if (会话平台键 !== '') 基础[会话平台键] = 'qq'
+      if (会话条数键 !== '') 基础[会话条数键] = Math.min(上限(会话参数表[会话条数键]) || 20, 20)
+      let 偏移 = 0
+      for (let 页 = 0; 页 < 100; 页++) {
+        const 参数 = 会话偏移键 === '' || 偏移 === 0 ? 基础 : { ...基础, [会话偏移键]: 偏移 }
+        const 包 = 解析返回(await 接.调(会话工具.name, 参数))
+        const 页房间 = 挑列表(包, ['list', 'items', 'data', 'conversations', 'friends', 'result']) || []
+        房间.push(...页房间)
+        const 还有键 = 挑字段(包, ['has_more', 'hasMore'], [])
+        const 还有 = 还有键 === '' ? null : 包[还有键]
+        let 续 = 挑数字(包, ['next_offset', 'nextOffset', 'next_cursor'])
+        if (续 === null && 还有 === true) 续 = 偏移 + 页房间.length
+        if (页房间.length === 0 || 续 === null || 续 === 偏移 || 还有 === false) break
+        偏移 = 续
+      }
       状态.会话 = { 列表: 房间, 到: Date.now() + 会话缓存毫秒 }
     }
     if (房间.length === 0) {
@@ -428,7 +550,10 @@ export function 创建历史导入({ 鱼脑, 状态文件, 日志 = () => {} }) 
       const id = 会话标识(项)
       if (id === '' || 是群(项)) continue
       if (白名单 !== null && !白名单.has(id)) continue
-      if (!目标.includes(id)) 目标.push(id)
+      if (!目标.includes(id)) {
+        目标.push(id)
+        if (是对象(项) && 文本(项.platform) !== '') 平台表.set(id, 文本(项.platform))
+      }
     }
     if (目标.length === 0) throw new Error('要导的私聊一个都没找到：检查私聊白名单，或者 Tulpa 里有没有这些会话')
     if (会话键 === '' && 目标.length > 1) throw new Error(`「${历史工具.name}」没有会话参数：一次只能导一间，请填私聊白名单`)
@@ -440,14 +565,20 @@ export function 创建历史导入({ 鱼脑, 状态文件, 日志 = () => {} }) 
       if (进度.完成) continue
       const 基础 = {}
       if (会话键 !== '') 基础[会话键] = 间
-      if (条数键 !== '') 基础[条数键] = Math.min(50, 配置.每轮条数)
-      let 参数 = 时间键 !== '' && typeof 进度.位置 === 'number' ? { ...基础, [时间键]: 进度.位置 } : 基础
+      if (平台键 !== '' && 平台表.has(间)) 基础[平台键] = 平台表.get(间)
+      if (顺序值 !== '') 基础[顺序键] = 顺序值
+      if (条数键 !== '') 基础[条数键] = Math.min(上限(参数表[条数键]) || 50, 配置.每轮条数)
+      if (快照键 !== '' && Number.isFinite(进度.快照)) 基础[快照键] = 进度.快照
+      let 参数 = 用偏移 && typeof 进度.位置 === 'number'
+        ? { ...基础, [偏移键]: 进度.位置 }
+        : (时间键 !== '' && typeof 进度.位置 === 'number' ? { ...基础, [时间键]: 进度.位置 } : 基础)
 
       for (let 页 = 0; 页 < 配置.每轮页数 && 状态.计数.写 < 配置.每轮条数 && !状态.停止; 页++) {
         状态.页 += 1
-        const 消息 = 挑列表(解析返回(await 接.调(历史工具.name, 参数)),
-          ['list', 'messages', 'records', 'items', 'data', 'result']) || []
+        const 包 = 解析返回(await 接.调(历史工具.name, 参数))
+        const 消息 = 挑列表(包, ['list', 'messages', 'records', 'items', 'data', 'result']) || []
         let 本页新 = 0
+        let 页走完 = true
         for (const 条 of 消息) {
           const r = 写入(条, 间, 配置.每轮条数)
           if (r === '写') {
@@ -455,18 +586,43 @@ export function 创建历史导入({ 鱼脑, 状态文件, 日志 = () => {} }) 
             本页新 += 1
           } else if (r === '满') {
             状态.停止 = true
+            页走完 = false
             break
           } else if (r === '重') 状态.计数.重 += 1
           else 状态.计数.跳 += 1
         }
-        const 起点 = 本页最早(消息)
-        // 翻不动就收：这一间导到底了，或者这个服务不给时间参数、只认最新一页。
-        if (本页新 === 0 || 时间键 === '' || 起点 === null) {
-          进度.完成 = true
-          break
+        // 满在一页中间停下：游标留在这页开头，下轮重读，写过的算重复，不漏后半页。
+        if (!页走完) break
+        if (用偏移) {
+          if (快照键 !== '' && !Number.isFinite(进度.快照)) {
+            const 快照 = 挑数字(包, [快照键, 'snapshot_max_id', 'snapshotMaxId'])
+            if (快照 !== null) {
+              进度.快照 = 快照
+              基础[快照键] = 快照
+              参数 = { ...参数, [快照键]: 快照 }
+            }
+          }
+          const 当步 = typeof 参数[偏移键] === 'number' ? 参数[偏移键] : 0
+          const 还有键 = 挑字段(包, ['has_more', 'hasMore'], [])
+          let 下步 = 挑数字(包, ['next_offset', 'nextOffset', 'next_cursor'])
+          if (下步 === null && 还有键 !== '' && 包[还有键] === true) 下步 = 当步 + 消息.length
+          // 翻不动就收：空页、没有下步、或者下步原地踏步，都说明这间导到底了。
+          if (消息.length === 0 || 下步 === null || 下步 === 当步) {
+            进度.完成 = true
+            break
+          }
+          进度.位置 = 下步
+          参数 = { ...基础, [偏移键]: 下步 }
+        } else {
+          const 起点 = 本页最早(消息)
+          // 翻不动就收：这一间导到底了，或者这个服务不给时间参数、只认最新一页。
+          if (本页新 === 0 || 时间键 === '' || 起点 === null) {
+            进度.完成 = true
+            break
+          }
+          进度.位置 = 起点
+          参数 = { ...基础, [时间键]: 起点 }
         }
-        进度.位置 = 起点
-        参数 = { ...基础, [时间键]: 起点 }
         落盘()
       }
       落盘()
