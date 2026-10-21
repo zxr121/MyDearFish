@@ -439,6 +439,12 @@ window.__ModuleLoader__.load({
                   (t.限额 ? ' · 现在不接：' + t.限额 : ''),
               )),
         ),
+        h('div', { style: { ...S.dim, marginTop: 6 } },
+          '表情包收藏：' + ((态.表情包 && 态.表情包.数量) || 0) + ' 张' +
+            (态.表情包 && Array.isArray(态.表情包.最近) && 态.表情包.最近.length
+              ? ' · ' + 态.表情包.最近.slice(-5).map((x) => '#' + x.id + ' ' + x.label).join(' · ')
+              : ''),
+        ),
 
         // —— 翻旧记录（Tulpa → 经历流） ——
         h('div', { style: S.card },

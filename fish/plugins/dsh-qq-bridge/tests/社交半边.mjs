@@ -12,7 +12,7 @@
 //      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判
 // 跑法： node tests/社交半边.mjs
 
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -101,6 +101,7 @@ const 假llm = {
   async listModels(id) { return id === 'fake' ? [{ id: 'cheap', name: '便宜模型' }, { id: 'chat', name: '聊天模型' }] : [] },
 }
 
+const 保存的图 = new Map()
 const 假附件 = {
   imageLimits: {
     maxImageBytes: 5_000_000,
@@ -121,8 +122,12 @@ const 假附件 = {
         name: 输入.name,
       }
       附件们.push(ref)
+      保存的图.set(ref.attachmentId, 输入.data)
       return ref
     })
+  },
+  async readImage(ref) {
+    return { ref, data: 保存的图.get(ref.attachmentId) || new Uint8Array() }
   },
 }
 
@@ -233,7 +238,7 @@ const 一条带图群消息 = (id, { 是主人 = false, atSelf = false } = {}) =
   sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
   message: [
     ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
-    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } },
+    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[动画表情]', sub_type: 1 } },
   ],
 })
 
@@ -416,7 +421,15 @@ const 图轮s = 回合.filter((r) => r.sid === 'session-qq-social-group-1016')
 const 图轮 = 图轮s.at(-1)
 报('发图 → 走判断，选中后图片进会话', 图轮s.length === 群1016之前 + 1 && 附件们.length === 附件之前6c + 1, `回合=${图轮s.length} 附件=${附件们.length}`)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
-报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人】'))
+报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人'))
+
+// 看中的表情才收藏；收藏后聊天时能发出去
+await 收到回复('session-qq-social-group-1016', '[存表情:图1:测试表情] 这张好笑')
+await new Promise((r) => setTimeout(r, 30))
+const 表情索引文本 = readFileSync(join(家, 'qq-stickers.json'), 'utf8')
+const 表情索引 = JSON.parse(表情索引文本)
+报('看中的表情能收藏', 表情索引.items.length === 1 && 表情索引.items[0].label === '测试表情', 表情索引文本.slice(0, 120))
+报('表情文件落盘', existsSync(join(家, 'qq-stickers', 表情索引.items[0].file)))
 
 // 学习期把握 0.35 也愿意先应一声（门槛 0.3）
 写配置({ 群: ['1026'] })
@@ -426,6 +439,16 @@ const 群1026之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-10
 await 轮询社交()
 await 等()
 报('学习期把握 0.35 也愿意先接一句', 回合.filter((r) => r.sid === 'session-qq-social-group-1026').length === 群1026之前 + 1)
+
+// 聊天时从收藏里发一张表情
+写配置({ 群: ['1027'] })
+群消息表.set(1027, [一条群消息('来点表情', { id: 1607 })])
+设判断(['1607'], true, 0.9, '想发个表情')
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-1027', '[发表情:#1] 给你看')
+const 表情发送 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1027 && Array.isArray(x.体.message) && x.体.message[0] && x.体.message[0].type === 'image')
+报('聊天时能发收藏的表情', 表情发送.length === 1, JSON.stringify(表情发送.at(-1)))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })

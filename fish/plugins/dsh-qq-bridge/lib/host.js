@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { isTrustedLocalRequest } from './http-trust.js'
 import { 创建历史导入 } from './import.js'
 
@@ -30,6 +30,10 @@ export const inject = ['agents', 'sessions', 'sessionTitle', 'webServer', 'timer
 const 目录 = process.env.DSH_HOME || join(homedir(), '.dsh')
 const 配置文件 = join(目录, 'qq-bridge-config.json')
 const 画像文件 = join(目录, 'qq-social-interests.json')
+const 表情目录 = join(目录, 'qq-stickers')
+const 表情索引文件 = join(目录, 'qq-stickers.json')
+const 表情上限 = 120
+const 表情单张上限 = 5 * 1024 * 1024
 const 路由前缀 = '/dsh-qq-bridge'
 const 日志上限 = 60
 // 概况往外发的时候令牌换成这个串：设置页只看到「设过没有」，看不到内容。
@@ -346,6 +350,7 @@ export function 解析消息段(条, 自己号 = '') {
         url: String(d.url || ''),
         file: String(d.file || d.file_id || ''),
         summary: String(d.summary || ''),
+        subType: Number(d.sub_type) || 0,
       })
     } else if (段.type === 'face' || 段.type === 'mface') 正文.push('[表情]')
   }
@@ -388,6 +393,30 @@ export function apply(ctx) {
   const 社交缓冲 = new Map() // 'group:123' → 已经挑中看过的最近消息（给小模型当上下文）
   const 社交画像 = new Map() // 'group:123' → 从她看过的消息里学到的兴趣词元、样本数、快判账
   let 画像存At = 0
+  const 表情们 = [] // 她自己看中并收藏的 QQ 表情包（本机文件 + 索引）
+  let 表情下一个id = 1
+  try {
+    const 存 = JSON.parse(readFileSync(表情索引文件, 'utf8'))
+    for (const 项 of Array.isArray(存 && 存.items) ? 存.items : []) {
+      if (!项 || typeof 项 !== 'object') continue
+      const id = Number(项.id)
+      const 文件 = String(项.file || '')
+      if (!Number.isInteger(id) || id <= 0 || 文件 === '' || !existsSync(join(表情目录, 文件))) continue
+      表情们.push({
+        id,
+        label: String(项.label || '表情').slice(0, 24),
+        file: 文件,
+        mediaType: String(项.mediaType || 'image/gif').slice(0, 30),
+        bytes: Math.max(0, Number(项.bytes) || 0),
+        addedAt: Math.max(0, Number(项.addedAt) || 0),
+        source: String(项.source || '').slice(0, 40),
+        hash: String(项.hash || '').slice(0, 64),
+      })
+    }
+    表情们.sort((a, b) => a.id - b.id)
+    if (表情们.length > 表情上限) 表情们.splice(0, 表情们.length - 表情上限)
+    表情下一个id = Math.max(Number(存 && 存.nextId) || 1, ...表情们.map((x) => x.id + 1), 1)
+  } catch (error) {}
   // 兴趣是长期长出来的：画像落在本机，重启接着学，不重新当白纸。
   try {
     const 存 = JSON.parse(readFileSync(画像文件, 'utf8'))
@@ -1063,7 +1092,12 @@ export function apply(ctx) {
         }])
         const ref = refs && refs[0]
         if (ref) {
-          出.push({ ref, 说话人: String(图.说话人 || ''), 主人: !!图.主人 })
+          出.push({
+            ref,
+            说话人: String(图.说话人 || ''),
+            主人: !!图.主人,
+            表情: Number(图.subType) === 1 || String(图.summary || '').includes('动画表情'),
+          })
           总 += 取.bytes.length
         }
       } catch (error) {
@@ -1072,6 +1106,117 @@ export function apply(ctx) {
     }
     if (出.length > 0) 记账(`收了 ${出.length} 张 QQ 图片进附件库`)
     return 出
+  }
+
+  // ---------- 表情包收藏：她自己看中、存到本机，聊天时挑着发 ----------
+
+  function 表情清单(最多 = 8) {
+    return 表情们.slice(-最多).map((x) => `#${x.id} ${x.label}`).join(' · ')
+  }
+
+  function 表情提示() {
+    if (表情们.length === 0) return ''
+    return `【你收藏的表情包】${表情清单()}。想发就写 [发表情:#编号]，一次最多一张；不想发就不用写。`
+  }
+
+  function 拆表情标记(文字) {
+    let 文本 = String(文字 || '')
+    const 发表情 = []
+    const 存表情 = []
+    for (const m of 文本.matchAll(/\[发表情:\s*#?(\d{1,9})\s*\]/g)) 发表情.push(Number(m[1]))
+    for (const m of 文本.matchAll(/\[存表情:\s*图\s*(\d{1,3})(?:\s*:\s*([^\]\r\n]{0,40}))?\]/g)) {
+      存表情.push({ 图: Number(m[1]), 标签: String(m[2] || '').trim() })
+    }
+    文本 = 文本
+      .replace(/\[发表情:\s*#?\d{1,9}\s*\]/g, '')
+      .replace(/\[存表情:\s*图\s*\d{1,3}(?:\s*:\s*[^\]\r\n]{0,40})?\]/g, '')
+    return { 文本: 文本.trim(), 发表情, 存表情 }
+  }
+
+  function 存表情索引() {
+    try {
+      mkdirSync(表情目录, { recursive: true })
+      writeFileSync(表情索引文件, JSON.stringify({ version: 1, nextId: 表情下一个id, items: 表情们 }, null, 2), 'utf8')
+    } catch (error) {
+      记账(`存表情索引失败：${String((error && error.message) || error)}`)
+    }
+  }
+
+  /** 把她看中的一张表情图从附件库复制到表情收藏；只收表情类，不碰普通照片。 */
+  async function 存表情包(图, 标签, 来源) {
+    if (!图 || !图.ref || !图.表情) return null
+    const 服务 = ctx.get('attachments')
+    if (!服务 || typeof 服务.readImage !== 'function') {
+      记账('图片附件服务不可用，表情存不了')
+      return null
+    }
+    if (表情们.length >= 表情上限) {
+      记账(`表情包收藏已满（${表情上限} 张），先不存新的`)
+      return null
+    }
+    let 读
+    try {
+      读 = await 服务.readImage(图.ref)
+    } catch (error) {
+      记账(`读取表情图失败：${String((error && error.message) || error)}`)
+      return null
+    }
+    const bytes = Buffer.from((读 && 读.data) || [])
+    if (bytes.length === 0 || bytes.length > 表情单张上限) {
+      记账('表情图为空或太大，没存')
+      return null
+    }
+    const 哈希 = createHash('sha256').update(bytes).digest('hex')
+    const 已有 = 表情们.find((x) => x.hash === 哈希)
+    if (已有) {
+      记账(`这张表情已经收藏过：#${已有.id} ${已有.label}`)
+      return 已有
+    }
+    const 媒体 = String((读.ref && 读.ref.mediaType) || (图.ref && 图.ref.mediaType) || 'image/gif')
+    const 后缀 = 媒体.includes('png') ? 'png' : 媒体.includes('webp') ? 'webp' : 媒体.includes('jpeg') ? 'jpg' : 'gif'
+    const 干净标签 = String(标签 || '').replace(/[\[\]\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24) || '表情'
+    const 文件名 = `${哈希}.${后缀}`
+    try {
+      mkdirSync(表情目录, { recursive: true })
+      writeFileSync(join(表情目录, 文件名), bytes)
+      const 条目 = {
+        id: 表情下一个id++,
+        label: 干净标签,
+        file: 文件名,
+        mediaType: 媒体,
+        bytes: bytes.length,
+        addedAt: Date.now(),
+        source: String(来源 || '').slice(0, 40),
+        hash: 哈希,
+      }
+      表情们.push(条目)
+      存表情索引()
+      记账(`收藏了一张表情包：#${条目.id} ${条目.label}`)
+      return 条目
+    } catch (error) {
+      记账(`写表情文件失败：${String((error && error.message) || error)}`)
+      return null
+    }
+  }
+
+  async function 发QQ图片(配置, 类型, 号, 条目) {
+    if (!条目) return { ok: false }
+    const 路径 = join(表情目录, 条目.file)
+    if (!existsSync(路径)) return { ok: false }
+    const action = 类型 === 'group' ? 'send_group_msg' : 'send_private_msg'
+    const 体 = 类型 === 'group'
+      ? { group_id: Number(号), message: [{ type: 'image', data: { file: 'file:///' + 路径.replace(/\\/g, '/') } }] }
+      : { user_id: Number(号), message: [{ type: 'image', data: { file: 'file:///' + 路径.replace(/\\/g, '/') } }] }
+    let r = await 发一个(配置.NapCat, action, 体)
+    if (!r.ok) {
+      // 有些后端不认本地路径，退成 base64。
+      try {
+        const b64 = readFileSync(路径).toString('base64')
+        体.message = [{ type: 'image', data: { file: 'base64://' + b64 } }]
+        r = await 发一个(配置.NapCat, action, 体)
+      } catch (error) {}
+    }
+    return r
   }
 
   /**
@@ -1324,10 +1469,13 @@ export function apply(ctx) {
       for (const 图 of m.图片 || []) 图片们.push(图)
     }
     const 图注 = 图片们.length > 0
-      ? ['', ...图片们.slice(0, 4).map((图, i) => `【图 ${i + 1}${图.主人 ? '·主人' : '·' + (图.说话人 || '某人')}】`)]
+      ? ['', ...图片们.slice(0, 4).map((图, i) => `【图 ${i + 1}${图.主人 ? '·主人' : '·' + (图.说话人 || '某人')}${图.表情 ? '·表情' : ''}】`)]
       : []
+    const 有表情图 = 图片们.slice(0, 4).some((图) => 图.表情)
+    const 存提示 = 有表情图 ? '【存表情】看到本批的表情图觉得有意思，可以写 [存表情:图N:短名字] 收藏，不会发出去。' : ''
+    const 表情行 = 表情提示()
     return {
-      文案: [头, ...行, ...图注, 尾].join('\n').slice(0, 6000),
+      文案: [头, ...行, ...图注, 存提示, 表情行, 尾].filter(Boolean).join('\n').slice(0, 6000),
       图片们: 图片们.slice(0, 4),
     }
   }
@@ -1349,10 +1497,11 @@ export function apply(ctx) {
     const agent = await 拿社交agent(目标)
     if (!agent) return
     const sid = String((agent.session && agent.session.id) || 目标.会话id)
-    社交待发.set(sid, { 目标, 文本: '', 轮号: -1, 发起At: Date.now() })
+    const 拼好 = 拼一批(目标, 批)
+    社交待发.set(sid, { 目标, 文本: '', 轮号: -1, 发起At: Date.now(), 图片们: 拼好.图片们 })
     记账(`准备接话（${目标.叫}）：${理由}；看了 ${批.length} 条`)
     try {
-      agent.followup(手搓社交消息(目标, 拼一批(目标, 批), 批.some((m) => m.主人), 批[批.length - 1]?.说话人))
+      agent.followup(手搓社交消息(目标, 拼好, 批.some((m) => m.主人), 批[批.length - 1]?.说话人))
       await 冲刷会话(agent)
       const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || ''
       await 挂工作区(await 取工作区(实际cwd), sid)
@@ -1597,19 +1746,30 @@ export function apply(ctx) {
     }
   }
 
-  /** 社交会话说完一轮：把最后一句发回那个群/好友。 */
-  async function 社交落地(目标, sid, 文字, 轮号) {
+  /** 社交会话说完一轮：把话发回那个群/好友；顺手收藏/发送她选的表情包。 */
+  async function 社交落地(目标, sid, 文字, 轮号, 批次图们 = []) {
     const 配置 = 读配置()
     const 原文 = String(文字 || '').trim()
-    if (原文 === '' || /^\[不接话\]$/.test(原文)) {
+    const 拆 = 拆表情标记(原文)
+    // 先收藏她看中的表情。这一步只写本机，和这轮发不发得出去无关。
+    for (const 存 of 拆.存表情) {
+      const 图 = (批次图们 || [])[存.图 - 1]
+      if (图) await 存表情包(图, 存.标签, `${目标.叫}${图.说话人 ? '·' + 图.说话人 : ''}`)
+      else 记账(`存表情：本批没有图 ${存.图}`)
+    }
+    let 文本 = 拆.文本
+    if (/^\[不接话\]$/.test(文本)) 文本 = ''
+    if (文本.length > 1200) 文本 = `${文本.slice(0, 1200)}…`
+    const 贴纸 = 拆.发表情.map((id) => 表情们.find((x) => x.id === id)).filter(Boolean)[0] || null
+    if (文本 === '' && !贴纸) {
+      if (拆.存表情.length > 0) return 记账(`${目标.叫}：只收藏了表情，没有回话`)
       return 记账(`${目标.叫}：这轮决定不接话`)
     }
     if (!配置.总开关 || !配置.社交.启用) return 记账('总开关或社交开关已经关掉，这轮不发')
-    if (配置.社交.试运行) return 记账(`试运行：本来要发回 ${目标.叫}「${原文.slice(0, 50)}${原文.length > 50 ? '…' : ''}」`)
+    if (配置.社交.试运行) {
+      return 记账(`试运行：本来要发回 ${目标.叫}「${文本.slice(0, 50)}${文本.length > 50 ? '…' : ''}」${贴纸 ? ' + 表情包' : ''}`)
+    }
     if (在静音时段(配置.社交.静音)) return 记账('已经进入静音时段，这轮不发')
-    let 文本 = 原文.replace(/^\[不接话\]\s*/, '').trim()
-    if (文本 === '') return
-    if (文本.length > 1200) 文本 = `${文本.slice(0, 1200)}…`
     // 同一轮只从一个出口出去（语音桥不听社交会话，这里的领取代号也留个凭据）
     try {
       const mind = ctx.get('fishMind')
@@ -1618,10 +1778,13 @@ export function apply(ctx) {
         if (!领到.claimed) return 记账(`这一轮已经由 ${领到.by} 发过，不再发 QQ`)
       }
     } catch (error) {}
-    const 脱敏 = 对外脱敏(文本)
-    if (!脱敏.ok) return
-    const 段们 = 按段拆(脱敏.text).slice(0, 3)
-    if (段们.length === 0) return
+    let 脱敏文本 = ''
+    if (文本 !== '') {
+      const 脱敏 = 对外脱敏(文本)
+      if (!脱敏.ok) return
+      脱敏文本 = 脱敏.text
+    }
+    const 段们 = 脱敏文本 === '' ? [] : 按段拆(脱敏文本).slice(0, 3)
     const action = 目标.类型 === 'group' ? 'send_group_msg' : 'send_private_msg'
     let 全过 = true
     for (let i = 0; i < 段们.length; i++) {
@@ -1641,13 +1804,30 @@ export function apply(ctx) {
       }
       if (i < 段们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
     }
-    记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? '开口' : '开口有问题'}：「${脱敏.text.slice(0, 50)}${脱敏.text.length > 50 ? '…' : ''}」`)
+    if (段们.length > 0) {
+      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? '开口' : '开口有问题'}：「${脱敏文本.slice(0, 50)}${脱敏文本.length > 50 ? '…' : ''}」`)
+    }
+    if (贴纸) {
+      const r = await 发QQ图片(配置, 目标.类型, 目标.号, 贴纸)
+      if (r.ok) {
+        const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
+        if (mid !== undefined && mid !== null) {
+          她的消息id.add(String(mid))
+          if (她的消息id.size > 500) 她的消息id.clear()
+        }
+        记账(`✅ 在 ${目标.叫} 发了一张表情包：#${贴纸.id} ${贴纸.label}`)
+      } else {
+        全过 = false
+        记账(`⚠ 在 ${目标.叫} 发表情包失败：#${贴纸.id} ${贴纸.label}`)
+      }
+    }
     // 把自己刚说的话放进缓冲，下一轮判断时知道她已经说过了
+    const 说出 = 脱敏文本 || (贴纸 ? `[发了一张表情包：${贴纸.label}]` : '')
     const 缓冲 = (社交缓冲.get(目标.key) || []).concat([{
       id: `self-${Date.now()}`,
       at: Math.floor(Date.now() / 1000),
       说话人: '大肥鱼',
-      文字: 脱敏.text,
+      文字: 说出,
       主人: false,
       被叫原因: '',
     }]).slice(-30)
@@ -1678,7 +1858,7 @@ export function apply(ctx) {
       if (!完成 || 待.轮号 !== d.turn) return
       const 文 = 待.文本
       社交待发.delete(sid)
-      void 社交落地(待.目标, sid, 文, d.turn)
+      void 社交落地(待.目标, sid, 文, d.turn, 待.图片们)
       void 冲刷会话(session)
     }
   }
@@ -1709,7 +1889,10 @@ export function apply(ctx) {
   /** 把一句正文发到该发的地方（私聊 / 群）；按空行拆段，一段一条连发。 */
   async function 发到QQ(配置, 文字) {
     const 出 = []
-    const 段们 = 按段拆(文字).length ? 按段拆(文字) : [文字.trim()]
+    const 拆 = 拆表情标记(文字)
+    const 干净 = 拆.文本
+    const 贴纸 = 拆.发表情.map((id) => 表情们.find((x) => x.id === id)).filter(Boolean)[0] || null
+    const 段们 = 干净 === '' ? [] : (按段拆(干净).length ? 按段拆(干净) : [干净.trim()])
     const 发段延迟 = 450 // 每段之间隔一下，像真人一条条发
 
     if (配置.转私聊 && 配置.私聊QQ) {
@@ -1719,6 +1902,7 @@ export function apply(ctx) {
         出.push(await 发一个(配置.NapCat, 'send_private_msg', 体))
         if (i < 段们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
       }
+      if (贴纸) 出.push(await 发QQ图片(配置, 'private', 配置.私聊QQ, 贴纸))
     }
     if (配置.转群 && 配置.群号) {
       for (let i = 0; i < 段们.length; i++) {
@@ -1727,6 +1911,7 @@ export function apply(ctx) {
         出.push(await 发一个(配置.NapCat, 'send_group_msg', 体))
         if (i < 段们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
       }
+      if (贴纸) 出.push(await 发QQ图片(配置, 'group', 配置.群号, 贴纸))
     }
     return 出
   }
@@ -1906,7 +2091,7 @@ export function apply(ctx) {
   const 手搓用户消息 = (文案, 图片们 = []) => {
     const 图 = (图片们 || []).filter((x) => x && x.ref)
     const 注 = 图.map((x, i) => `【图 ${i + 1}】`).join('\n')
-    const 全文 = [String(文案 || ''), 注].filter((x) => x.trim() !== '').join('\n')
+    const 全文 = [String(文案 || ''), 注, 表情提示()].filter((x) => x.trim() !== '').join('\n')
     const content = [{ type: 'text', text: 全文 }]
     for (const x of 图) content.push({ type: 'image', attachment: x.ref })
     return {
@@ -2028,6 +2213,10 @@ export function apply(ctx) {
         : (目标 && 是主人QQ会话(目标) ? '自动（QQ 私聊专用）' : (目标 ? '自动（最近说话的会话）' : '无')),
       目标情况: 目标 && 清单.length ? 清单.filter((x) => x.id === 目标) : [],
       社交: 社交概况(配置),
+      表情包: {
+        数量: 表情们.length,
+        最近: 表情们.slice(-8).map((x) => ({ id: x.id, label: x.label })),
+      },
       导入: 导入概况(配置),
       日志,
     }
