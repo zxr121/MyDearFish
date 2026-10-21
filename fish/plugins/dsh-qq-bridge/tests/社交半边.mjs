@@ -310,7 +310,7 @@ await 等()
 报('判不看 → 不开轮、不注入', 回合.length === 之前2 && 注入们.length === 注入之前2 && 判断调用.length === 判断之前2 + 1)
 报('有动静就先建社交房，哪怕判不看', 登记的会话.has('session-qq-social-group-1002'))
 报('不看也进日志', String(await 日志文本()).includes('都没看'))
-报('没写兴趣词时判断更克制', String(判断调用.at(-1)?.system).includes('没有依据就不看、不接'))
+报('没写兴趣词时像小孩一样好奇', String(判断调用.at(-1)?.system).includes('对什么都好奇') && String(判断调用.at(-1)?.system).includes('不必有现成的兴趣理由'))
 报('不看后待看清空', (await 目标状态('group:1002')).待看 === 0)
 
 // ---------- 3 只看不回：挑一条 inject，不唤醒回复模型 ----------
@@ -690,6 +690,10 @@ const 提示21 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
 报('只看过的消息才算进画像', (await 目标状态('group:1019')).画像.样本 === 21, JSON.stringify((await 目标状态('group:1019')).画像))
 报('快判挡掉的条数进状态', (await 目标状态('group:1019')).画像.快判丢 >= 1)
 报('快判命中写进日志', String(await 日志文本()).includes('快判先挡了'))
+报('判断提示带上学到的兴趣词', 提示21.includes('鲸鱼'))
+let 画像存 = ''
+try { 画像存 = readFileSync(join(家, 'qq-social-interests.json'), 'utf8') } catch (error) {}
+报('兴趣画像落盘，重启能接上', 画像存.includes('鲸鱼') && 画像存.includes('group:1019'), 画像存.slice(0, 120))
 
 // ---------- 21 画像成熟后整批没兴趣：一次判断都不花 ----------
 时间偏移 += 11_000
