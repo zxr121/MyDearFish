@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-subagent",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "DSH 插件：让你的 AI 伙伴派子代理去刷 B站 —— 子代理读字幕挑出值得的、把详细内容汇报回来，伙伴再用自己的口吻发私信 / 评论 @ 你",
   "keywords": [
     "dsh",

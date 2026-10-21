@@ -286,6 +286,9 @@ async def bili_search(keyword: str, num: int = 10, order: str = "totalrank") -> 
         keyword=keyword,
         search_type=search.SearchObjectType.VIDEO,
         page=1,
+        # ⭐ 显式要满：默认 page_size=42，宿主开播放量/发布天数门槛时会多抓几倍再筛，
+        #    不传的话最多只能拿到 42 条，`num=50` 也永远少 8 条（2026-10-22 实测修）
+        page_size=max(1, min(int(num), 50)),
         order_type=order_enum,
     )
 

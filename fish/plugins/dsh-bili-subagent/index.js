@@ -23,8 +23,8 @@ const hostDeps = await loadHostDeps()
 const z = hostDeps.z
 const defineTool = hostDeps.defineTool
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { join, dirname, isAbsolute, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { McpClient } from './lib/mcp.mjs'
@@ -84,10 +84,10 @@ export const Config = !z ? undefined : z.object({
   pythonPath: z.string().default('python').extra('volatile', true),
   /** 日报形态：full=完整（现状）· brief=每条一两行 · off=不写报告（只发评论） */
   reportLevel: z.string().default('full').extra('volatile', true),
-  /** ⭐ 派子代理刷 B 站用的 provider（默认用主人自己 API 里的，避用官方 key） */
-  subProvider: z.string().default('apii').extra('volatile', true),
-  /** ⭐ 派子代理刷 B 站用的模型 */
-  subModel: z.string().default('deepseek-v4-pro').extra('volatile', true),
+  /** ⭐ 派子代理刷 B 站用的 provider（留空 = 跟当前会话用同一个，最稳；填了不存在的会在启动前自动回落） */
+  subProvider: z.string().default('').extra('volatile', true),
+  /** ⭐ 派子代理刷 B 站用的模型（留空 = 跟当前会话用同一个） */
+  subModel: z.string().default('').extra('volatile', true),
   /** 每次（每轮）最多挑几条（一次挑一条更清爽，默认 1） */
   perScan: z.natural().default(1).extra('volatile', true),
   /** ⭐ 自动刷在哪个会话触发（留空 = 自动挑最近聊过的那个会话） */
@@ -144,11 +144,71 @@ export function apply(ctx, config) {
   const hasPkg = (venvRoot, prefix) => {
     try { return readdirSync(sitePkgs(venvRoot)).some((n) => n.startsWith(prefix)) } catch { return false }
   }
-  const venvReadyNow = () => existsSync(venvPython()) && hasPkg(join(stateDir, '.venv'), 'bilibili_api')
+  // 三样缺一不可：少了 mcp 起不来，少了 qrcode 画不出登录码（只看目录存在会误报就绪）
+  const venvReadyNow = () => existsSync(venvPython())
+    && ['bilibili_api', 'mcp', 'qrcode'].every((n) => hasPkg(join(stateDir, '.venv'), n))
   const cfgFile = join(stateDir, 'config.json')
   const logFile = join(stateDir, 'duty.log')
   const outDir = join(stateDir, 'out')
   mkdirSync(outDir, { recursive: true })
+
+  /**
+   * 判重表（seen.md）：宿主预建、插件自己追加。
+   * 子代理在沙箱里不一定写得了文件 ⇒「我们发过的评论」和「挑过的视频」由宿主记，
+   * 这样「复核评论」才有记录可查，下一轮也能把看过的视频排掉。
+   */
+  const seenFile = join(stateDir, 'seen.md')
+  try {
+    if (!existsSync(seenFile)) {
+      writeFileSync(seenFile, [
+        '# 刷B站 · 判重表（宿主预建，之后由宿主追加）',
+        '',
+        '## 评论记录（BV | rpid | root（楼中楼才填） | 时间 | 正文前 20 字）',
+        '',
+        '| BV | rpid | root（楼中楼才填） | 时间 | 正文前 20 字 |',
+        '| --- | --- | --- | --- | --- |',
+        '',
+        '## 看过的视频',
+        '',
+      ].join('\n'), 'utf8')
+    }
+  } catch { /* 建不了也别拦着插件加载 */ }
+
+  const BV_RE = /BV[0-9A-Za-z]{10}/g
+  const readSeenVideos = (limit = 30) => {
+    try {
+      const md = readFileSync(seenFile, 'utf8')
+      const idx = md.indexOf('## 看过的视频')
+      if (idx < 0) return []
+      const ids = []
+      for (const m of md.slice(idx).matchAll(BV_RE)) if (!ids.includes(m[0])) ids.push(m[0])
+      return ids.slice(-limit)
+    } catch { return [] }
+  }
+  const appendSeenVideos = (ids) => {
+    const uniq = [...new Set((ids || []).filter((x) => typeof x === 'string' && /^BV[0-9A-Za-z]{10}$/.test(x)))]
+    if (!uniq.length) return
+    try {
+      const known = new Set(readSeenVideos(100000))
+      const fresh = uniq.filter((x) => !known.has(x))
+      if (!fresh.length) return
+      const md = readFileSync(seenFile, 'utf8').trimEnd()
+      writeFileSync(seenFile, md + '\n' + fresh.map((bv) => `- ${dayKey()} ${bv}`).join('\n') + '\n', 'utf8')
+    } catch (e) { log('写判重表失败：' + (e?.message ?? e)) }
+  }
+  const recordComment = (bv, rpid, root, text) => {
+    const id = Number(rpid) || 0
+    if (!id) return
+    try {
+      const row = `| ${String(bv || '').trim()} | ${id} | ${Number(root) || 0} | ${new Date().toISOString()} | `
+        + String(text || '').replace(/\r?\n/g, ' ').replace(/\|/g, '/').slice(0, 20) + ' |'
+      const md = readFileSync(seenFile, 'utf8')
+      const idx = md.indexOf('## 看过的视频')
+      const head = (idx >= 0 ? md.slice(0, idx) : md).trimEnd()
+      const tail = idx >= 0 ? md.slice(idx) : ''
+      writeFileSync(seenFile, head + '\n' + row + '\n\n' + tail, 'utf8')
+    } catch (e) { log('写判重表失败：' + (e?.message ?? e)) }
+  }
 
   const log = (msg) => {
     const line = `${new Date().toISOString()}  ${msg}`
@@ -219,7 +279,7 @@ export function apply(ctx, config) {
     perDay: 5, gapHours: 3, peakValley: false, noon: true, night: true, autoComment: false,
     dmMode: 'off', dmUid: 0,
     keywords: [], commentPerRound: 1, mentionName: '', pythonPath: 'python', reportLevel: 'full',
-    subProvider: 'apii', subModel: 'deepseek-v4-pro',
+    subProvider: '', subModel: '',
     perScan: 1,
     targetSession: '',
     ownerName: '小鱿鱼',
@@ -354,7 +414,19 @@ export function apply(ctx, config) {
   let mcpKey = ''
   const mcpKeyNow = () => `${cfg.pythonPath}|${join(stateDir, 'mcp_server.py')}`
 
+  // 只有用插件自己的 venv 才拿「三件套」判断就绪；自定义 pythonPath 可能是别处装好的 Python，不能误拦
+  const isManagedPython = () => {
+    const p = String(cfg.pythonPath || '').trim()
+    if (!p || p === 'python') return true
+    try {
+      const rel = relative(join(stateDir, '.venv'), p)
+      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+    } catch { return false }
+  }
+
   const ensureMcp = async () => {
+    // ⭐ 环境没装好时立刻说清楚，别让 spawn 失败后的 initialize 干等 60 秒超时
+    if (isManagedPython() && !venvReadyNow()) throw new Error('B站运行环境还没装好：先去「刷B站」设置页点「装主依赖」（或调用 bili_setup）')
     if (mcp?.running && mcpKey === mcpKeyNow()) return mcp
     if (mcp) { mcp.stop(); mcp = null }
     const script = join(stateDir, 'mcp_server.py')
@@ -434,20 +506,52 @@ export function apply(ctx, config) {
       : (level === 'off'
         ? '\n\n⚠️ 报告形态：**不写详细报告** —— 直接给大肥鱼一段简短的口头总结（挑中哪几条、各自一句），不用逐条展开。'
         : '')
+    const seenRecent = readSeenVideos(30)
+    const dedupeLine = seenRecent.length
+      ? '\n\n【判重】最近已经看过的视频（别再挑这些）：' + seenRecent.join(' ')
+      : ''
     const prompt = String(cfg.scanPrompt || SCAN_PROMPT_TMPL)
       .split('{owner}').join(owner)
       .split('{direction}').join(dir)
-      .split('{n}').join(String(perRound)) + levelLine + LEGAL_LINE + UNTRUSTED_LINE
+      .split('{n}').join(String(perRound)) + levelLine + dedupeLine + LEGAL_LINE + UNTRUSTED_LINE
 
     let run
+    // ⭐ 子代理模型：配了这台机器上不存在的 provider/model（比如老配置里的 apii）时，
+    //    不要硬塞给 startActivation —— 子代理会在真正调模型时才炸，还白跑一趟。
+    //    校验不过就留空，让它跟随当前会话的模型。
+    const scanModel = {}
+    {
+      const wantP = String(cfg.subProvider || '').trim()
+      const wantM = String(cfg.subModel || '').trim()
+      if (wantP) {
+        let providers = []
+        try { providers = (await ctx.llm?.listProviders?.()) || [] } catch (e) { log('读 provider 列表失败：' + (e?.message ?? e)) }
+        const found = providers.some((p) => String(p?.id) === wantP)
+        if (!found) {
+          log(`子代理 provider「${wantP}」不存在，改跟随当前会话的模型`)
+        } else {
+          scanModel.provider = wantP
+          if (wantM) {
+            let modelsOk = true
+            try {
+              const list = (await ctx.llm?.listModels?.(wantP)) || []
+              modelsOk = list.length === 0 || list.some((m) => String(m?.id) === wantM)
+            } catch { /* 拉不到就按用户配置试一次 */ }
+            if (modelsOk) scanModel.model = wantM
+            else log(`子代理模型「${wantP}/${wantM}」不存在，改跟随当前会话的模型`)
+          }
+        }
+      }
+    }
     try {
+      log(`派子代理：provider=${scanModel.provider || '跟随会话'} model=${scanModel.model || '跟随会话'}`)
       run = await ctx.subagents.startActivation({
         provider: 'spawn',
         label: '刷B站：' + dir.slice(0, 20),
         request: {
           prompt: [{ type: 'text', text: prompt }],
           parent,
-          agentOptions: { provider: String(cfg.subProvider || 'apii'), model: String(cfg.subModel || 'deepseek-v4-pro') },
+          agentOptions: scanModel,
         },
         signal: exec?.signal || new AbortController().signal,
         delivery: 'caller',
@@ -467,6 +571,8 @@ export function apply(ctx, config) {
     if (result?.stopReason !== 'completed') {
       return { ok: false, error: '子代理没正常跑完（' + (result?.stopReason || '未知') + '）' + (result?.diagnostic ? '：' + result.diagnostic : ''), partial: output }
     }
+    // ⭐ 挑中的视频记进判重表：下一轮提示词里会带「这些看过」，避免同一批反复推
+    appendSeenVideos([...output.matchAll(/^#{2,3}[ \t]*(BV[0-9A-Za-z]{10})/gm)].map((m) => m[1]))
     // 投递提示：让大肥鱼知道接下来要不要发评论/私信（她拿报告后自己决定、自己发）
     const commentQuota = Math.max(0, Number(cfg.commentPerRound || 0))
     const commentOn = Boolean(cfg.autoComment && cfg.mentionName && cfg.dmMode !== 'only' && commentQuota > 0)
@@ -487,11 +593,12 @@ export function apply(ctx, config) {
     // ⭐ 每一轮的报告都写回报告文件（设置页「看报告」能回看）；「日报写多细=不写」时跳过
     if (level !== 'off') { try { appendFileSync(reportFileOf(), '\n\n---\n\n' + output + '\n', 'utf8') } catch {} }
     const 父会话 = sessionIdOf(parent?.session) || sessionIdOf(parent) || ''
-    写经历(父会话, output, { direction: dir, reportLevel: level, perScan })
+    写经历(父会话, output, { direction: dir, reportLevel: level, perScan: perRound })
     return { ok: true, report: output, hint }
   }
 
   const doScan = async (direction, exec) => {
+    refreshCfg()
     const parent = ctx.agents?.currentInitiator?.()
     if (!parent) return { ok: false, error: '没拿到发起刷 B 站的会话（要在对话里用）' }
     return scanWith(parent, direction, exec)
@@ -593,7 +700,7 @@ export function apply(ctx, config) {
       num: { type: 'number', description: '取几条（默认 30）' },
     },
     async execute(args) {
-      return call('bili_comments', { bvid: String(args.bvid ?? ''), num: Math.max(1, Number(args.num) || 30) })
+      return call('bili_comments', { bvid: String(args.bvid ?? ''), num: Math.max(1, Math.min(Number(args.num) || 30, 100)) })
     },
   })
 
@@ -640,6 +747,13 @@ export function apply(ctx, config) {
         text: 正文,
         rpid: Number(args.rpid) || 0,
       })
+      // ⭐ 发出去的评论必须落账：复核（verify）和下一轮判重都靠这张表
+      const 回执 = r && typeof r === 'object' ? r : {}
+      const rpid = Number(回执.rpid || 回执.rpid_str || 0)
+      if (回执.success !== false) {
+        if (rpid) recordComment(args.bvid, rpid, args.rpid, 正文)
+        else log('评论回执里没有 rpid，判重表先不记（复核会查不到这条）')
+      }
       记一条评论()
       pendingComment = null   // 发过（无论成败）就不再卡私信
       return r
@@ -706,6 +820,10 @@ export function apply(ctx, config) {
         dmMode: cfg.dmMode,
         dmUid: Number(cfg.dmUid) || 0,
         loggedIn: hasCredential(),
+        venvReady: venvReadyNow(),
+        installing,
+        installFailed: !installing && !venvReadyNow() && (() => { try { return readFileSync(installLogFile, 'utf8').length > 0 } catch { return false } })(),
+        version: myVersion(),
         home: stateDir,
         report: join(outDir, `${dayKey(now)}.md`),
       }
@@ -1096,25 +1214,7 @@ export function apply(ctx, config) {
     c.on('error', (e) => { appendInstall(`起不来：${e?.message ?? e}\n`); resolve(1) })
   })
 
-  // ⭐ 判重表也由**宿主**预先建好（两个原因）：
-  //   ① 那一轮被沙箱关着，"新建文件"会被拒（2026-10-14 那条规矩）；
-  //   ② 它读不出判重表 ⇒ 以为"没记录过" ⇒ 同一批视频反复推送（用户实测反馈 2026-10-16）。
-  const seenFile = join(stateDir, 'seen.md')
-  try {
-    if (!existsSync(seenFile)) {
-      writeFileSync(seenFile, [
-        '# 刷B站 · 判重表（宿主预建，那一轮只往后面追加）',
-        '',
-        '## 评论记录（BV | rpid | root（楼中楼才填） | 时间 | 正文前 20 字）',
-        '',
-        '| BV | rpid | root（楼中楼才填） | 时间 | 正文前 20 字 |',
-        '| --- | --- | --- | --- | --- |',
-        '',
-        '## 看过的视频',
-        '',
-      ].join('\n'), 'utf8')
-    }
-  } catch { /* 建不了也别拦着插件加载 */ }
+  // ⭐ 判重表在文件上方统一预建（宿主预建、插件追加）；这里只留安装相关逻辑。
 
 
   /** 找 uv：系统里的 → 插件家里下好的 → 自己下一份（给"两样都没有"的人）；主/转写两套安装共用 */
@@ -1143,6 +1243,14 @@ export function apply(ctx, config) {
     c.on('error', (e) => { sink(`起不来：${e?.message ?? e}\n`); resolve(1) })
   })
 
+  /**
+   * ⭐ 建 venv 固定用 3.13（可用 BILI_DUTY_PYTHON 覆盖）。
+   *    uv 默认挑最新的 Python：本机是 3.15，而依赖链里的 pyyaml / brotli 还没有 3.15 轮子，
+   *    uv 只能现场编译 ⇒ 没装 MSVC 的 Windows 必挂（2026-10-22 实测 install.log）。
+   *    3.13 是当前依赖轮子覆盖最稳的版本，uv 缺的话会自己下载。
+   */
+  const VENV_PYTHON = String(process.env.BILI_DUTY_PYTHON || '3.13').trim() || '3.13'
+
   /** 装主依赖：建 venv + bilibili_api 那套（搜索 / 字幕 / 评论 用得到） */
   const runInstall = () => {
     if (installing) return { ok: true, busy: true, log: installLogFile, hint: '正在装，别重复起' }
@@ -1161,11 +1269,24 @@ export function apply(ctx, config) {
             + '或 Python 3.10+（安装时勾 Add to PATH），然后回来再点一次「装依赖」。'
           appendInstall(msg + '\n'); log(msg); installing = false; return
         }
-        if (!existsSync(venvPy)) {
+        if (!existsSync(venvPy) || !venvReadyNow()) {
+          // ⭐ 旧环境不完整就整份重建：上一版 uv 默认用了 Python 3.15，
+          //    pyyaml/brotli 没有轮子、现场编译失败，留下一个只有 pip 的空壳 venv。
+          //    只补装依赖是救不回来的（Python 版本本身不对）⇒ 挪走再建。
+          const venvDir = join(stateDir, '.venv')
+          if (existsSync(venvDir)) {
+            const backup = `${venvDir}.broken-${Date.now()}`
+            try {
+              renameSync(venvDir, backup)
+              appendInstall(`旧环境不完整，已挪到 ${backup}（装好后可删）\n`)
+            } catch (e) {
+              appendInstall(`旧环境挪不动（${e?.message ?? e}）—— 可能有进程占着；仍尝试原地重建\n`)
+            }
+          }
           // ⭐ 2026-10-17（issue #8③）：ASR 那个环境带了 --seed，主环境却漏了 ⇒ uv 建的 venv 默认不含 pip，
           //    一旦镜像失败、回退 `python -m pip` 就是 `No module named pip` ⇒ 连补救的路都没有 ✗
-          if (uvCmd) await spawnLogged(uvCmd, ['venv', '--seed', join(stateDir, '.venv')])
-          if (!existsSync(venvPy) && !uvCmd) await spawnLogged(py, ['-m', 'venv', join(stateDir, '.venv')])
+          if (uvCmd) await spawnLogged(uvCmd, ['venv', '--seed', '--python', VENV_PYTHON, venvDir])
+          if (!existsSync(venvPy) && !uvCmd) await spawnLogged(py, ['-m', 'venv', venvDir])
         }
         let code = 1
         // ⭐ 2026-10-17（issue #8②）：镜像也会整站拒绝（清华对部分 IP 回 403，而 pip 的报错写成"这个包不存在"，很误导）
@@ -1178,8 +1299,21 @@ export function apply(ctx, config) {
           if (code !== 0) code = await spawnLogged(venvPy, ['-m', 'pip', 'install', '-i', m, '-r', reqFile])
         }
         if (code === 0 && existsSync(venvPy)) {
-          await persistCfg({ pythonPath: venvPy })   // ⭐ 不然设置页里显式设过 pythonPath 的话，这里就白写了
-          appendInstall(`已把 pythonPath 设为 ${venvPy}\n`)
+          // ⭐ 目录里有包 ≠ 能 import：真跑一次再算成功（半截安装/ABI 不匹配都能在这里现形）
+          const probe = await spawnLogged(venvPy, ['-c', 'import bilibili_api, mcp, qrcode'])
+          if (probe === 0) {
+            await persistCfg({ pythonPath: venvPy })   // ⭐ 不然设置页里显式设过 pythonPath 的话，这里就白写了
+            appendInstall(`已把 pythonPath 设为 ${venvPy}\n`)
+            // 这次重建挪走的旧环境已经没用了，装成功就清掉，别白占几十 MB
+            try {
+              for (const n of readdirSync(stateDir)) {
+                if (n.startsWith('.venv.broken-')) rmSync(join(stateDir, n), { recursive: true, force: true })
+              }
+            } catch { /* 清不掉就留着 */ }
+          } else {
+            code = probe
+            appendInstall('依赖装完了，但 import 失败 —— 环境仍不可用（看上面的报错）\n')
+          }
         }
         appendInstall(`=== 结束（exit ${code}，venvReady=${venvReadyNow()}）===\n`)
         log(`装依赖结束：exit=${code} venvReady=${existsSync(venvPy)}`)

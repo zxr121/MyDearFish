@@ -43,7 +43,13 @@ export class McpClient {
       this.proc.stdout.on('data', (chunk) => this.#onData(chunk))
       this.proc.stderr.setEncoding('utf8')
       this.proc.stderr.on('data', (c) => { this.stderr = (this.stderr + c).slice(-4000) })
-      this.proc.on('error', (e) => log(`MCP 子进程启动失败：${e?.message ?? e}`))
+      this.proc.on('error', (e) => {
+        log(`MCP 子进程启动失败：${e?.message ?? e}`)
+        // 别让 initialize 干等超时：启动失败立刻把所有等待中的请求拒掉
+        for (const [, p] of this.pending) p.reject(new Error(`MCP 子进程启动失败：${e?.message ?? e}`))
+        this.pending.clear()
+        this.proc = null
+      })
       this.proc.on('exit', (code) => {
         log(`MCP 子进程退出（code=${code}）`)
         for (const [, p] of this.pending) p.reject(new Error(`MCP 子进程退出（code=${code}）${this.stderr ? '：' + this.stderr.slice(-300) : ''}`))

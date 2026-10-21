@@ -1,3 +1,31 @@
+## 0.2.3 — 2026-10-22
+
+**实测修一轮：环境装不上、子代理模型写死、判重表没人写**
+
+- 🔴 **首次安装必挂**：`uv venv` 默认挑最新 Python（本机 3.15），而 `pyyaml` / `brotli`
+  还没有 3.15 轮子，uv 现场编译 → 没 MSVC 的 Windows 直接失败，留下半截 venv。
+  ✅ 建环境固定用 **Python 3.13**（可用 `BILI_DUTY_PYTHON` 覆盖）；检测到旧环境不完整就
+  整份挪到 `.venv.broken-<时间>` 重建；装完真跑一次 `import bilibili_api, mcp, qrcode`
+  才算成功，通过后才写 `pythonPath`，并清掉备份目录。
+- 🔴 **子代理模型配置写死成 `apii / deepseek-v4-pro`**，但这台机器上 provider 只有
+  `deepseek-official` / `deepseek-account` ⇒ 真派子代理时才炸。
+  ✅ 默认改成**跟随当前会话**（设置页加「跟随当前会话（推荐）」）；派发前校验
+  provider/model，配了不存在的不硬塞，记一行日志后回落。
+- 🔴 **判重表（`seen.md`）建了却永远没人写**：复核评论找不到记录，同一批视频反复推。
+  ✅ 宿主在 `bili_reply` 成功后按回执 `rpid` 落一行评论记录；每轮扫描成功后把报告里
+  挑中的 BV 追加到「看过的视频」；下一轮提示词自动带上最近 30 个已看 BV。
+- 🔴 **`bili_search` 拿不满条数**：内置 `page_size` 默认 42，请求 50 条也只回 42。
+  ✅ 显式传 `page_size`（上限 50）。
+- 🔴 **`bili_scan` 跑完却报 `perScan is not defined`**：子代理的报告和判重表其实都写好了，
+  最后写「鱼脑经历」时引用了一个不存在的变量 ⇒ 工具整单报错，伙伴以为没刷成。
+  ✅ 改用本轮的 `perRound`（2026-10-22 真机实测抓到，伙伴当场反馈）。
+- 🔧 **环境没装好时不再干等 60 秒**：用插件自带 venv 时先查依赖，缺了直接给出去设置页装依赖的提示
+  （自定义 `pythonPath` 不误拦）；MCP 子进程 `spawn` 失败立刻拒掉所有等待中的请求。
+- 🔧 `bili_comments` 的 `num` 夹到 1–100；`bili_scan` 派发前重新读配置。
+- 🔧 `bili_status` 增加 `venvReady` / `installing` / `installFailed` / `version`，设置页能看出环境状态。
+
+---
+
 ## 0.2.2 — 2026-10-20
 
 **修「播放量门槛完全不生效」（这个是真 bug，不是没重启）**

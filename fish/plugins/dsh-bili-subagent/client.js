@@ -186,8 +186,8 @@ window.__ModuleLoader__.load({
         if (cfg && mention === null) setMention(cfg.mentionName || '')
         if (cfg && dmUid === null) setDmUid(cfg.dmUid ? String(cfg.dmUid) : '')
         if (cfg && dmMode === null) setDmMode(cfg.dmMode || 'off')
-        if (cfg && subProvider === null) setSubProvider(cfg.subProvider || 'apii')
-        if (cfg && subModel === null) setSubModel(cfg.subModel || 'deepseek-v4-pro')
+        if (cfg && subProvider === null) setSubProvider(cfg.subProvider || '')
+        if (cfg && subModel === null) setSubModel(cfg.subModel || '')
         if (cfg && ownerName === null) setOwnerName(cfg.ownerName || '小鱿鱼')
         if (cfg && scanPrompt === null) setScanPrompt(cfg.scanPrompt || '')
         if (cfg && targetSession === null) setTargetSession(cfg.targetSession || '')
@@ -425,6 +425,7 @@ window.__ModuleLoader__.load({
                   patch({ subProvider: v, subModel: first }, '子代理 provider')
                 },
               },
+                h('option', { value: '' }, '跟随当前会话（推荐）'),
                 ...((models || []).map((p) => h('option', { value: p.id }, (p.name || p.id) + '（' + p.id + '）')))))),
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
@@ -433,6 +434,7 @@ window.__ModuleLoader__.load({
                 'data-bd-input': '', value: subModel ?? '',
                 onChange: (e) => { const v = e.target.value; setSubModel(v); patch({ subModel: v }, '子代理 model') },
               },
+                h('option', { value: '' }, subProvider ? '跟随当前会话（推荐）' : '跟随当前会话'),
                 ...((((models || []).find((p) => p.id === subProvider) || {}).models || []).map((m) => h('option', { value: m.id }, (m.name || m.id) + '（' + m.id + '）')))))),
         ),
 
