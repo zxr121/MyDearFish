@@ -22,7 +22,7 @@
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | 无人说话时主动搭话。 |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | 通过 DeepSeek 网页语音朗读。 |
 | `dsh-qq-bridge` | 0.2.0 | `lib/host.js` | 无需机器人账号的双向 QQ 消息；可选的群内自主接话，只按自己的兴趣挑内容、决定回不回，画像成熟后用零成本快判省判断费。 |
-| `dsh-bili-subagent` | 0.2.2 | `index.js` | 通过委派子代理浏览 B 站。 |
+| `dsh-bili-subagent` | 0.2.3 | `index.js` | 通过委派子代理浏览 B 站。 |
 
 六个插件的机制、数据文件、跨插件链路、默认状态和改造点见[插件养鱼机制](plugins.zh.md)；鱼脑的经历流与权限见 [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md)。
 
@@ -44,6 +44,16 @@
 - 在 `fish/bundle/cordis.patch.yml` 中修改默认人设与插件挂载。
 - 增删插件时，同时更新 bundle patch 和 `apps/desktop/scripts/prepare-fish-plugins.ts` 中的 `PLUGIN_NAMES`。
 - 按[构建 Windows 安装包](build.zh.md)重新构建桌面应用。
+
+## 拉取后运行
+
+打包后的桌面版自带插件，拉取源码不会改变已安装的应用；从源码或本地 profile 运行时，profile 的 `node_modules` 里是 pnpm 装出的实体副本，`git pull` 也不会自动更新它。拉取后在仓库根目录运行一次：
+
+```
+fish\sync-runtime.cmd
+```
+
+它会定位 `$DSH_HOME`（默认 `~/.dsh`；工作区内存在 `.dsh` 时用工作区的），在 `profiles/web` 里重装本地 `file:` 依赖，并逐个核对安装版本与源码一致。刷新前先关掉 dsh（脚本会改 profile 的 `node_modules`），完成后重启即生效；非默认 profile 用 `--profile`、非默认家目录用 `--home` 指定。
 
 ## 仓库访问
 

@@ -22,7 +22,7 @@ This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugin
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | Proactive conversation when nobody is talking. |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | Speech playback through the DeepSeek web voice. |
 | `dsh-qq-bridge` | 0.2.0 | `lib/host.js` | QQ messaging in both directions without a bot account; optional autonomous group interjection where she watches only what interests her and decides whether to reply, with a zero-cost fast pass once her interest profile matures. |
-| `dsh-bili-subagent` | 0.2.2 | `index.js` | Bilibili browsing through a delegated subagent. |
+| `dsh-bili-subagent` | 0.2.3 | `index.js` | Bilibili browsing through a delegated subagent. |
 
 See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points; see the [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md) for the experience stream and permissions.
 
@@ -44,6 +44,16 @@ The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, the
 - Edit the default persona and plugin mounts in `fish/bundle/cordis.patch.yml`.
 - When adding or removing a plugin, update both the bundle patch and `PLUGIN_NAMES` in `apps/desktop/scripts/prepare-fish-plugins.ts`.
 - Follow [building the Windows installer](build.md) to rebuild the desktop application.
+
+## Running after a pull
+
+A packaged desktop build already contains the plugins; pulling source does not change an installed build. For a source or local-profile run, pnpm installs the `file:` dependencies as materialized copies under the profile's `node_modules`, so `git pull` updates the checkout but not the running copy. After pulling, run once from the repository root:
+
+```
+fish\sync-runtime.cmd
+```
+
+It locates `$DSH_HOME` (default `~/.dsh`, or the workspace `.dsh` when present), reinstalls the profile's local `file:` dependencies, and checks every installed version against the checkout. Stop dsh before refreshing, since the script rewrites the profile's `node_modules`; restart afterwards. Pass `--profile` or `--home` for a non-default profile or home.
 
 ## Repository access
 
