@@ -8,10 +8,8 @@
         id: standard
         order: 1
         plugins:
-          - id: persona
-            name: '@deepseek-ai/dsh-persona'
-            config:
-              prefix: You are a coding agent powered by the {{model}} model.
+          # No `dsh-persona` row: a persona mounted here shadows the deployment
+          # `personaPrefix`, so a deployment could never change who the agent is.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:

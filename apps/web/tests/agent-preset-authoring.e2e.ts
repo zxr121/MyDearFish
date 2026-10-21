@@ -65,7 +65,7 @@ describe('web e2e: preset roster guidance', () => {
     // the deployment ships, and this lane only asserts it is shown read-only
     // in the Loader's own dialect.
     const shown = await viewer.locator('pre').textContent()
-    expect(shown).toContain("- id: persona\n  name: '@deepseek-ai/dsh-persona'\n")
+    expect(shown).toContain("- id: agent-instructions\n  name: '@deepseek-ai/dsh-agent-instructions'\n")
     expect(shown).toContain('- id: workflow-ptc\n')
     expect(shown).toContain("disabled: !!js process.platform === 'win32'\n")
     expect(shown).not.toContain('__jsExpr')
