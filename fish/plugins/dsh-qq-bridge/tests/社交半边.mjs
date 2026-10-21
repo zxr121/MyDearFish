@@ -379,51 +379,40 @@ await 等()
 报('判断挑中 → 记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
 报('主人上下文来源标了主人', 注入们.at(-1) && 注入们.at(-1).message.source.owner === true)
 
-// 主人在群里 @ 她 / 叫名字 → 和群友一样，开关开着就直通
-写配置({ 群: ['1014'], 被叫直接接: true })
-群消息表.set(1014, [一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true })])
-设判断([], false, 0.1, '不想接')
+// 主人 @ 她也只是提醒注意：先判断，她真感兴趣才开一轮
+写配置({ 群: ['1024'] })
+群消息表.set(1024, [一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true })])
+设判断(['1602'], true, 0.9, '这条有意思')
 const 判断之前6b = 判断调用.length
 const 注入之前6b = 注入们.length
-const 群1014之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1014').length
+const 群1024之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1024').length
 await 轮询社交()
 await 等()
-const 群1014轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1014')
-报('主人 @ 她 → 开一轮，不等兴趣小模型', 群1014轮.length === 群1014之前 + 1 && 判断调用.length === 判断之前6b, `回合=${群1014轮.length} 判断=${判断调用.length}`)
-const 主人叫轮 = 群1014轮.at(-1)
+const 群1024轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1024')
+报('主人 @ 也要先判断', 判断调用.length === 判断之前6b + 1)
+报('判断觉得有趣 → 开一轮', 群1024轮.length === 群1024之前 + 1, `回合=${群1024轮.length}`)
+const 主人叫轮 = 群1024轮.at(-1)
 报('主人 @ 的批次里带着主人消息', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('在吗') && String(主人叫轮.message.content[0].text).includes('【主人】'), JSON.stringify(主人叫轮 && String(主人叫轮.message.content[0].text).slice(0, 160)))
 报('主人 @ 的消息来源仍标主人', 主人叫轮 && 主人叫轮.message.source.owner === true)
 报('主人 @ 不塞进只看不发的上下文', 注入们.length === 注入之前6b)
-const 群发之前 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1014).length
-await 收到回复('session-qq-social-group-1014', '在呀，怎么啦')
-const 群发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1014)
+const 群发之前 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1024).length
+await 收到回复('session-qq-social-group-1024', '在呀，怎么啦')
+const 群发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1024)
 报('主人 @ 后她的回话发回群', 群发.length === 群发之前 + 1 && 群发.at(-1).体.message[0].data.text === '在呀，怎么啦', JSON.stringify(群发.at(-1)))
 
-// ---------- 6c 图片：下载进附件库，作为 image 块进会话 ----------
+// ---------- 6c 图片：不单独触发，和文字一样走判断；被选中后作为 image 块进会话 ----------
 写配置({ 群: ['1016'] })
 群消息表.set(1016, [一条带图群消息(1603, { 是主人: true })])
+设判断(['1603'], true, 0.9, '想看这张图')
 const 附件之前6c = 附件们.length
 const 群1016之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1016').length
 await 轮询社交()
 await 等()
 const 图轮s = 回合.filter((r) => r.sid === 'session-qq-social-group-1016')
 const 图轮 = 图轮s.at(-1)
-报('主人发图 → 图片下载并进会话', 图轮s.length === 群1016之前 + 1 && 附件们.length === 附件之前6c + 1, `回合=${图轮s.length} 附件=${附件们.length}`)
+报('发图 → 走判断，选中后图片进会话', 图轮s.length === 群1016之前 + 1 && 附件们.length === 附件之前6c + 1, `回合=${图轮s.length} 附件=${附件们.length}`)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人】'))
-
-// 群友 @ 她也要直接接；和主人同一套
-写配置({ 群: ['1017'], 被叫直接接: true })
-群消息表.set(1017, [一条群消息('在吗', { atSelf: true, id: 1604 })])
-设判断([], false, 0.1, '不想接')
-const 判断之前6d = 判断调用.length
-const 群1017之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1017').length
-await 轮询社交()
-await 等()
-const 群1017轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1017')
-const 群友叫轮 = 群1017轮.at(-1)
-报('群友 @ 她 → 也直接开一轮，不等判断模型', 群1017轮.length === 群1017之前 + 1 && 判断调用.length === 判断之前6d, `回合=${群1017轮.length} 判断=${判断调用.length}`)
-报('群友 @ 的批次带群友消息', 群友叫轮 && String(群友叫轮.message.content[0].text).includes('在吗') && 群友叫轮.message.source.owner === false, JSON.stringify(群友叫轮 && String(群友叫轮.message.content[0].text).slice(0, 160)))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })
@@ -612,14 +601,14 @@ await 收到回复('session-qq-social-group-1015', '余额 123 不能出去')
 鱼脑.脱敏坏 = false
 
 // ---------- 17 旧字段「被叫直接回」不再绕过判断 ----------
-写配置({ 群: ['1016'], 被叫直接回: true })
-群消息表.set(1016, [一条群消息('大肥鱼 你在吗', { atSelf: true, id: 2701 })])
+写配置({ 群: ['1025'], 被叫直接回: true })
+群消息表.set(1025, [一条群消息('大肥鱼 你在吗', { atSelf: true, id: 2701 })])
 设判断([], false, 0.1, '不想接')
-const 之前17 = 回合.length
+const 之前17 = 回合.filter((r) => r.sid === 'session-qq-social-group-1025').length
 const 判断之前17 = 判断调用.length
 await 轮询社交()
 await 等()
-报('旧配置不会让 @ 自动回', 判断调用.length === 判断之前17 + 1 && 回合.length === 之前17)
+报('旧配置不会让 @ 自动回', 判断调用.length === 判断之前17 + 1 && 回合.filter((r) => r.sid === 'session-qq-social-group-1025').length === 之前17)
 
 // ---------- 18 旁听关掉：没人叫的消息连收都不收 ----------
 写配置({ 群: ['1017'], 旁听: false })
