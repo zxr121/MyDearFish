@@ -3,13 +3,13 @@
 //   1) 小模型自己挑 watch：只有挑中的消息进她的社交会话；没挑中的当她没看见
 //   2) 被 @ 不再自动回：照样先判断，可以看、可以不看、可以不回
 //   3) 只看不回走 inject，不唤醒回复模型；冷却里也只看看、先不回
-//   4) 好友私聊也由她判断回不回；主人自己的话只当上下文
+//   4) 好友私聊也由她判断回不回；主人在群里没叫她的只当上下文，叫了她可以直接接
 //   5) 静音、试运行、限额、零花钱下限都在判断之前拦住
 //   6) 脱敏失败 → 不发；回复她发过的消息 → 认得出是在叫她
 //   7) /models 和 /save 的社交深层合并；旧字段「被叫直接回」被忽略
 //   8) 刷屏时被叫和主人的消息优先保留，不会被挤出待看或判断窗口
 //   9) 兴趣画像成熟前每条都判；成熟后快判挡掉无关消息、整批没兴趣时不调判断模型，
-//      被叫和主人永远进慢判，关掉快判就回到全部交给判断模型
+//      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判
 // 跑法： node tests/社交半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
@@ -301,18 +301,36 @@ await 轮询社交()
 await 等()
 报('好友私聊也能拒绝', 回合.length === 之前5b && 注入们.length === 注入之前5b + 1, JSON.stringify(注入们.at(-1)))
 
-// ---------- 6 主人自己在群里的话只当上下文 ----------
+// ---------- 6 主人在群里：没叫只当上下文；叫了可以接 ----------
 写配置({ 群: ['1005'] })
-群消息表.set(1005, [一条群消息('大肥鱼 晚上吃啥', { atSelf: true, id: 1601, 是主人: true })])
+群消息表.set(1005, [一条群消息('晚上吃啥', { id: 1601, 是主人: true })])
 const 之前6 = 回合.length
 const 判断之前6 = 判断调用.length
 const 注入之前6 = 注入们.length
 await 轮询社交()
 await 等()
-报('主人的话不另开社交轮', 回合.length === 之前6)
-报('主人的话不花判断钱', 判断调用.length === 判断之前6)
-报('主人的话记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
+报('主人没叫 → 不另开社交轮', 回合.length === 之前6)
+报('主人没叫 → 不花判断钱', 判断调用.length === 判断之前6)
+报('主人没叫 → 记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
 报('主人消息的上下文来源标了主人', 注入们.at(-1) && 注入们.at(-1).message.source.owner === true)
+
+// 主人在群里 @ 她 / 叫名字 → 明确召唤，直接开一轮，不问兴趣判断
+写配置({ 群: ['1014'] })
+群消息表.set(1014, [一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true })])
+设判断([], false, 0.1, '不想接')
+const 之前6b = 回合.length
+const 判断之前6b = 判断调用.length
+const 注入之前6b = 注入们.length
+await 轮询社交()
+await 等()
+报('主人 @ 她 → 开一轮，不等兴趣小模型', 回合.length === 之前6b + 1 && 判断调用.length === 判断之前6b, `回合=${回合.length} 判断=${判断调用.length}`)
+const 主人叫轮 = 回合.at(-1)
+报('主人 @ 的批次里带着主人消息', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('在吗') && String(主人叫轮.message.content[0].text).includes('【主人】'), JSON.stringify(主人叫轮 && String(主人叫轮.message.content[0].text).slice(0, 160)))
+报('主人 @ 的消息来源仍标主人', 主人叫轮 && 主人叫轮.message.source.owner === true)
+报('主人 @ 不塞进只看不发的上下文', 注入们.length === 注入之前6b)
+const 发之前6b = 发的.length
+await 收到回复('session-qq-social-group-1014', '在呀，怎么啦')
+报('主人 @ 后她的回话发回群', 发的.length === 发之前6b + 1 && 发的.at(-1).url.endsWith('/send_group_msg') && 发的.at(-1).体.group_id === 1014 && 发的.at(-1).体.message[0].data.text === '在呀，怎么啦', JSON.stringify(发的.at(-1)))
 
 // ---------- 7 她自己的发言不接 ----------
 写配置({ 群: ['1006'] })
