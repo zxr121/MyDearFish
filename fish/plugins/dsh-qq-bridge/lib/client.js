@@ -440,7 +440,7 @@ window.__ModuleLoader__.load({
               )),
         ),
         h('div', { style: { ...S.dim, marginTop: 6 } },
-          '表情包收藏：' + ((态.表情包 && 态.表情包.数量) || 0) + ' 张' +
+          'QQ 收藏表情：' + ((态.表情包 && 态.表情包.数量) || 0) + ' 张' +
             (态.表情包 && Array.isArray(态.表情包.最近) && 态.表情包.最近.length
               ? ' · ' + 态.表情包.最近.slice(-5).map((x) => '#' + x.id + ' ' + x.label).join(' · ')
               : ''),

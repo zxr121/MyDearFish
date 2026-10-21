@@ -13,6 +13,7 @@
 // 跑法： node tests/社交半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -83,6 +84,8 @@ const 判断调用 = []
 const 存储 = []
 const 发的 = []
 const 附件们 = []
+const QQ收藏 = new Map()
+let 收藏序号 = 0
 const 鱼脑 = { availableCny: 5, 脱敏坏: false, 脱敏空: false }
 let 判断输出 = JSON.stringify({ watch: [], reply: false, confidence: 0.1, reason: '插不上话' })
 let 发送序号 = 100
@@ -230,6 +233,34 @@ globalThis.fetch = async (url, 选项) => {
       url: u,
       headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? '4' : null) },
       async arrayBuffer() { return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer },
+    }
+  }
+  if (u.endsWith('/add_custom_face')) {
+    const 源 = String(体.file || '')
+    const bytes = 源.startsWith('base64://') ? Buffer.from(源.slice('base64://'.length), 'base64') : Buffer.alloc(0)
+    const md5 = createHash('md5').update(bytes).digest('hex')
+    const emojiId = `700_${++收藏序号}_${md5}_0_0`
+    QQ收藏.set(emojiId, { emojiId, md5, desc: '' })
+    发的.push({ url: u, 体 })
+    return { json: async () => ({ status: 'ok', retcode: 0, data: { emoji_id: emojiId } }) }
+  }
+  if (u.endsWith('/modify_custom_face')) {
+    const 项 = QQ收藏.get(String(体.emoji_id))
+    if (项) 项.desc = String(体.desc || '')
+    发的.push({ url: u, 体 })
+    return { json: async () => ({ status: 'ok', retcode: 0, data: null }) }
+  }
+  if (u.endsWith('/send_custom_face')) {
+    发的.push({ url: u, 体 })
+    return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: ++发送序号 } }) }
+  }
+  if (u.endsWith('/fetch_custom_face_detail')) {
+    return {
+      json: async () => ({
+        status: 'ok',
+        retcode: 0,
+        data: [...QQ收藏.values()].map((x) => ({ emoji_id: x.emojiId, resId: x.emojiId, url: '', md5: x.md5, desc: x.desc })),
+      }),
     }
   }
   发的.push({ url: u, 体 })
@@ -447,8 +478,10 @@ await 收到回复('session-qq-social-group-1016', '[存表情:图1:测试表情
 await new Promise((r) => setTimeout(r, 30))
 const 表情索引文本 = readFileSync(join(家, 'qq-stickers.json'), 'utf8')
 const 表情索引 = JSON.parse(表情索引文本)
-报('看中的表情能收藏', 表情索引.items.length === 1 && 表情索引.items[0].label === '测试表情', 表情索引文本.slice(0, 120))
-报('表情文件落盘', existsSync(join(家, 'qq-stickers', 表情索引.items[0].file)))
+const 收藏项 = [...QQ收藏.values()][0]
+报('看中的表情直接写进 QQ 收藏', QQ收藏.size === 1 && 收藏项 && 收藏项.desc === '测试表情', JSON.stringify([...QQ收藏.values()]))
+报('本地只留编号和备注', 表情索引.items.length === 1 && 表情索引.items[0].label === '测试表情' && 表情索引.items[0].emojiId === (收藏项 && 收藏项.emojiId) && !表情索引.items[0].file, 表情索引文本.slice(0, 160))
+报('不再往本机写表情图片', !existsSync(join(家, 'qq-stickers')))
 
 // 学习期把握 0.35 也愿意先应一声（门槛 0.3）
 写配置({ 群: ['1026'] })
@@ -466,8 +499,9 @@ await 等()
 await 轮询社交()
 await 等()
 await 收到回复('session-qq-social-group-1027', '[发表情:#1] 给你看')
-const 表情发送 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1027 && Array.isArray(x.体.message) && x.体.message[0] && x.体.message[0].type === 'image')
-报('聊天时能发收藏的表情', 表情发送.length === 1, JSON.stringify(表情发送.at(-1)))
+const 表情发送 = 发的.filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1027 && x.体.emoji_id === (收藏项 && 收藏项.emojiId))
+报('聊天时从 QQ 收藏里发一张表情', 表情发送.length === 1, JSON.stringify(表情发送.at(-1)))
+报('表情不再当普通图片发', !发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1027 && Array.isArray(x.体.message) && x.体.message.some((b) => b.type === 'image')))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })

@@ -12,7 +12,7 @@
 // ⚠ 社交会话里工具全禁、余额上下文不注入、记忆只召回自己这间屋子；对外内容先脱敏。
 // ⚠ 导入只写经历，绝不说话：对外一律走这里的 OneBot 通道。
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -393,24 +393,27 @@ export function apply(ctx) {
   const 社交缓冲 = new Map() // 'group:123' → 已经挑中看过的最近消息（给小模型当上下文）
   const 社交画像 = new Map() // 'group:123' → 从她看过的消息里学到的兴趣词元、样本数、快判账
   let 画像存At = 0
-  const 表情们 = [] // 她自己看中并收藏的 QQ 表情包（本机文件 + 索引）
+  const 表情们 = [] // 她自己看中、已经写进 QQ 账号收藏的表情（本机只留编号和备注）
   let 表情下一个id = 1
+  let 上次迁移表情At = 0
   try {
     const 存 = JSON.parse(readFileSync(表情索引文件, 'utf8'))
     for (const 项 of Array.isArray(存 && 存.items) ? 存.items : []) {
       if (!项 || typeof 项 !== 'object') continue
       const id = Number(项.id)
       const 文件 = String(项.file || '')
-      if (!Number.isInteger(id) || id <= 0 || 文件 === '' || !existsSync(join(表情目录, 文件))) continue
+      const emojiId = String(项.emojiId || '')
+      if (!Number.isInteger(id) || id <= 0) continue
+      // 旧版条目还带本地图片：先照常收进清单，连上 QQ 后再迁进收藏。
+      if (emojiId === '' && (文件 === '' || !existsSync(join(表情目录, 文件)))) continue
       表情们.push({
         id,
         label: String(项.label || '表情').slice(0, 24),
-        file: 文件,
-        mediaType: String(项.mediaType || 'image/gif').slice(0, 30),
+        ...(emojiId !== '' ? { emojiId } : { file: 文件 }),
+        md5: String(项.md5 || '').slice(0, 32),
         bytes: Math.max(0, Number(项.bytes) || 0),
         addedAt: Math.max(0, Number(项.addedAt) || 0),
         source: String(项.source || '').slice(0, 40),
-        hash: String(项.hash || '').slice(0, 64),
       })
     }
     表情们.sort((a, b) => a.id - b.id)
@@ -1180,7 +1183,7 @@ export function apply(ctx) {
     return 公告
   }
 
-  // ---------- 表情包收藏：她自己看中、存到本机，聊天时挑着发 ----------
+  // ---------- 表情包收藏：直接写进 QQ 账号的收藏表情，聊天时从那里挑着发 ----------
 
   function 表情清单(最多 = 8) {
     return 表情们.slice(-最多).map((x) => `#${x.id} ${x.label}`).join(' · ')
@@ -1188,7 +1191,7 @@ export function apply(ctx) {
 
   function 表情提示() {
     if (表情们.length === 0) return ''
-    return `【你收藏的表情包】${表情清单()}。想发就写 [发表情:#编号]，一次最多一张；不想发就不用写。`
+    return `【你在 QQ 收藏的表情包】${表情清单()}。想发就写 [发表情:#编号]，一次最多一张；不想发就不用写。`
   }
 
   function 拆表情标记(文字) {
@@ -1207,15 +1210,27 @@ export function apply(ctx) {
 
   function 存表情索引() {
     try {
-      mkdirSync(表情目录, { recursive: true })
-      writeFileSync(表情索引文件, JSON.stringify({ version: 1, nextId: 表情下一个id, items: 表情们 }, null, 2), 'utf8')
+      writeFileSync(表情索引文件, JSON.stringify({ version: 2, nextId: 表情下一个id, items: 表情们 }, null, 2), 'utf8')
     } catch (error) {
       记账(`存表情索引失败：${String((error && error.message) || error)}`)
     }
   }
 
-  /** 把她看中的一张表情图从附件库复制到表情收藏；只收表情类，不碰普通照片。 */
-  async function 存表情包(图, 标签, 来源) {
+  async function 上传QQ表情(配置, bytes) {
+    const 体 = { file: 'base64://' + Buffer.from(bytes).toString('base64') }
+    const r = await 发一个(配置.NapCat, 'add_custom_face', 体)
+    const emojiId = r.ok && r.数据 && r.数据.data ? String(r.数据.data.emoji_id || '') : ''
+    return { ok: emojiId !== '', emojiId, 响应: r }
+  }
+
+  async function 改QQ表情备注(配置, emojiId, 备注) {
+    const r = await 发一个(配置.NapCat, 'modify_custom_face', { emoji_id: emojiId, desc: 备注 })
+    if (!r.ok) 记账(`改 QQ 收藏表情备注失败：${JSON.stringify(r.数据).slice(0, 140)}`)
+    return r.ok
+  }
+
+  /** 把她看中的表情图直接写进 QQ 账号的收藏表情；图片不落本机。只收表情类，不碰普通照片。 */
+  async function 存表情包(配置, 图, 标签, 来源) {
     if (!图 || !图.ref || !图.表情) return null
     const 服务 = ctx.get('attachments')
     if (!服务 || typeof 服务.readImage !== 'function') {
@@ -1238,57 +1253,96 @@ export function apply(ctx) {
       记账('表情图为空或太大，没存')
       return null
     }
-    const 哈希 = createHash('sha256').update(bytes).digest('hex')
-    const 已有 = 表情们.find((x) => x.hash === 哈希)
+    const 哈希 = createHash('md5').update(bytes).digest('hex')
+    const 已有 = 表情们.find((x) => x.md5 === 哈希)
     if (已有) {
       记账(`这张表情已经收藏过：#${已有.id} ${已有.label}`)
       return 已有
     }
-    const 媒体 = String((读.ref && 读.ref.mediaType) || (图.ref && 图.ref.mediaType) || 'image/gif')
-    const 后缀 = 媒体.includes('png') ? 'png' : 媒体.includes('webp') ? 'webp' : 媒体.includes('jpeg') ? 'jpg' : 'gif'
-    const 干净标签 = String(标签 || '').replace(/[\[\]\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24) || '表情'
-    const 文件名 = `${哈希}.${后缀}`
-    try {
-      mkdirSync(表情目录, { recursive: true })
-      writeFileSync(join(表情目录, 文件名), bytes)
-      const 条目 = {
-        id: 表情下一个id++,
-        label: 干净标签,
-        file: 文件名,
-        mediaType: 媒体,
-        bytes: bytes.length,
-        addedAt: Date.now(),
-        source: String(来源 || '').slice(0, 40),
-        hash: 哈希,
-      }
-      表情们.push(条目)
-      存表情索引()
-      记账(`收藏了一张表情包：#${条目.id} ${条目.label}`)
-      return 条目
-    } catch (error) {
-      记账(`写表情文件失败：${String((error && error.message) || error)}`)
+    const 上传 = await 上传QQ表情(配置, bytes)
+    if (!上传.ok) {
+      记账(`写进 QQ 收藏表情失败：${JSON.stringify(上传.响应 && 上传.响应.数据).slice(0, 160)}`)
       return null
     }
+    const 干净标签 = String(标签 || '').replace(/[\[\]\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24) || '表情'
+    if (干净标签) await 改QQ表情备注(配置, 上传.emojiId, 干净标签)
+    const 条目 = {
+      id: 表情下一个id++,
+      label: 干净标签,
+      emojiId: 上传.emojiId,
+      md5: 哈希,
+      bytes: bytes.length,
+      addedAt: Date.now(),
+      source: String(来源 || '').slice(0, 40),
+    }
+    表情们.push(条目)
+    存表情索引()
+    记账(`收藏了一张表情包（已存进 QQ）：#${条目.id} ${条目.label}`)
+    return 条目
   }
 
-  async function 发QQ图片(配置, 类型, 号, 条目) {
-    if (!条目) return { ok: false }
-    const 路径 = join(表情目录, 条目.file)
-    if (!existsSync(路径)) return { ok: false }
-    const action = 类型 === 'group' ? 'send_group_msg' : 'send_private_msg'
+  /** 从 QQ 账号的收藏表情里发一张；样式由 QQ 保留。 */
+  async function 发QQ表情(配置, 类型, 号, 条目) {
+    if (!条目 || !条目.emojiId) {
+      if (条目) 记账(`表情「${条目.label}」还没转进 QQ 收藏，这轮不发`)
+      return { ok: false }
+    }
     const 体 = 类型 === 'group'
-      ? { group_id: Number(号), message: [{ type: 'image', data: { file: 'file:///' + 路径.replace(/\\/g, '/') } }] }
-      : { user_id: Number(号), message: [{ type: 'image', data: { file: 'file:///' + 路径.replace(/\\/g, '/') } }] }
-    let r = await 发一个(配置.NapCat, action, 体)
+      ? { group_id: Number(号), emoji_id: 条目.emojiId }
+      : { user_id: Number(号), emoji_id: 条目.emojiId }
+    const r = await 发一个(配置.NapCat, 'send_custom_face', 体)
     if (!r.ok) {
-      // 有些后端不认本地路径，退成 base64。
-      try {
-        const b64 = readFileSync(路径).toString('base64')
-        体.message = [{ type: 'image', data: { file: 'base64://' + b64 } }]
-        r = await 发一个(配置.NapCat, action, 体)
-      } catch (error) {}
+      const 原因 = String((r.数据 && (r.数据.wording || r.数据.message)) || '')
+      if (/not in the saved sticker list/i.test(原因)) {
+        const 位 = 表情们.findIndex((x) => x.id === 条目.id)
+        if (位 >= 0) {
+          表情们.splice(位, 1)
+          存表情索引()
+          记账(`QQ 收藏里已经找不到「${条目.label}」，从她的表情清单里删掉`)
+        }
+      }
     }
     return r
+  }
+
+  /** 旧版存在本机的表情：连上 QQ 后逐张写进账号收藏，成功就删掉本地图片。 */
+  async function 迁移本地表情(配置) {
+    const 待迁 = 表情们.filter((x) => x.file && !x.emojiId)
+    if (待迁.length === 0) return
+    if (Date.now() - 上次迁移表情At < 60_000) return
+    上次迁移表情At = Date.now()
+    let 改了 = false
+    for (const 条目 of 待迁) {
+      const 路径 = join(表情目录, 条目.file)
+      try {
+        if (!existsSync(路径)) {
+          const 位 = 表情们.indexOf(条目)
+          if (位 >= 0) 表情们.splice(位, 1)
+          改了 = true
+          continue
+        }
+        const bytes = readFileSync(路径)
+        if (bytes.length === 0 || bytes.length > 表情单张上限) {
+          记账(`旧表情「${条目.label}」为空或太大，没转进 QQ`)
+          continue
+        }
+        const 上传 = await 上传QQ表情(配置, bytes)
+        if (!上传.ok) {
+          记账(`旧表情「${条目.label}」转进 QQ 收藏失败，下次再试`)
+          continue
+        }
+        条目.emojiId = 上传.emojiId
+        条目.md5 = createHash('md5').update(bytes).digest('hex')
+        delete 条目.file
+        if (条目.label) await 改QQ表情备注(配置, 上传.emojiId, 条目.label)
+        改了 = true
+        try { unlinkSync(路径) } catch (error) {}
+        记账(`旧表情「${条目.label}」已转进 QQ 收藏`)
+      } catch (error) {
+        记账(`旧表情「${条目.label}」迁移失败：${String((error && error.message) || error)}`)
+      }
+    }
+    if (改了) 存表情索引()
   }
 
   /**
@@ -1828,11 +1882,12 @@ export function apply(ctx) {
     const 配置 = 读配置()
     const 原文 = String(文字 || '').trim()
     const 拆 = 拆表情标记(原文)
-    // 先收藏她看中的表情。这一步只写本机，和这轮发不发得出去无关。
+    // 先收藏她看中的表情（写进 QQ 账号收藏）。这一步和这轮发不发得出去无关。
     for (const 存 of 拆.存表情) {
       const 图 = (批次图们 || [])[存.图 - 1]
-      if (图) await 存表情包(图, 存.标签, `${目标.叫}${图.说话人 ? '·' + 图.说话人 : ''}`)
-      else 记账(`存表情：本批没有图 ${存.图}`)
+      if (!图) 记账(`存表情：本批没有图 ${存.图}`)
+      else if (配置.社交.试运行) 记账(`试运行：本来要把表情「${存.标签 || '表情'}」存进 QQ 收藏`)
+      else await 存表情包(配置, 图, 存.标签, `${目标.叫}${图.说话人 ? '·' + 图.说话人 : ''}`)
     }
     let 文本 = 拆.文本
     if (/^\[不接话\]$/.test(文本)) 文本 = ''
@@ -1885,7 +1940,7 @@ export function apply(ctx) {
       记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? '开口' : '开口有问题'}：「${脱敏文本.slice(0, 50)}${脱敏文本.length > 50 ? '…' : ''}」`)
     }
     if (贴纸) {
-      const r = await 发QQ图片(配置, 目标.类型, 目标.号, 贴纸)
+      const r = await 发QQ表情(配置, 目标.类型, 目标.号, 贴纸)
       if (r.ok) {
         const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
         if (mid !== undefined && mid !== null) {
@@ -1979,7 +2034,7 @@ export function apply(ctx) {
         出.push(await 发一个(配置.NapCat, 'send_private_msg', 体))
         if (i < 段们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
       }
-      if (贴纸) 出.push(await 发QQ图片(配置, 'private', 配置.私聊QQ, 贴纸))
+      if (贴纸) 出.push(await 发QQ表情(配置, 'private', 配置.私聊QQ, 贴纸))
     }
     if (配置.转群 && 配置.群号) {
       for (let i = 0; i < 段们.length; i++) {
@@ -1988,7 +2043,7 @@ export function apply(ctx) {
         出.push(await 发一个(配置.NapCat, 'send_group_msg', 体))
         if (i < 段们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
       }
-      if (贴纸) 出.push(await 发QQ图片(配置, 'group', 配置.群号, 贴纸))
+      if (贴纸) 出.push(await 发QQ表情(配置, 'group', 配置.群号, 贴纸))
     }
     return 出
   }
@@ -2589,6 +2644,9 @@ export function apply(ctx) {
     const 停 = ctx.interval(() => {
       void 轮询收消息().catch((error) => {
         try { ctx.logger?.info(`qq-bridge: 轮询出错：${String((error && error.message) || error)}`) } catch (e2) {}
+      })
+      void 迁移本地表情(读配置()).catch((error) => {
+        try { ctx.logger?.info(`qq-bridge: 迁移旧表情出错：${String((error && error.message) || error)}`) } catch (e2) {}
       })
     }, 4000)
     return () => {
