@@ -28,7 +28,11 @@ See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism,
 
 ## Cognition plan
 
-[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The Phase 0 fish-mind code is implemented and currently shadow-running; recall, injection, and background life still follow the plan's phases. Progress, task breakdown, acceptance data, and handoff steps live in the [development plan](development-plan.md).
+[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The Phase 0 fish-mind code is implemented and currently shadow-running; recall, injection, and background life still follow the plan's phases. Progress, task breakdown, acceptance data, and handoff steps live in the [development plan](development-plan.md). For the whole build on one page — how the plugins, layering, memory, cost, and safety boundaries fit together — see the [implementation approach](implementation.md).
+
+## QQ access plan
+
+[The QQ access plan](qq-tulpa.md) decides how the fish reaches QQ: what `dsh-qq-bridge` already does, which parts of the external Tulpa program are worth taking (a one-click backend setup, a read-only history source), which are refused (its standing send authorization and its own chat loop), and what stays fixed.
 
 ## Layer order
 

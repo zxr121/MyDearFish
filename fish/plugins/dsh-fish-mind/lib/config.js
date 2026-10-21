@@ -27,6 +27,18 @@ const DEFAULT_NAME_PATTERNS = [
   '.git-credentials',
 ]
 
+/** 外部 MCP 只读白名单：只认「取/列/搜/读」这一类动作，发送和管理一律不进这里。 */
+const DEFAULT_MCP_READ_ONLY_TOOLS = [
+  'get_*',
+  'list_*',
+  'search_*',
+  'read_*',
+  'describe_*',
+  'query_*',
+  'count_*',
+  'check_*',
+]
+
 /** 敏感目录/文件：跨平台全列上，不存在的路径不会有副作用。 */
 const DEFAULT_PROTECTED_READ_PATHS = [
   '~/.ssh',
@@ -99,6 +111,8 @@ export function buildDefaults(dshHome) {
       protectedReadPaths: [...DEFAULT_PROTECTED_READ_PATHS, join(dshHome, '.credentials.yaml')],
       protectedWritePaths: [...DEFAULT_PROTECTED_READ_PATHS, join(dshHome, '.credentials.yaml')],
       protectedNamePatterns: [...DEFAULT_NAME_PATTERNS],
+      // 外部 MCP 默认全拒，只有命中这些名字的才当只读放行；关掉权限开关也不扩大这个口子。
+      mcpReadOnlyTools: [...DEFAULT_MCP_READ_ONLY_TOOLS],
       autonomous: {
         enabled: false,
         allowTools: [],
@@ -260,6 +274,11 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     config.permissions.protectedReadPaths = pickStringArray(p.protectedReadPaths, config.permissions.protectedReadPaths)
     config.permissions.protectedWritePaths = pickStringArray(p.protectedWritePaths, config.permissions.protectedWritePaths)
     config.permissions.protectedNamePatterns = pickStringArray(p.protectedNamePatterns, config.permissions.protectedNamePatterns)
+    // 逐条去掉首尾空格：` get_* ` 带着空格就匹配不上任何工具，静默失效比报错更难查。
+    config.permissions.mcpReadOnlyTools = pickStringArray(
+      p.mcpReadOnlyTools,
+      config.permissions.mcpReadOnlyTools,
+    ).map((item) => item.trim())
     if (isPlainObject(p.autonomous)) {
       const a = p.autonomous
       config.permissions.autonomous.enabled = pickBoolean(a.enabled, config.permissions.autonomous.enabled)

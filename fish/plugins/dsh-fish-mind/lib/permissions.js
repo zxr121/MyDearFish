@@ -2,6 +2,7 @@
 //
 // 默认姿势：
 //   · 本机私密信息和凭据是硬拒绝，跟 permissions.enabled 无关，也不弹审批。
+//   · 外部 MCP 工具只有只读白名单里的能放行；发送、撤回、群管理一律硬拒绝。
 //   · 用户自己开的会话 —— 正常放行；但 DSH 目录、凭据目录、身份文件、
 //     探测本机的命令、不可逆的危险命令，以及参数里夹带真凭据的调用，一律拒绝。
 //   · 她自己在后台开的会话 —— 默认全拒，只放行显式 allowTools，而且只能碰鱼脑目录。
@@ -165,6 +166,14 @@ function compileNamePattern(pattern) {
   return new RegExp(`^${escaped}$`, process.platform === 'win32' ? 'i' : '')
 }
 
+const MCP_TOOL_PREFIX = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/
+
+/** `mcp__tulpa__get_messages` → `{ server: 'tulpa', tool: 'get_messages' }`；不是 MCP 工具返回 null。 */
+function parseMcpTool(name) {
+  const m = MCP_TOOL_PREFIX.exec(typeof name === 'string' ? name : '')
+  return m === null ? null : { server: m[1], tool: m[2] }
+}
+
 function collectStrings(value, out, depth = 0) {
   if (depth > 4 || value === null || value === undefined) return
   if (typeof value === 'string') {
@@ -196,6 +205,10 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
     pattern,
     regex: compileNamePattern(pattern),
     suffix: pattern.startsWith('*') ? pattern.slice(1) : null,
+  }))
+  const mcpReadOnly = config.permissions.mcpReadOnlyTools.map((pattern) => ({
+    pattern,
+    regex: compileNamePattern(pattern),
   }))
   const mindRoot = fold(join(dshHome, 'fish-mind'))
   // 鱼脑自己的代码同样是固定内核：私设、安全规则、隐私规则和权限规则都写在这里。
@@ -431,6 +444,17 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
         rule: inspection.privateRule,
       }
     }
+    // 外部 MCP 只能读：发送、撤回、拍一拍、改资料、群管理一律拒绝。这条硬边界不受权限开关影响，
+    // 因为开关关着只是「不用问主人」，不等于「外部服务可以替她说话」。
+    const mcp = MCP_TOOL_PREFIX.exec(typeof exec?.name === 'string' ? exec.name : '')
+    if (mcp !== null && !mcpReadOnly.some((item) => item.regex.test(mcp[2]))) {
+      return {
+        ...base,
+        decision: 'deny',
+        rule: 'external.mcp.read-only',
+        reason: `外部服务「${mcp[1]}」的工具「${mcp[2]}」不在只读白名单里：她不能借外部 MCP 发消息、撤回、拍一拍或管理群。要在 QQ 里说话只能走她自己的嘴；确实需要这个能力时请主人把工具名加进 permissions.mcpReadOnlyTools。`,
+      }
+    }
     if (!config.permissions.enabled) return { ...base, decision: 'allow', reason: '权限开关关着', rule: 'permissions.disabled' }
 
     if (origin === 'autonomous') {
@@ -445,6 +469,10 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
         return { ...base, decision: 'deny', reason: '自主模式只能访问鱼脑目录和 allowPaths。', rule: 'autonomous.path' }
       }
       return { ...base, decision: 'allow', reason: '自主模式允许的低风险调用', rule: 'autonomous.allow' }
+    }
+
+    if (mcp !== null) {
+      return { ...base, decision: 'allow', reason: `外部服务「${mcp[1]}」的只读工具`, rule: 'external.mcp.read' }
     }
 
     return { ...base, decision: 'allow', reason: '用户会话正常放行', rule: 'foreground.allow' }
@@ -464,9 +492,10 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
     return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`
   }
 
-  /** 记录一次判定；前台 allow 不记，避免审计被正常操作淹没。 */
+  /** 记录一次判定；前台普通 allow 不记，避免审计被正常操作淹没，但从外部服务取数据要留痕。 */
   function record(exec, verdict, downstream = 'allow') {
-    if (verdict.decision === 'allow' && verdict.origin !== 'autonomous') return
+    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read'
+    if (verdict.decision === 'allow' && !notable) return
     audit({
       at: Date.now(),
       tool: exec?.name ?? 'unknown',
@@ -501,6 +530,7 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
         protectedReadPaths: config.permissions.protectedReadPaths,
         protectedWritePaths: config.permissions.protectedWritePaths,
         protectedNamePatterns: config.permissions.protectedNamePatterns,
+        mcpReadOnlyTools: [...config.permissions.mcpReadOnlyTools],
         sealedWritePaths: sealedRoots,
         hard: {
           dshHome: true,
@@ -509,6 +539,7 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
           machineProbes: true,
           dangerousCommands: true,
           credentialArguments: privacy !== null,
+          externalMcpWrites: true,
         },
         autonomous: {
           enabled: config.permissions.autonomous.enabled,

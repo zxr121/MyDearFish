@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for implementation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/implementation.md
+/fish-implementation-approach:
+  en: b1cef9d49f8105f1
+  zh: 7a50aa38eab1c4a9
+/fish-implementation-approach/product-shape:
+  en: 6ff86fc986a2735f
+  zh: 6f32d4068926bd66
+/fish-implementation-approach/plugins-carry-the-behavior-not-the-loop:
+  en: 2e11a979a9baa4e5
+  zh: 530c57204c920d19
+/fish-implementation-approach/layering-decides-who-wins:
+  en: c3b5f5f6cc36f7dd
+  zh: c1b61d293d4b9835
+/fish-implementation-approach/six-plugins-one-body:
+  en: 749e7f5a11f9ee07
+  zh: fb8502a824826e25
+/fish-implementation-approach/memory-derives-from-one-append-only-stream:
+  en: 8015ff0db10e26d5
+  zh: 39c5de432ca5a4b0
+/fish-implementation-approach/cost-is-paid-while-forming-then-gets-cheap:
+  en: 15ee5aab5bdd9359
+  zh: 4416920bcfe70bd7
+/fish-implementation-approach/safety-boundaries-are-code-not-her-mood:
+  en: 6309ab5d931c10d9
+  zh: 90b87b458f4333a3
+/fish-implementation-approach/rollout-read-before-write:
+  en: 4c0c0c53b3921c98
+  zh: cb4ac0cf53178c78
+/fish-implementation-approach/trade-offs-this-shape-buys-and-pays:
+  en: e39f33842359287e
+  zh: daab8380dc669cc4

@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for qq-tulpa.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/qq-tulpa.md
+/qq-access-plan-combining-tulpa-with-my-dear-fish:
+  en: 3b0b831303cd74ab
+  zh: 3d15be2260a76221
+/qq-access-plan-combining-tulpa-with-my-dear-fish/what-the-bridge-does-today:
+  en: 11ce818ff4b7bfc4
+  zh: 3cb5b4e4e86d8189
+/qq-access-plan-combining-tulpa-with-my-dear-fish/what-tulpa-provides:
+  en: 900ca208424609aa
+  zh: 99dcfb49c29f5d0c
+/qq-access-plan-combining-tulpa-with-my-dear-fish/route-a-port-the-setup-wizard:
+  en: 1592fc5cc88be002
+  zh: 3f35a43dc567930e
+/qq-access-plan-combining-tulpa-with-my-dear-fish/route-b-read-only-tulpa-mcp-as-a-memory-source:
+  en: 8541b88348003abf
+  zh: a0fd391b6df0135e
+/qq-access-plan-combining-tulpa-with-my-dear-fish/route-c-run-her-inside-tulpa:
+  en: 0683de58fbe9c632
+  zh: 30fdf01ba0b6d8ea
+/qq-access-plan-combining-tulpa-with-my-dear-fish/fixed-rules:
+  en: f198650f49fe120b
+  zh: e10d55696d0aac55
+/qq-access-plan-combining-tulpa-with-my-dear-fish/the-chosen-path:
+  en: 260dea02c9b249bf
+  zh: ff65a8b04cba3933

@@ -7,7 +7,7 @@
 //   5) /state 路由能回出配置和 NapCat 探活结果
 // 跑法： node tests/宿主半边.mjs
 
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -58,6 +58,7 @@ globalThis.fetch = async (url, 选项) => {
 
 // 假鱼脑：真鱼脑在 fish-mind 里，这里只验 QQ 这半「先脱敏、再发」和失败关闭。
 const 鱼脑状态 = { 可用: true, 抛出: false, 领过: new Set() }
+const 观察到的 = [] // 历史导入写进经历流的条目：验证「没打开开关就一条都不写」
 const 假鱼脑 = {
   redactOutbound(文字) {
     if (鱼脑状态.抛出) throw new Error('脱敏坏了')
@@ -365,6 +366,58 @@ await new Promise((r) => setTimeout(r, 20))
 const 批文 = 转进的.at(-1)?.content?.[0]?.text || ''
 报('同一次轮询的多条消息合成一轮', 转进的.length === 之前批 + 1 && 批文.includes('第一句') && 批文.includes('第二句'), JSON.stringify(批文))
 私聊附加 = []
+
+// ⑰ 历史导入：四个口都在，且没打开开关 / 没鱼脑 / 没令牌时一个字节都不取
+假鱼脑.observe = (输入) => { 观察到的.push(输入); return { ok: true, id: 观察到的.length, hash: 'h' + 观察到的.length } }
+const 导 = (路径, 方法 = 'POST') => {
+  存储.length = 0
+  return 路由.get(`/dsh-qq-bridge/${路径}`)(造请求(undefined, { method: 方法 }), fakeRes).then(() => 存储[0])
+}
+const 写导入配置 = (改动) => writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false,
+  NapCat: 'http://127.0.0.1:3000', 导入: 改动,
+}, null, 2), 'utf8')
+
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' }), fakeRes)
+报('/state 带出导入进度', 存储[0] && 存储[0].导入 && 存储[0].导入.启用 === false && 存储[0].导入.运行中 === false, JSON.stringify(存储[0] && 存储[0].导入))
+报('/state 不把令牌写进页面（没填就是空）', 存储[0] && 存储[0].配置.导入.令牌 === '' && 存储[0].导入.有令牌 === false)
+
+写导入配置({ 启用: false, 令牌: 'tk-secret' })
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' }), fakeRes)
+报('/state：填过的令牌只回掩码', 存储[0].配置.导入.令牌 === '(已设置)' && 存储[0].导入.有令牌 === true, JSON.stringify(存储[0].配置.导入))
+
+收到 = await 导('import-run')
+报('/import-run：开关关着 → 拒绝', 收到 && 收到.ok === false && String(收到.说).includes('开关关着'), JSON.stringify(收到))
+报('/import-run：开关关着 → 一条都不写进经历', 观察到的.length === 0)
+
+写导入配置({ 启用: true, 令牌: 'tk-secret' })
+鱼脑状态.可用 = false
+收到 = await 导('import-run')
+报('/import-run：鱼脑没挂上 → 拒绝（不写半截经历）', 收到 && 收到.ok === false && String(收到.说).includes('鱼脑'), JSON.stringify(收到))
+鱼脑状态.可用 = true
+
+写导入配置({ 启用: true, 令牌: '' })
+delete process.env.TULPA_MCP_TOKEN
+收到 = await 导('import-run')
+报('/import-run：没令牌 → 拒绝', 收到 && 收到.ok === false && String(收到.说).includes('令牌'), JSON.stringify(收到))
+
+收到 = await 导('import-stop')
+报('/import-stop：能停（没在导也如实回）', 收到 && 收到.ok === true && String(收到.说).includes('停止'), JSON.stringify(收到))
+收到 = await 导('import-reset')
+报('/import-reset：清游标', 收到 && 收到.ok === true, JSON.stringify(收到))
+收到 = await 导('import-state', 'GET')
+报('/import-state：回出上限和白名单', 收到 && 收到.ok === true && 收到.每轮条数 === 200 && Array.isArray(收到.白名单), JSON.stringify(收到 && { 每轮条数: 收到.每轮条数, 白名单: 收到.白名单 }))
+
+// /save 把掩码原样发回来 = 令牌不改；提交别的字段也不冲掉导入配置
+写导入配置({ 启用: true, 令牌: 'tk-secret', 白名单: ['p1'], 每轮条数: 50 })
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/save')(造请求({ 导入: { 令牌: '(已设置)', 每轮页数: 3 } }, { method: 'POST' }), fakeRes)
+const 落盘 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+报('/save：掩码回显不改真令牌', 落盘.导入.令牌 === 'tk-secret', JSON.stringify(落盘.导入))
+报('/save：嵌套导入不被浅合并冲掉（白名单、条数还在）', 落盘.导入.白名单[0] === 'p1' && 落盘.导入.每轮条数 === 50 && 落盘.导入.每轮页数 === 3, JSON.stringify(落盘.导入))
+报('/save：导入配置不进经历流', 观察到的.length === 0)
 
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

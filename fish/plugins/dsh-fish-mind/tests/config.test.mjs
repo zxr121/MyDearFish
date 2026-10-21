@@ -69,6 +69,20 @@ test('不合法的字段逐个退回，不影响其它字段', () => {
   assert.deepEqual(config.permissions.autonomous.allowTools, ['recall'])
 })
 
+test('外部 MCP 只读白名单：默认只认读类动作，配置里的首尾空格去掉', () => {
+  const home = tempHome()
+  assert.deepEqual(buildDefaults(home).permissions.mcpReadOnlyTools, [
+    'get_*', 'list_*', 'search_*', 'read_*', 'describe_*', 'query_*', 'count_*', 'check_*',
+  ])
+  const config = normalizeConfig({
+    permissions: { mcpReadOnlyTools: [' get_* ', 'send_message', '', 42] },
+  }, { dshHome: home })
+  assert.deepEqual(config.permissions.mcpReadOnlyTools, ['get_*', 'send_message'])
+
+  const empty = normalizeConfig({ permissions: { mcpReadOnlyTools: [] } }, { dshHome: home })
+  assert.ok(empty.permissions.mcpReadOnlyTools.length > 0)
+})
+
 test('预算默认开着，每天额度不在配置里，价格逐字段归一', () => {
   const home = tempHome()
   const defaults = buildDefaults(home)

@@ -61,6 +61,7 @@ const SOURCE_LABELS = {
   qq: 'QQ 里说的',
   'qq-group': 'QQ 群里说的',
   'qq-friend': 'QQ 好友说的',
+  'qq-import': '旧记录（导入）',
   'speak-up': '主动搭话',
   bili: 'B 站报告',
   compaction: '上下文压缩摘要',

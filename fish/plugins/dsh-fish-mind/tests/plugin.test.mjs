@@ -764,6 +764,44 @@ test('上下文压缩摘要写进长期记忆，能召回、打开，也能按�
   ctx.dispose()
 })
 
+test('导入的旧记录带着来源标签，能召回、能整类排除，提示里讲清它不是亲历', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+  const now = Date.now()
+
+  mind.observe({
+    at: now - 5 * 3_600_000,
+    sessionId: 'session-qq-import-p1',
+    seq: 123456789,
+    kind: 'message',
+    role: 'user',
+    actor: '旧记录 10001',
+    source: 'qq-import',
+    text: '那天你说想把海底邮局的海报贴在窗户上',
+    meta: { imported: true, trust: 0.45 },
+  })
+  await ctx.emit('session/event', session('session-current'), messageEvent('user/message', '海底邮局那张海报呢', { time: now }))
+
+  const protocol = harness.sections.find((entry) => entry.name === 'fish-mind-protocol')
+  assert.ok(protocol.text().includes('旧记录（导入）'), '记忆协议里讲清导入的旧记录不是亲历')
+
+  const workspace = harness.contexts.find((entry) => entry.name === 'fish-mind-workspace')
+  const text = workspace.text({ agent: { session: session('session-current') } })
+  assert.ok(text.includes('旧记录（导入）'), '工作台把这条标成旧记录，不当成她在场的事')
+  assert.ok(text.includes('可信 0.45'), '按导入可信度给分')
+
+  const found = mind.recall('海底邮局海报', {})
+  assert.ok(found.items.some((item) => item.source === '旧记录（导入）'), '主人会话里能想起这段旧记录')
+  const excluded = mind.recall('海底邮局海报', { excludeSources: ['qq-import'] })
+  assert.ok(!excluded.items.some((item) => item.source === '旧记录（导入）'), '按来源能整类排除')
+  ctx.dispose()
+})
+
 test('live 但 inject=false 不注入；reload 能开工作台，也能退回影子模式', async () => {
   const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   process.env.DSH_HOME = home

@@ -2,10 +2,12 @@
 //
 // 只干一件事：在 **DSH 设置** 左侧栏加一项「通到 QQ」，
 // 摆出：总开关 / 试运行 / 目标会话（下拉选，不手填）/ 私聊QQ / 群号 / 转私聊 / 转群，
-// 外加社交模式：群 / 好友清单、接话限额、静音、判断与回复模型、当前状态。
+// 外加社交模式：群 / 好友清单、接话限额、静音、判断与回复模型、当前状态，
+// 以及「翻旧记录」：从 Tulpa 读已有的私聊记录进她的经历流（只读，可继续 / 可停 / 可重来）。
 // 加「测试一句」「保存设置」和一份最近记录。
 //
 // ⚠ 这里不碰会话、不发消息，只是往宿主那几条 /dsh-qq-bridge/* 路由上读写。
+// ⚠ 令牌从服务器只拿回掩码；原样保存不会改动真令牌。
 
 window.__ModuleLoader__.load({
   id: 'dsh-qq-bridge',
@@ -142,6 +144,9 @@ window.__ModuleLoader__.load({
       const [称呼文本, 设称呼文本] = React.useState('')
       const [兴趣文本, 设兴趣文本] = React.useState('')
       const [模型们, 设模型们] = React.useState([])
+      const [导忙, 设导忙] = React.useState(false)
+      const [导说, 设导说] = React.useState('')
+      const [白名单文本, 设白名单文本] = React.useState('')
 
       React.useEffect(() => {
         拉()
@@ -155,6 +160,7 @@ window.__ModuleLoader__.load({
         设好友文本((社.好友 || []).join(', '))
         设称呼文本((社.称呼 || []).join(', '))
         设兴趣文本((社.兴趣词 || []).join(', '))
+        设白名单文本((((s && s.配置 && s.配置.导入) || {}).白名单 || []).join(', '))
       }
       const 拉 = async () => {
         const s = await get('/state')
@@ -176,6 +182,14 @@ window.__ModuleLoader__.load({
         })
         设脏(true)
       }
+      const 改导入 = (k, v) => {
+        设态((旧) => {
+          if (!旧) return 旧
+          const 配置 = 旧.配置 || {}
+          return { ...旧, 配置: { ...配置, 导入: { ...(配置.导入 || {}), [k]: v } } }
+        })
+        设脏(true)
+      }
       const 存 = async () => {
         设忙(true)
         const s = await post('/save', (态 && 态.配置) || {})
@@ -194,6 +208,34 @@ window.__ModuleLoader__.load({
         设忙(false)
         设说((s && s.说) || '没反应')
         await 拉()
+      }
+      // 导入的进度单独刷：整页 /state 会把没保存的表单值冲掉（令牌、白名单都会没）。
+      const 拉导入 = async () => {
+        const s = await get('/import-state')
+        if (s && s.ok) 设态((旧) => (旧 ? { ...旧, 导入: s } : 旧))
+      }
+      const 跑一轮导入 = async () => {
+        设导忙(true)
+        const s = await post('/import-run', {})
+        设导忙(false)
+        设导说(s && s.ok
+          ? '这一轮：写进 ' + (s.写 || 0) + ' 条｜本来就有的 ' + (s.重 || 0) + ' 条｜认不出 ' + (s.跳 || 0) + ' 条｜' + (s.说 || '')
+          : ((s && s.说) || '导入没跑起来'))
+        await 拉导入()
+      }
+      const 停导入 = async () => {
+        设导忙(true)
+        const s = await post('/import-stop', {})
+        设导忙(false)
+        设导说((s && s.说) || '已请求停止')
+        await 拉导入()
+      }
+      const 重来导入 = async () => {
+        设导忙(true)
+        const s = await post('/import-reset', {})
+        设导忙(false)
+        设导说((s && s.说) || '游标已清空')
+        await 拉导入()
       }
 
       const 数框 = (值, onChange, 步 = 1, 最小 = 0, 最大 = 100000) =>
@@ -242,6 +284,9 @@ window.__ModuleLoader__.load({
       const 社态 = 态.社交 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
       const 自己 = 社态.自己 || (NapCat && !NapCat.错 ? { 昵称: NapCat.昵称, 号: NapCat.用户 } : null)
+      const 导入 = 配置.导入 || {}
+      const 导态 = 态.导入 || {}
+      const 本轮 = 导态.本轮 || {}
 
       return h(
         'div',
@@ -391,6 +436,71 @@ window.__ModuleLoader__.load({
                     : '') +
                   (t.限额 ? ' · 现在不接：' + t.限额 : ''),
               )),
+        ),
+
+        // —— 翻旧记录（Tulpa → 经历流） ——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '翻旧记录（Tulpa → 她的过去）'),
+          h('div', { style: S.dim },
+            '只读：把 Tulpa 里已经存着的 QQ 私聊文字一条条写进鱼脑的经历流，让她的「以前」有真东西撑着。' +
+              '群聊一条都不取；她说话还是走上面那条 QQ 通道，Tulpa 不能替她开口。' +
+              '这些事在她那里标成「旧记录」—— 是翻到的聊天文字，不是她亲眼经历过的事。',
+          ),
+          行('启用翻旧记录', 勾(导入.启用, (v) => 改导入('启用', v)), '关着 = 下面几个按钮一律拒绝，一次都不连 Tulpa。'),
+          行('MCP 地址', h('input', {
+            type: 'text',
+            style: S.input,
+            value: String(导入.地址 || ''),
+            placeholder: 'http://127.0.0.1:18777/mcp',
+            onChange: (e) => 改导入('地址', e.target.value.trim()),
+          }), 'Tulpa 在本机开的 MCP 接口；只认 http(s)。'),
+          行('访问令牌', h('input', {
+            type: 'password',
+            style: S.input,
+            value: String(导入.令牌 || ''),
+            placeholder: '留空 = 读环境变量 TULPA_MCP_TOKEN',
+            onChange: (e) => 改导入('令牌', e.target.value),
+          }), '保存后页面只回显「(已设置)」，原样保存不会改动真令牌；要换就把整串删掉重填。令牌只落本机配置文件，不进日志、不进仓库。'),
+          行('私聊白名单', h('input', {
+            type: 'text',
+            style: S.input,
+            value: 白名单文本,
+            placeholder: '可空；例如：10001, 10002（会话号，逗号分隔）',
+            onChange: (e) => { 设白名单文本(e.target.value); 改导入('白名单', 拆列表(e.target.value)) },
+          }), '只导这些会话；留空 = Tulpa 里所有好友私聊（群聊永远不导）。'),
+          行('每轮条数 / 页数',
+            h('div', { style: { display: 'flex', gap: 8 } },
+              数框(导入.每轮条数, (v) => 改导入('每轮条数', v), 1, 1, 2000),
+              数框(导入.每轮页数, (v) => 改导入('每轮页数', v), 1, 1, 50),
+            ),
+            '点一次「继续导」最多写进多少条、最多往更早翻几页；没翻完下次从游标接着来。',
+          ),
+          h('div', { style: { ...S.dim, marginTop: 6 } },
+            '开关：' + (导态.启用 ? '开' : '关') +
+              '｜鱼脑：' + (导态.鱼脑可用 ? '在' : '没挂上（写不进经历）') +
+              '｜令牌：' + (导态.有令牌 ? '有' : '没有') +
+              '｜有进度的会话：' + (导态.会话数 || 0) + ' 间' +
+              (导态.运行中 ? '｜正在导' : ''),
+          ),
+          h('div', { style: { ...S.日志行, marginTop: 6 } },
+            '上一轮：写进 ' + (本轮.写 || 0) + ' 条｜本来就有的 ' + (本轮.重 || 0) + ' 条｜认不出 ' + (本轮.跳 || 0) + ' 条｜翻了 ' + (本轮.页数 || 0) + ' 页' +
+              (导态.工具 ? '｜用的是「' + 导态.工具 + '」' : '') +
+              (导态.错误 ? '｜上次报错：' + 导态.错误 : ''),
+          ),
+          h('div', { style: { marginTop: 8 } },
+            按钮('继续导', 跑一轮导入, true, 忙 || 导忙),
+            h('span', { style: S.dim }, '　'),
+            按钮('停止', 停导入, false, 导忙),
+            h('span', { style: S.dim }, '　'),
+            按钮('清游标重来', 重来导入, false, 忙 || 导忙),
+            h('span', { style: S.dim }, '　'),
+            按钮('刷新进度', 拉导入, false, 导忙),
+          ),
+          h('div', { style: { ...S.dim, marginTop: 4 } },
+            '改完上面的要先点「保存设置」—— 「继续导」用的是已经保存的那份。' +
+              '进度落在 ' + String(导态.状态文件 || '游标文件') + '，重启之后接着往更早翻；重复的条目不会再写第二遍。',
+          ),
+          导说 ? h('div', { style: { ...S.ok, marginTop: 6 } }, 导说) : null,
         ),
 
         // —— 动作 ——

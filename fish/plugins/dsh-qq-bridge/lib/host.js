@@ -1,14 +1,16 @@
 // DSH「通到 QQ」· 宿主半边
 //
-// 两件事：
+// 三件事：
 //   1) 主人桥：伙伴在「目标会话」里说完一整轮，把最后一句发到主人私聊 / 指定群。
 //   2) 社交桥：给允许的群和好友各开一间独立会话，她先自己挑哪些消息要看，
 //      再决定要不要接话；只有挑中的消息进她的上下文，决定接才开一轮，说完发回原处。
+//   3) 历史导入：把 Tulpa 里已有的私聊记录读进鱼脑的经历流（只读，见 lib/import.js）。
 //
 // 发 QQ 走 NapCat 的 OneBot HTTP 接口（127.0.0.1:3000），全部是标准 OneBot 11 HTTP。
 //
-// ⚠ 安全默认：总开关 = false、试运行 = true —— 不手动打开，一句都不会真的发到 QQ。
+// ⚠ 安全默认：总开关 = false、试运行 = true、导入 = false —— 不手动打开，一句都不会真的发到 QQ，也不会去读 Tulpa。
 // ⚠ 社交会话里工具全禁、余额上下文不注入、记忆只召回自己这间屋子；对外内容先脱敏。
+// ⚠ 导入只写经历，绝不说话：对外一律走这里的 OneBot 通道。
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -16,10 +18,11 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { isTrustedLocalRequest } from './http-trust.js'
+import { 创建历史导入 } from './import.js'
 
 export const name = 'qq-bridge'
 
-/** 需要宿主提供：webServer（路由）+ sessions/sessionTitle（目标会话清单 + 标题）+ agents（回合）+ timer（轮询）+ llm（接话判断）。 */
+/** 需要宿主提供：webServer（路由）+ sessions/sessionTitle（目标会话清单 + 标题）+ agents（回合）+ timer（轮询）+ llm（接话判断）。鱼脑（fishMind）按需 ctx.get，没有就不导。 */
 export const inject = ['agents', 'sessions', 'sessionTitle', 'webServer', 'timer', 'workspaceRegistry', 'llm']
 
 // ---------- 常量 ----------
@@ -28,6 +31,9 @@ const 目录 = process.env.DSH_HOME || join(homedir(), '.dsh')
 const 配置文件 = join(目录, 'qq-bridge-config.json')
 const 路由前缀 = '/dsh-qq-bridge'
 const 日志上限 = 60
+// 概况往外发的时候令牌换成这个串：设置页只看到「设过没有」，看不到内容。
+// 保存时原样发回来 = 不改令牌；不用真正的令牌当掩码，免得哪天令牌恰好长那样就把旧值顶掉了。
+const 令牌掩码 = '(已设置)'
 // 一条 QQ 消息和一次轮询的总量都有上限：挡住超长粘贴把上下文和零花钱一起放大。
 const 单条入站上限 = 8000
 const 单轮入站上限 = 12000
@@ -80,6 +86,14 @@ const 默认配置 = {
     判断阈值: 0.55, // 小模型想接时的把握低于这个数就不接（只看不回不受影响）
     判断冷却秒: 60, // 同一目标最多多久问一次小模型，避免热闹的群把判断费刷爆
     回复模型: '', // 社交会话用哪个模型；空 = 跟随默认
+  },
+  导入: {
+    启用: false, // 历史导入单独开关；关着时设置页的按钮一律拒绝
+    地址: 'http://127.0.0.1:18777/mcp', // Tulpa 的 MCP 接口（本机）
+    令牌: '', // 留空则读 TULPA_MCP_TOKEN；令牌不写进仓库，只落本机配置
+    白名单: [], // 只导这些会话号；空 = 全部好友私聊（群聊永远不导）
+    每轮条数: 200, // 点一次「继续导」最多写进多少条经历
+    每轮页数: 5, // 点一次最多翻几页，翻完了下次从游标接着来
   },
 }
 
@@ -180,6 +194,26 @@ function 归一化社交(原始) {
   }
 }
 
+function 归一化导入(原始) {
+  const 混 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始) ? 原始 : {}
+  const 兜 = 默认配置.导入
+  const 裁 = (值, 限) => String(值 === undefined || 值 === null ? '' : 值).trim().slice(0, 限)
+  const 地址 = (() => {
+    const s = 裁(混.地址, 200)
+    if (s === '') return 兜.地址
+    return /^https?:\/\/\S+$/.test(s) ? s : 兜.地址
+  })()
+  return {
+    启用: 布(混.启用, 兜.启用),
+    地址,
+    // 令牌不进日志、不进概况返回，只留在本机配置文件里。
+    令牌: 裁(混.令牌, 200),
+    白名单: (Array.isArray(混.白名单) ? 混.白名单 : []).map((v) => 裁(v, 40)).filter((v) => v !== '').slice(0, 30),
+    每轮条数: Math.round(数(混.每轮条数, 兜.每轮条数, 1, 2000)),
+    每轮页数: Math.round(数(混.每轮页数, 兜.每轮页数, 1, 50)),
+  }
+}
+
 function 归一化(原始) {
   const 是对象 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始)
   const 混 = 是对象 ? { ...默认配置, ...原始 } : { ...默认配置 }
@@ -194,6 +228,7 @@ function 归一化(原始) {
     转群: 布(混.转群, 默认配置.转群),
     NapCat: 字(混.NapCat) || 默认配置.NapCat,
     社交: 归一化社交(混.社交),
+    导入: 归一化导入(混.导入),
   }
 }
 
@@ -213,6 +248,11 @@ function 写配置(配置) {
   } catch (error) {
     return false
   }
+}
+
+/** 概况要发的配置：令牌换成掩码，访问凭证不回页面。 */
+function 遮令牌(配置) {
+  return { ...配置, 导入: { ...配置.导入, 令牌: 配置.导入.令牌 === '' ? '' : 令牌掩码 } }
 }
 
 // ---------- 纯函数（导出给冒烟测试喂） ----------
@@ -321,6 +361,26 @@ export function apply(ctx) {
   let 社交总今日 = { 日: '', 数: 0 }
   let 社交轮询中 = false
   let 自己号缓存 = { at: 0, 号: '', 昵称: '', 已记: false }
+
+  // ---------- 历史导入（Tulpa 的旧私聊 → 鱼脑经历流；只读，不说话） ----------
+
+  // 鱼脑在每次写入时现取，不在这里定死：装插件的先后顺序由 Cordis 决定，
+  // 这时候 fishMind 可能还没 provide，抓一次引用就把导入永久判死。
+  const 导入器 = 创建历史导入({
+    鱼脑: {
+      observe: (输入) => {
+        const mind = ctx.get('fishMind')
+        if (!mind || typeof mind.observe !== 'function') return { ok: false }
+        try {
+          return mind.observe(输入)
+        } catch (error) {
+          return { ok: false }
+        }
+      },
+    },
+    状态文件: join(目录, 'qq-import-state.json'),
+    日志: 记账,
+  })
 
   // 目标会话留空时，自动绑定最近聊过的那个会话；绑定 30 秒内复用，避免每轮都扫盘。
   let 自动目标 = ''
@@ -1446,6 +1506,18 @@ export function apply(ctx) {
     }
   }
 
+  /** 设置页的导入状态：进度 + 这一轮的上限。令牌一律不从这里出去。 */
+  const 导入概况 = (配置) => ({
+    ...导入器.概况(),
+    启用: 配置.导入.启用,
+    地址: 配置.导入.地址,
+    白名单: 配置.导入.白名单,
+    每轮条数: 配置.导入.每轮条数,
+    每轮页数: 配置.导入.每轮页数,
+    有令牌: 配置.导入.令牌 !== '' || String(process.env.TULPA_MCP_TOKEN || '') !== '',
+    鱼脑可用: typeof (ctx.get('fishMind') || {}).observe === 'function',
+  })
+
   const 概况 = async () => {
     const 配置 = 读配置()
     const 清单 = 会话清单()
@@ -1461,7 +1533,7 @@ export function apply(ctx) {
     return {
       ok: true,
       版本,
-      配置,
+      配置: 遮令牌(配置),
       配置文件,
       NapCat状态,
       活着的会话: 清单,
@@ -1469,6 +1541,7 @@ export function apply(ctx) {
       目标来源: 配置.目标会话 ? '手填' : (目标 ? '自动（最近说话的会话）' : '无'),
       目标情况: 目标 && 清单.length ? 清单.filter((x) => x.id === 目标) : [],
       社交: 社交概况(配置),
+      导入: 导入概况(配置),
       日志,
     }
   }
@@ -1505,13 +1578,19 @@ export function apply(ctx) {
     const 新 = { ...现在, ...改 }
     // 社交配置是嵌套的：浅合并会把没提交的字段冲掉
     if (改.社交 && typeof 改.社交 === 'object') 新.社交 = { ...现在.社交, ...改.社交 }
+    if (改.导入 && typeof 改.导入 === 'object') {
+      新.导入 = { ...现在.导入, ...改.导入 }
+      // 页面只拿回掩码：原样发回来表示「令牌不改」，不能让掩码把真令牌顶掉。
+      if (新.导入.令牌 === 令牌掩码) 新.导入.令牌 = 现在.导入.令牌
+    }
     const 洗好 = 归一化(新)
     if (!写配置(洗好)) return 回(res, { ok: false, 说: `写不进配置文件：${配置文件}` })
     const 状态 = 洗好.总开关 ? (洗好.试运行 ? '（只记账）' : '（真发）') : '（总开关关着）'
     const 社交状态 = 洗好.社交.启用
       ? `｜社交 ${洗好.社交.试运行 ? '试运行' : '真发'}（群 ${洗好.社交.群.length}｜好友 ${洗好.社交.好友.length}）`
       : '｜社交关着'
-    记账(`设置已保存：目标会话 ${洗好.目标会话 || '（没填）'}｜私聊 ${洗好.私聊QQ || '（没填）'}｜群 ${洗好.群号 || '（没填）'}｜${状态}${社交状态}`)
+    const 导入状态 = `｜导入 ${洗好.导入.启用 ? '开（只读旧记录）' : '关'}`
+    记账(`设置已保存：目标会话 ${洗好.目标会话 || '（没填）'}｜私聊 ${洗好.私聊QQ || '（没填）'}｜群 ${洗好.群号 || '（没填）'}｜${状态}${社交状态}${导入状态}`)
     回(res, { ...(await 概况()), 说: '保存好了' })
   })
 
@@ -1541,6 +1620,52 @@ export function apply(ctx) {
       return 回(res, { ok: false, 说: `拿不到模型列表：${String((error && error.message) || error)}` })
     }
     回(res, { ok: true, providers: 出 })
+  })
+
+  // ---------- 历史导入：设置页的四个口（读旧记录进经历流，不发消息） ----------
+
+  /** 导之前先查清楚，缺一样就如实说，别让人对着转圈的按钮干等。 */
+  function 导入能跑(配置) {
+    if (!配置.导入.启用) return '导入开关关着：先在设置页打开「翻旧记录」'
+    if (typeof (ctx.get('fishMind') || {}).observe !== 'function') return '鱼脑没挂上（fishMind 不在）：现在写不进经历，先启用 dsh-fish-mind'
+    if (配置.导入.令牌 === '' && String(process.env.TULPA_MCP_TOKEN || '') === '') {
+      return '没有访问令牌：TULPA_MCP_TOKEN 没设，设置页里也没填'
+    }
+    return ''
+  }
+
+  路线(`${路由前缀}/import-state`, async (req, res) => {
+    if (!要方法(req, 'GET', res)) return
+    await 读体(req)
+    回(res, { ok: true, ...导入概况(读配置()) })
+  })
+
+  路线(`${路由前缀}/import-run`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    await 读体(req)
+    const 配置 = 读配置()
+    const 挡 = 导入能跑(配置)
+    if (挡 !== '') {
+      记账(`导入没开始：${挡}`)
+      return 回(res, { ok: false, 说: 挡 })
+    }
+    const 出 = await 导入器.跑(配置.导入)
+    记账(`导入这一轮：写 ${出.写 || 0} 条｜重复 ${出.重 || 0} 条｜认不出 ${出.跳 || 0} 条｜翻了 ${出.页 || 0} 页｜${出.说 || ''}`)
+    回(res, 出)
+  })
+
+  路线(`${路由前缀}/import-stop`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    await 读体(req)
+    回(res, 导入器.停())
+  })
+
+  路线(`${路由前缀}/import-reset`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    await 读体(req)
+    const 出 = 导入器.重置()
+    if (出.ok) 记账('导入游标已清空：下次从最新一页重新往早翻（写过的不会再写第二遍）')
+    回(res, 出)
   })
 
   // 收到 QQ 里你发来的话 → 喂进目标会话，让它照常开一轮。
@@ -1730,7 +1855,7 @@ export function apply(ctx) {
     社交句柄.clear()
   }, 'qq-bridge: 释放社交会话')
 
-  记账(`已装好 v${版本}：DSH↔QQ 两半都在｜总开关 ${读配置().总开关 ? '开' : '关'}｜试运行 ${读配置().试运行 ? '开（只记账）' : '关（真发）'}｜收消息 4 秒轮询一次`)
+  记账(`已装好 v${版本}：DSH↔QQ 两半 + Tulpa 旧记录导入都在｜总开关 ${读配置().总开关 ? '开' : '关'}｜试运行 ${读配置().试运行 ? '开（只记账）' : '关（真发）'}｜导入 ${读配置().导入.启用 ? '开（只读）' : '关'}｜收消息 4 秒轮询一次`)
 
   return { 记账, 概况, 落地一发, 发到QQ, 收到事件, 日志 }
 }

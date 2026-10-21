@@ -216,6 +216,45 @@ test('后台即使放行 read，也不能读 .env', () => {
   assert.equal(verdict.rule, 'private.credential-file')
 })
 
+test('外部 MCP 的只读工具放行，但要在审计里留痕', () => {
+  const { broker, audits } = makeBroker()
+  const verdict = broker.evaluate(exec('mcp__tulpa__get_data_status', {}))
+  assert.equal(verdict.decision, 'allow')
+  assert.equal(verdict.rule, 'external.mcp.read')
+  broker.record(exec('mcp__tulpa__get_data_status', {}), verdict)
+  assert.equal(audits.length, 1)
+  assert.equal(audits[0].tool, 'mcp__tulpa__get_data_status')
+
+  const listed = broker.evaluate(exec('mcp__tulpa__list_conversations', {}))
+  assert.equal(listed.decision, 'allow')
+})
+
+test('外部 MCP 的发送、撤回、会话控制一律硬拒，权限开关关着也拒', () => {
+  for (const name of ['mcp__tulpa__send_message', 'mcp__tulpa__revoke_message', 'mcp__tulpa__stop_chat_session']) {
+    const { broker } = makeBroker()
+    const verdict = broker.evaluate(exec(name, { message: '你好' }))
+    assert.equal(verdict.decision, 'deny')
+    assert.equal(verdict.rule, 'external.mcp.read-only')
+    assert.ok(verdict.reason.includes('只读白名单'))
+
+    const off = makeBroker({ permissions: { enabled: false } })
+    assert.equal(off.broker.evaluate(exec(name, {})).decision, 'deny')
+  }
+})
+
+test('白名单是配置出来的，主人加了才认', () => {
+  const { broker } = makeBroker({ permissions: { mcpReadOnlyTools: ['get_*', 'send_*'] } })
+  assert.equal(broker.evaluate(exec('mcp__tulpa__send_message', {})).decision, 'allow')
+  assert.equal(broker.evaluate(exec('mcp__tulpa__revoke_message', {})).decision, 'deny')
+})
+
+test('非 MCP 工具不受外部白名单影响', () => {
+  const { broker } = makeBroker()
+  const verdict = broker.evaluate(exec('read', { file_path: join(process.cwd(), 'README.md') }))
+  assert.equal(verdict.decision, 'allow')
+  assert.equal(verdict.rule, 'foreground.allow')
+})
+
 test('紧急停止连用户会话的工具也全拒', () => {
   const { broker } = makeBroker({ permissions: { emergencyStop: true } })
   const verdict = broker.evaluate(exec('read', { file_path: join(process.cwd(), 'README.md') }))

@@ -1,0 +1,28 @@
+# 大肥鱼 · 可选层：把 Tulpa 接成一个只读的外部记忆服务。
+#
+# 出厂层不挂这一条。桌面版出厂 profile 里 MCP 客户端必须为零
+# （apps/desktop/tests/profile-mcp.spec.ts），所以这段是主人自己抄进
+# profile 的 cordis.patch.yml 再重启的可选层。
+#
+# 不抄也能用历史导入：QQ 桥的导入任务自己连 Tulpa 读记录，
+# 不需要把工具交给模型。挂这一层的差别只是她能自己在对话里主动查历史。
+#
+# 两道口径要记住：
+#   · serverName 必须是 tulpa —— 工具名统一带 mcp__tulpa__ 前缀，权限层按这个前缀判。
+#   · 这里的配置不是安全边界。挡不住写操作的是 dsh-fish-mind 的只读白名单，
+#     它默认只放行 get_/list_/search_ 这类读，发送、撤回、群管理一律硬拒。
+
+- insert:
+    - id: tulpa-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: tulpa
+        transport: streamable-http
+        url: http://127.0.0.1:18777/mcp
+        # 令牌只从环境变量读，永远不要写进这个文件（仓库是公开的）。
+        headers: !!js >-
+          process.env.TULPA_MCP_TOKEN ? { Authorization: `Bearer ${process.env.TULPA_MCP_TOKEN}` } : {}
+        # 一次拉很久以前的历史会等得久；Tulpa 自己的建议值。
+        toolCallTimeoutMs: 240000
+        # Tulpa 没开着时 DSH 照样启动，只是这一路工具不出现。
+        failOnStartupError: false
