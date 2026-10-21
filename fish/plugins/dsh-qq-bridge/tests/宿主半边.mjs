@@ -96,13 +96,59 @@ const 转进的 = []
 const 轮询回调们 = []
 let 轮询回调 = null
 const 假agent = { followup: (m) => 转进的.push(m), session: { id: 'session-X' } }
+const 登记的会话 = new Map([['session-X', 假agent]])
+const 场景提示 = []
+const 标题重命名 = []
+const 建的工作区 = []
+const 挂工作区记录 = []
+const 工作区们 = []
+const 造工作区 = (路径) => ({
+  path: 路径,
+  sessionIds: [],
+  async attachSession(sid) {
+    this.sessionIds.push(String(sid))
+    挂工作区记录.push(String(sid))
+  },
+})
 const ctx = {
   on: (名字, cb) => { if (名字 === 'session/event') 监听.push(cb); return () => {} },
   effect: (fn) => { const 摘 = fn(); return () => { try { 摘 && 摘() } catch {} } },
   webServer: { register: (o) => 路由.set(o.path, o.handler) },
   logger: { info: () => {} },
-  agents: { get: (id) => (String(id) === 'session-X' ? 假agent : undefined), list: () => [假agent] },
+  agents: {
+    get: (id) => 登记的会话.get(String(id)),
+    list: () => [...登记的会话.values()],
+    resume: async () => {
+      const e = new Error('no such session')
+      e.name = 'SessionPersistenceNotFoundError'
+      throw e
+    },
+    create: async ({ sessionId, meta, setup }) => {
+      const sid = String(sessionId)
+      const agent = { followup: (m) => 转进的.push(m), session: { id: sid, header: { cwd: meta && meta.cwd } } }
+      登记的会话.set(sid, agent)
+      if (setup) {
+        setup({
+          systemPrompt: { section: (s) => 场景提示.push(s) },
+          tools: { guard: () => {} },
+        })
+      }
+      return { agent, dispose: () => { 登记的会话.delete(sid) } }
+    },
+  },
   sessions: { flush: async () => {} },
+  sessionTitle: { get: () => undefined, rename: (s, t) => 标题重命名.push([s.id, t]) },
+  workspaceRegistry: {
+    archivedSessionIds: [],
+    list: () => 工作区们,
+    resolveByPath: async (路径) => 工作区们.find((w) => w.path === 路径),
+    create: async (路径) => {
+      const w = 造工作区(路径)
+      工作区们.push(w)
+      建的工作区.push(路径)
+      return w
+    },
+  },
   interval: (fn) => {
     轮询回调们.push(fn)
     // 主人消息轮询先注册，后面社交桥还会注册一个；这里只认第一个
@@ -293,20 +339,25 @@ writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
 收到 = await 收({ text: '在吗' })
 报('/receive：目标会话没活着 → 拒绝', 收到 && 收到.ok === false && String(收到.说).includes('没活着'), JSON.stringify(收到))
 
-// ⑫b 没填目标会话 → 自动跟最近活着的会话，收发都还能走
+// ⑫b 没填目标会话 → 自动开一间 QQ 私聊专用屋；没有工作区就建一个
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
   总开关: true, 试运行: false, 目标会话: '', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
+const 自动房 = 'session-qq-private-123'
 收到 = await 收({ text: '没填目标也要能找到你' })
-报('/receive：没填目标会话 → 自动挑活着的会话', 收到 && 收到.ok === true && JSON.stringify(转进的.at(-1).content[0].text).includes('没填目标'), JSON.stringify(收到))
+报('/receive：没填目标 → 自动建 QQ 私聊房', 收到 && 收到.ok === true && 登记的会话.has(自动房), JSON.stringify(收到))
+报('QQ 私聊房标题写成“QQ 私聊 123”', 标题重命名.some(([sid, t]) => sid === 自动房 && t === 'QQ 私聊 123'), JSON.stringify(标题重命名))
+报('QQ 私聊场景提示挂上了', 场景提示.some((s) => String(s.text).includes('【场景·QQ 私聊】')))
+报('没有工作区 → 自动建一个并挂上', 建的工作区.length > 0 && 挂工作区记录.includes(自动房), JSON.stringify({ 建: 建的工作区, 挂: 挂工作区记录 }))
+报('私聊消息进了自动房', 转进的.length > 0 && JSON.stringify(转进的.at(-1).content[0].text).includes('没填目标'))
 const 之前自动 = 发了.length
-监听[0](会话, 助手消息(14, 1, [块('text', '自动目标这轮也能发')], false))
-监听[0](会话, 转完(14))
+监听[0]({ id: 自动房 }, 助手消息(14, 1, [块('text', '自动目标这轮也能发')], false))
+监听[0]({ id: 自动房 }, 转完(14))
 await new Promise((r) => setTimeout(r, 20))
-报('DSH→QQ：没填目标会话 → 自动跟随最近会话', 发了.length === 之前自动 + 1 && JSON.stringify(发了.at(-1).体.message[0].data.text).includes('自动目标'), '发出条数=' + 发了.length)
+报('DSH→QQ：自动房这轮也能发回 QQ', 发了.length === 之前自动 + 1 && JSON.stringify(发了.at(-1).体.message[0].data.text).includes('自动目标'), '发出条数=' + 发了.length)
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' }), fakeRes)
-报('/state 回出自动解析的目标和来源', 存储[0] && 存储[0].目标会话 === 'session-X' && String(存储[0].目标来源).includes('自动'), JSON.stringify(存储[0] && { 目标会话: 存储[0].目标会话, 目标来源: 存储[0].目标来源 }))
+报('/state 回出自动私聊房和来源', 存储[0] && 存储[0].目标会话 === 自动房 && String(存储[0].目标来源).includes('QQ 私聊专用'), JSON.stringify(存储[0] && { 目标会话: 存储[0].目标会话, 目标来源: 存储[0].目标来源 }))
 
 // ⑬ 轮询收消息（QQ → DSH 这半的正式入口，不赖 BOT）
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({

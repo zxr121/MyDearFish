@@ -33,6 +33,8 @@ const 模 = await import(new URL('../lib/host.js', import.meta.url).href + '?v='
 // ---------- 纯函数 ----------
 报('社交会话 id：群/好友各一间', 模.社交会话id('group', '555') === 'session-qq-social-group-555' && 模.社交会话id('friend', '777') === 'session-qq-social-friend-777', 模.社交会话id('group', '555'))
 报('识别社交会话', 模.是社交会话('session-qq-social-group-555') && 模.是社交会话('qq-social-group-555') && !模.是社交会话('session-X'))
+报('主人私聊会话 id：一间固定屋', 模.主人QQ会话id('123') === 'session-qq-private-123', 模.主人QQ会话id('123'))
+报('识别主人私聊会话，且不跟社交会话混', 模.是主人QQ会话('session-qq-private-123') && 模.是主人QQ会话('qq-private-123') && !模.是主人QQ会话('session-qq-social-group-555') && !模.是社交会话('session-qq-private-123'))
 报('静音跨午夜：23:00-08:00 在 07:30 生效', 模.在静音时段('23:00-08:00', new Date(2026, 0, 1, 7, 30)))
 报('静音：12:00 不生效', !模.在静音时段('23:00-08:00', new Date(2026, 0, 1, 12, 0)))
 const 段 = 模.解析消息段({
@@ -242,6 +244,7 @@ const 判断之前2 = 判断调用.length
 await 轮询社交()
 await 等()
 报('判不看 → 不开轮、不注入', 回合.length === 之前2 && 注入们.length === 注入之前2 && 判断调用.length === 判断之前2 + 1)
+报('有动静就先建社交房，哪怕判不看', 登记的会话.has('session-qq-social-group-1002'))
 报('不看也进日志', String(await 日志文本()).includes('都没看'))
 报('没写兴趣词时判断更克制', String(判断调用.at(-1)?.system).includes('没有依据就不看、不接'))
 报('不看后待看清空', (await 目标状态('group:1002')).待看 === 0)

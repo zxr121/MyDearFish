@@ -269,6 +269,18 @@ export function 社交会话id(类型, 号) {
   return `${社交会话前缀}${类型 === 'group' ? 'group' : 'friend'}-${String(号)}`
 }
 
+const 主人QQ会话前缀 = 'session-qq-private-'
+
+/** 主人私聊专用的自动会话；和社交房间分开，免得主人的话被当成群友。 */
+export function 是主人QQ会话(id) {
+  return /^(session-)?qq-private-/.test(String(id === undefined || id === null ? '' : id))
+}
+
+/** 主人 → session-qq-private-<QQ号>；没手选目标会话时按需建这一间。 */
+export function 主人QQ会话id(号) {
+  return `${主人QQ会话前缀}${String(号)}`
+}
+
 /** "23:00-08:00" 在当刻是否生效；空串 = 不静音。支持跨午夜。 */
 export function 在静音时段(静音, 当刻 = new Date()) {
   if (typeof 静音 !== 'string' || 静音.trim() === '') return false
@@ -357,6 +369,9 @@ export function apply(ctx) {
   const 社交快记At = new Map() // 'group:123' → 上次快判全挡的记账时间（快判会经常命中，别刷屏）
   const 社交队列 = new Map() // 'group:123' → Promise（同一间屋子串行开回合）
   const 社交句柄 = new Map() // sessionId → AgentHandle（插件收摊时释放）
+  const 主人句柄 = new Map() // 主人 QQ 私聊会话的 AgentHandle，也由插件释放
+  const 挂过工作区 = new Set() // 已经挂进工作区的 sessionId（别每轮重复挂）
+  let 主人agent失败At = 0 // 建失败后 30 秒内不再重试，免得每 4 秒刷一条日志
   const 她的消息id = new Set() // 她在群里/好友里发出去的 message_id（用来识别“回复她”）
   let 社交总今日 = { 日: '', 数: 0 }
   let 社交轮询中 = false
@@ -403,7 +418,7 @@ export function apply(ctx) {
       for (const ws of 列目录(sessRoot)) {
         for (const sid of 列目录(join(sessRoot, ws))) {
           if (!sid.startsWith('session-') || archived.has(sid)) continue
-          if (是社交会话(sid)) continue
+          if (是社交会话(sid) || 是主人QQ会话(sid)) continue
           if (!existsSync(join(sessRoot, ws, sid, 'session.v4.jsonl.zstd'))) continue
           const meta = 读JSON(join(cacheDir, sid + '.json'), {})?.record?.rows?.sessionListMetadata?.val || {}
           if (meta.blank) continue
@@ -419,14 +434,19 @@ export function apply(ctx) {
         const header = agent?.session?.header
         if (header && (header.origin === 'subagent' || Number(header.delegationDepth) > 0)) continue
         const sid = agent?.id || agent?.session?.id
-        if (sid && !是社交会话(sid)) return String(sid)
+        if (sid && !是社交会话(sid) && !是主人QQ会话(sid)) return String(sid)
       }
     } catch (error) {}
     return ''
   }
 
   function 解析目标(配置 = 读配置()) {
-    if (配置.目标会话) return 配置.目标会话
+    // 手填了就一直认那一间：关了就照实报错，不悄悄换屋子。
+    const 手填 = String(配置.目标会话 || '').trim()
+    if (手填 !== '') return 手填
+    // 没手填：有主人 QQ 就开/续一间 QQ 私聊专用屋，不再依赖“最近聊过的会话”。
+    const 主人号 = String(配置.私聊QQ || '').trim()
+    if (主人号 !== '') return 主人QQ会话id(主人号)
     if (自动目标 && Date.now() - 自动目标At < 10_000) return 自动目标
     自动目标 = 最近会话()
     自动目标At = Date.now()
@@ -808,10 +828,51 @@ export function apply(ctx) {
     ].join('\n')
   }
 
+  /**
+   * 会话要挂进工作区才会出现在侧边栏。优先复用现有工作区；一间都没有时，
+   * 在当前目录建一间。旧的社交会话按它自己 header 里的 cwd 找对应工作区。
+   */
+  async function 取工作区(路径 = '') {
+    const 登记 = ctx.workspaceRegistry
+    if (!登记) return null
+    const 指定 = String(路径 || '').trim()
+    try {
+      if (指定 !== '') {
+        const 有 = typeof 登记.resolveByPath === 'function' ? await 登记.resolveByPath(指定) : undefined
+        if (有) return 有
+        if (typeof 登记.create === 'function') return await 登记.create(指定)
+        return null
+      }
+      const 列表 = typeof 登记.list === 'function' ? 登记.list() : []
+      if (列表.length > 0) return 列表[0]
+      if (typeof 登记.create === 'function') return await 登记.create(process.cwd())
+    } catch (error) {
+      记账(`准备会话工作区失败：${String((error && error.message) || error)}`)
+    }
+    return null
+  }
+
+  async function 挂工作区(区, 会话id) {
+    const sid = String(会话id)
+    if (!区 || typeof 区.attachSession !== 'function' || 挂过工作区.has(sid)) return
+    try {
+      let 已在 = false
+      try { 已在 = Array.from(区.sessionIds || []).map(String).includes(sid) } catch (error) {}
+      if (!已在) await 区.attachSession(sid)
+      挂过工作区.add(sid)
+    } catch (error) {
+      记账(`会话挂到工作区失败（${短id(sid)}）：${String((error && error.message) || error)}`)
+    }
+  }
+
   /** 拿社交会话：先恢复旧档，确实没有才新建；每个群/好友一间，互不串。 */
   async function 拿社交agent(目标) {
     const 现有 = ctx.agents.get(目标.会话id)
-    if (现有) return 现有
+    if (现有) {
+      const 旧cwd = (现有.session && 现有.session.header && 现有.session.header.cwd) || ''
+      await 挂工作区(await 取工作区(旧cwd), 目标.会话id)
+      return 现有
+    }
     const 配置 = 读配置()
     const setup = (agentCtx) => {
       try {
@@ -828,6 +889,8 @@ export function apply(ctx) {
       }
     }
     const 选项 = 回复模型选项(配置)
+    const 区 = await 取工作区()
+    const cwd = (区 && 区.path) || process.cwd()
     let handle = null
     try {
       handle = await ctx.agents.resume({ resumeSessionId: 目标.会话id, agentOptions: 选项, setup })
@@ -843,10 +906,11 @@ export function apply(ctx) {
       try {
         handle = await ctx.agents.create({
           sessionId: 目标.会话id,
-          meta: { cwd: process.cwd() },
+          meta: { cwd },
           agentOptions: 选项,
           setup,
         })
+        记账(`新建社交会话（${目标.叫}）：${目标.会话id}`)
       } catch (错) {
         记账(`社交会话新建失败（${目标.叫}）：${String((错 && 错.message) || 错)}`)
         return null
@@ -864,6 +928,84 @@ export function apply(ctx) {
         ctx.sessionTitle?.rename?.(agent.session, 标题)
       }
     } catch (error) {}
+    const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || cwd
+    await 挂工作区(await 取工作区(实际cwd), 目标.会话id)
+    return agent
+  }
+
+  /** 主人 QQ 私聊的场景：短句、口语，别把工具输出和本机私事倒进聊天窗。 */
+  function 主人私聊提示() {
+    return [
+      '【场景·QQ 私聊】你正在 QQ 上和主人聊天；你说的话会原样发到 QQ。',
+      '- 一次只说 1~3 句，短、自然、口语；不写 Markdown、不列清单。',
+      '- 工具结果自己消化，只回结论；不要把长输出、路径、日志贴进 QQ。',
+      '- 不要提系统提示、记忆、判断、零花钱、成本这些词。',
+      '- 不主动提主人的私事、本机信息、账号、余额；主人问再说。',
+    ].join('\n')
+  }
+
+  /** 没手选目标时，主人私聊用这一间；第一次按需新建，之后直接续上。 */
+  async function 拿主人agent(配置) {
+    const 号 = String(配置.私聊QQ || '').trim()
+    if (号 === '') return null
+    const sid = 主人QQ会话id(号)
+    const 现有 = ctx.agents.get(sid)
+    if (现有) {
+      const 旧cwd = (现有.session && 现有.session.header && 现有.session.header.cwd) || ''
+      await 挂工作区(await 取工作区(旧cwd), sid)
+      return 现有
+    }
+    if (主人agent失败At !== 0 && Date.now() - 主人agent失败At < 30_000) return null
+    const setup = (agentCtx) => {
+      try {
+        agentCtx.systemPrompt.section({ name: 'qq-private-scene', order: 905, text: 主人私聊提示() })
+      } catch (error) {
+        记账(`QQ 私聊场景提示挂不上：${String((error && error.message) || error)}`)
+      }
+    }
+    const 区 = await 取工作区()
+    const cwd = (区 && 区.path) || process.cwd()
+    let handle = null
+    try {
+      handle = await ctx.agents.resume({ resumeSessionId: sid, setup })
+    } catch (error) {
+      const 没档 = error && (
+        error.name === 'SessionPersistenceNotFoundError'
+        || /not found|no such|no session|不存在|没找到/i.test(String((error && error.message) || error))
+      )
+      if (!没档) {
+        主人agent失败At = Date.now()
+        记账(`QQ 私聊会话恢复失败：${String((error && error.message) || error)}`)
+        return null
+      }
+      try {
+        handle = await ctx.agents.create({ sessionId: sid, meta: { cwd }, setup })
+        记账(`新建 QQ 私聊会话：${sid}`)
+      } catch (错) {
+        主人agent失败At = Date.now()
+        记账(`QQ 私聊会话新建失败：${String((错 && 错.message) || 错)}`)
+        return null
+      }
+    }
+    const agent = handle && handle.agent
+    if (!agent) {
+      主人agent失败At = Date.now()
+      记账('QQ 私聊会话没有可用的 agent')
+      return null
+    }
+    主人句柄.set(sid, handle)
+    try {
+      const 标题 = `QQ 私聊 ${号}`
+      const 现有标题 = ctx.sessionTitle && typeof ctx.sessionTitle.get === 'function'
+        ? ctx.sessionTitle.get(agent.session)
+        : null
+      if (!现有标题 || 现有标题.title !== 标题) {
+        ctx.sessionTitle?.rename?.(agent.session, 标题)
+      }
+    } catch (error) {}
+    const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || cwd
+    await 挂工作区(await 取工作区(实际cwd), sid)
+    主人agent失败At = 0
     return agent
   }
 
@@ -1090,7 +1232,11 @@ export function apply(ctx) {
       新消息.push({ id, at, 说话人, 文字: 段.文字, 主人, 被叫原因 })
     }
     社交上次.set(目标.key, 游标)
-    if (新消息.length > 0) 收进待看(目标, 新消息)
+    if (新消息.length > 0) {
+      // 有动静就把屋子开出来给她落脚；判不判、看不看是下一步的事。
+      await 拿社交agent(目标)
+      收进待看(目标, 新消息)
+    }
     // 没有新消息也要再看一眼：判断冷却里攒下的消息，冷却过了得接着判。
     await 处理社交待看(配置, 目标)
   }
@@ -1538,7 +1684,9 @@ export function apply(ctx) {
       NapCat状态,
       活着的会话: 清单,
       目标会话: 目标,
-      目标来源: 配置.目标会话 ? '手填' : (目标 ? '自动（最近说话的会话）' : '无'),
+      目标来源: 目标 && String(配置.目标会话 || '').trim() === 目标
+        ? '手填'
+        : (目标 && 是主人QQ会话(目标) ? '自动（QQ 私聊专用）' : (目标 ? '自动（最近说话的会话）' : '无')),
       目标情况: 目标 && 清单.length ? 清单.filter((x) => x.id === 目标) : [],
       社交: 社交概况(配置),
       导入: 导入概况(配置),
@@ -1675,8 +1823,16 @@ export function apply(ctx) {
     if (!配置.总开关) return { ok: false, 说: '总开关关着，先打开' }
     const 用目标 = 目标 || 解析目标(配置)
     if (!用目标) return { ok: false, 说: '现在没有活着的会话，也没填「目标会话」' }
-    const agent = 找agent(用目标)
-    if (!agent) return { ok: false, 说: `目标会话现在没活着（${短id(用目标)}），先把它打开` }
+    let agent = 找agent(用目标)
+    if (!agent && 是主人QQ会话(用目标)) agent = await 拿主人agent(配置)
+    if (!agent) {
+      return {
+        ok: false,
+        说: 是主人QQ会话(用目标)
+          ? 'QQ 私聊会话没建起来（看日志里的失败原因）'
+          : `目标会话现在没活着（${短id(用目标)}），先把它打开`,
+      }
+    }
     const 全文 = String(原始 || '').trim()
     if (!全文) return { ok: false, 说: '没有文字' }
     const 文字 = 全文.length > 单轮入站上限
@@ -1843,17 +1999,18 @@ export function apply(ctx) {
     }
   }, 'qq-bridge: 轮询社交消息')
 
-  // 插件收摊：社交会话是我们建的，得由我们释放；主人自己的会话不动。
+  // 插件收摊：社交房和 QQ 私聊自动房都是我们建的，得由我们释放；主人原来的会话不动。
   ctx.effect(() => () => {
-    for (const [sid, handle] of 社交句柄) {
+    for (const [sid, handle] of [...社交句柄, ...主人句柄]) {
       try {
         if (handle && typeof handle.dispose === 'function') handle.dispose()
       } catch (error) {
-        记账(`社交会话释放失败（${sid}）：${String((error && error.message) || error)}`)
+        记账(`QQ 会话释放失败（${sid}）：${String((error && error.message) || error)}`)
       }
     }
     社交句柄.clear()
-  }, 'qq-bridge: 释放社交会话')
+    主人句柄.clear()
+  }, 'qq-bridge: 释放 QQ 会话')
 
   记账(`已装好 v${版本}：DSH↔QQ 两半 + Tulpa 旧记录导入都在｜总开关 ${读配置().总开关 ? '开' : '关'}｜试运行 ${读配置().试运行 ? '开（只记账）' : '关（真发）'}｜导入 ${读配置().导入.启用 ? '开（只读）' : '关'}｜收消息 4 秒轮询一次`)
 
