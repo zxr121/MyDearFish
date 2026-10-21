@@ -84,6 +84,7 @@ test('提炼提示带上已记住的事实和对话原文', () => {
     knownFacts: [{ subject: '主人', predicate: '昵称', object: 'EMT' }],
   })
   assert.match(prompt.system, /只输出 JSON 数组/)
+  assert.match(prompt.system, /别把主人的名字写成大肥鱼的称呼/)
   assert.ok(prompt.user.includes('主人 · 昵称 · EMT'))
   assert.ok(prompt.user.includes('第 1 句'))
 })
