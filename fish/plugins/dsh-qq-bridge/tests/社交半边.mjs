@@ -63,7 +63,7 @@ const 写配置 = (社交 = {}) => {
     社交: {
       启用: true, 试运行: false, 群: [], 好友: [], 模式: 'auto', 旁听: true,
       冷却秒: 10, 每小时上限: 6, 每天上限: 30, 每天总上限: 80, 最低余额: 1, 静音: '',
-      称呼: ['大肥鱼'], 兴趣词: [], 关注上限: 12,
+      称呼: ['大肥鱼'], 兴趣词: [], 关注上限: 12, 聚拢秒: 0,
       判断模型: 'fake/cheap', 判断阈值: 0.55, 判断冷却秒: 60, 回复模型: 'fake/chat',
       ...社交,
     },
@@ -86,8 +86,10 @@ const 发的 = []
 const 附件们 = []
 const QQ收藏 = new Map()
 let 收藏序号 = 0
+let 图序号 = 0
 const 鱼脑 = { availableCny: 5, 脱敏坏: false, 脱敏空: false }
 let 判断输出 = JSON.stringify({ watch: [], reply: false, confidence: 0.1, reason: '插不上话' })
+const 判断输出队列 = []
 let 发送序号 = 100
 
 const 设判断 = (watch, reply, confidence = 0.9, reason = '可以') => {
@@ -97,7 +99,7 @@ const 设判断 = (watch, reply, confidence = 0.9, reason = '可以') => {
 const 假llm = {
   async *stream(选项) {
     判断调用.push(选项)
-    yield { type: 'text-delta', text: 判断输出 }
+    yield { type: 'text-delta', text: 判断输出队列.length > 0 ? 判断输出队列.shift() : 判断输出 }
     yield { type: 'finish', reason: { kind: 'stop' } }
   },
   async listProviders() { return [{ id: 'fake', name: 'Fake 提供方' }] },
@@ -228,11 +230,12 @@ globalThis.fetch = async (url, 选项) => {
     }
   }
   if (u.includes('multimedia.nt.qq.com.cn')) {
+    图序号 += 1
     return {
       ok: true,
       url: u,
       headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? '4' : null) },
-      async arrayBuffer() { return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer },
+      async arrayBuffer() { return new Uint8Array([0xff, 0xd8, 0xff, 0xc0 + (图序号 % 16)]).buffer },
     }
   }
   if (u.endsWith('/add_custom_face')) {
@@ -278,6 +281,14 @@ const 一条群消息 = (文本, { uid = 888, id, time, atSelf = false, replyId 
     ...(replyId === '' ? [] : [{ type: 'reply', data: { id: String(replyId) } }]),
     { type: 'text', data: { text: 文本 } },
   ],
+})
+
+const 一条空叫 = (id, time) => ({
+  user_id: 888,
+  time,
+  message_id: id,
+  sender: { card: '群友888', nickname: 'x' },
+  message: [{ type: 'at', data: { qq: '999' } }],
 })
 
 const 一条带图群消息 = (id, { 是主人 = false, atSelf = false } = {}) => ({
@@ -821,7 +832,51 @@ const 提示21c = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
 报('关掉快判 → 成熟画像也全部交给判断模型', 判断调用.length === 判断之前21c + 1 && 提示21c.includes('[#3128]'), 提示21c.slice(0, 120))
 时间偏移 = 0
 
+// ---------- 21d 空 @ 后面才说正文：合并成一条，并把 @ 算在正文上 ----------
+时间偏移 = 0
+写配置({ 群: ['1029'], 聚拢秒: 15 })
+const 空叫秒 = Math.floor(Date.now() / 1000)
+群消息表.set(1029, [
+  一条空叫(4301, 空叫秒),
+  一条群消息('收藏下表情包', { id: 4302, time: 空叫秒 + 6 }),
+])
+设判断([], false, 0.1, '先看看')
+const 判断之前21d = 判断调用.length
+await 轮询社交()
+await 等()
+报('空 @ 先扣住，不单独判', 判断调用.length === 判断之前21d)
+时间偏移 += 25_000
+await 轮询社交()
+await 等()
+const 提示21d = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
+报('空 @ 的正文继承被叫', 判断调用.length === 判断之前21d + 1 && 提示21d.includes('[#4302]') && 提示21d.includes('[被叫]') && 提示21d.includes('收藏下表情包'), 提示21d.slice(0, 200))
+时间偏移 = 0
+
+// ---------- 21e 判断器第一次吐出坏 JSON：收紧要求重试一次 ----------
+写配置({ 群: ['1033'] })
+群消息表.set(1033, [一条群消息('今天吃什么', { id: 4401 })])
+判断输出队列.push('不是 JSON', JSON.stringify({ watch: ['4401'], reply: false, confidence: 0.1, reason: '随便看看' }))
+const 判断之前21e = 判断调用.length
+await 轮询社交()
+await 等()
+报('判断坏 JSON 会重试一次', 判断调用.length === 判断之前21e + 2, '判断调用=' + (判断调用.length - 判断之前21e))
+设判断([], false, 0.1, '插不上话')
+
+// ---------- 21f 主人明确让收藏：即使她只看不回，也把表情存进 QQ ----------
+写配置({ 群: ['1035'] })
+const 收藏数前21f = QQ收藏.size
+群消息表.set(1035, [
+  一条带图群消息(4501, { 是主人: true }),
+  一条群消息('收藏下表情包', { 是主人: true, atSelf: true, id: 4502 }),
+])
+设判断(['4501', '4502'], false, 0.2, '看了但不接')
+await 轮询社交()
+await 等()
+报('主人让收藏 → 只看不回也存进 QQ', QQ收藏.size === 收藏数前21f + 1, `收藏=${QQ收藏.size}`)
+报('主人让收藏 → 不额外回消息', !发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1035))
+
 // ---------- 22 /models 与 /save 深层合并 ----------
+写配置({ 群: ['1019'], 快判: false })
 const fakeRes = { statusCode: 200, setHeader: () => {}, end: (s) => { 存储.push(JSON.parse(s)) } }
 const 造请求 = (body, 选项 = {}) => {
   const 块s = body === undefined ? [] : [typeof body === 'string' ? body : JSON.stringify(body)]
