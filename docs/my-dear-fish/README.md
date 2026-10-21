@@ -28,7 +28,7 @@ See [how the plugins keep the fish](plugins.md) for each plugin's mechanism, dat
 
 ## Cognition plan
 
-[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The plan is not implemented; align on its boundaries before changing code.
+[The cognition plan](cognition.md) starts from the biology of human memory and behavior and proposes a new cognitive core, `dsh-fish-mind`: experience stream, episodic and semantic memory, affect and drives, self and relationships, language monitoring, sleep consolidation, phased implementation, and acceptance metrics. The plan is not implemented; align on its boundaries before changing code. Progress, task breakdown, acceptance data, and handoff steps live in the [development plan](development-plan.md).
 
 ## Layer order
 

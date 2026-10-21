@@ -1,0 +1,64 @@
+# Bilingual-pair consistency record for development-plan.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/development-plan.md
+/my-dear-fish-cognition-development-plan:
+  en: c0594880b44424e0
+  zh: f1528370029f5e74
+/my-dear-fish-cognition-development-plan/how-to-use-this-page:
+  en: 2d8daf4d0e1e3c10
+  zh: fc76de7a870bcece
+/my-dear-fish-cognition-development-plan/current-snapshot:
+  en: 041997fed1c68895
+  zh: 4020e5df1cd8dd38
+/my-dear-fish-cognition-development-plan/phase-0-shadow-run:
+  en: f7102fc16dc05764
+  zh: 00cc73195d953f5f
+/my-dear-fish-cognition-development-plan/phase-0-shadow-run/goal:
+  en: 13b89494ab43f97c
+  zh: 0fc835206c541cbe
+/my-dear-fish-cognition-development-plan/phase-0-shadow-run/checklist:
+  en: 8fab75f74929fbbb
+  zh: 9965dc5c664814a7
+/my-dear-fish-cognition-development-plan/phase-0-shadow-run/completion-criteria:
+  en: ef5dc5c374182371
+  zh: b0b7a3ab6275916a
+/my-dear-fish-cognition-development-plan/phase-0-shadow-run/handoff-items:
+  en: 4f1e702433a52093
+  zh: 44b7f135c7c8517a
+/my-dear-fish-cognition-development-plan/phase-1-episodic-memory:
+  en: 209ad212c3fcd25b
+  zh: ec86284f1a5f3e72
+/my-dear-fish-cognition-development-plan/phase-1-episodic-memory/goal:
+  en: d76908f84961b69a
+  zh: b33e73063581ecee
+/my-dear-fish-cognition-development-plan/phase-1-episodic-memory/checklist:
+  en: 86d4bdc040310814
+  zh: 5a4c1cca3c91bd4b
+/my-dear-fish-cognition-development-plan/phase-1-episodic-memory/completion-criteria:
+  en: 63f389c8c5db0b79
+  zh: c308c84d6eaf1df4
+/my-dear-fish-cognition-development-plan/phase-1-episodic-memory/handoff-items:
+  en: 4f9d3758f7dd9223
+  zh: a69cfc28f2f6804a
+/my-dear-fish-cognition-development-plan/later-phases:
+  en: a966891742878cc5
+  zh: 5568d386884ce924
+/my-dear-fish-cognition-development-plan/local-development-and-verification:
+  en: 3be6bd08df7b64c3
+  zh: 9814b06db5cb3aad
+/my-dear-fish-cognition-development-plan/how-acceptance-data-is-recorded:
+  en: 5ee4f249aec7f3d1
+  zh: b81f34332737090c
+/my-dear-fish-cognition-development-plan/collaboration-rules:
+  en: 5e038ae0a9fb63eb
+  zh: 8a2617c0608ca2da
+/my-dear-fish-cognition-development-plan/open-decisions:
+  en: d205cdc8d23579e7
+  zh: b37c86970a7904fd
+/my-dear-fish-cognition-development-plan/handoff-checklist:
+  en: 395d0a418d81479c
+  zh: f7a9ae54d9c8f64d
+/my-dear-fish-cognition-development-plan/changelog:
+  en: ec47c60910ae32d0
+  zh: 8fafc90cc803b6d3
