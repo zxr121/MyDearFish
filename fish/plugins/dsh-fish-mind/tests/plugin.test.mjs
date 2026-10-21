@@ -104,6 +104,8 @@ function memoryHarness(ctx) {
       return () => tools.delete(definition.name)
     },
   })
+  // 提示与工具跟着代理会话挂：给一个 ctx 落在根 mock 上的主会话代理。
+  ctx.set('agents', { list: () => [{ session: session('session-1'), ctx }] })
   return { sections, contexts, tools }
 }
 
@@ -474,6 +476,7 @@ test('私密账本、隐私、法律和注入规则都进本地上下文，账�
       return () => {}
     },
   })
+  ctx.set('agents', { list: () => [{ session: session('session-1'), ctx }] })
   let metadata = null
   ctx.set('deepseekAccount', {
     async getBalance(meta) {

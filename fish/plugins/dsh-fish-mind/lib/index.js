@@ -27,6 +27,9 @@ import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
 
 export const name = 'fish-mind'
+// systemPrompt 与 tools 是 loop 级服务，跟代理走；agents 与 llm 在应用层，
+// 声明出来让挂载顺序跟着服务走，而不是赌 bundle 顺序。
+export const inject = ['agents', 'llm']
 
 const DIAG_MAX_BYTES = 1024 * 1024
 const METRICS_WINDOW = 200
@@ -34,6 +37,8 @@ const HEALTH_INTERVAL = 6 * 60 * 60 * 1000
 const BALANCE_TICK = 60 * 1000
 // 被账本拦住时，对外只说这一句；不透露钱、余额或额度。
 const BUDGET_BLOCK_TEXT = '今天我这边有点转不动了，先歇一会儿，明天再找你。'
+// 发现新代理会话、挂提示与工具的轮询间隔。
+const AGENT_MOUNT_TICK_MS = 3000
 
 function appendRotated(path, line, maxBytes) {
   try {
@@ -1083,120 +1088,113 @@ export function apply(ctx) {
     }
   }, 'fish-mind: 零花钱计量')
 
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.context !== 'function') {
-      diag('budget: systemPrompt 不可用，私密账本没有注入')
-      return () => {}
+  // systemPrompt 与 tools 是 loop 级服务：跟着每条代理会话出现，应用层的
+  // ctx.get 在挂载时永远等不到它们。所以跟着 agents 走：新代理挂上、代理
+  // 消失卸掉；子代理不挂，它们的上下文预算归委托方管（Capability Broker
+  // 仍在应用层逐次拦它们的工具调用）。
+  const mountedAgents = new Map()
+
+  function agentService(agent, name) {
+    const target = agent && agent.ctx
+    if (!target || typeof target !== 'object') return null
+    if (typeof target.get === 'function') {
+      try {
+        const found = target.get(name)
+        if (found !== undefined && found !== null) return found
+      } catch {}
     }
-    return prompt.context({
-      name: 'fish-mind-budget',
-      order: 920,
-      text: (assembly) => {
+    try {
+      return target[name] || null
+    } catch {
+      return null
+    }
+  }
+
+  function mountAgent(agent, sid) {
+    const offs = []
+    const prompt = agentService(agent, 'systemPrompt')
+    if (prompt && typeof prompt.context === 'function') {
+      offs.push(prompt.context({
+        name: 'fish-mind-budget',
+        order: 920,
+        text: (assembly) => {
+          try {
+            // 群聊/好友会话可能把上下文带出本机：余额和额度一个字都不进去。
+            if (workspaceSession(assembly).social) return ''
+            return budgetPrompt()
+          } catch (error) {
+            diag(`budget: 生成上下文失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-self',
+        order: 925,
+        text: selfPrompt,
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-privacy',
+        order: 930,
+        text: privacyPrompt,
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-safety',
+        order: 931,
+        text: safetyPrompt,
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-injection',
+        order: 932,
+        text: injectionPrompt,
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-workspace',
+        order: 910,
+        text: (assembly) => {
+          try {
+            return workspacePrompt(assembly)
+          } catch (error) {
+            diag(`memory: 组装工作台失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
+      if (typeof prompt.section === 'function') {
+        offs.push(prompt.section({
+          name: 'fish-mind-protocol',
+          order: 89980,
+          text: () => (config.mode === 'live' && config.inject ? memoryProtocolPrompt() : ''),
+        }))
+      } else {
+        diag(`memory: ${sid} 的 systemPrompt 不支持 section，记忆协议没有注入`)
+      }
+    } else {
+      diag(`systemPrompt 在 ${sid} 上不可用，提示上下文没有注入`)
+    }
+    const toolRuntime = agentService(agent, 'tools')
+    if (toolRuntime && typeof toolRuntime.register === 'function') {
+      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition()]) {
         try {
-          // 群聊/好友会话可能把上下文带出本机：余额和额度一个字都不进去。
-          if (workspaceSession(assembly).social) return ''
-          return budgetPrompt()
+          offs.push(toolRuntime.register(definition))
         } catch (error) {
-          diag(`budget: 生成上下文失败（${String((error && error.message) || error)}）`)
-          return ''
+          diag(`memory: 注册 ${definition.name} 工具失败（${String((error && error.message) || error)}）`)
         }
-      },
-    })
-  }, 'fish-mind: 私密账本上下文')
-
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.context !== 'function') {
-      diag('self: systemPrompt 不可用，私设没有注入')
-      return () => {}
+      }
+    } else {
+      diag(`tools 在 ${sid} 上不可用，只读记忆工具没有注册`)
     }
-    return prompt.context({
-      name: 'fish-mind-self',
-      order: 925,
-      text: selfPrompt,
-    })
-  }, 'fish-mind: 私设上下文')
-
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.context !== 'function') {
-      diag('privacy: systemPrompt 不可用，隐私规则没有注入')
-      return () => {}
-    }
-    return prompt.context({
-      name: 'fish-mind-privacy',
-      order: 930,
-      text: privacyPrompt,
-    })
-  }, 'fish-mind: 隐私规则上下文')
-
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.context !== 'function') {
-      diag('safety: systemPrompt 不可用，法律规则没有注入')
-      return () => {}
-    }
-    return prompt.context({
-      name: 'fish-mind-safety',
-      order: 931,
-      text: safetyPrompt,
-    })
-  }, 'fish-mind: 法律规则上下文')
-
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.context !== 'function') {
-      diag('injection: systemPrompt 不可用，注入防护规则没有注入')
-      return () => {}
-    }
-    return prompt.context({
-      name: 'fish-mind-injection',
-      order: 932,
-      text: injectionPrompt,
-    })
-  }, 'fish-mind: 注入防护上下文')
-
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.section !== 'function') {
-      diag('memory: systemPrompt 不可用，记忆协议没有注入')
-      return () => {}
-    }
-    return prompt.section({
-      name: 'fish-mind-protocol',
-      order: 89980,
-      text: () => (config.mode === 'live' && config.inject ? memoryProtocolPrompt() : ''),
-    })
-  }, 'fish-mind: 记忆协议')
-
-  ctx.effect(() => {
-    const prompt = ctx.get('systemPrompt')
-    if (!prompt || typeof prompt.context !== 'function') {
-      diag('memory: systemPrompt 不可用，工作台没有注入')
-      return () => {}
-    }
-    return prompt.context({
-      name: 'fish-mind-workspace',
-      order: 910,
-      text: (assembly) => {
+    return () => {
+      for (const off of offs) {
         try {
-          return workspacePrompt(assembly)
-        } catch (error) {
-          diag(`memory: 组装工作台失败（${String((error && error.message) || error)}）`)
-          return ''
-        }
-      },
-    })
-  }, 'fish-mind: 工作台')
-
-  ctx.effect(() => {
-    const tools = ctx.get('tools')
-    if (!tools || typeof tools.register !== 'function') {
-      diag('memory: tools 不可用，只读 recall 工具没有注册')
-      return () => {}
+          if (typeof off === 'function') off()
+        } catch {}
+      }
     }
-    const definition = {
+  }
+
+  function recallToolDefinition() {
+    return {
       name: 'recall',
       description: '只读查询大肥鱼的长期情景记忆。线索可以是人物、地点、时间、关键词或一句描述；没有可靠记忆时会明确返回空，不要据此编造。',
       parameters: {
@@ -1308,21 +1306,10 @@ export function apply(ctx) {
         return result
       },
     }
-    try {
-      return tools.register(definition)
-    } catch (error) {
-      diag(`memory: 注册 recall 工具失败（${String((error && error.message) || error)}）`)
-      return () => {}
-    }
-  }, 'fish-mind: 只读召回工具')
+  }
 
-  ctx.effect(() => {
-    const tools = ctx.get('tools')
-    if (!tools || typeof tools.register !== 'function') {
-      diag('memory: tools 不可用，只读 open_episode 工具没有注册')
-      return () => {}
-    }
-    const definition = {
+  function openEpisodeToolDefinition() {
+    return {
       name: 'open_episode',
       description: '只读打开一条情景记忆的原文。先用 recall 或工作台拿到情景编号，再用它读那段对话真正说过的话；一页放不下时按 nextOffset 继续，只读，不能修改记忆。',
       parameters: {
@@ -1421,13 +1408,54 @@ export function apply(ctx) {
         return runOpenEpisode(id, offset)
       },
     }
+  }
+
+  function tickAgents() {
+    let list = null
     try {
-      return tools.register(definition)
-    } catch (error) {
-      diag(`memory: 注册 open_episode 工具失败（${String((error && error.message) || error)}）`)
-      return () => {}
+      const agents = ctx.get('agents')
+      list = agents && typeof agents.list === 'function' ? agents.list() : null
+    } catch {
+      return
     }
-  }, 'fish-mind: 原文工具')
+    if (!Array.isArray(list)) return
+    for (const agent of list) {
+      const session = agent && agent.session
+      const sid = session && typeof session.id === 'string' ? session.id : ''
+      if (sid === '' || mountedAgents.has(sid)) continue
+      const header = session && session.header
+      if (header && (header.origin === 'subagent' || (typeof header.delegationDepth === 'number' && header.delegationDepth > 0))) continue
+      try {
+        mountedAgents.set(sid, mountAgent(agent, sid))
+        diag(`已挂鱼脑提示与工具到 ${sid}`)
+      } catch (error) {
+        diag(`挂 ${sid} 失败：${String((error && error.message) || error)}`)
+      }
+    }
+    for (const [sid, off] of mountedAgents) {
+      if (!list.some((agent) => agent && agent.session && agent.session.id === sid)) {
+        try {
+          if (typeof off === 'function') off()
+        } catch {}
+        mountedAgents.delete(sid)
+      }
+    }
+  }
+
+  ctx.effect(() => {
+    tickAgents()
+    const timer = setInterval(tickAgents, AGENT_MOUNT_TICK_MS)
+    timer.unref?.()
+    return () => {
+      clearInterval(timer)
+      for (const [, off] of mountedAgents) {
+        try {
+          if (typeof off === 'function') off()
+        } catch {}
+      }
+      mountedAgents.clear()
+    }
+  }, 'fish-mind: 代理级提示与工具')
 
   ctx.effect(() => {
     if (config.mode === 'off') return () => {}
