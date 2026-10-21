@@ -23,7 +23,7 @@ import { 创建历史导入 } from './import.js'
 export const name = 'qq-bridge'
 
 /** 需要宿主提供：webServer（路由）+ sessions/sessionTitle（目标会话清单 + 标题）+ agents（回合）+ timer（轮询）+ llm（接话判断）。鱼脑（fishMind）按需 ctx.get，没有就不导。 */
-export const inject = ['agents', 'sessions', 'sessionTitle', 'webServer', 'timer', 'workspaceRegistry', 'llm']
+export const inject = ['agents', 'sessions', 'sessionTitle', 'webServer', 'timer', 'workspaceRegistry', 'llm', 'agentDefaultModel']
 
 // ---------- 常量 ----------
 
@@ -589,6 +589,29 @@ export function apply(ctx) {
     return { provider: 指定.slice(0, i), model: 指定.slice(i + 1) }
   }
 
+  /**
+   * 自动建的会话没人替它选模型；不传 provider/model 时 agent 会直接拒绝开轮。
+   * 优先问 DSH 的默认模型服务，旧环境 / 测试没有它时再从活着的普通会话请求头里取。
+   */
+  function 默认模型() {
+    try {
+      const 选 = ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
+        ? ctx.agentDefaultModel.currentSelection()
+        : null
+      if (选 && 选.provider && 选.model) return { provider: 选.provider, model: 选.model }
+    } catch (error) {}
+    try {
+      for (const a of ctx.agents.list() || []) {
+        const sid = a && (a.id || (a.session && a.session.id))
+        if (!sid || 是社交会话(sid) || 是主人QQ会话(sid)) continue
+        const h = a.session && typeof a.session.requestHeader === 'function' ? a.session.requestHeader() : null
+        const cfg = h && h.config
+        if (cfg && cfg.provider && cfg.model) return { provider: cfg.provider, model: cfg.model }
+      }
+    } catch (error) {}
+    return undefined
+  }
+
   /** 群聊里“像不像在叫她”：@她、回复她发过的消息、或者文字里出现称呼。只是标记，不自动回。 */
   function 是否被叫(配置, 段) {
     if (段.at我) return '有人 @ 你'
@@ -888,7 +911,7 @@ export function apply(ctx) {
         记账(`社交会话工具闸门挂不上（${目标.叫}）：${String((error && error.message) || error)}`)
       }
     }
-    const 选项 = 回复模型选项(配置)
+    const 选项 = 回复模型选项(配置) || 默认模型()
     const 区 = await 取工作区()
     const cwd = (区 && 区.path) || process.cwd()
     let handle = null
@@ -901,6 +924,10 @@ export function apply(ctx) {
       )
       if (!没档) {
         记账(`社交会话恢复失败（${目标.叫}）：${String((error && error.message) || error)}`)
+        return null
+      }
+      if (!选项) {
+        记账(`社交会话新建失败（${目标.叫}）：没有可用的默认模型，先在 DSH 里选一个`)
         return null
       }
       try {
@@ -963,11 +990,12 @@ export function apply(ctx) {
         记账(`QQ 私聊场景提示挂不上：${String((error && error.message) || error)}`)
       }
     }
+    const 选项 = 默认模型()
     const 区 = await 取工作区()
     const cwd = (区 && 区.path) || process.cwd()
     let handle = null
     try {
-      handle = await ctx.agents.resume({ resumeSessionId: sid, setup })
+      handle = await ctx.agents.resume({ resumeSessionId: sid, agentOptions: 选项, setup })
     } catch (error) {
       const 没档 = error && (
         error.name === 'SessionPersistenceNotFoundError'
@@ -978,8 +1006,13 @@ export function apply(ctx) {
         记账(`QQ 私聊会话恢复失败：${String((error && error.message) || error)}`)
         return null
       }
+      if (!选项) {
+        主人agent失败At = Date.now()
+        记账('QQ 私聊会话新建失败：没有可用的默认模型，先在 DSH 里选一个')
+        return null
+      }
       try {
-        handle = await ctx.agents.create({ sessionId: sid, meta: { cwd }, setup })
+        handle = await ctx.agents.create({ sessionId: sid, meta: { cwd }, agentOptions: 选项, setup })
         记账(`新建 QQ 私聊会话：${sid}`)
       } catch (错) {
         主人agent失败At = Date.now()

@@ -82,7 +82,7 @@ const 模 = await import(new URL('../lib/host.js', import.meta.url).href + '?v='
 
 // ---------- 纯函数 ----------
 报('名字导出', 模.name === 'qq-bridge', 模.name)
-报('inject = agents + sessions + sessionTitle + webServer + timer + workspaceRegistry + llm', Array.isArray(模.inject) && 模.inject.join() === 'agents,sessions,sessionTitle,webServer,timer,workspaceRegistry,llm')
+报('inject = agents + sessions + sessionTitle + webServer + timer + workspaceRegistry + llm + agentDefaultModel', Array.isArray(模.inject) && 模.inject.join() === 'agents,sessions,sessionTitle,webServer,timer,workspaceRegistry,llm,agentDefaultModel')
 
 const 块 = (type, text) => ({ type, text })
 const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('text', '第一条\n第二条'), 块('image', ''), 块('text', '第三条')] })
@@ -137,6 +137,7 @@ const ctx = {
     },
   },
   sessions: { flush: async () => {} },
+  agentDefaultModel: { currentSelection: () => ({ provider: 'fake', model: 'chat' }) },
   sessionTitle: { get: () => undefined, rename: (s, t) => 标题重命名.push([s.id, t]) },
   workspaceRegistry: {
     archivedSessionIds: [],
