@@ -414,6 +414,15 @@ const 图轮 = 图轮s.at(-1)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人】'))
 
+// 学习期把握 0.35 也愿意先应一声（门槛 0.3）
+写配置({ 群: ['1026'] })
+群消息表.set(1026, [一条群消息('能说话不', { atSelf: true, id: 1606 })])
+设判断(['1606'], true, 0.35, '先应一声')
+const 群1026之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1026').length
+await 轮询社交()
+await 等()
+报('学习期把握 0.35 也愿意先接一句', 回合.filter((r) => r.sid === 'session-qq-social-group-1026').length === 群1026之前 + 1)
+
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })
 群消息表.set(1018, [一条群消息('随便聊聊', { id: 1605 })])
