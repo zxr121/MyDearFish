@@ -632,6 +632,20 @@ await new Promise((r) => setTimeout(r, 1100))
 const 群1025发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).slice(群1025之前发)
 报('连发：五段只发三条，尾部并进最后一条', 群1025发.length === 3 && 群1025发[2].体.message[0].data.text === '你们聊什么\n我也想听\n再说点', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
 
+// ---------- 6c 连发：她没分段的整段多句，按句尾自动断成几条 ----------
+// （用没用过的 1030：发完会记一次她开口、带上冷却，别挡了后面复用旧群的场景）
+写配置({ 群: ['1030'] })
+群消息表.set(1030, [一条群消息('大肥鱼 有鱼片吗', { atSelf: true, id: 1802, 是主人: true })])
+const 句拆前轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1030').length
+await 轮询社交()
+await 等()
+报('连发：整段多句照常开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1030').length === 句拆前轮 + 1)
+const 句拆前发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1030).length
+await 收到回复('session-qq-social-group-1030', '鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')
+await new Promise((r) => setTimeout(r, 700))
+const 句拆发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1030).slice(句拆前发)
+报('连发：整段多句断成两条', 句拆发.length === 2 && 句拆发[0].体.message[0].data.text === '鱼片没有，自己人不能切片。' && 句拆发[1].体.message[0].data.text === '倒是那个小兔话，我听着还挺亲切。', JSON.stringify(句拆发.map((x) => x.体.message[0].data.text)))
+
 // ---------- 6c 图片：不单独触发，和文字一样走判断；被选中后作为 image 块进会话 ----------
 写配置({ 群: ['1016'] })
 群消息表.set(1016, [一条带图群消息(1603, { 是主人: true })])
@@ -675,6 +689,24 @@ await 收到回复('session-qq-social-group-1027', '[发表情:#1] 给你看')
 const 表情发送 = 发的.filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1027 && x.体.emoji_id === (收藏项 && 收藏项.emojiId))
 报('聊天时从 QQ 收藏里发一张表情', 表情发送.length === 1, JSON.stringify(表情发送.at(-1)))
 报('表情不再当普通图片发', !发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1027 && Array.isArray(x.体.message) && x.体.message.some((b) => b.type === 'image')))
+
+// ---------- 6d 连发表情：几张表情和话混着写，按写下顺序一张张、一句句发 ----------
+写配置({ 群: ['1028'] })
+群消息表.set(1028, [一条群消息('再来一套表情', { id: 1608 })])
+设判断(['1608'], true, 0.9, '再发一套')
+await 轮询社交()
+await 等()
+const 多表情前 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1028).length
+await 收到回复('session-qq-social-group-1028', '[发表情:#1] 拿去[发表情:#1] 再来一张')
+await new Promise((r) => setTimeout(r, 1800))
+const 多表情发 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1028).slice(多表情前)
+报('连发表情：按写下顺序排（表情→话→表情→话）', 多表情发.length === 4
+  && 多表情发[0].url.endsWith('/send_custom_face')
+  && 多表情发[1].url.endsWith('/send_group_msg') && 多表情发[1].体.message[0].data.text === '拿去'
+  && 多表情发[2].url.endsWith('/send_custom_face')
+  && 多表情发[3].url.endsWith('/send_group_msg') && 多表情发[3].体.message[0].data.text === '再来一张',
+  JSON.stringify(多表情发.map((x) => (x.url.endsWith('/send_custom_face') ? '[表情]' : x.体.message[0].data.text))))
+报('连发表情：两张都用的是收藏里那张', 多表情发[0].体.emoji_id === (收藏项 && 收藏项.emojiId) && 多表情发[2].体.emoji_id === (收藏项 && 收藏项.emojiId), JSON.stringify([多表情发[0] && 多表情发[0].体.emoji_id, 多表情发[2] && 多表情发[2].体.emoji_id]))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })

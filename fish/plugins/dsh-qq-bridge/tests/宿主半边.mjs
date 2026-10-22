@@ -5,7 +5,7 @@
 //   3) interrupted 那轮不发；turn/end 不是 completed 不发
 //   4) 试运行开着 → 不真发（fetch 不被打）；总开关关着 → 不真发
 //   5) /state 路由能回出配置和 NapCat 探活结果
-//   6) 连发：空行/单换行拆段，一段一条；超限并回上一条不丢字
+//   6) 连发：文字按空行/句尾拆条，表情包 [发表情:#N] 按写下顺序排进队列、可连发多张、可和话混排
 // 跑法： node tests/宿主半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
@@ -15,13 +15,21 @@ import { join } from 'node:path'
 const 家 = mkdtempSync(join(tmpdir(), 'qq-bridge-'))
 process.env.DSH_HOME = 家
 
-// 先把配置写好（总开关开、真发、私聊 123）
+// 先把配置写好（总开关开、真发、私聊 123），再放两张她已收藏的表情包
 writeFileSync(
   join(家, 'qq-bridge-config.json'),
   JSON.stringify({
     总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '',
     转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
   }, null, 2),
+  'utf8',
+)
+writeFileSync(
+  join(家, 'qq-stickers.json'),
+  JSON.stringify({ version: 2, nextId: 6, items: [
+    { id: 2, label: '小兔', emojiId: 'e2', md5: '', bytes: 0, addedAt: 0, source: 'test' },
+    { id: 5, label: '鱼片', emojiId: 'e5', md5: '', bytes: 0, addedAt: 0, source: 'test' },
+  ] }, null, 2),
   'utf8',
 )
 
@@ -116,8 +124,18 @@ const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('
 报('按段拆：空行分段', JSON.stringify(模.按段拆('甲\n\n乙')) === '["甲","乙"]', JSON.stringify(模.按段拆('甲\n\n乙')))
 报('按段拆：没有空行时单换行也拆', JSON.stringify(模.按段拆('甲\n乙')) === '["甲","乙"]', JSON.stringify(模.按段拆('甲\n乙')))
 报('按段拆：单行不拆、空串为空', JSON.stringify(模.按段拆('就一句')) === '["就一句"]' && JSON.stringify(模.按段拆('')) === '[]')
-报('连发段们：超限并回上一条，不悄悄丢字', JSON.stringify(模.连发段们('甲\n\n乙\n\n丙\n\n丁')) === '["甲","乙","丙\\n丁"]', JSON.stringify(模.连发段们('甲\n\n乙\n\n丙\n\n丁')))
-报('连发段们：限内原样', JSON.stringify(模.连发段们('甲\n\n乙')) === '["甲","乙"]')
+报('按句拆：句尾断条', JSON.stringify(模.按句拆('甲。乙！丙？')) === '["甲。","乙！","丙？"]', JSON.stringify(模.按句拆('甲。乙！丙？')))
+报('按句拆：单句不拆', JSON.stringify(模.按句拆('就一句。')) === '["就一句。"]', JSON.stringify(模.按句拆('就一句。')))
+报('拆连发项：多句自动断成几条', JSON.stringify(模.拆连发项('鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')) === '[{"文字":"鱼片没有，自己人不能切片。"},{"文字":"倒是那个小兔话，我听着还挺亲切。"}]', JSON.stringify(模.拆连发项('鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')))
+报('拆连发项：空行优先于拆句', JSON.stringify(模.拆连发项('甲。乙。\n\n丙。')) === '[{"文字":"甲。乙。"},{"文字":"丙。"}]', JSON.stringify(模.拆连发项('甲。乙。\n\n丙。')))
+报('拆连发项：句拆超限并回上一条', JSON.stringify(模.拆连发项('甲。乙。丙。丁。')) === '[{"文字":"甲。"},{"文字":"乙。"},{"文字":"丙。丁。"}]', JSON.stringify(模.拆连发项('甲。乙。丙。丁。')))
+报('拆连发项：段落超限并回上一条，不悄悄丢字', JSON.stringify(模.拆连发项('甲\n\n乙\n\n丙\n\n丁')) === '[{"文字":"甲"},{"文字":"乙"},{"文字":"丙\\n丁"}]', JSON.stringify(模.拆连发项('甲\n\n乙\n\n丙\n\n丁')))
+报('拆连发项：限内原样', JSON.stringify(模.拆连发项('甲\n\n乙')) === '[{"文字":"甲"},{"文字":"乙"}]')
+报('拆连发项：表情和话按写下顺序混排', JSON.stringify(模.拆连发项('[发表情:#3] 给你[发表情:#5] 都拿去')) === '[{"表情":3},{"文字":"给你"},{"表情":5},{"文字":"都拿去"}]', JSON.stringify(模.拆连发项('[发表情:#3] 给你[发表情:#5] 都拿去')))
+报('拆连发项：连写多张表情一条不丢', JSON.stringify(模.拆连发项('[发表情:#1][发表情:#2][发表情:#3]')) === '[{"表情":1},{"表情":2},{"表情":3}]', JSON.stringify(模.拆连发项('[发表情:#1][发表情:#2][发表情:#3]')))
+报('拆连发项：[存表情] 是收藏指令，不占发送位', JSON.stringify(模.拆连发项('[存表情:图2:小兔] 收好了[发表情:#4]')) === '[{"文字":"收好了"},{"表情":4}]', JSON.stringify(模.拆连发项('[存表情:图2:小兔] 收好了[发表情:#4]')))
+报('拆连发项：被截断的半个 [发表情] 不发出去', JSON.stringify(模.拆连发项('来了[发表情:#')) === '[{"文字":"来了"}]', JSON.stringify(模.拆连发项('来了[发表情:#')))
+报('拆连发项：纯表情也算一轮', JSON.stringify(模.拆连发项('[发表情:#7]')) === '[{"表情":7}]', JSON.stringify(模.拆连发项('[发表情:#7]')))
 
 // ---------- 假 ctx ----------
 const 监听 = []
@@ -256,6 +274,35 @@ const 之前d = 发了.length
 监听[0](会话, 转完(82))
 await new Promise((r) => setTimeout(r, 700))
 报('连发：没有空行时单换行也拆', 发了.slice(之前d).length === 2, JSON.stringify(发了.slice(之前d).map((x) => x.体.message[0].data.text)))
+const 之前e = 发了.length
+监听[0](会话, 助手消息(83, 1, [块('text', '鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')], false))
+监听[0](会话, 转完(83))
+await new Promise((r) => setTimeout(r, 700))
+报('连发：一整段多句按句尾断成两条', 发了.slice(之前e).length === 2 && 发了.slice(之前e)[0].体.message[0].data.text === '鱼片没有，自己人不能切片。' && 发了.slice(之前e)[1].体.message[0].data.text === '倒是那个小兔话，我听着还挺亲切。', JSON.stringify(发了.slice(之前e).map((x) => x.体.message[0].data.text)))
+
+// ②d 连发表情：几张表情和话混着写，私聊里按写下顺序一张张、一句句发
+const 之前f = 发了.length
+监听[0](会话, 助手消息(84, 1, [块('text', '[发表情:#2] 给你[发表情:#5] 都拿去')], false))
+监听[0](会话, 转完(84))
+await new Promise((r) => setTimeout(r, 1800))
+const 表情连发 = 发了.slice(之前f)
+报('连发表情：私聊按写下顺序排（表情→话→表情→话）', 表情连发.length === 4
+  && 表情连发[0].url.endsWith('/send_custom_face') && 表情连发[0].体.emoji_id === 'e2'
+  && 表情连发[1].url.endsWith('/send_private_msg') && 表情连发[1].体.message[0].data.text === '给你'
+  && 表情连发[2].url.endsWith('/send_custom_face') && 表情连发[2].体.emoji_id === 'e5'
+  && 表情连发[3].url.endsWith('/send_private_msg') && 表情连发[3].体.message[0].data.text === '都拿去',
+  JSON.stringify(表情连发.map((x) => (x.url.endsWith('/send_custom_face') ? `[表情 ${x.体.emoji_id}]` : x.体.message[0].data.text))))
+
+// ②e 收藏里没有的编号跳过，不挡后面的话和表情
+const 之前g = 发了.length
+监听[0](会话, 助手消息(85, 1, [块('text', '[发表情:#99] 还有一张[发表情:#2]')], false))
+监听[0](会话, 转完(85))
+await new Promise((r) => setTimeout(r, 1300))
+const 跳过 = 发了.slice(之前g)
+报('连发表情：收藏里没有的编号跳过不挡后面的', 跳过.length === 2
+  && 跳过[0].url.endsWith('/send_private_msg') && 跳过[0].体.message[0].data.text === '还有一张'
+  && 跳过[1].url.endsWith('/send_custom_face') && 跳过[1].体.emoji_id === 'e2',
+  JSON.stringify(跳过.map((x) => (x.url.endsWith('/send_custom_face') ? `[表情 ${x.体.emoji_id}]` : x.体.message[0].data.text))))
 
 // ③ interrupted 那轮不发
 const 之前3 = 发了.length
@@ -378,7 +425,7 @@ let 收到 = await 收({ text: '宝宝你在吗' })
 报('/receive：把她的话 followup 进会话', 收到 && 收到.ok === true && 转进的.length === 1, JSON.stringify(收到))
 if (转进的[0]) {
   const m = 转进的[0]
-  报('/receive 消息形状：role=user + source.kind=qq + 正文对', m.role === 'user' && m.source && m.source.kind === 'qq' && m.content[0].text === '宝宝你在吗', JSON.stringify(m))
+  报('/receive 消息形状：role=user + source.kind=qq + 正文对', m.role === 'user' && m.source && m.source.kind === 'qq' && m.content[0].text.startsWith('宝宝你在吗'), JSON.stringify(m))
 }
 报('/receive 之后 DSH→QQ 那半也会把大肥鱼的回话发回 QQ（联动靠 session/event，不在这里再验）', true)
 
@@ -465,7 +512,7 @@ const 之前跨 = 转进的.length
 const 之前长 = 转进的.length
 收到 = await 收({ text: '长'.repeat(20000) })
 const 长文 = 转进的.at(-1)?.content?.[0]?.text || ''
-报('/receive：超长正文截断', 收到 && 收到.ok === true && 转进的.length === 之前长 + 1 && 长文.length <= 12050 && 长文.includes('省略'), '长度=' + 长文.length)
+报('/receive：超长正文截断', 收到 && 收到.ok === true && 转进的.length === 之前长 + 1 && 长文.length <= 12200 && 长文.includes('省略'), '长度=' + 长文.length)
 
 // ⑯ 同一次轮询的多条消息合成一轮（不按条数开回合）
 私聊消息文本 = '这条已经转过了'

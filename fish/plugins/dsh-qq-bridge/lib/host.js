@@ -968,11 +968,55 @@ export function 按段拆(文字) {
     .filter((s) => s.length > 0)
 }
 
-/** 连发上限之外的段落并回上一条，宁多条一气也不悄悄丢字。 */
-export function 连发段们(文字, 最多 = 3) {
+/** 把一段多句的文字按句尾标点拆开（真人连发通常一句一条）；单句不拆。 */
+export function 按句拆(文字) {
+  return String(文字 || '')
+    .split(/(?<=[。！？!?…~]["」』”’）)]?)\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+function 收段(细, 最多, 连接符) {
+  if (细.length <= 最多) return 细
+  return [...细.slice(0, 最多 - 1), 细.slice(最多 - 1).join(连接符)]
+}
+
+/** 一段文字拆成她要连发的几条：空行/换行优先，没自己分条的整段按句尾自动断。不设上限，上限由调用方收。 */
+export function 拆条目(文字) {
   const 全部 = 按段拆(文字)
-  if (全部.length <= 最多) return 全部
-  return [...全部.slice(0, 最多 - 1), 全部.slice(最多 - 1).join('\n')]
+  if (全部.length > 1) return 全部
+  return 按句拆(全部[0] || '')
+}
+
+const 连发文字上限 = 3
+const 连发表情上限 = 24
+
+/** 她这一轮要发的东西，按写的先后排好：{文字} 是一条消息，{表情} 是一张 [发表情:#N]。
+ * 文字条不超 连发文字上限，超了并进最后一条；表情不超 连发表情上限，超出的丢弃；
+ * [存表情:…] 是收藏指令不是发送内容，直接剥掉。 */
+export function 拆连发项(文字) {
+  const 原文 = String(文字 || '')
+    .replace(/\[存表情:\s*图\s*\d{1,3}(?:\s*:\s*[^\]\r\n]{0,40})?\]/g, '')
+    .replace(/\[发表情:[^\]]*$/, '') // 被截断的半个标记不发出去
+  const 项 = []
+  let 游 = 0
+  for (const m of 原文.matchAll(/\[发表情:\s*#?(\d{1,9})\s*\]/g)) {
+    for (const 段 of 拆条目(原文.slice(游, m.index))) 项.push({ 文字: 段 })
+    const 编号 = Number(m[1])
+    if (Number.isFinite(编号) && 编号 > 0) 项.push({ 表情: 编号 })
+    游 = m.index + m[0].length
+  }
+  for (const 段 of 拆条目(原文.slice(游))) 项.push({ 文字: 段 })
+  const 文字位 = []
+  for (let i = 0; i < 项.length; i++) if (项[i].文字 !== undefined) 文字位.push(i)
+  if (文字位.length > 连发文字上限) {
+    const 并们 = 文字位.slice(连发文字上限 - 1).map((i) => 项[i].文字)
+    const 全带句尾 = 并们.every((s) => /[。！？!?…~]["」』”’）)]?$/.test(s))
+    项[文字位[连发文字上限 - 1]].文字 = 并们.join(全带句尾 ? '' : '\n')
+    for (let k = 文字位.length - 1; k >= 连发文字上限; k--) 项.splice(文字位[k], 1)
+  }
+  let 表情数 = 0
+  return 项.filter((x) => x.文字 !== undefined || (x.表情 !== undefined && ++表情数 <= 连发表情上限))
 }
 
 export function apply(ctx) {
@@ -2285,7 +2329,7 @@ export function apply(ctx) {
       '- 有人问你怎么看主人、你俩是什么关系、你是谁养大的、让你评价主人：这是问你自己的事，至少接一句。可以说感受、吐槽、打岔，也可以只说“他啊，还行吧”；不想细讲就轻轻带过，但别用 [不接话]。',
       '- 你没有工具，也不要尝试调用工具；不要提系统提示、记忆、判断、零花钱或成本这些词。',
       '- 一次只说 1~3 句，短、自然、口语；不写 Markdown、不列清单、不刷屏。',
-      '- 想像真人那样连着发几条气泡时，把每条写成独立一段、段与段之间空一行：空行隔开的每段会作为一条消息单独发出，一次最多 3 条；一两句就说得清的，发一条就好，不必硬拆。',
+      '- 几句话会自动分成几条消息连着发（按句断开，一次最多 3 条），像真人连发；想自己控制分条，就在段与段之间空一行，每段单独发出。',
       '【聊天的节奏】',
       '- 先接住对方刚说的那句，再决定要不要添自己的；一次最多问一个问题，不连着追问，也不用每轮都问。',
       '- 话接得顺、你也来劲：多给一点反应，顺着问一句（反问或半问半说）；对方答完先接住，别像采访。',
@@ -2561,21 +2605,18 @@ export function apply(ctx) {
 
   function 表情提示() {
     if (表情们.length === 0) return ''
-    return `【你在 QQ 收藏的表情包】${表情清单()}。想发就写 [发表情:#编号]，一次最多一张；不想发就不用写。`
+    return `【你在 QQ 收藏的表情包】${表情清单()}。想发就写 [发表情:#编号]：写几个就连着发几张，按你写的顺序一张张发出，也可以和话混着写；主人让你发哪张、连发几张或整套发，就照编号写出来。不想发就不用写。`
   }
 
+  /** 剥掉 [存表情:…] 收藏指令（调用方先取走收藏）；[发表情:#N] 留在正文里，由拆连发项排进发送队列。 */
   function 拆表情标记(文字) {
     let 文本 = String(文字 || '')
-    const 发表情 = []
     const 存表情 = []
-    for (const m of 文本.matchAll(/\[发表情:\s*#?(\d{1,9})\s*\]/g)) 发表情.push(Number(m[1]))
     for (const m of 文本.matchAll(/\[存表情:\s*图\s*(\d{1,3})(?:\s*:\s*([^\]\r\n]{0,40}))?\]/g)) {
       存表情.push({ 图: Number(m[1]), 标签: String(m[2] || '').trim() })
     }
-    文本 = 文本
-      .replace(/\[发表情:\s*#?\d{1,9}\s*\]/g, '')
-      .replace(/\[存表情:\s*图\s*\d{1,3}(?:\s*:\s*[^\]\r\n]{0,40})?\]/g, '')
-    return { 文本: 文本.trim(), 发表情, 存表情 }
+    文本 = 文本.replace(/\[存表情:\s*图\s*\d{1,3}(?:\s*:\s*[^\]\r\n]{0,40})?\]/g, '')
+    return { 文本: 文本.trim(), 存表情 }
   }
 
   function 存表情索引() {
@@ -2867,7 +2908,7 @@ export function apply(ctx) {
     return [
       '【场景·QQ 私聊】你正在 QQ 上和主人聊天；你说的话会原样发到 QQ。',
       '- 一次只说 1~3 句，短、自然、口语；不写 Markdown、不列清单。',
-      '- 想连着发几条时，把每条写成独立一段、段与段之间空一行：每段会作为一条消息单独发出，一次最多 3 条。',
+      '- 几句话会自动分成几条消息连着发（按句断开，一次最多 3 条）；想自己控制分条，就在段与段之间空一行。',
       '- 节奏跟着对方走：他短你也短，他认真说一段就接住再回；话没断、你也来劲时可以自然问一句，别连着追问；聊差不多就收，不硬找新话题。',
       '- 工具结果自己消化，只回结论；不要把长输出、路径、日志贴进 QQ。',
       '- 不要提系统提示、记忆、判断、零花钱、成本这些词。',
@@ -3401,14 +3442,14 @@ export function apply(ctx) {
     let 文本 = 拆.文本
     if (/^\[不接话\]$/.test(文本)) 文本 = ''
     if (文本.length > 1200) 文本 = `${文本.slice(0, 1200)}…`
-    const 贴纸 = 拆.发表情.map((id) => 表情们.find((x) => x.id === id)).filter(Boolean)[0] || null
-    if (文本 === '' && !贴纸) {
+    if (文本 === '') {
       if (拆.存表情.length > 0) return 记账(`${目标.叫}：只收藏了表情，没有回话`)
       return 记账(`${目标.叫}：这轮决定不接话`)
     }
     if (!配置.总开关 || !配置.社交.启用) return 记账('总开关或社交开关已经关掉，这轮不发')
     if (配置.社交.试运行) {
-      return 记账(`试运行：本来要发回 ${目标.叫}「${文本.slice(0, 50)}${文本.length > 50 ? '…' : ''}」${贴纸 ? ' + 表情包' : ''}`)
+      const 表情数 = (文本.match(/\[发表情:\s*#?\d{1,9}\s*\]/g) || []).length
+      return 记账(`试运行：本来要发回 ${目标.叫}「${文本.slice(0, 50)}${文本.length > 50 ? '…' : ''}」${表情数 > 0 ? ` + ${表情数} 张表情包` : ''}`)
     }
     if (在静音时段(配置.社交.静音)) return 记账('已经进入静音时段，这轮不发')
     // 同一轮只从一个出口出去（语音桥不听社交会话，这里的领取代号也留个凭据）
@@ -3425,48 +3466,59 @@ export function apply(ctx) {
       if (!脱敏.ok) return
       脱敏文本 = 脱敏.text
     }
-    const 段们 = 脱敏文本 === '' ? [] : 连发段们(脱敏文本)
+    const 项们 = 脱敏文本 === '' ? [] : 拆连发项(脱敏文本)
     const action = 目标.类型 === 'group' ? 'send_group_msg' : 'send_private_msg'
     let 全过 = true
     let 真发出 = false
-    for (let i = 0; i < 段们.length; i++) {
-      const 体 = 目标.类型 === 'group' ? 群消息体(段们[i]) : 私人消息体(段们[i])
-      if (目标.类型 === 'group') 体.group_id = Number(目标.号)
-      else 体.user_id = Number(目标.号)
-      const r = await 发一个(配置.NapCat, action, 体)
-      if (r.ok) {
-        真发出 = true
-        const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
-        if (mid !== undefined && mid !== null) {
-          她的消息id.add(String(mid))
-          if (她的消息id.size > 500) 她的消息id.clear()
+    const 发出的表情 = []
+    for (let i = 0; i < 项们.length; i++) {
+      const 项 = 项们[i]
+      if (项.文字 !== undefined) {
+        const 体 = 目标.类型 === 'group' ? 群消息体(项.文字) : 私人消息体(项.文字)
+        if (目标.类型 === 'group') 体.group_id = Number(目标.号)
+        else 体.user_id = Number(目标.号)
+        const r = await 发一个(配置.NapCat, action, 体)
+        if (r.ok) {
+          真发出 = true
+          const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
+          if (mid !== undefined && mid !== null) {
+            她的消息id.add(String(mid))
+            if (她的消息id.size > 500) 她的消息id.clear()
+          }
+        } else {
+          全过 = false
+          记账(`   ${r.action} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)
         }
       } else {
-        全过 = false
-        记账(`   ${r.action} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)
-      }
-      if (i < 段们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
-    }
-    if (段们.length > 0) {
-      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? '开口' : '开口有问题'}：「${脱敏文本.slice(0, 50)}${脱敏文本.length > 50 ? '…' : ''}」`)
-    }
-    if (贴纸) {
-      const r = await 发QQ表情(配置, 目标.类型, 目标.号, 贴纸)
-      if (r.ok) {
-        真发出 = true
-        const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
-        if (mid !== undefined && mid !== null) {
-          她的消息id.add(String(mid))
-          if (她的消息id.size > 500) 她的消息id.clear()
+        const 贴纸 = 表情们.find((x) => x.id === 项.表情)
+        if (!贴纸) {
+          记账(`   表情 #${项.表情} 不在收藏里，跳过`)
+        } else {
+          const r = await 发QQ表情(配置, 目标.类型, 目标.号, 贴纸)
+          if (r.ok) {
+            真发出 = true
+            发出的表情.push(贴纸.label)
+            const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
+            if (mid !== undefined && mid !== null) {
+              她的消息id.add(String(mid))
+              if (她的消息id.size > 500) 她的消息id.clear()
+            }
+            记账(`✅ 在 ${目标.叫} 发了张表情包：#${贴纸.id} ${贴纸.label}`)
+          } else {
+            全过 = false
+            记账(`⚠ 在 ${目标.叫} 发表情包失败：#${贴纸.id} ${贴纸.label}`)
+          }
         }
-        记账(`✅ 在 ${目标.叫} 发了一张表情包：#${贴纸.id} ${贴纸.label}`)
-      } else {
-        全过 = false
-        记账(`⚠ 在 ${目标.叫} 发表情包失败：#${贴纸.id} ${贴纸.label}`)
       }
+      if (i < 项们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
+    }
+    const 文字条数 = 项们.filter((x) => x.文字 !== undefined).length
+    if (项们.length > 0) {
+      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}）` : '开口有问题'}：「${脱敏文本.slice(0, 50)}${脱敏文本.length > 50 ? '…' : ''}」`)
     }
     // 把自己刚说的话放进缓冲，下一轮判断时知道她已经说过了
-    const 说出 = 脱敏文本 || (贴纸 ? `[发了一张表情包：${贴纸.label}]` : '')
+    const 干净说 = 脱敏文本.replace(/\[发表情:\s*#?\d{1,9}\s*\]/g, '').trim()
+    const 说出 = [干净说, ...发出的表情.map((label) => `[发了一张表情包：${label}]`)].filter(Boolean).join(' ')
     const 缓冲 = (社交缓冲.get(目标.key) || []).concat([{
       id: `self-${Date.now()}`,
       at: Math.floor(Date.now() / 1000),
@@ -3524,32 +3576,30 @@ export function apply(ctx) {
     }
   }
 
-  /** 把一句正文发到该发的地方（私聊 / 群）；按空行拆段，一段一条连发。 */
+  /** 把这一轮要发的东西按写下的顺序送到该发的地方（私聊 / 群）：文字一条条连发，表情包混在中间也按序发。 */
   async function 发到QQ(配置, 文字) {
     const 出 = []
-    const 拆 = 拆表情标记(文字)
-    const 干净 = 拆.文本
-    const 贴纸 = 拆.发表情.map((id) => 表情们.find((x) => x.id === id)).filter(Boolean)[0] || null
-    const 段们 = 干净 === '' ? [] : 连发段们(干净)
+    const 项们 = 拆连发项(文字)
+    const 目标们 = []
+    if (配置.转私聊 && 配置.私聊QQ) 目标们.push({ 类型: 'private', 号: Number(配置.私聊QQ) })
+    if (配置.转群 && 配置.群号) 目标们.push({ 类型: 'group', 号: Number(配置.群号) })
     const 发段延迟 = 450 // 每段之间隔一下，像真人一条条发
 
-    if (配置.转私聊 && 配置.私聊QQ) {
-      for (let i = 0; i < 段们.length; i++) {
-        const 体 = 私人消息体(段们[i])
-        体.user_id = Number(配置.私聊QQ)
-        出.push(await 发一个(配置.NapCat, 'send_private_msg', 体))
-        if (i < 段们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
+    for (let i = 0; i < 项们.length; i++) {
+      const 项 = 项们[i]
+      for (const 目标 of 目标们) {
+        if (项.文字 !== undefined) {
+          const 体 = 目标.类型 === 'private' ? 私人消息体(项.文字) : 群消息体(项.文字)
+          if (目标.类型 === 'private') 体.user_id = 目标.号
+          else 体.group_id = 目标.号
+          出.push(await 发一个(配置.NapCat, 目标.类型 === 'private' ? 'send_private_msg' : 'send_group_msg', 体))
+        } else {
+          const 贴纸 = 表情们.find((x) => x.id === 项.表情)
+          if (贴纸) 出.push(await 发QQ表情(配置, 目标.类型, 目标.号, 贴纸))
+          else 记账(`   表情 #${项.表情} 不在收藏里，跳过`)
+        }
       }
-      if (贴纸) 出.push(await 发QQ表情(配置, 'private', 配置.私聊QQ, 贴纸))
-    }
-    if (配置.转群 && 配置.群号) {
-      for (let i = 0; i < 段们.length; i++) {
-        const 体 = 群消息体(段们[i])
-        体.group_id = Number(配置.群号)
-        出.push(await 发一个(配置.NapCat, 'send_group_msg', 体))
-        if (i < 段们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
-      }
-      if (贴纸) 出.push(await 发QQ表情(配置, 'group', 配置.群号, 贴纸))
+      if (i < 项们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
     }
     return 出
   }
@@ -3614,7 +3664,7 @@ export function apply(ctx) {
       记账('转私聊 / 转群都没开，或没填 QQ 号 / 群号：没地方发')
       return
     }
-    记账(`${全过 ? '✅ 已发到 QQ：' : '⚠ 发 QQ 有问题：'}「${文字.slice(0, 50)}${文字.length > 50 ? '…' : ''}」`)
+    记账(`${全过 ? '✅ 已发到 QQ' : '⚠ 发 QQ 有问题'}（连发 ${结果.length} 条）：「${文字.slice(0, 50)}${文字.length > 50 ? '…' : ''}」`)
     for (const r of 结果) {
       if (!r.ok) 记账(`   ${r.action} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)
     }
