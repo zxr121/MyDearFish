@@ -7,6 +7,8 @@ packages:
   - native/system/packages/*
   # Product assemblies over the package tier; apps/cli owns the `dsh` bin.
   - apps/*
+  # My Dear Fish companion bundle (plugins are loaded via the bundle, not as workspace packages).
+  - fish/bundle
   # Private package owning repository-level benchmark dependencies.
   - benchmarks
   - website

@@ -1117,6 +1117,8 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  fish/bundle: {}
+
   native/system:
     devDependencies:
       '@deepseek-ai/node-addon-system':
