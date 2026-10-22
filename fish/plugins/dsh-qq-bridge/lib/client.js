@@ -133,6 +133,13 @@ window.__ModuleLoader__.load({
     }
     // 群号 / 好友 / 称呼都可能一次填一串；逗号、顿号、空格、换行都算分隔。
     const 拆列表 = (文本) => String(文本 || '').split(/[\s,，、;；]+/).map((s) => s.trim()).filter(Boolean)
+    const 时间短 = (ts) => {
+      const 数 = Number(ts) || 0
+      if (数 <= 0) return ''
+      const d = new Date(数)
+      const 补 = (x) => String(x).padStart(2, '0')
+      return 补(d.getMonth() + 1) + '-' + 补(d.getDate()) + ' ' + 补(d.getHours()) + ':' + 补(d.getMinutes())
+    }
 
     function Section() {
       const [态, 设态] = React.useState(null)
@@ -147,10 +154,18 @@ window.__ModuleLoader__.load({
       const [导忙, 设导忙] = React.useState(false)
       const [导说, 设导说] = React.useState('')
       const [白名单文本, 设白名单文本] = React.useState('')
+      const [人物态, 设人物态] = React.useState(null)
+      const [人物载, 设人物载] = React.useState(false)
+      const [人物错, 设人物错] = React.useState('')
+      const [人物搜, 设人物搜] = React.useState('')
+      const [只看熟, 设只看熟] = React.useState(false)
+      const [展开人, 设展开人] = React.useState('')
+      const [全部人, 设全部人] = React.useState(false)
 
       React.useEffect(() => {
         拉()
         拉模型()
+        拉人物()
       }, [])
 
       const 吃状态 = (s) => {
@@ -169,6 +184,17 @@ window.__ModuleLoader__.load({
       const 拉模型 = async () => {
         const m = await get('/models')
         if (m && m.ok) 设模型们(Array.isArray(m.providers) ? m.providers : [])
+      }
+      const 拉人物 = async () => {
+        设人物载(true)
+        const s = await get('/people')
+        设人物载(false)
+        if (s && s.ok && Array.isArray(s.人物)) {
+          设人物态(s)
+          设人物错('')
+        } else {
+          设人物错((s && s.说) || '读不到人物志')
+        }
       }
       const 改 = (k, v) => {
         设态((旧) => (旧 ? { ...旧, 配置: { ...(旧.配置 || {}), [k]: v } } : 旧))
@@ -297,6 +323,22 @@ window.__ModuleLoader__.load({
       const 戳 = 配置.戳一戳 || {}
       const 戳态 = 态.戳一戳 || {}
       const 本轮 = 导态.本轮 || {}
+      const 人物页 = 人物态 && Array.isArray(人物态.人物) ? 人物态.人物 : []
+      const 人物词 = 人物搜.trim().toLowerCase()
+      const 人物筛过 = 人物页.filter((p) => {
+        const 房间 = Array.isArray(p.房) ? p.房 : []
+        if (只看熟 && !房间.some((r) => Number(r.熟) >= 35)) return false
+        if (人物词 === '') return true
+        const 文 = [
+          p.名, p.号,
+          ...(Array.isArray(p.别名) ? p.别名 : []),
+          ...房间.map((r) => r.叫),
+          ...(Array.isArray(p.事实) ? p.事实.map((f) => f.文) : []),
+        ].join(' ').toLowerCase()
+        return 文.includes(人物词)
+      })
+      const 人物显示 = 人物词 !== '' || 全部人 ? 人物筛过 : 人物筛过.slice(0, 40)
+      const 人物熟 = 人物页.filter((p) => (Array.isArray(p.房) ? p.房 : []).some((r) => Number(r.熟) >= 35)).length
 
       return h(
         'div',
@@ -505,6 +547,105 @@ window.__ModuleLoader__.load({
                     : '') +
                   (t.冷却 ? ' · 现在不接：' + t.冷却 : ''),
               )),
+        ),
+        // —— 人物志 ——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '人物志（她认识的人）'),
+          h('div', { style: S.dim },
+            '这里能翻看她记住的人、每间屋里的关系，以及只属于那间屋的事。' +
+              '只存在本机；群和私聊之间不会互相带事实。',
+          ),
+          h('div', { style: { ...S.dim, marginTop: 4 } },
+            '共 ' + 人物页.length + ' 个' +
+              (人物熟 ? '，熟人以上 ' + 人物熟 + ' 个' : '') +
+              (人物态 && 人物态.文件 ? ' · ' + 人物态.文件 : '') +
+              (社交.记人 ? '' : '（记人已关，下面是之前记下的）'),
+          ),
+          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 } },
+            h('input', {
+              type: 'text',
+              style: { ...S.input, flex: '1 1 220px', width: 'auto' },
+              placeholder: '搜名字、QQ、房间或她记得的事',
+              value: 人物搜,
+              onChange: (e) => 设人物搜(e.target.value),
+            }),
+            h('label', { style: { display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, cursor: 'pointer' } },
+              h('input', { type: 'checkbox', checked: 只看熟, onChange: (e) => 设只看熟(e.target.checked) }),
+              '只看熟人以上',
+            ),
+            按钮('刷新', 拉人物, false, 人物载),
+          ),
+          人物错 ? h('div', { style: { ...S.未保存, marginTop: 6 } }, '读不到人物志：' + 人物错) : null,
+          人物载 && !人物态 ? h('div', { style: { ...S.dim, marginTop: 6 } }, '读取中…') : null,
+          人物态 && 人物筛过.length === 0
+            ? h('div', { style: { ...S.dim, marginTop: 6 } },
+                人物页.length === 0
+                  ? '还没记住人。等她在群或好友私聊里看见新消息，这里会慢慢长出来。'
+                  : '没有匹配的人。')
+            : null,
+          人物显示.map((p) => {
+            const 房间 = Array.isArray(p.房) ? p.房 : []
+            const 展开 = 展开人 === p.号
+            const 房间事实 = (key) => (Array.isArray(p.事实) ? p.事实 : []).filter((f) => f.房 === key)
+            const 房间边界 = (key) => (Array.isArray(p.边界) ? p.边界 : []).filter((b) => b.房 === key)
+            return h('div', {
+              key: p.号,
+              style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: '8px 10px', marginTop: 8 },
+            },
+              h('div', {
+                style: { display: 'flex', justifyContent: 'space-between', gap: 8, cursor: 'pointer' },
+                onClick: () => 设展开人(展开 ? '' : p.号),
+              },
+                h('div', { style: { minWidth: 0 } },
+                  h('div', null,
+                    h('span', { style: { fontWeight: 600 } }, p.主人 ? '主人' : String(p.名 || p.号)),
+                    h('span', { style: S.dim }, '（' + p.号 + '）'),
+                    p.主人 ? h('span', { style: { ...S.dim, marginLeft: 6 } }, '最亲近的人') : null,
+                  ),
+                  h('div', { style: S.dim },
+                    (Array.isArray(p.别名) && p.别名.length ? '也叫 ' + p.别名.join('、') + ' · ' : '') +
+                      '认识 ' + (p.天数 || 0) + ' 天 · 见过 ' + (p.见过 || 0) + ' 次' +
+                      ' · 暖 ' + ((p.印象 && p.印象.暖) || 0) + ' / 信 ' + ((p.印象 && p.印象.信) || 0) +
+                      (房间.length ? ' · ' + 房间.length + ' 间屋子' : ' · 还没在屋里说过话'),
+                  ),
+                ),
+                h('span', { style: { ...S.dim, flex: '0 0 auto' } }, 展开 ? '收起 ▲' : '展开 ▼'),
+              ),
+              展开 ? h('div', { style: { marginTop: 6 } },
+                房间.length === 0
+                  ? h('div', { style: S.dim }, '还没有群或好友里的记录。')
+                  : 房间.map((r) => {
+                      const 事实 = 房间事实(r.key)
+                      const 边界 = 房间边界(r.key)
+                      const 记忆 = Array.isArray(r.记忆) ? r.记忆 : []
+                      return h('div', {
+                        key: r.key,
+                        style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' },
+                      },
+                        h('div', { style: { fontWeight: 600, fontSize: 12 } }, r.叫 + ' · ' + r.阶段 + ' · ' + r.口气),
+                        h('div', { style: S.dim },
+                          '熟 ' + r.熟 + ' · 暖 ' + r.暖 + ' · 张力 ' + r.张力 +
+                            ' · 见过 ' + r.见过 + ' · 聊过 ' + r.互动 + ' 次 · 被叫 ' + r.被叫 + ' 次' +
+                            (r.最后At ? ' · 最近 ' + 时间短(r.最后At) : '') +
+                            (r.上次她说At ? ' · 她上次开口 ' + 时间短(r.上次她说At) : ''),
+                        ),
+                        事实.length ? h('div', { style: { fontSize: 12, marginTop: 2 } },
+                          '记得：' + 事实.map((f) => f.文 + (f.密 ? '（密）' : '')).join('；')) : null,
+                        边界.length ? h('div', { style: { fontSize: 12 } },
+                          '别碰：' + 边界.map((b) => b.文).join('；')) : null,
+                        记忆.length ? h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-state-business-primary)' } },
+                          '记得那次：' + 记忆.map((x) => x.文).join('；')) : null,
+                      )
+                    }),
+              ) : null,
+            )
+          }),
+          !人物词 && !全部人 && 人物筛过.length > 人物显示.length
+            ? h('div', { style: { marginTop: 8 } }, 按钮('显示全部 ' + 人物筛过.length + ' 个', () => 设全部人(true)))
+            : null,
+          !人物词 && 全部人 && 人物筛过.length > 40
+            ? h('div', { style: { marginTop: 8 } }, 按钮('先只看最近 40 个', () => 设全部人(false)))
+            : null,
         ),
         h('div', { style: { ...S.dim, marginTop: 6 } },
           'QQ 收藏表情：' + ((态.表情包 && 态.表情包.数量) || 0) + ' 张' +

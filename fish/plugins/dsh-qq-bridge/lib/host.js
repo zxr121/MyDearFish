@@ -3640,6 +3640,52 @@ export function apply(ctx) {
     return 出
   }
 
+  const 房名 = (key) => {
+    const [类型, 号] = String(key || '').split(':')
+    return (类型 === 'group' ? '群 ' : 类型 === 'friend' ? '好友 ' : '') + (号 || '')
+  }
+
+  /**
+   * 设置页的人物志：全局认人信息 + 每间屋的关系和同屋事实。
+   * 只给本机设置页看，房间之间不合并；事实在写入时已经过隐私清洗。
+   */
+  const 人物明细 = () => [...人物.values()]
+    .sort((a, b) => (b.最后At || 0) - (a.最后At || 0))
+    .map((p) => ({
+      号: p.号,
+      名: p.名,
+      别名: p.别名.slice(0, 4),
+      主人: p.主人,
+      初见At: p.初见At,
+      最后At: p.最后At,
+      见过: p.见过,
+      天数: p.天数.length,
+      印象: {
+        暖: Number(Number(p.印象.暖 || 0).toFixed(1)),
+        信: Number(Number(p.印象.信 || 0).toFixed(1)),
+      },
+      事实: p.事实.map((f) => ({ 文: f.文, 类: f.类, 房: f.房, 房叫: 房名(f.房), at: f.at, 密: !!f.密 })),
+      边界: p.边界.map((b) => ({ 文: b.文, 房: b.房, 房叫: 房名(b.房), at: b.at })),
+      房: Object.entries(p.房)
+        .sort((a, b) => (b[1].最后At || 0) - (a[1].最后At || 0))
+        .map(([key, r]) => ({
+          key,
+          叫: 房名(key),
+          阶段: 关系阶段(r.熟),
+          口气: 关系口气(r),
+          熟: Number(Number(r.熟 || 0).toFixed(1)),
+          暖: Number(Number(r.暖 || 0).toFixed(1)),
+          张力: Number(Number(r.张力 || 0).toFixed(1)),
+          见过: r.见过,
+          互动: r.互动,
+          被叫: r.被叫,
+          首见At: r.首见At,
+          最后At: r.最后At,
+          上次她说At: r.上次她说At,
+          记忆: r.记忆.map((x) => ({ 文: x.文, at: x.at })),
+        })),
+    }))
+
   /** 设置页的社交状态：每个目标活着没有、这一小时/今天接了几次、现在能不能接。 */
   const 社交概况 = (配置) => {
     const 目标们 = 社交目标们(配置)
@@ -3775,6 +3821,19 @@ export function apply(ctx) {
     if (!要方法(req, 'GET', res)) return
     await 读体(req)
     回(res, await 概况())
+  })
+
+  路线(`${路由前缀}/people`, async (req, res) => {
+    if (!要方法(req, 'GET', res)) return
+    await 读体(req)
+    const 配置 = 读配置()
+    回(res, {
+      ok: true,
+      记人: 配置.社交.记人,
+      文件: 人物文件,
+      总数: 人物.size,
+      人物: 人物明细(),
+    })
   })
 
   路线(`${路由前缀}/save`, async (req, res) => {

@@ -1390,6 +1390,17 @@ const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
 
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/people')(造请求(undefined, { method: 'GET' }), fakeRes)
+const 人物页 = 存储[0]
+报('/people 回出人物志和同屋关系',
+  人物页 && 人物页.ok === true && 人物页.总数 >= 1 &&
+    Array.isArray(人物页.人物) &&
+    人物页.人物.some((p) => p.号 === '901' &&
+      p.事实.some((f) => f.文 === '在杭州读研' && f.房 === 'group:1071') &&
+      p.房.some((r) => r.key === 'group:1071' && r.阶段 && r.口气 && Array.isArray(r.记忆))),
+  JSON.stringify(人物页 && 人物页.人物.map((p) => ({ 号: p.号, 房: p.房.length }))))
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

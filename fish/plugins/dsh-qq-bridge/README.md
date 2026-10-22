@@ -155,6 +155,10 @@ NapCat 的菜单名可能略有不同，认准「往一个 URL POST 事件」这
   （social penetration，Altman & Taylor）；私下分享的信息由双方共同管理、不能越界传播
   （communication privacy management，Petronio）；负面行为权重更高、道歉能修复（negativity bias / repair）；
   人记住的是要点和几段突出经历，不是逐字记录。
+- **怎么翻**：设置 → 通到 QQ →「人物志（她认识的人）」按最近见面列出所有人；
+  可以搜名字、QQ、房间或她记得的事，也可以只看熟人以上。点开一个人，能看到每间屋的
+  熟悉度、暖度、张力、互动次数，以及只属于那间屋的「记得 / 别碰 / 记得那次」。
+  这里只是给你看的，改不了她的记忆；数据走本机 `GET /dsh-qq-bridge/people`，不调模型、不花钱。
 - **开关**：设置页「记人」默认开；关掉后不再认人、不读也不写人物志。
   人物志存在 `.dsh/qq-social-people.json`，只在本机。
 
@@ -215,6 +219,7 @@ NapCat 的菜单名可能略有不同，认准「往一个 URL POST 事件」这
 ## 现在就能用的接口
 
 - `GET /dsh-qq-bridge/state` —— 配置、日志、会话清单、「连着的 QQ 是哪个号/昵称」，以及社交状态（每个目标活没活着、待看几条、本小时/今天接了几次、现在能不能接、快判画像学到哪了）。
+- `GET /dsh-qq-bridge/people` —— 人物志明细：全局印象和每间屋的关系、同屋事实、边界、相处片段；只读，设置页用来展开给主人看。
 - `GET /dsh-qq-bridge/models` —— 设置页模型下拉用的 provider / model 清单。
 - `POST /dsh-qq-bridge/save` —— 存配置（body 里给要改的键；社交配置按字段深层合并）。
 - `POST /dsh-qq-bridge/test-send` —— **真发**测试句（绕过试运行）。
