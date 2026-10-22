@@ -97,10 +97,13 @@ function initialDimensions(detected: DetectedImage, policy: NormalizationPolicy)
 
 /**
  * Produce the persisted provider-independent normalized version of one fully decoded source.
- * The source is passed through only when it is already clean, single-frame, 8-bit sRGB/sRGBA,
- * and inside every normalization limit. Re-encoding never removes transparency. When every
- * ladder quality exceeds the byte target, the smallest ladder output is kept; provider byte
- * caps stay enforced at the route that transmits the bytes.
+ * Animated sources (multi-frame GIF, animated WebP) are passed through byte-identically to
+ * preserve every frame; Sharp cannot re-encode animated output, so any animated source that
+ * survived admission is kept as-is. Static sources are passed through only when they are
+ * already clean, single-frame, 8-bit sRGB/sRGBA, and inside every normalization limit.
+ * Re-encoding never removes transparency. When every ladder quality exceeds the byte target,
+ * the smallest ladder output is kept; provider byte caps stay enforced at the route that
+ * transmits the bytes.
  * @param data - complete admitted source bytes.
  * @param detected - fully decoded source facts.
  * @param policy - resolved independent normalization limits.
@@ -111,6 +114,9 @@ export async function normalizeImage(
   detected: DetectedImage,
   policy: NormalizationPolicy,
 ): Promise<NormalizedImage> {
+  if (detected.animated) {
+    return { data, mediaType: detected.mediaType, width: detected.width, height: detected.height }
+  }
   if (canPassThroughNormalization(detected, data.byteLength, policy)) {
     return { data, mediaType: detected.mediaType, width: detected.width, height: detected.height }
   }

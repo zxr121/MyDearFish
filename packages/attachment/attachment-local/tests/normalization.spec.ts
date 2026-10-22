@@ -31,6 +31,27 @@ async function flatImage(width: number, height: number, format: 'png' | 'jpeg' |
   return new Uint8Array(await image.toFormat(format, format === 'webp' && alpha ? { lossless: true } : {}).toBuffer())
 }
 
+/** Build a minimal two-frame animated 1x1 GIF89a (LZW-minimum-code-size 2). */
+function minimalAnimatedGif(): Uint8Array {
+  const header = Buffer.from('GIF89a')
+  const screenDescriptor = Buffer.from([1, 0, 1, 0, 0x00, 0x00, 0x00])
+  const netscapeExt = Buffer.from([
+    0x21, 0xff, 0x0b,
+    ...Buffer.from('NETSCAPE2.0'),
+    0x03, 0x01, 0x00, 0x00, 0x00,
+  ])
+  function gifFrame(): Buffer {
+    return Buffer.from([
+      0x21, 0xf9, 0x04, 0x04, 0x0a, 0x00, 0x00, 0x00,
+      0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+      0x02, 0x02, 0x84, 0x01, 0x00,
+    ])
+  }
+  return new Uint8Array(Buffer.concat([
+    header, screenDescriptor, netscapeExt, gifFrame(), gifFrame(), Buffer.from([0x3b]),
+  ]))
+}
+
 describe('canPassThroughNormalization', () => {
   it('accepts an in-budget clean PNG/JPEG/WebP and refuses GIF, animation, metadata, oversized edges, and oversized bytes', () => {
     const clean = { animated: false, carriesMetadata: false, depth: 'uchar', space: 'srgb', hasAlpha: false }
@@ -95,7 +116,7 @@ describe('normalizeImage', () => {
     expect(second.data).toBe(first.data)
   })
 
-  it('always re-encodes GIF as a single still frame', async () => {
+  it('always re-encodes a static GIF as a single still frame', async () => {
     const data = await flatImage(6, 4, 'gif')
     const detected = await detectImage(data)
 
@@ -105,6 +126,21 @@ describe('normalizeImage', () => {
     expect(detected.hasAlpha).toBe(true)
     expect(normalized.mediaType).toBe('image/webp')
     await expect(detectImage(normalized.data)).resolves.toMatchObject({ width: 6, height: 4, animated: false, carriesMetadata: false, depth: 'uchar', space: 'srgb' })
+  })
+
+  it('passes an animated GIF through byte-identically to preserve every frame', async () => {
+    const data = minimalAnimatedGif()
+    const detected = await detectImage(data)
+    expect(detected.animated).toBe(true)
+    expect(detected.mediaType).toBe('image/gif')
+
+    const normalized = await normalizeImage(data, detected, POLICY)
+
+    expect(normalized.data).toBe(data)
+    expect(normalized.mediaType).toBe('image/gif')
+    expect(normalized.width).toBe(1)
+    expect(normalized.height).toBe(1)
+    await expect(detectImage(normalized.data)).resolves.toMatchObject({ animated: true, mediaType: 'image/gif' })
   })
 
   it('keeps a transparent source on the WebP ladder', async () => {
