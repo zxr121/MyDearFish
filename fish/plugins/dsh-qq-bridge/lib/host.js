@@ -60,6 +60,7 @@ const 连续叫秒 = 60
 const 画像成熟样本 = 20
 const 画像成熟词 = 6
 const 画像词上限 = 160
+const 熟人上限 = 120
 
 /**
  * 0→1 的指数缓动曲线：前段平缓，越接近 1 变化越快；陡度越大，前段越平。
@@ -175,7 +176,11 @@ const 默认配置 = {
     称呼: ['大肥鱼', '肥鱼'], // 群里文字里出现这些词 = 在叫她
     兴趣词: [], // 她明确感兴趣的话题；判断模型只挑这一类和她在这间屋里表现出兴趣的内容
     关注上限: 12, // 小模型一次最多挑几条消息进入她的视线；没挑中的当没看见
-    快判: true, // 兴趣画像成熟后，先用零成本词面筛选挡掉明显无关的消息，再交给判断模型
+    快判: true, // 兴趣画像成熟后，先用零成本注意力分挡掉明显无关的消息，再交给判断模型
+    快判阈值: 1.5, // 注意力分低于这个数就不看；被叫到的消息永远放行
+    快判最多: 3, // 一批里最多放几条“分数够了”的消息进去；被叫的不占名额
+    探索间隔秒: 600, // 整批都没兴趣时，隔多久挑一条没见过的看看；0 = 不探索
+    探索最低余额: 3, // 零花钱低于这个数就不拿钱去探索陌生话题
     判断模型: '', // "provider/model"；空 = 跟主会话模型走
     判断阈值: 0.55, // 小模型想接时的把握低于这个数就不接（只看不回不受影响）
     判断冷却秒: 60, // 同一目标最多多久问一次小模型，避免热闹的群把判断费刷爆
@@ -292,6 +297,10 @@ function 归一化社交(原始) {
     兴趣词: 洗词列表(混.兴趣词, []),
     关注上限: Math.round(数(混.关注上限, 兜.关注上限, 1, 30)),
     快判: 布(混.快判, 兜.快判),
+    快判阈值: 数(混.快判阈值, 兜.快判阈值, 0.1, 100),
+    快判最多: Math.round(数(混.快判最多, 兜.快判最多, 1, 30)),
+    探索间隔秒: Math.round(数(混.探索间隔秒, 兜.探索间隔秒, 0, 86400)),
+    探索最低余额: 数(混.探索最低余额, 兜.探索最低余额, 0, 1000),
     判断模型: 洗模型(混.判断模型),
     判断阈值: 数(混.判断阈值, 兜.判断阈值, 0.1, 1),
     判断冷却秒: Math.round(数(混.判断冷却秒, 兜.判断冷却秒, 10, 3600)),
@@ -579,6 +588,131 @@ export function 命中兴趣词(文字, 词) {
   return 低.includes(目标)
 }
 
+// 图片、表情、转发的文字占位符不是话题；学兴趣和打分前先摘掉，免得“图片”变成热词。
+const 消息占位符 = /\[(?:图片|表情|动画表情|语音|视频|文件|转发消息[^\]\n]{0,40}|聊天记录[^\]\n]{0,40})\]|【(?:图片|表情|语音|视频|文件|转发消息[^】\n]{0,40})】/g
+
+/**
+ * 把一段话拆成粗筛用的兴趣词元：中文双字 + 拉丁词。只求快，不求分词准确。
+ * @param {string} 文字 - 待拆分的正文。
+ * @returns {Set<string>} 去掉停用词和占位符后的词元。
+ */
+export function 切兴趣词元(文字) {
+  const 出 = new Set()
+  const 文 = String(文字 || '').replace(消息占位符, ' ').normalize('NFKC').toLowerCase()
+  for (const 段 of 文.match(/[\p{Script=Han}]+/gu) || []) {
+    for (let i = 0; i + 1 < 段.length; i++) {
+      const 元 = 段.slice(i, i + 2)
+      if (!停用双字.has(元)) 出.add(元)
+    }
+  }
+  for (const 段 of 文.match(/[a-z][a-z0-9_]+/g) || []) {
+    if (!停用词.has(段)) 出.add(段)
+  }
+  return 出
+}
+
+const 像问句 = (文字) =>
+  /[?？]/.test(文字) ||
+  /(?:吗|呢|怎么|为什么|为啥|有没有|是不是|能不能|要不要|会不会|多少|几点|谁|哪里|哪儿)[\s。！!…~]*$/u.test(文字)
+
+const 带情绪 = (文字) =>
+  /[!！]|哈哈|笑死|呜呜|啊啊|哎|唉|233|hhh|🥹|😂|🤣|😭|😡|🥺/iu.test(文字)
+
+/**
+ * 快判注意力分：显式兴趣、屋里学到的兴趣（按“看过多少 / 挑中多少”折算）、
+ * 对话连续性、媒体和情绪。被叫消息固定加分，由调用方无条件放行。
+ * @param {{文字?: string, 被叫原因?: string, 图片?: object[]}} 消息 - 待打分的新消息。
+ * @param {object} 语境 - { 兴趣词, 词, 见词, 熟人, 同人条数, 最近词 }。
+ * @returns {{分: number, 理由: string[]}} 0 分以上表示有一点值得看的信号。
+ */
+export function 注意力分(消息, 语境 = {}) {
+  const m = 消息 && typeof 消息 === 'object' ? 消息 : {}
+  const 文字 = String(m.文字 || '')
+  const 图们 = Array.isArray(m.图片) ? m.图片.filter((x) => x && typeof x === 'object') : []
+  const 词集 = 切兴趣词元(文字)
+  const 理由 = []
+  let 分 = 0
+
+  let 显式 = 0
+  for (const 词 of Array.isArray(语境.兴趣词) ? 语境.兴趣词 : []) {
+    if (命中兴趣词(文字, 词)) {
+      显式 += 2
+      理由.push(`兴趣「${词}」`)
+    }
+  }
+  if (显式 > 0) 分 += Math.min(4, 显式)
+
+  const 选中表 = 语境.词 && typeof 语境.词 === 'object' ? 语境.词 : {}
+  const 见词表 = 语境.见词 && typeof 语境.见词 === 'object' ? 语境.见词 : {}
+  const 命中 = []
+  for (const 元 of 词集) {
+    const 选中 = Number(选中表[元]) || 0
+    if (选中 <= 0) continue
+    // 常出现却很少被挑中的词权重低；少见但一出现她就看的词权重高。
+    const 见过 = Math.max(选中, Number(见词表[元]) || 0)
+    const 重 = Math.min(2, (选中 / (见过 + 2)) * 3)
+    if (重 > 0.05) 命中.push({ 元, 重 })
+  }
+  命中.sort((a, b) => b.重 - a.重)
+  const 学到 = 命中.slice(0, 3).reduce((和, x) => 和 + x.重, 0)
+  if (学到 > 0) {
+    分 += Math.min(4, 学到)
+    理由.push('屋里聊过：' + 命中.slice(0, 3).map((x) => x.元).join('、'))
+  }
+
+  if (String(m.被叫原因 || '') !== '') {
+    分 += 3
+    理由.push('在叫她')
+  }
+  if ((Number(语境.同人条数) || 0) >= 2) {
+    分 += 0.5
+    理由.push('同一个人连着说')
+  }
+  if (语境.熟人) {
+    分 += 0.5
+    理由.push('熟人')
+  }
+  if (像问句(文字)) {
+    分 += 0.5
+    理由.push('在问')
+  }
+  const 有图 = 图们.some((x) => !x.表情)
+  const 有表情 = 图们.some((x) => x.表情) || /\[(?:动画)?表情\]/.test(文字)
+  if (有图) {
+    分 += 1
+    理由.push('有图')
+  } else if (有表情) {
+    分 += 0.5
+    理由.push('表情')
+  }
+  if (带情绪(文字)) {
+    分 += 0.5
+    理由.push('有情绪')
+  }
+  const 最近 = 语境.最近词 instanceof Set
+    ? 语境.最近词
+    : new Set(Array.isArray(语境.最近词) ? 语境.最近词 : [])
+  if ([...词集].some((元) => 最近.has(元))) {
+    分 += 1
+    理由.push('接着刚才的话题')
+  }
+  return { 分: Math.round(分 * 100) / 100, 理由 }
+}
+
+/**
+ * 探索额度只挑“像句话”的消息：链接、广告词、纯标点、复读和太短的一律跳过。
+ * @param {string} 文字 - 候选正文。
+ * @returns {boolean} true 表示不值得花判断费去探索。
+ */
+export function 像灌水或广告(文字) {
+  const 文 = String(文字 || '').trim()
+  if (文.length < 4) return true
+  if (/https?:\/\/|www\./i.test(文)) return true
+  if (/(加群|扫码|代练|刷单|返利|兼职|出售|低价|优惠|秒杀|免费领|点击|私聊|推广|招人|客服|微信|vx|v信|qq群)/i.test(文)) return true
+  const 实字 = new Set(文.replace(/[\s\p{P}\p{S}]/gu, ''))
+  return 实字.size < 3
+}
+
 /** 从一条 assistant 消息里只抽出正文（text 块拼起来；reasoning / image 都不要）。 */
 export function 提取正文(message) {
   if (!message || !Array.isArray(message.content)) return ''
@@ -654,10 +788,28 @@ export function apply(ctx) {
         if (Number.isFinite(c) && c > 0) 词.set(对[0].slice(0, 16), Math.min(c, 1_000_000))
         if (词.size >= 画像词上限) break
       }
+      const 见词 = new Map()
+      for (const 对 of Array.isArray(p.见词) ? p.见词 : []) {
+        if (!Array.isArray(对) || typeof 对[0] !== 'string' || 对[0] === '') continue
+        const c = Number(对[1])
+        if (Number.isFinite(c) && c > 0) 见词.set(对[0].slice(0, 16), Math.min(c, 1_000_000_000))
+        if (见词.size >= 画像词上限 * 2) break
+      }
+      const 熟人 = new Map()
+      for (const 对 of Array.isArray(p.熟人) ? p.熟人 : []) {
+        if (!Array.isArray(对) || typeof 对[0] !== 'string' || 对[0] === '') continue
+        const c = Number(对[1])
+        if (Number.isFinite(c) && c > 0) 熟人.set(对[0].slice(0, 80), Math.min(c, 1_000_000_000))
+        if (熟人.size >= 熟人上限) break
+      }
       const 样本 = Number(p.样本)
       社交画像.set(String(key).slice(0, 120), {
         样本: Number.isFinite(样本) && 样本 > 0 ? Math.min(样本, 1_000_000_000) : 0,
         词,
+        见词,
+        熟人,
+        探索At: Math.max(0, Number(p.探索At) || 0),
+        探索数: Math.max(0, Number(p.探索数) || 0),
         快判丢: Math.max(0, Number(p.快判丢) || 0),
         快判跳过: Math.max(0, Number(p.快判跳过) || 0),
       })
@@ -979,26 +1131,19 @@ export function apply(ctx) {
     return 列表.filter((m) => 留.has(m))
   }
 
-  /** 把一段话拆成粗筛用的兴趣词元：中文双字 + 拉丁词。只求快，不求分词准确。 */
-  function 切兴趣词元(文字) {
-    const 出 = new Set()
-    const 文 = String(文字 || '').normalize('NFKC').toLowerCase()
-    for (const 段 of 文.match(/[\p{Script=Han}]+/gu) || []) {
-      for (let i = 0; i + 1 < 段.length; i++) {
-        const 元 = 段.slice(i, i + 2)
-        if (!停用双字.has(元)) 出.add(元)
-      }
-    }
-    for (const 段 of 文.match(/[a-z][a-z0-9_]+/g) || []) {
-      if (!停用词.has(段)) 出.add(段)
-    }
-    return 出
-  }
-
   function 社交画像of(key) {
     let 画像 = 社交画像.get(key)
     if (!画像) {
-      画像 = { 样本: 0, 词: new Map(), 快判丢: 0, 快判跳过: 0 }
+      画像 = {
+        样本: 0,
+        词: new Map(),
+        见词: new Map(),
+        熟人: new Map(),
+        探索At: 0,
+        探索数: 0,
+        快判丢: 0,
+        快判跳过: 0,
+      }
       社交画像.set(key, 画像)
     }
     return 画像
@@ -1026,11 +1171,15 @@ export function apply(ctx) {
         targets[key] = {
           样本: p.样本,
           词: [...p.词.entries()].sort((a, b) => b[1] - a[1]).slice(0, 画像词上限),
+          见词: [...p.见词.entries()].sort((a, b) => b[1] - a[1]).slice(0, 画像词上限 * 2),
+          熟人: [...p.熟人.entries()].sort((a, b) => b[1] - a[1]).slice(0, 熟人上限),
+          探索At: p.探索At,
+          探索数: p.探索数,
           快判丢: p.快判丢,
           快判跳过: p.快判跳过,
         }
       }
-      writeFileSync(画像文件, JSON.stringify({ version: 1, targets }, null, 2), 'utf8')
+      writeFileSync(画像文件, JSON.stringify({ version: 2, targets }, null, 2), 'utf8')
     } catch (error) {
       记账(`存兴趣画像失败：${String((error && error.message) || error)}`)
     }
@@ -1055,46 +1204,123 @@ export function apply(ctx) {
       for (const 元 of 切兴趣词元(m.文字)) {
         画像.词.set(元, (画像.词.get(元) || 0) + 1)
       }
+      const 人 = String(m.uid || m.说话人 || '')
+      if (人 !== '') 画像.熟人.set(人, (画像.熟人.get(人) || 0) + 1)
     }
     if (画像.词.size > 画像词上限) {
       const 排 = [...画像.词.entries()].sort((a, b) => a[1] - b[1])
       for (let i = 0; i < 排.length - 画像词上限; i++) 画像.词.delete(排[i][0])
     }
+    if (画像.熟人.size > 熟人上限) {
+      const 排 = [...画像.熟人.entries()].sort((a, b) => a[1] - b[1])
+      for (let i = 0; i < 排.length - 熟人上限; i++) 画像.熟人.delete(排[i][0])
+    }
     // 看过新东西就立刻落盘；画像变化不频繁（判断有冷却），不怕多写这一下。
     存社交画像(true)
   }
 
-  /** 一眼扫过去有没有她的兴趣：显式兴趣词权重最高，其次是她在屋里看过的话题词频。 */
-  function 兴趣分(配置, 画像, 文字) {
-    let 分 = 0
-    for (const 词 of 配置.社交.兴趣词) {
-      if (命中兴趣词(文字, 词)) 分 += 5
+  /** 进过她视线的新消息都记一次“见过”，给兴趣权重当分母；同一条只记一次。 */
+  function 记见词(key, 消息们) {
+    const 画像 = 社交画像of(key)
+    let 改了 = false
+    for (const m of 消息们) {
+      if (!m || m.已记见) continue
+      m.已记见 = true
+      for (const 元 of 切兴趣词元(m.文字)) {
+        画像.见词.set(元, Math.min(1_000_000_000, (画像.见词.get(元) || 0) + 1))
+        改了 = true
+      }
     }
-    for (const 元 of 切兴趣词元(文字)) {
-      const c = 画像.词.get(元) || 0
-      if (c > 0) 分 += c
+    if (画像.见词.size > 画像词上限 * 2) {
+      const 排 = [...画像.见词.entries()].sort((a, b) => a[1] - b[1])
+      for (let i = 0; i < 排.length - 画像词上限 * 2; i++) 画像.见词.delete(排[i][0])
     }
-    return 分
+    if (改了) 存社交画像()
+  }
+
+  /** 她最近看过的话题；用来看新消息是不是接着刚才的话头。 */
+  function 最近看过词(缓冲) {
+    const 出 = new Set()
+    for (const m of (Array.isArray(缓冲) ? 缓冲 : []).slice(-15)) {
+      for (const 元 of 切兴趣词元(m && m.文字)) 出.add(元)
+    }
+    return 出
   }
 
   /**
-   * 快判：画像成熟后，先用零成本词面匹配把明显无关的消息挡在模型外面。
-   * 被叫的消息永远交给慢判；快判只决定要不要花判断钱，不替她决定看不看、回不回。
+   * 快判：画像成熟后，用零成本注意力分挡住了无兴趣也没有对话信号的消息。
+   * 被叫的消息永远交给慢判；整批都没兴趣时，按探索额度偶尔挑一条陌生的看看。
+   * 快判只决定要不要花判断钱，不替她决定看不看、回不回。
    */
-  function 快速筛(配置, 目标, 全部) {
+  function 快速筛(配置, 目标, 全部, 缓冲 = []) {
     const 画像 = 社交画像.get(目标.key)
-    if (!配置.社交.快判 || !画像成熟(画像)) return { 成熟: false, 交判: 全部, 丢: 0 }
-    const 交判 = []
-    let 丢 = 0
-    for (const m of 全部) {
-      if (m.被叫原因 !== '' || 兴趣分(配置, 画像, m.文字) > 0) 交判.push(m)
-      else 丢 += 1
+    if (!配置.社交.快判 || !画像成熟(画像)) {
+      return { 成熟: false, 交判: 全部, 丢: 0, 探索: false, 最高分: 0 }
     }
+    const 语境 = {
+      兴趣词: 配置.社交.兴趣词,
+      词: Object.fromEntries(画像.词),
+      见词: Object.fromEntries(画像.见词),
+      最近词: 最近看过词(缓冲),
+    }
+    const 人数 = new Map()
+    for (const m of 全部) {
+      const 人 = String(m.uid || m.说话人 || '')
+      人数.set(人, (人数.get(人) || 0) + 1)
+    }
+    const 阈值 = Number(配置.社交.快判阈值) || 1.5
+    const 上限 = Math.max(1, Math.round(Number(配置.社交.快判最多) || 3))
+    const 叫们 = []
+    const 分过们 = []
+    const 没进们 = []
+    let 最高分 = 0
+    for (const m of 全部) {
+      if (String(m.被叫原因 || '') !== '') {
+        叫们.push(m)
+        continue
+      }
+      const 人 = String(m.uid || m.说话人 || '')
+      const 打 = 注意力分(m, {
+        ...语境,
+        同人条数: 人数.get(人) || 1,
+        熟人: (画像.熟人.get(人) || 0) >= 3,
+      })
+      if (打.分 > 最高分) 最高分 = 打.分
+      if (打.分 >= 阈值) 分过们.push({ m, 分: 打.分 })
+      else 没进们.push({ m, 分: 打.分 })
+    }
+    分过们.sort((a, b) => b.分 - a.分 || (Number(b.m.at) || 0) - (Number(a.m.at) || 0))
+    const 交判 = 叫们.concat(分过们.slice(0, 上限).map((x) => x.m))
+    for (const x of 分过们.slice(上限)) 没进们.push(x)
+    let 探索 = false
+    if (交判.length === 0) {
+      const 间隔 = Math.max(0, Number(配置.社交.探索间隔秒) || 0)
+      const 现在 = Date.now()
+      if (间隔 > 0 && 现在 - (Number(画像.探索At) || 0) >= 间隔 * 1000) {
+        const 钱 = 零花钱够(配置)
+        const 可用 = Number(钱.可用)
+        const 探索最低 = Math.max(0, Number(配置.社交.探索最低余额) || 0)
+        if (钱.ok && (!Number.isFinite(可用) || 可用 >= 探索最低)) {
+          const 候选 = 没进们
+            .filter((x) => !像灌水或广告(x.m.文字))
+            .sort((a, b) => b.分 - a.分 || (Number(b.m.at) || 0) - (Number(a.m.at) || 0))[0]
+          if (候选) {
+            交判.push(候选.m)
+            画像.探索At = 现在
+            画像.探索数 += 1
+            探索 = true
+            存社交画像(true)
+          }
+        }
+      }
+    }
+    交判.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))
+    const 丢 = 全部.length - 交判.length
     if (丢 > 0) {
       画像.快判丢 += 丢
       存社交画像()
     }
-    return { 成熟: true, 交判, 丢 }
+    return { 成熟: true, 交判, 丢, 探索, 最高分 }
   }
 
   /** 主人点名叫她（@ / 叫名字 / 回复她）：不走兴趣判断，优先接一轮；群友被叫仍走判断。 */
@@ -2106,6 +2332,8 @@ export function apply(ctx) {
       return 丢掉待看(目标, `试运行：来了 ${全部.length} 条；真发时会先挑着看，再决定回不回`)
     }
     社交待看.delete(目标.key)
+    // 进了视线就先记“见过”，不管最后看不看；这是兴趣权重的分母。
+    记见词(目标.key, 全部)
     // 主人点名叫她：优先接主人的话，不交给兴趣判断；群友被叫仍走下面的判断。
     if (主人叫她(全部)) {
       const 批 = 带上下文(目标, 全部)
@@ -2120,7 +2348,7 @@ export function apply(ctx) {
     // 群里其他人（以及主人没点名叫她时）：被叫只是提醒注意，文字和图片都走同一套兴趣判断；
     // 只有她真的感兴趣、又确实想说，才开一轮。主人桥正在转发这个群时，主人的消息不会进这里。
     // 画像成熟后先做零成本粗筛；被叫永远进慢判，快判只挡明显无关的消息。
-    const 快 = 快速筛(配置, 目标, 全部)
+    const 快 = 快速筛(配置, 目标, 全部, 社交缓冲.get(目标.key) || [])
     const 有效 = 快.交判
     if (有效.length === 0) {
       if (快.成熟) {
@@ -2130,12 +2358,12 @@ export function apply(ctx) {
         const 上次真记 = 社交快记At.get(目标.key) || 0
         if (Date.now() - 上次真记 >= 60_000) {
           社交快记At.set(目标.key, Date.now())
-          记账(`${目标.叫} 快判没兴趣：${快.丢} 条都没看（画像 ${画像.样本} 条 / ${稳定词数(画像)} 个稳定词）`)
+          记账(`${目标.叫} 快判没兴趣：${快.丢} 条都没看（最高 ${快.最高分} 分 / 画像 ${画像.样本} 条 / ${稳定词数(画像)} 个稳定词）`)
         }
       }
       return
     }
-    const 有效快说 = 快.丢 > 0 ? `；快判先挡了 ${快.丢} 条` : ''
+    const 有效快说 = (快.丢 > 0 ? `；快判先挡了 ${快.丢} 条` : '') + (快.探索 ? '；探索额度挑了一条没见过的' : '')
     // 判断本身也要花钱：同一个目标在判断冷却里就先把消息攒着，等下一次一起判。
     const 上次判断 = 社交判断At.get(目标.key) || 0
     const 判断基础 = Number(配置.社交.判断冷却秒) || 60
@@ -2751,6 +2979,9 @@ export function apply(ctx) {
             意愿阈值: Number(学习期阈值(配置.社交.判断阈值, 画像 ? 稳定词数(画像) : 0, 画像成熟(画像)).toFixed(2)),
             门槛样本: 画像成熟样本,
             门槛词: 画像成熟词,
+            见过词: 画像 ? 画像.见词.size : 0,
+            熟人: 画像 ? 画像.熟人.size : 0,
+            探索: 画像 ? 画像.探索数 : 0,
             快判丢: 画像 ? 画像.快判丢 : 0,
             快判跳过: 画像 ? 画像.快判跳过 : 0,
           },

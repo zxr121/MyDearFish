@@ -21,7 +21,7 @@
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | 每轮变化并随时间平复的心情。 |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | 无人说话时主动搭话。 |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | 通过 DeepSeek 网页语音朗读。 |
-| `dsh-qq-bridge` | 0.2.29 | `lib/host.js` | 无需机器人账号的双向 QQ 消息，能展开合并转发（连同转发里的图片）、收到后端推来的戳一戳；可选的群内自主接话，只按自己的兴趣挑内容、决定回不回，画像成熟后用零成本快判省判断费。 |
+| `dsh-qq-bridge` | 0.2.30 | `lib/host.js` | 无需机器人账号的双向 QQ 消息，能展开合并转发（连同转发里的图片）、收到后端推来的戳一戳；可选的群内自主接话，只按自己的兴趣挑内容、决定回不回，画像成熟后用零成本注意力分快判省判断费，并留了探索新话题的额度。 |
 | `dsh-bili-subagent` | 0.2.3 | `index.js` | 通过委派子代理浏览 B 站。 |
 
 六个插件的机制、数据文件、跨插件链路、默认状态和改造点见[插件养鱼机制](plugins.zh.md)；鱼脑的经历流与权限见 [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md)。
