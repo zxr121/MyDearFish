@@ -37,7 +37,7 @@ profile 依次组合 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@my
 | `dsh-feiyu-mood` | 脸和表情：每轮变化、随时间平复的心情 | `feiyu-mood/` |
 | `dsh-speak-up` | 主动开口的执行器 | `speak-up-config.json` |
 | `dsh-tts-bridge` | 语音输出通道 | `tts-bridge.json` |
-| `dsh-qq-bridge` | 双向 QQ，白名单里每个群、每个好友各一间社交会话，外加只读翻 Tulpa 的旧记录 | `qq-bridge-config.json` |
+| `dsh-qq-bridge` | 双向 QQ，白名单里每个群、每个好友各一间社交会话，按号码认人、按屋子处关系，外加只读翻 Tulpa 的旧记录 | `qq-bridge-config.json`、`qq-social-people.json` |
 | `dsh-bili-subagent` | 通过委派子代理看 B 站 | `bili-duty/` |
 
 插件之间最关键的两条约定：每条消息都带 `source.kind`，让鱼脑和心情知道这句话到底是谁说的；同一轮正文只从一个出口投递。跨插件链路和已知缺口记在[插件养鱼机制](plugins.zh.md)。

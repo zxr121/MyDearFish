@@ -37,7 +37,7 @@ A profile composes `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, then `@m
 | `dsh-feiyu-mood` | Face and expression: mood that moves each turn and settles over time | `feiyu-mood/` |
 | `dsh-speak-up` | Executor for speaking first when nobody talks | `speak-up-config.json` |
 | `dsh-tts-bridge` | Voice output channel | `tts-bridge.json` |
-| `dsh-qq-bridge` | Two-way QQ, one social session per whitelisted group or friend, and a read-only Tulpa history import | `qq-bridge-config.json` |
+| `dsh-qq-bridge` | Two-way QQ, one social session per whitelisted group or friend, person memory per QQ number with per-room relationships, and a read-only Tulpa history import | `qq-bridge-config.json`, `qq-social-people.json` |
 | `dsh-bili-subagent` | Eyes on Bilibili through a delegated subagent | `bili-duty/` |
 
 The load-bearing conventions between them are `source.kind` on every message, which tells the brain and the mood plugin who actually spoke, and the rule that only one channel delivers a given turn's text. Cross-plugin chains and known gaps are catalogued in [plugins](plugins.md).

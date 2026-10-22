@@ -119,15 +119,18 @@
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection:
   en: 0617b5924054e225
   zh: 066765caa2b7c71b
+/how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection/person-memory-recognizing-remembering-and-handling-relationships:
+  en: 1a38bedb7e7c0421
+  zh: a71a9be34db276e0
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/local-routes:
   en: 818685babe585ac0
   zh: 0d1d5cb09501e741
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/prerequisites-and-defaults:
-  en: 38bc10f24291c6fc
-  zh: 373c3c5a42fcff6f
+  en: 2bc0681390b776e1
+  zh: e1fb20a89cbfb185
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/known-limits:
-  en: cce5f9e2753c3aea
-  zh: fc167ea3e2ff7222
+  en: 042c7c31ab3af43c
+  zh: 6bf7031ad3f4bcbc
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent:
   en: 3384b6baa62008cb
   zh: 455edcffadb839af
@@ -156,8 +159,8 @@
   en: 3b8555f39cab8da4
   zh: 8bc8b8959053fdba
 /how-the-plugins-keep-the-fish/defaults-cost-and-risk:
-  en: 3d9835f5808d8db9
-  zh: 3b64056fb908c8ea
+  en: 9f3ca3407dc5f882
+  zh: 520b9bb49e91a4f6
 /how-the-plugins-keep-the-fish/cross-plugin-coupling-and-gaps:
   en: 0276a6a2b331f002
   zh: 25181f2dccc95ba3
