@@ -325,20 +325,21 @@ window.__ModuleLoader__.load({
       const 本轮 = 导态.本轮 || {}
       const 人物页 = 人物态 && Array.isArray(人物态.人物) ? 人物态.人物 : []
       const 人物词 = 人物搜.trim().toLowerCase()
+      const 全局熟 = (p) => Number(p && p.关系 && p.关系.熟) || 0
       const 人物筛过 = 人物页.filter((p) => {
         const 房间 = Array.isArray(p.房) ? p.房 : []
-        if (只看熟 && !房间.some((r) => Number(r.熟) >= 35)) return false
+        if (只看熟 && 全局熟(p) < 35) return false
         if (人物词 === '') return true
         const 文 = [
           p.名, p.号,
           ...(Array.isArray(p.别名) ? p.别名 : []),
           ...房间.map((r) => r.叫),
-          ...(Array.isArray(p.事实) ? p.事实.map((f) => f.文) : []),
+          ...(Array.isArray(p.事实) ? p.事实.map((f) => f.文 + ' ' + (f.房叫 || '')) : []),
         ].join(' ').toLowerCase()
         return 文.includes(人物词)
       })
       const 人物显示 = 人物词 !== '' || 全部人 ? 人物筛过 : 人物筛过.slice(0, 40)
-      const 人物熟 = 人物页.filter((p) => (Array.isArray(p.房) ? p.房 : []).some((r) => Number(r.熟) >= 35)).length
+      const 人物熟 = 人物页.filter((p) => 全局熟(p) >= 35).length
 
       return h(
         'div',
@@ -450,13 +451,13 @@ window.__ModuleLoader__.load({
             placeholder: '例如：10001, 10002（逗号或换行分隔）',
             onChange: (e) => { 设好友文本(e.target.value); 改社交('好友', 拆列表(e.target.value)) },
           }), '好友私聊也只在她感兴趣、想说话时才回；别把主人自己的号写进来（主人在上面「私聊 QQ 号」里管）。'),
-          行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 10, 3600), '同一目标两次开口的成熟期基础间隔；实际会按兴致走指数曲线。'),
+          行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 2, 3600), '同一目标两次开口的成熟期基础间隔（默认 15 秒）；实际会按兴致走指数曲线，想接时几秒就能开口。'),
           行('冷却曲线',
             h('div', { style: { display: 'flex', gap: 8 } },
               数框(社交.冷却最短秒, (v) => 改社交('冷却最短秒', v), 1, 1, 3600),
               数框(社交.冷却最长倍率, (v) => 改社交('冷却最长倍率', v), 0.05, 1, 4),
             ),
-            '最有兴致时冷却降到左边秒数（默认 5）；兴致最低时是基础 × 右边。中间按指数曲线过渡。',
+            '最有兴致时冷却降到左边秒数（默认 2）；兴致最低时是基础 × 右边（默认 ×1.2）。中间按指数曲线过渡。',
           ),
           行('余额吃紧',
             h('div', { style: { display: 'flex', gap: 8 } },
@@ -489,7 +490,7 @@ window.__ModuleLoader__.load({
             onChange: (e) => { 设兴趣文本(e.target.value); 改社交('兴趣词', 拆列表(e.target.value)) },
           }), '只有她真正感兴趣的话题才会看、才可能接；留空时只能靠她在这间屋里看过的东西判断。'),
           行('关注上限', 数框(社交.关注上限, (v) => 改社交('关注上限', v), 1, 1, 30), '小模型一次最多挑几条她感兴趣的消息进入视线；没挑中的当没看见。'),
-          行('记人', 勾(社交.记人, (v) => 改社交('记人', v)), '在群和好友私聊里认人、记长期有用的事（近况、喜好、边界），并按熟悉程度调整口气；只存本机，私聊和这间屋里知道的事不会带去别的群。关掉 = 不认人，也不读写人物志。'),
+          行('记人', 勾(社交.记人, (v) => 改社交('记人', v)), '在群和好友私聊里认人、记长期有用的事（近况、喜好、边界）。关系跟着人走，群和私聊是同一段关系；事实和边界也互通，但私下说过的事不会在群里点名复述。只存本机；关掉 = 不认人，也不读写人物志。'),
           行('快判', 勾(社交.快判, (v) => 改社交('快判', v)), '她看过的消息攒够后，先用零成本注意力分挡掉没兴趣也没对话信号的，再交给判断模型；学习期仍每条都判。'),
           行('快判门槛',
             h('div', { style: { display: 'flex', gap: 8 } },
@@ -506,7 +507,7 @@ window.__ModuleLoader__.load({
             '整批都没兴趣时，左边秒数里最多挑一条没见过的看看（0 = 不探索）；零花钱低于右边就不探索。',
           ),
           行('判断模型', 模型选择(社交.判断模型, (v) => 改社交('判断模型', v), '（跟当前主会话的模型走）'), '最好选便宜的小模型；每次只判断她感不感兴趣、要不要接，不生成回复。'),
-          行('判断冷却秒', 数框(社交.判断冷却秒, (v) => 改社交('判断冷却秒', v), 1, 10, 3600), '同一目标最多多久问一次小模型；冷却里的消息先攒着，不重复花钱。'),
+          行('判断冷却秒', 数框(社交.判断冷却秒, (v) => 改社交('判断冷却秒', v), 1, 5, 3600), '同一目标最多多久问一次小模型（默认 20 秒）；冷却里的消息先攒着，不重复花钱。'),
           行('判断阈值', 数框(社交.判断阈值, (v) => 改社交('判断阈值', v), 0.05, 0.1, 1), '她“感兴趣且想说”的把握低于这个数就不接；只看不回不受影响（0.1 ~ 1）。'),
           行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认）'), '社交会话本身用哪个模型。'),
         ),
@@ -552,8 +553,9 @@ window.__ModuleLoader__.load({
         h('div', { style: S.card },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '人物志（她认识的人）'),
           h('div', { style: S.dim },
-            '这里能翻看她记住的人、每间屋里的关系，以及只属于那间屋的事。' +
-              '只存在本机；群和私聊之间不会互相带事实。',
+            '关系跟着人走：同一个 QQ 在群和私聊里是同一段关系。这里能看到总的关系，' +
+              '也能点开看每间屋里的相处；事实和边界也跟着人走，并标明是从哪间屋听来的。' +
+              '私下说过的事她知道，但不会在群里点名复述。只存在本机。',
           ),
           h('div', { style: { ...S.dim, marginTop: 4 } },
             '共 ' + 人物页.length + ' 个' +
@@ -586,8 +588,10 @@ window.__ModuleLoader__.load({
           人物显示.map((p) => {
             const 房间 = Array.isArray(p.房) ? p.房 : []
             const 展开 = 展开人 === p.号
-            const 房间事实 = (key) => (Array.isArray(p.事实) ? p.事实 : []).filter((f) => f.房 === key)
-            const 房间边界 = (key) => (Array.isArray(p.边界) ? p.边界 : []).filter((b) => b.房 === key)
+            const 事实们 = Array.isArray(p.事实) ? p.事实 : []
+            const 边界们 = Array.isArray(p.边界) ? p.边界 : []
+            const 总 = p.关系 && typeof p.关系 === 'object' ? p.关系 : null
+            const 出处 = (x) => (x.房叫 || x.房 || '') + (x.密 ? '，私下' : '')
             return h('div', {
               key: p.号,
               style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: '8px 10px', marginTop: 8 },
@@ -606,17 +610,37 @@ window.__ModuleLoader__.load({
                     (Array.isArray(p.别名) && p.别名.length ? '也叫 ' + p.别名.join('、') + ' · ' : '') +
                       '认识 ' + (p.天数 || 0) + ' 天 · 见过 ' + (p.见过 || 0) + ' 次' +
                       ' · 暖 ' + ((p.印象 && p.印象.暖) || 0) + ' / 信 ' + ((p.印象 && p.印象.信) || 0) +
+                      (总 ? ' · ' + 总.阶段 + ' · 口气' + 总.口气 : '') +
                       (房间.length ? ' · ' + 房间.length + ' 间屋子' : ' · 还没在屋里说过话'),
                   ),
                 ),
                 h('span', { style: { ...S.dim, flex: '0 0 auto' } }, 展开 ? '收起 ▲' : '展开 ▼'),
               ),
               展开 ? h('div', { style: { marginTop: 6 } },
+                总
+                  ? h('div', { style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' } },
+                      h('div', { style: { fontWeight: 600, fontSize: 12 } }, '总的关系（群和私聊共用）'),
+                      h('div', { style: S.dim },
+                        '熟 ' + 总.熟 + ' · 暖 ' + 总.暖 + ' · 张力 ' + 总.张力 +
+                          ' · 聊过 ' + 总.互动 + ' 次 · 被叫 ' + 总.被叫 + ' 次' +
+                          (总.最后At ? ' · 最近 ' + 时间短(总.最后At) : '') +
+                          (总.上次她说At ? ' · 她上次开口 ' + 时间短(总.上次她说At) : ''),
+                      ),
+                    )
+                  : null,
+                事实们.length ? h('div', { style: { fontSize: 12, marginTop: 4 } },
+                  '她记得（跟人走）：' +
+                    [...事实们].sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))
+                      .map((f) => f.文 + '（' + 出处(f) + '）').join('；')) : null,
+                边界们.length ? h('div', { style: { fontSize: 12, marginTop: 2 } },
+                  '别碰（跟人走）：' +
+                    [...边界们].sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))
+                      .map((b) => b.文 + '（' + (b.房叫 || b.房 || '') + '）').join('；')) : null,
+                h('div', { style: { fontWeight: 600, fontSize: 12, marginTop: 6 } },
+                  '各间屋的相处' + (房间.length > 1 ? '（共用上面那段关系）' : '')),
                 房间.length === 0
                   ? h('div', { style: S.dim }, '还没有群或好友里的记录。')
                   : 房间.map((r) => {
-                      const 事实 = 房间事实(r.key)
-                      const 边界 = 房间边界(r.key)
                       const 记忆 = Array.isArray(r.记忆) ? r.记忆 : []
                       return h('div', {
                         key: r.key,
@@ -624,17 +648,13 @@ window.__ModuleLoader__.load({
                       },
                         h('div', { style: { fontWeight: 600, fontSize: 12 } }, r.叫 + ' · ' + r.阶段 + ' · ' + r.口气),
                         h('div', { style: S.dim },
-                          '熟 ' + r.熟 + ' · 暖 ' + r.暖 + ' · 张力 ' + r.张力 +
+                          '这间屋：熟 ' + r.熟 + ' · 暖 ' + r.暖 + ' · 张力 ' + r.张力 +
                             ' · 见过 ' + r.见过 + ' · 聊过 ' + r.互动 + ' 次 · 被叫 ' + r.被叫 + ' 次' +
                             (r.最后At ? ' · 最近 ' + 时间短(r.最后At) : '') +
                             (r.上次她说At ? ' · 她上次开口 ' + 时间短(r.上次她说At) : ''),
                         ),
-                        事实.length ? h('div', { style: { fontSize: 12, marginTop: 2 } },
-                          '记得：' + 事实.map((f) => f.文 + (f.密 ? '（密）' : '')).join('；')) : null,
-                        边界.length ? h('div', { style: { fontSize: 12 } },
-                          '别碰：' + 边界.map((b) => b.文).join('；')) : null,
                         记忆.length ? h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-state-business-primary)' } },
-                          '记得那次：' + 记忆.map((x) => x.文).join('；')) : null,
+                          '这间屋记得那次：' + 记忆.map((x) => x.文).join('；')) : null,
                       )
                     }),
               ) : null,
