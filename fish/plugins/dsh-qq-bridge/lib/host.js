@@ -562,6 +562,23 @@ export function 转发图片们(条们, 主人号 = '') {
   return 出
 }
 
+/**
+ * 显式兴趣词命中：中文按包含；拉丁词按整词，避免 `ai` 命中 said / email 这类单词内部。
+ * @param {string} 文字 - 待检查的正文。
+ * @param {string} 词 - 一个兴趣词。
+ * @returns {boolean} 是否命中。
+ */
+export function 命中兴趣词(文字, 词) {
+  const 低 = String(文字 || '').toLowerCase()
+  const 目标 = String(词 || '').trim().toLowerCase()
+  if (目标 === '') return false
+  if (/^[a-z0-9][a-z0-9 _-]*$/.test(目标)) {
+    const 转义 = 目标.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(?<![a-z0-9])${转义}(?![a-z0-9])`).test(低)
+  }
+  return 低.includes(目标)
+}
+
 /** 从一条 assistant 消息里只抽出正文（text 块拼起来；reasoning / image 都不要）。 */
 export function 提取正文(message) {
   if (!message || !Array.isArray(message.content)) return ''
@@ -1049,10 +1066,9 @@ export function apply(ctx) {
 
   /** 一眼扫过去有没有她的兴趣：显式兴趣词权重最高，其次是她在屋里看过的话题词频。 */
   function 兴趣分(配置, 画像, 文字) {
-    const 低 = String(文字 || '').toLowerCase()
     let 分 = 0
     for (const 词 of 配置.社交.兴趣词) {
-      if (词 !== '' && 低.includes(词.toLowerCase())) 分 += 5
+      if (命中兴趣词(文字, 词)) 分 += 5
     }
     for (const 元 of 切兴趣词元(文字)) {
       const c = 画像.词.get(元) || 0
