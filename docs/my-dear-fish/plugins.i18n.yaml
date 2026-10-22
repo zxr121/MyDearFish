@@ -102,26 +102,29 @@
   en: 4d227fa7ed35e5b6
   zh: eb4a2ca50877380b
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge:
-  en: bbc93ad0ef81d8ac
-  zh: f76dfdf6d2c027a9
+  en: 984e769c3287314c
+  zh: edda8c239d21ab91
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/dsh-to-qq:
   en: 7bc7665b911fa914
   zh: 61f561eb14f58f0f
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/qq-to-dsh:
   en: 8db5946257e9943f
   zh: a3957b24cdd25eec
+/how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/pokes:
+  en: e4e8143e319b7f8c
+  zh: e29ab45b32b056e1
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection:
-  en: d3345b7c3e1ddadc
-  zh: a7f888b07e51bf3f
+  en: 4145dff497b74e51
+  zh: feb0bc6ce422668f
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/local-routes:
   en: 818685babe585ac0
   zh: 0d1d5cb09501e741
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/prerequisites-and-defaults:
-  en: 9f852728135eb5fa
-  zh: 179711f34dff0775
+  en: 3819f6ab8ce69b1e
+  zh: 9c708ef19d137c3a
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/known-limits:
-  en: 6e453e39f70a3b85
-  zh: 0163497f1478e690
+  en: 5b30658cf82d468d
+  zh: cbc6d5ed63dda7c0
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent:
   en: 3384b6baa62008cb
   zh: 455edcffadb839af
@@ -153,14 +156,14 @@
   en: 3d9835f5808d8db9
   zh: 3b64056fb908c8ea
 /how-the-plugins-keep-the-fish/cross-plugin-coupling-and-gaps:
-  en: defe0ee6e0a08487
-  zh: 0c4207f35d28f022
+  en: fd6167d221d62d16
+  zh: 229649484acf0af6
 /how-the-plugins-keep-the-fish/change-map:
-  en: 79a369646a68b146
-  zh: 6b9f99f3bc3e9172
+  en: 246b4b93a3f7e341
+  zh: 237697f606a8ed5c
 /how-the-plugins-keep-the-fish/observing-and-troubleshooting:
-  en: 4f8911b4a01741d2
-  zh: 08ecb257e36f8822
+  en: fa053ac6df6d9257
+  zh: 5f4d65c0fec017e8
 /how-the-plugins-keep-the-fish/conclusion-what-to-decide-first:
   en: ffe319c80a4e17f6
   zh: d78c74550490cab8

@@ -13,6 +13,7 @@
 // ⚠ 导入只写经历，绝不说话：对外一律走这里的 OneBot 通道。
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +36,7 @@ const 表情索引文件 = join(目录, 'qq-stickers.json')
 const 表情上限 = 120
 const 表情单张上限 = 5 * 1024 * 1024
 const 路由前缀 = '/dsh-qq-bridge'
+const 戳收报路径 = '/dsh-qq/event'
 const 日志上限 = 60
 // 概况往外发的时候令牌换成这个串：设置页只看到「设过没有」，看不到内容。
 // 保存时原样发回来 = 不改令牌；不用真正的令牌当掩码，免得哪天令牌恰好长那样就把旧值顶掉了。
@@ -145,6 +147,10 @@ const 默认配置 = {
   转私聊: true,
   转群: false,
   NapCat: 'http://127.0.0.1:3000', // OneBot HTTP 接口（无 token）
+  戳一戳: {
+    启用: true, // 只在本机开一个收报口；SnowLuma 的 HTTP 上报填这个地址
+    端口: 19388,
+  },
   社交: {
     启用: false, // 社交桥单独开关；还要求上面的总开关也开着
     试运行: true, // 只读消息、记录规则判断，不调模型、不发消息
@@ -248,6 +254,15 @@ const 洗静音 = (值) => {
   return `${补(起)}-${补(止)}`
 }
 
+function 归一化戳一戳(原始) {
+  const 混 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始) ? 原始 : {}
+  const 兜 = 默认配置.戳一戳
+  return {
+    启用: 布(混.启用, 兜.启用),
+    端口: Math.round(数(混.端口, 兜.端口, 1024, 65535)),
+  }
+}
+
 function 归一化社交(原始) {
   const 混 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始) ? 原始 : {}
   const 兜 = 默认配置.社交
@@ -311,6 +326,7 @@ function 归一化(原始) {
     转私聊: 布(混.转私聊, 默认配置.转私聊),
     转群: 布(混.转群, 默认配置.转群),
     NapCat: 字(混.NapCat) || 默认配置.NapCat,
+    戳一戳: 归一化戳一戳(混.戳一戳),
     社交: 归一化社交(混.社交),
     导入: 归一化导入(混.导入),
   }
@@ -397,6 +413,39 @@ export function 取说话人名字(名片, 昵称, 号码) {
   if (昵称文本 !== '') return 昵称文本.slice(0, 32)
   const 号码文本 = String(号码 === undefined || 号码 === null ? '' : 号码).trim()
   return (号码文本 === '' ? '某人' : 号码文本).slice(0, 32)
+}
+
+const 戳说法坏字符 = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufffd]/g
+
+/**
+ * 认一条 OneBot 戳一戳通知：只认“别人戳她”，她戳别人、别人互戳都不算。
+ * SnowLuma 私聊戳的 `user_id` 是会话对方，`sender_id` 才是动手的人，所以优先用 sender_id。
+ * @param {object} 事件 - OneBot 11 notice 事件。
+ * @param {string|number} 自己号 - 登录的 QQ 号。
+ * @returns {{场景: 'private'|'group', 戳人者: string, 被戳者: string, 群号: string}|null} 认出来就回事件，否则 null。
+ */
+export function 解析戳一戳(事件, 自己号 = '') {
+  if (!事件 || typeof 事件 !== 'object') return null
+  if (事件.post_type !== 'notice') return null
+  const 是戳 = (事件.notice_type === 'notify' && 事件.sub_type === 'poke') || 事件.notice_type === 'poke'
+  if (!是戳) return null
+  const 自己 = String(自己号 === undefined || 自己号 === null ? '' : 自己号).trim()
+  const 被戳 = String(事件.target_id === undefined || 事件.target_id === null ? '' : 事件.target_id).trim()
+  const 戳人 = String(事件.sender_id === undefined || 事件.sender_id === null ? '' : 事件.sender_id).trim()
+    || String(事件.user_id === undefined || 事件.user_id === null ? '' : 事件.user_id).trim()
+  if (自己 === '' || 被戳 !== 自己 || 戳人 === '' || 戳人 === 自己) return null
+  const 群号 = String(事件.group_id === undefined || 事件.group_id === null ? '' : 事件.group_id).trim()
+  return { 场景: 群号 === '' ? 'private' : 'group', 戳人者: 戳人, 被戳者: 被戳, 群号 }
+}
+
+/** OneBot 的 action/suffix 拼成一句人话；缺字段就用“戳了戳你”。 */
+export function 戳一戳说法(事件) {
+  const 净 = (值) => String(值 === undefined || 值 === null ? '' : 值).replace(戳说法坏字符, '').trim().slice(0, 40)
+  const 动作 = 净(事件 && 事件.action)
+  const 后缀 = 净(事件 && 事件.suffix)
+  if (后缀 !== '') return (动作 || '戳了戳') + 后缀
+  if (动作 === '') return '戳了戳你'
+  return 动作.includes('你') ? 动作 : 动作 + '你'
 }
 
 /**
@@ -540,6 +589,13 @@ export function apply(ctx) {
   let 社交总今日 = { 日: '', 数: 0 }
   let 社交轮询中 = false
   let 自己号缓存 = { at: 0, 号: '', 昵称: '', 已记: false }
+
+  // ---------- 戳一戳收报 ----------
+  // 戳一戳是 OneBot 的 notice 事件，不在 get_*_msg_history 里；只能让 SnowLuma 往本机推。
+  let 戳状态 = { 在听: false, 端口: 0, 地址: '', 错: '', 收到: 0, 最近: '' }
+  const 戳缓冲 = new Map() // 'main:...' / '社交:...' → 1.2 秒内连着戳的合并成一条
+  let 戳定时器 = null
+  let 戳服务重开 = null
 
   // ---------- 历史导入（Tulpa 的旧私聊 → 鱼脑经历流；只读，不说话） ----------
 
@@ -1890,8 +1946,10 @@ export function apply(ctx) {
     const 全部 = 社交待看.get(目标.key) || []
     if (全部.length === 0) return
     // 同一人常常一句一句发；等一小会儿再判，@ 和后半句就能进同一批。
+    // 戳一戳是即时动作，没有后半句，攒满就直接处理，别让它在待看里等 15 秒。
     const 聚拢 = Number(配置.社交.聚拢秒) || 0
-    if (聚拢 > 0) {
+    const 只有戳 = 全部.every((m) => m.戳)
+    if (聚拢 > 0 && !只有戳) {
       const 现在 = Math.floor(Date.now() / 1000)
       const 最新 = Math.max(...全部.map((m) => Number(m.at) || 0))
       const 最早 = Math.min(...全部.map((m) => Number(m.首at || m.at) || 0))
@@ -2568,6 +2626,16 @@ export function apply(ctx) {
     鱼脑可用: typeof (ctx.get('fishMind') || {}).observe === 'function',
   })
 
+  const 戳一戳概况 = (配置) => ({
+    启用: 配置.戳一戳.启用,
+    端口: 配置.戳一戳.端口,
+    地址: 戳地址(配置.戳一戳.端口),
+    在听: 戳状态.在听,
+    错: 戳状态.错,
+    收到: 戳状态.收到,
+    最近: 戳状态.最近,
+  })
+
   const 概况 = async () => {
     const 配置 = 读配置()
     const 清单 = 会话清单()
@@ -2586,6 +2654,7 @@ export function apply(ctx) {
       配置: 遮令牌(配置),
       配置文件,
       NapCat状态,
+      戳一戳: 戳一戳概况(配置),
       活着的会话: 清单,
       目标会话: 目标,
       目标来源: 目标 && String(配置.目标会话 || '').trim() === 目标
@@ -2634,6 +2703,7 @@ export function apply(ctx) {
     const 新 = { ...现在, ...改 }
     // 社交配置是嵌套的：浅合并会把没提交的字段冲掉
     if (改.社交 && typeof 改.社交 === 'object') 新.社交 = { ...现在.社交, ...改.社交 }
+    if (改.戳一戳 && typeof 改.戳一戳 === 'object') 新.戳一戳 = { ...现在.戳一戳, ...改.戳一戳 }
     if (改.导入 && typeof 改.导入 === 'object') {
       新.导入 = { ...现在.导入, ...改.导入 }
       // 页面只拿回掩码：原样发回来表示「令牌不改」，不能让掩码把真令牌顶掉。
@@ -2641,12 +2711,18 @@ export function apply(ctx) {
     }
     const 洗好 = 归一化(新)
     if (!写配置(洗好)) return 回(res, { ok: false, 说: `写不进配置文件：${配置文件}` })
+    try {
+      if (typeof 戳服务重开 === 'function') 戳服务重开()
+    } catch (error) {
+      记账(`戳一戳收报口重开失败：${String((error && error.message) || error)}`)
+    }
     const 状态 = 洗好.总开关 ? (洗好.试运行 ? '（只记账）' : '（真发）') : '（总开关关着）'
     const 社交状态 = 洗好.社交.启用
       ? `｜社交 ${洗好.社交.试运行 ? '试运行' : '真发'}（群 ${洗好.社交.群.length}｜好友 ${洗好.社交.好友.length}）`
       : '｜社交关着'
     const 导入状态 = `｜导入 ${洗好.导入.启用 ? '开（只读旧记录）' : '关'}`
-    记账(`设置已保存：目标会话 ${洗好.目标会话 || '（没填）'}｜私聊 ${洗好.私聊QQ || '（没填）'}｜群 ${洗好.群号 || '（没填）'}｜${状态}${社交状态}${导入状态}`)
+    const 戳状态词 = 洗好.戳一戳.启用 ? `听 ${洗好.戳一戳.端口}` : '关'
+    记账(`设置已保存：目标会话 ${洗好.目标会话 || '（没填）'}｜私聊 ${洗好.私聊QQ || '（没填）'}｜群 ${洗好.群号 || '（没填）'}｜${状态}${社交状态}${导入状态}｜戳一戳 ${戳状态词}`)
     回(res, { ...(await 概况()), 说: '保存好了' })
   })
 
@@ -2755,6 +2831,172 @@ export function apply(ctx) {
       return { ok: true, 说: '转进去了，它会照常开一轮' }
     } catch (error) {
       return { ok: false, 说: `followup 失败：${String((error && error.message) || error)}` }
+    }
+  }
+
+  // ---------- 戳一戳：本机收报口 ----------
+
+  const 戳时刻 = () => {
+    const d = new Date()
+    const 补 = (n) => String(n).padStart(2, '0')
+    return `${补(d.getHours())}:${补(d.getMinutes())}:${补(d.getSeconds())}`
+  }
+
+  const 戳地址 = (端口) => `http://127.0.0.1:${端口}${戳收报路径}`
+
+  /** 连戳两下别开两轮：先攒 1.2 秒，按目标合成一条。 */
+  function 排戳(戳, 说法, 目标, 主人 = false) {
+    const key = 目标 ? `社交:${目标.key}` : `main:${戳.场景}:${戳.群号}`
+    const 现有 = 戳缓冲.get(key)
+    if (现有) {
+      现有.次数 += 1
+      return
+    }
+    戳缓冲.set(key, { 戳, 说法, 目标, 主人, 次数: 1 })
+    if (戳定时器) return
+    戳定时器 = setTimeout(() => { void 冲戳() }, 1200)
+    戳定时器.unref()
+  }
+
+  async function 冲戳() {
+    戳定时器 = null
+    const 批 = [...戳缓冲.values()]
+    戳缓冲.clear()
+    const 配置 = 读配置()
+    for (const 项 of 批) {
+      try {
+        const 说法 = 项.次数 > 1 ? `${项.说法}，连着 ${项.次数} 下` : 项.说法
+        if (!项.目标) {
+          const 文字 = 项.戳.场景 === 'group' ? `（在群里${说法}）` : `（${说法}）`
+          记账(`收到戳一戳（${项.戳.场景 === 'group' ? `群 ${项.戳.群号}` : '私聊'}，${项.戳.戳人者} 戳了她）→ 转进 DSH`)
+          const 回 = await 转入文字(文字)
+          if (回 && 回.ok === false) 记账(`戳一戳没转进去：${回.说 || '未知原因'}`)
+          continue
+        }
+        if (!配置.总开关 || !配置.社交.启用) continue
+        const 消息 = {
+          id: `poke:${项.目标.key}:${项.戳.戳人者}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+          at: Math.floor(Date.now() / 1000),
+          说话人: 项.主人 ? '主人' : 项.戳.戳人者,
+          uid: 项.戳.戳人者,
+          文字: `（${说法}）`,
+          主人: 项.主人,
+          被叫原因: '戳了你一下',
+          图片: [],
+          戳: true,
+        }
+        await 拿社交agent(项.目标)
+        收进待看(项.目标, [消息], 配置)
+        记账(`收到戳一戳（${项.目标.叫}，${项.戳.戳人者} 戳了她）→ 交给她挑`)
+        await 处理社交待看(配置, 项.目标)
+      } catch (error) {
+        记账(`处理戳一戳出错：${String((error && error.message) || error)}`)
+      }
+    }
+  }
+
+  /** 收一条 OneBot 事件：只认“别人戳她”，再按主人 / 社交目标分流。 */
+  async function 收戳(事件) {
+    const 配置 = 读配置()
+    if (!配置.戳一戳.启用) return
+    let 自己 = String(自己号缓存.号 || (事件 && 事件.self_id) || '').trim()
+    if (自己 === '' && 事件 && 事件.target_id !== undefined) 自己 = (await 取自己()).号
+    const 戳 = 解析戳一戳(事件, 自己)
+    if (!戳) return
+    戳状态.收到 += 1
+    戳状态.最近 = `${戳时刻()} ${戳.场景 === 'group' ? `群 ${戳.群号}` : '私聊'} · ${戳.戳人者}`
+    if (!配置.总开关) return
+    const 主人号 = String(配置.私聊QQ || '').trim()
+    const 主人戳 = 主人号 !== '' && 戳.戳人者 === 主人号
+    const 走主路 = 主人戳 && (
+      (戳.场景 === 'private' && 配置.转私聊)
+      || (戳.场景 === 'group' && 配置.转群 && String(配置.群号 || '') === 戳.群号)
+    )
+    if (走主路) {
+      排戳(戳, 戳一戳说法(事件), null)
+      return
+    }
+    if (!配置.社交.启用) return
+    const 键 = `${戳.场景}:${戳.场景 === 'group' ? 戳.群号 : 戳.戳人者}`
+    const 目标 = 社交目标们(配置).find((t) => t.key === 键)
+    if (!目标) return
+    排戳(戳, 戳一戳说法(事件), 目标, 主人戳)
+  }
+
+  /** 本机收报口：SnowLuma 的 HTTP 上报（httpClient）往这里 POST OneBot 事件。 */
+  function 建戳服务() {
+    const c = 读配置().戳一戳
+    const 地址 = 戳地址(c.端口)
+    if (!c.启用) {
+      戳状态 = { ...戳状态, 在听: false, 端口: c.端口, 地址, 错: '' }
+      return () => {}
+    }
+    const 回 = (res, 码, 体) => {
+      const 文 = JSON.stringify(体)
+      try {
+        res.writeHead(码, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': Buffer.byteLength(文),
+          'cache-control': 'no-store',
+        })
+        res.end(文)
+      } catch (error) {
+        // 后端提前断开时写响应会抛错，事件已经收到，不影响处理。
+      }
+    }
+    const 服务器 = createServer((req, res) => {
+      const 路 = String((req.url || '').split('?')[0])
+      if (req.method !== 'POST' || 路 !== 戳收报路径) {
+        req.resume()
+        回(res, 404, { ok: false, 说: `这里只收 POST ${戳收报路径}` })
+        return
+      }
+      let 体 = ''
+      let 超了 = false
+      req.setEncoding('utf8')
+      req.on('data', (块) => {
+        if (超了) return
+        体 += 块
+        if (体.length > 256 * 1024) {
+          超了 = true
+          回(res, 413, { ok: false, 说: '事件太大' })
+          req.destroy()
+        }
+      })
+      req.on('end', () => {
+        if (超了) return
+        let 事件 = null
+        try { 事件 = JSON.parse(体) } catch (error) {
+          回(res, 400, { ok: false, 说: 'body 不是 JSON' })
+          return
+        }
+        回(res, 200, { ok: true })
+        void 收戳(事件).catch((error) => 记账(`收戳一戳出错：${String((error && error.message) || error)}`))
+      })
+    })
+    let 停了 = false
+    服务器.on('error', (error) => {
+      if (停了) return
+      const 码 = String((error && error.code) || '')
+      const 说 = 码 === 'EADDRINUSE'
+        ? `端口 ${c.端口} 被占用，换个端口或先关掉占用的程序`
+        : String((error && error.message) || error)
+      戳状态 = { ...戳状态, 在听: false, 端口: c.端口, 地址, 错: 说 }
+      记账(`戳一戳收报起不来：${说}`)
+    })
+    服务器.listen(c.端口, '127.0.0.1', () => {
+      if (停了) {
+        服务器.close()
+        return
+      }
+      戳状态 = { ...戳状态, 在听: true, 端口: c.端口, 地址, 错: '' }
+      记账(`戳一戳收报已就位：${地址}（SnowLuma 的 HTTP 上报填这个）`)
+    })
+    服务器.unref()
+    return () => {
+      停了 = true
+      服务器.close()
+      if (戳状态.端口 === c.端口) 戳状态 = { ...戳状态, 在听: false }
     }
   }
 
@@ -2868,6 +3110,31 @@ export function apply(ctx) {
 
   // ---------- 挂监听 ----------
 
+  // 戳一戳收报口跟着配置走：开关 / 端口一改，保存后立刻重开。
+  ctx.effect(() => {
+    let 收摊 = () => {}
+    let 当前 = ''
+    const 同步 = () => {
+      const c = 读配置().戳一戳
+      const 键 = `${c.启用}|${c.端口}`
+      if (键 === 当前) return
+      收摊()
+      当前 = 键
+      收摊 = 建戳服务()
+    }
+    同步()
+    戳服务重开 = 同步
+    return () => {
+      戳服务重开 = null
+      收摊()
+      if (戳定时器) {
+        clearTimeout(戳定时器)
+        戳定时器 = null
+      }
+      戳缓冲.clear()
+    }
+  }, 'qq-bridge: 收 QQ 戳一戳')
+
   ctx.effect(() => {
     const 摘 = ctx.on('session/event', (session, event) => {
       try {
@@ -2936,7 +3203,8 @@ export function apply(ctx) {
     主人句柄.clear()
   }, 'qq-bridge: 释放 QQ 会话')
 
-  记账(`已装好 v${版本}：DSH↔QQ 两半 + Tulpa 旧记录导入都在｜总开关 ${读配置().总开关 ? '开' : '关'}｜试运行 ${读配置().试运行 ? '开（只记账）' : '关（真发）'}｜导入 ${读配置().导入.启用 ? '开（只读）' : '关'}｜收消息 4 秒轮询一次`)
+  const 装好时配置 = 读配置()
+  记账(`已装好 v${版本}：DSH↔QQ 两半 + Tulpa 旧记录导入都在｜总开关 ${装好时配置.总开关 ? '开' : '关'}｜试运行 ${装好时配置.试运行 ? '开（只记账）' : '关（真发）'}｜导入 ${装好时配置.导入.启用 ? '开（只读）' : '关'}｜戳一戳 ${装好时配置.戳一戳.启用 ? `听 ${装好时配置.戳一戳.端口}` : '关'}｜收消息 4 秒轮询一次`)
 
   return { 记账, 概况, 落地一发, 发到QQ, 收到事件, 日志 }
 }

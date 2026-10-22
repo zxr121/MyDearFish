@@ -312,7 +312,7 @@ The speech plugin has two halves: a DSH host plugin that decides which turn fini
 
 ## QQ: dsh-qq-bridge
 
-The QQ bridge connects a DSH session to QQ in both directions: when DSH finishes a turn it sends the text to QQ in paragraphs; when the owner sends a QQ message the bridge polls it, delivers it into the target session, and DSH runs a normal turn. It does not need a bot account; it sends and receives through a local OneBot 11 HTTP backend such as NapCat or SnowLuma. With no target session it follows the most recently active session.
+The QQ bridge connects a DSH session to QQ in both directions: when DSH finishes a turn it sends the text to QQ in paragraphs; when the owner sends a QQ message the bridge polls it, delivers it into the target session, and DSH runs a normal turn. A poke is a QQ `notice` event that never enters message history, so the bridge runs a small local receiver for backend pushes. It does not need a bot account; it sends and receives through a local OneBot 11 HTTP backend such as NapCat or SnowLuma. With no target session it follows the most recently active session.
 
 ### DSH to QQ
 
@@ -330,6 +330,18 @@ The QQ bridge connects a DSH session to QQ in both directions: when DSH finishes
 3. It deduplicates by time and `message_id`; an image-only or emoji-only message is recorded too, so it is not fetched repeatedly.
 4. It keeps only text segments and joins them into one sentence; messages from the same poll become one turn, capped at 8000 characters per message and 12000 per poll, with the overflow marked as omitted, before building a user message with `source.kind = qq`.
 5. It delivers the message through `agent.followup()` into the resolved target session; the target must be live, and an archived or missing session is abandoned (with no target it follows the most recently active session).
+
+### Pokes
+
+A poke is an OneBot `post_type = notice`, `notice_type = notify`, `sub_type = poke` event. It never appears in `get_friend_msg_history` or `get_group_msg_history`, so polling can never see it. The plugin therefore runs its own small event receiver:
+
+1. It listens on `127.0.0.1:19388` by default, accepts only `POST /dsh-qq/event`, and caps each request at 256KB. It answers 200 as soon as valid JSON arrives, then processes asynchronously so the backend does not retry on a timeout.
+2. It handles only “someone poked her”: `target_id` must equal the private QQ number, and the poker is `sender_id` (the real actor in a private chat), falling back to `user_id`. Self-pokes and pokes at others are ignored.
+3. An owner poke enters the owner's target session when it is private and `forward private` is on, or from the configured group and `forward group` is on; the text is `（戳了戳你）` or `（在群里戳了戳你）`. A group guest poke goes into the social session with `被叫原因: 戳了你一下`, bypassing the fast pass and slow judge and costing no judge money.
+4. Rapid pokes coalesce within 1.2 seconds into one message with `，连着 N 下` appended; a lone poke is not held back by the social 15-second gathering window.
+5. It binds loopback only and can neither read configuration nor send messages; the worst case is a local program forging a poke that costs her one extra turn.
+
+The receiver needs the backend to push events to it and nobody sends there by default. In SnowLuma, add an HTTP report in the WebUI: URL `http://127.0.0.1:19388/dsh-qq/event`, enabled, `timeoutMs` 5000, no access token. NapCat uses the same URL under “HTTP report”. Without it, messages still flow normally and only pokes are lost; the “poke” card in settings shows whether it is listening, how many it received, and who poked last.
 
 ### Autonomous group interjection
 
@@ -363,6 +375,7 @@ Social mode lets her choose which messages to watch and whether to join conversa
 | Forward private | On | Takes effect only when a private QQ number is set |
 | Forward group | Off | Requires a group number when enabled |
 | NapCat address | `http://127.0.0.1:3000` | The OneBot 11 HTTP backend |
+| Poke / port | On / 19388 | Local event receiver; point the backend's HTTP report at `http://127.0.0.1:19388/dsh-qq/event` |
 | Social switch | Off | Master switch for autonomous group/friend interjection; default is observation only |
 | Social dry run | On | Logs only; does not judge or send |
 | Group / friend allowlists | Empty | Only listed group and friend numbers are polled |
@@ -378,6 +391,7 @@ Social mode lets her choose which messages to watch and whether to join conversa
 
 - Only text is handled; images, voice, files, and quoted replies never become DSH content.
 - Owner-bridge QQ to DSH is polling rather than push, so delivery can lag by about 4 seconds and a message recalled between polls can be missed; social polling runs every 6 seconds.
+- Pokes use the separate event report and have nothing to do with polling; without the backend's HTTP report they never arrive. A poke carries no context, only who poked whom, so it says nothing about the chat before it.
 - The owner bridge recognizes only the configured QQ number in a group, so other speakers never enter the target session; social mode uses its own group/friend allowlist and independent sessions, so group chatter never enters the owner's target session.
 - The fast pass sees only lexical overlap: a brand-new topic with no connection to the profile is dropped as uninteresting; to make her watch new topics, add them to `interest words` or wait until the room touches something she has watched. The profile lives in memory and relearns 20 messages after a restart; the learning period judges every message and costs more. Addressed and owner messages bypass the fast pass.
 - Social decisions are one small model call: it first selects content she is interested in, then decides whether she wants to say something. An @, a reply, or a name mention is only a marker that someone may be addressing her, not a guarantee of a reply, and being able to answer a question does not mean she wants to. Interest comes only from `interest words` and that room's history, so an empty list keeps her very conservative. The judge costs money, hence the 60-second judge cooldown; reply counts have no hourly or daily cap and only the allowance bounds them. Once the profile matures, the fast pass removes most unrelated traffic and the judge cost drops. Messages she is interested in but does not answer are still injected as context and do not pay for a reply. When the judge declines or she outputs `[不接话]`, the turn sends nothing.
@@ -520,6 +534,7 @@ Configuration covers most ways of raising the fish; only code changes alter the 
 | Never speaks first | Master switch, dry run, quiet hours; with no target it picks the most recently active session; recent log on the `speak-up` settings page |
 | Text exists but there is no sound | Whether the extension is installed, DeepSeek is logged in and open, the speech quota remains, and whether QQ already claimed this turn |
 | QQ does not receive or send | Whether NapCat listens on port 3000, QQ is logged in, the target session is archived, dry run is still on, and whether speech already claimed this turn |
+| A poke does nothing | Whether the “poke” card in QQ settings is listening on 19388 and its received count increases, whether it reports `EADDRINUSE` (port taken), and whether the backend has an HTTP report pointed at `http://127.0.0.1:19388/dsh-qq/event` |
 | She never joins group chat | Social switch and dry run, whether the group/friend allowlist is filled, quiet hours, whether a cooldown is active, and whether the fish-brain balance is below the floor; whether `interest words` is empty (empty keeps her very quiet); whether the fast pass matured and is screening out new topics; check the social status and recent log in QQ settings |
 | She joins group chat too often | Narrow the interest words, raise the judge threshold, lower the watch limit, switch the mode to `mention`, or turn listening off; the judge sees only recent group chat and does not understand long-term relationships |
 | Bilibili does not scan automatically | Whether `peakValley` is on, today's quota is exhausted, and the target session is live; `bili-duty/duty.log` |

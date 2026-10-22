@@ -182,6 +182,14 @@ window.__ModuleLoader__.load({
         })
         设脏(true)
       }
+      const 改戳一戳 = (k, v) => {
+        设态((旧) => {
+          if (!旧) return 旧
+          const 配置 = 旧.配置 || {}
+          return { ...旧, 配置: { ...配置, 戳一戳: { ...(配置.戳一戳 || {}), [k]: v } } }
+        })
+        设脏(true)
+      }
       const 改导入 = (k, v) => {
         设态((旧) => {
           if (!旧) return 旧
@@ -286,6 +294,8 @@ window.__ModuleLoader__.load({
       const 自己 = 社态.自己 || (NapCat && !NapCat.错 ? { 昵称: NapCat.昵称, 号: NapCat.用户 } : null)
       const 导入 = 配置.导入 || {}
       const 导态 = 态.导入 || {}
+      const 戳 = 配置.戳一戳 || {}
+      const 戳态 = 态.戳一戳 || {}
       const 本轮 = 导态.本轮 || {}
 
       return h(
@@ -336,6 +346,32 @@ window.__ModuleLoader__.load({
           行('私聊 QQ 号', h('input', { type: 'text', style: S.small, value: String(配置.私聊QQ || ''), onChange: (e) => 改('私聊QQ', e.target.value) }), '就是你自己的 QQ 号。'),
           行('转群', 勾(配置.转群, (v) => 改('转群', v)), '往下面这个群发。'),
           行('群号', h('input', { type: 'text', style: S.small, value: String(配置.群号 || ''), onChange: (e) => 改('群号', e.target.value) }), '可空。'),
+        ),
+
+        // —— 戳一戳 ——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '戳一戳'),
+          h('div', { style: S.dim },
+            'QQ 的戳一戳是通知事件，不在聊天记录里；只靠轮询永远看不到。' +
+              '在 SnowLuma 的「HTTP 上报 / httpClient」里填下面这个地址，她被戳时才会收到。',
+          ),
+          行('收戳一戳', 勾(戳.启用, (v) => 改戳一戳('启用', v)), '关掉 = 不监听；改端口后保存会自动重开。'),
+          行('监听端口', 数框(戳.端口, (v) => 改戳一戳('端口', v), 1, 1024, 65535), '只在本机 127.0.0.1 上监听，不暴露到局域网。'),
+          行('上报地址',
+            h('input', {
+              type: 'text',
+              readOnly: true,
+              style: S.input,
+              value: String(戳态.地址 || ('http://127.0.0.1:' + String(戳.端口 || 19388) + '/dsh-qq/event')),
+              onFocus: (e) => e.target.select(),
+            }),
+            '复制到 SnowLuma 的 HTTP 上报地址（不要填 access token）。',
+          ),
+          h('div', { style: 戳态.在听 ? S.已同步 : S.未保存 },
+            戳态.在听
+              ? '✓ 正在听 ' + String(戳态.地址 || '') + '（收到 ' + String(戳态.收到 || 0) + ' 个戳一戳' + (戳态.最近 ? '，最近 ' + 戳态.最近 : '') + '）'
+              : '⚠ 没在听' + (戳态.错 ? '：' + 戳态.错 : (戳.启用 ? '（端口没起来，看下面的记录）' : '（关着）')),
+          ),
         ),
 
         // —— 社交桥 ——
