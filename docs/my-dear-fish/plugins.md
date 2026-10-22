@@ -339,7 +339,8 @@ A QQ “forwarded message / chat record” appears in OneBot history as only a `
 2. Expansion is bounded: at most the first 20 nodes, 160 characters per node, and 1200 characters in total; when cut off, the header says “共 N 条，只展开前 M 条”.
 3. A nested forward is left as a `[转发消息]` marker and never expanded recursively, so one forward inside another cannot flood the context.
 4. If the backend lacks `get_forward_msg`, times out, or returns a broken response, the outer message is not dropped: its own text still enters the context, with `[转发消息，没展开出来]` left where the forward was.
-5. Owner private chats, the owner bridge's group, and social groups/friends all use the same expansion; social messages are expanded before the interest judge, so forwarded content is visible to the judge too.
+5. Images inside the forward are downloaded into the attachment store (the first 4, each note naming its original sender); a broken, oversized, or timed-out image is skipped without holding back the text.
+6. Owner private chats, the owner bridge's group, and social groups/friends all use the same expansion; social messages are expanded before the interest judge, so forwarded content is visible to the judge too.
 
 ### Pokes
 
@@ -399,7 +400,7 @@ Social mode lets her choose which messages to watch and whether to join conversa
 
 ### Known limits
 
-- Text and images become DSH content; voice, files, and the quoted part of a reply never become text. Forwarded messages expand text only, and images inside a forward remain a `[图片]` placeholder and are not downloaded; anything beyond 20 nodes or 1200 characters is not expanded.
+- Text and images become DSH content; voice, files, and the quoted part of a reply never become text. Forwarded messages expand their text and download the first 4 images inside the forward (each note naming its original sender); anything beyond 20 nodes or 1200 characters is not expanded.
 - Forwarded messages depend on the backend's `get_forward_msg`; without it everything else works and the original message keeps a `[转发消息，没展开出来]` placeholder.
 - Owner-bridge QQ to DSH is polling rather than push, so delivery can lag by about 4 seconds and a message recalled between polls can be missed; social polling runs every 6 seconds.
 - Pokes use the separate event report and have nothing to do with polling; without the backend's HTTP report they never arrive. A poke carries no context, only who poked whom, so it says nothing about the chat before it.

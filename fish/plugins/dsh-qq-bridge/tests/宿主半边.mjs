@@ -60,12 +60,21 @@ globalThis.fetch = async (url, 选项) => {
           data: {
             messages: [
               { user_id: 321, sender: { nickname: '群友甲' }, message: [{ type: 'text', data: { text: '转发里的一条' } }] },
+              { user_id: 321, sender: { nickname: '群友甲' }, message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/f.jpg', file: 'f.jpg' } }] },
             ],
           },
         }),
       }
     }
     return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
+  }
+  if (u.includes('multimedia.nt.qq.com.cn')) {
+    return {
+      ok: true,
+      url: u,
+      headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? '4' : null) },
+      async arrayBuffer() { return new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer },
+    }
   }
   发了.push({ url: u, 体 })
   return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: 1 } }) }
@@ -171,7 +180,27 @@ const ctx = {
     if (!轮询回调) 轮询回调 = fn
     return () => {}
   },
-  get: (名字) => (名字 === 'fishMind' && 鱼脑状态.可用 ? 假鱼脑 : undefined),
+  get: (名字) => {
+    if (名字 === 'fishMind' && 鱼脑状态.可用) return 假鱼脑
+    if (名字 === 'attachments') return 假附件
+    return undefined
+  },
+}
+
+const 附件们 = []
+const 假附件 = {
+  imageLimits: {
+    maxImageBytes: 5_000_000,
+    maxImagesPerMessage: 4,
+    maxMessageImageBytes: 10_000_000,
+  },
+  async saveImages(inputs) {
+    return inputs.map((输入) => {
+      const ref = { attachmentId: 'att-' + 附件们.length, mediaType: 输入.mediaType, bytes: 输入.data.length, width: 1, height: 1, name: 输入.name }
+      附件们.push(ref)
+      return ref
+    })
+  },
 }
 
 模.apply(ctx)
@@ -443,7 +472,8 @@ const 之前转发 = 转进的.length
 await 轮询回调()
 await new Promise((r) => setTimeout(r, 20))
 const 转发文 = 转进的.at(-1)?.content?.[0]?.text || ''
-报('轮询：合并转发展开进 DSH', 转进的.length === 之前转发 + 1 && 转发文.includes('[转发消息 1 条]') && 转发文.includes('群友甲：转发里的一条'), JSON.stringify(转发文))
+报('轮询：合并转发展开进 DSH', 转进的.length === 之前转发 + 1 && 转发文.includes('[转发消息 2 条]') && 转发文.includes('群友甲：转发里的一条'), JSON.stringify(转发文))
+报('轮询：转发里的图也下载并附上', (转进的.at(-1)?.content || []).filter((x) => x.type === 'image').length === 1 && 转发文.includes('【图 1·群友甲】'), JSON.stringify(转进的.at(-1)?.content))
 报('轮询：转发拉不到也保留外层文字和占位', 转发文.includes('这个也看看') && 转发文.includes('[转发消息，没展开出来]'), JSON.stringify(转发文))
 私聊附加 = []
 

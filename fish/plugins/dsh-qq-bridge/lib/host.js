@@ -49,6 +49,8 @@ const 转发最多条 = 20
 const 转发单条最多字 = 160
 const 转发总共最多字 = 1200
 const 转发展开超时毫秒 = 6000
+// 转发里常常是图；真下下来她才能看见，但一次最多 4 张，别把附件和上下文撑爆。
+const 转发最多图 = 4
 // 判断冷却里攒着的消息也有上限：热闹的群不能把内存和下次判断的上下文一起撑大。
 const 待看条数上限 = 50
 const 待看字数上限 = 12000
@@ -532,6 +534,32 @@ export function 折叠转发(条们) {
     ? `[转发消息，共 ${列表.length} 条，只展开前 ${行们.length} 条]`
     : `[转发消息 ${列表.length} 条]`
   return [标题, ...行们].join('\n')
+}
+
+/**
+ * 取出合并转发里的图片，带上原发言人的名字，交给调用方下载。
+ * 只取外层节点，嵌套转发不递归；最多取前 4 张。
+ * @param {unknown} 条们 - get_forward_msg 返回的 messages，每项是一条 OneBot 消息。
+ * @param {string|number} 主人号 - 主人 QQ 号；用来标出主人发的图，不知道就传空。
+ * @returns {{ url: string, file: string, summary: string, subType: number, 说话人: string, 主人: boolean }[]}
+ */
+export function 转发图片们(条们, 主人号 = '') {
+  const 列表 = Array.isArray(条们)
+    ? 条们.filter((条) => 条 && typeof 条 === 'object')
+    : []
+  const 出 = []
+  for (const 条 of 列表.slice(0, 转发最多条)) {
+    if (出.length >= 转发最多图) break
+    const 段 = 解析消息段(条, '')
+    if (段.图片们.length === 0) continue
+    const 名字 = 取说话人名字(条.sender && 条.sender.card, 条.sender && 条.sender.nickname, 条.user_id)
+    const uid = String(条.user_id === undefined || 条.user_id === null ? '' : 条.user_id)
+    for (const 图 of 段.图片们) {
+      if (出.length >= 转发最多图) break
+      出.push({ ...图, 说话人: 名字, 主人: 主人号 !== '' && uid === String(主人号) })
+    }
+  }
+  return 出
 }
 
 /** 从一条 assistant 消息里只抽出正文（text 块拼起来；reasoning / image 都不要）。 */
@@ -1315,9 +1343,10 @@ export function apply(ctx) {
    * 拉一条合并转发的完整内容。失败不抛：转发看不到，但外面那句话照常进上下文。
    * @param {object} 配置 - 当前配置，取 NapCat 地址。
    * @param {string} id - forward 段的 id（SnowLuma 的 resId）。
-   * @returns {Promise<string>} 折叠后的文字；拉不到时回一句说明。
+   * @param {string|number} 主人号 - 主人 QQ 号；转发里主人发的图要能标出来。
+   * @returns {Promise<{ 文字: string, 图片们: object[] }>} 折叠后的文字和可下载的图片。
    */
-  async function 展开转发(配置, id) {
+  async function 展开转发(配置, id, 主人号 = '') {
     try {
       const r = await fetch(`${配置.NapCat}/get_forward_msg`, {
         method: 'POST',
@@ -1326,12 +1355,14 @@ export function apply(ctx) {
         signal: AbortSignal.timeout(转发展开超时毫秒),
       })
       const j = await r.json()
-      if (j && j.status === 'ok' && Array.isArray(j.data && j.data.messages)) return 折叠转发(j.data.messages)
+      if (j && j.status === 'ok' && Array.isArray(j.data && j.data.messages)) {
+        return { 文字: 折叠转发(j.data.messages), 图片们: 转发图片们(j.data.messages, 主人号) }
+      }
       记账('合并转发没展开出来：后端没有 get_forward_msg 或回包不对')
     } catch (error) {
       记账(`合并转发没展开出来：${String((error && error.message) || error)}`)
     }
-    return '[转发消息，没展开出来]'
+    return { 文字: '[转发消息，没展开出来]', 图片们: [] }
   }
 
   /**
@@ -1339,13 +1370,22 @@ export function apply(ctx) {
    * @param {object} 配置 - 当前配置。
    * @param {string} 文字 - 解析消息段得到的正文。
    * @param {{ id: string }[]} 转发们 - 解析消息段得到的转发 id。
-   * @returns {Promise<string>} 进上下文的最终文字。
+   * @param {string|number} 主人号 - 主人 QQ 号；不知道就传空。
+   * @returns {Promise<{ 文字: string, 图片们: object[] }>} 进上下文的最终文字和转发里的图片。
    */
-  async function 补上转发(配置, 文字, 转发们) {
-    if (!Array.isArray(转发们) || 转发们.length === 0) return 文字
+  async function 补上转发(配置, 文字, 转发们, 主人号 = '') {
+    if (!Array.isArray(转发们) || 转发们.length === 0) return { 文字, 图片们: [] }
     const 块们 = []
-    for (const 转发 of 转发们) 块们.push(await 展开转发(配置, 转发.id))
-    return [文字, ...块们].filter((块) => 块 !== '').join('\n')
+    const 图片们 = []
+    for (const 转发 of 转发们) {
+      const 展 = await 展开转发(配置, 转发.id, 主人号)
+      块们.push(展.文字)
+      图片们.push(...展.图片们)
+    }
+    return {
+      文字: [文字, ...块们].filter((块) => 块 !== '').join('\n'),
+      图片们: 图片们.slice(0, 转发最多图),
+    }
   }
 
   /** 下载并保存一组 QQ 图片，返回带 durable ref 的图片；坏图/超限跳过，不拦文字。 */
@@ -2191,7 +2231,9 @@ export function apply(ctx) {
       // 主人桥正在转发这个群时，这条主人消息由主人桥处理，社交桥不再重复看/回。
       const 主人走主路 = 主人 && 配置.转群 && String(配置.群号) === String(目标.号)
       if (主人走主路) continue
-      段.文字 = await 补上转发(配置, 段.文字, 段.转发们)
+      const 补 = await 补上转发(配置, 段.文字, 段.转发们, 主人号)
+      段.文字 = 补.文字
+      段.图片们.push(...补.图片们)
       if (段.文字 === '') continue
       // 群聊里主人和群友一视同仁：按同一套 @ / 叫名字 / 图片 / 兴趣规则。
       const 被叫原因 = 目标.类型 === 'friend' ? '私聊' : 是否被叫(配置, 段)
@@ -2219,7 +2261,11 @@ export function apply(ctx) {
       if (段.图片们.length > 0 && 本轮图片 < 图片每轮上限) {
         // 图片要下到本机、存进附件库，模型才能真的看见；单条最多 4 张、每轮最多 6 张。
         图片 = await 收QQ图片(
-          段.图片们.map((图) => ({ ...图, 说话人, 主人 })),
+          段.图片们.map((图) => ({
+            ...图,
+            说话人: String(图.说话人 || 说话人),
+            主人: 图.主人 === undefined ? 主人 : !!图.主人,
+          })),
           Math.min(图片单条上限, 图片每轮上限 - 本轮图片),
         )
         本轮图片 += 图片.length
@@ -2611,7 +2657,7 @@ export function apply(ctx) {
   /** 手搓一条 user 消息（跟 speak-up 一样：role=user，source.kind 标成 qq，不冒充她亲手打的）。 */
   const 手搓用户消息 = (文案, 图片们 = []) => {
     const 图 = (图片们 || []).filter((x) => x && x.ref)
-    const 注 = 图.map((x, i) => `【图 ${i + 1}】`).join('\n')
+    const 注 = 图.map((x, i) => `【图 ${i + 1}${x.主人 ? '·主人' : x.说话人 ? '·' + x.说话人 : ''}${x.表情 ? '·表情' : ''}】`).join('\n')
     const 全文 = [String(文案 || ''), 注, 表情提示()].filter((x) => x.trim() !== '').join('\n')
     const content = [{ type: 'text', text: 全文 }]
     for (const x of 图) content.push({ type: 'image', attachment: x.ref })
@@ -3112,10 +3158,11 @@ export function apply(ctx) {
     }
     const 条转文字 = async (条) => {
       const 段 = 解析消息段(条, '')
-      段.文字 = await 补上转发(配置, 段.文字, 段.转发们)
-      const 文字 = 段.文字.length > 单条入站上限
-        ? `${段.文字.slice(0, 单条入站上限)}…（这条太长，后面省略）`
-        : 段.文字
+      const 补 = await 补上转发(配置, 段.文字, 段.转发们, 配置.私聊QQ)
+      段.图片们.push(...补.图片们)
+      const 文字 = 补.文字.length > 单条入站上限
+        ? `${补.文字.slice(0, 单条入站上限)}…（这条太长，后面省略）`
+        : 补.文字
       return { 文字, 图片们: 段.图片们 }
     }
 

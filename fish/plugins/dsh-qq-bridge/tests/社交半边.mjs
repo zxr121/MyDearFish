@@ -83,6 +83,18 @@ const 嵌套折叠 = 模.折叠转发([{
   message: [{ type: 'forward', data: { id: 'nested' } }],
 }])
 报('折叠转发：嵌套转发只留标记、不再递归', 嵌套折叠.includes('甲：[转发消息]'), JSON.stringify(嵌套折叠))
+const 转发图们 = 模.转发图片们([
+  转发节点('甲', '只有字'),
+  { user_id: 123, sender: { nickname: '主人' }, message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/0.jpg', file: '0.jpg' } }] },
+  { user_id: 702, sender: { nickname: '乙' }, message: [
+    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/1.jpg', file: '1.jpg' } },
+    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/2.jpg', file: '2.jpg' } },
+    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/3.jpg', file: '3.jpg' } },
+    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/4.jpg', file: '4.jpg' } },
+  ] },
+], '123')
+报('转发图片：带原发言人，主人发的标出来，最多 4 张', 转发图们.length === 4 && 转发图们[0].说话人 === '主人' && 转发图们[0].主人 === true && 转发图们[1].说话人 === '乙' && 转发图们[1].主人 === false && 转发图们[3].file === '3.jpg', JSON.stringify(转发图们))
+报('转发图片：拉不到节点 → 空', 模.转发图片们(undefined, '123').length === 0)
 报('说话人：名片夹带控制字符时回退干净昵称', 模.取说话人名字('\n\n\b&ÿ\u0007Çý\n\u001d\u0012\u001b南宫问鸢⁧？喵⁧‭\u0010\u0000', '短鸢', '888') === '短鸢')
 报('说话人：名片正常时优先用名片', 模.取说话人名字(' 小鸢 ', '短鸢', '888') === '小鸢')
 报('说话人：昵称也带控制字符时去掉后再用', 模.取说话人名字('', '短\u0007鸢', '888') === '短鸢')
@@ -1112,6 +1124,9 @@ const 转发提示 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.te
 报('转发消息：展开进判断窗口', 转发提示.includes('[转发消息 2 条]') && 转发提示.includes('甲：海边捡到一块贝壳') && 转发提示.includes('乙：[图片]'), 转发提示.slice(0, 400))
 报('转发消息：拉不到也保留外层文字和占位', 转发提示.includes('这个也看看') && 转发提示.includes('[转发消息，没展开出来]'), 转发提示.slice(0, 400))
 报('转发消息：展开后照常开一轮', 转发轮 && String(转发轮.message.content[0].text).includes('海边捡到一块贝壳'), JSON.stringify(转发轮 && String(转发轮.message.content[0].text).slice(0, 300)))
+const 转发图块 = (转发轮?.message?.content || []).filter((x) => x.type === 'image')
+报('转发消息：转发里的图真下下来给她看', 转发图块.length === 1 && !!转发图块[0].attachment, JSON.stringify(转发图块))
+报('转发消息：图片注明原发言人', String(转发轮?.message?.content?.[0]?.text).includes('【图 1·乙】'), String(转发轮?.message?.content?.[0]?.text).slice(0, 300))
 
 // ---------- 22 /models 与 /save 深层合并 ----------
 写配置({ 群: ['1019'], 快判: false })
