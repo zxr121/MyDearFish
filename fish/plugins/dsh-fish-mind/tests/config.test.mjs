@@ -112,6 +112,29 @@ test('预算默认开着，每天额度不在配置里，价格逐字段归一',
   assert.equal(config.budget.prices.bad, undefined)
 })
 
+test('预算价格条目保留峰谷日程，日程写坏就退回高峰价', () => {
+  const home = tempHome()
+  const config = normalizeConfig({
+    budget: {
+      prices: {
+        'p/m': {
+          input: 2,
+          output: 8,
+          offPeak: { input: 1, output: 4 },
+          peakHours: [[14, 18], [9, 12]],
+          peakDays: [5, 1, 2, 3, 4],
+        },
+        'q/n': { input: 3, offPeak: { input: 1 }, peakHours: [[18, 9]] },
+      },
+    },
+  }, { dshHome: home })
+  const entry = config.budget.prices['p/m']
+  assert.deepEqual(entry.peakHours, [[9, 12], [14, 18]])
+  assert.deepEqual(entry.peakDays, [1, 2, 3, 4, 5])
+  assert.deepEqual(entry.offPeak, { input: 1, cacheRead: 0, cacheWrite: 0, output: 4, reasoning: 0 })
+  assert.deepEqual(config.budget.prices['q/n'], { input: 3, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 })
+})
+
 test('情景切分和召回参数有默认值，比例不会被四舍五入', () => {
   const home = tempHome()
   const defaults = buildDefaults(home)

@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
-import { DEFAULT_PRICE, normalizePrice } from './budget.js'
+import { DEFAULT_PRICE, normalizePrice, normalizePriceEntry } from './budget.js'
 
 const MODES = new Set(['off', 'shadow', 'live'])
 
@@ -292,7 +292,7 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
       const prices = {}
       for (const [key, value] of Object.entries(b.prices)) {
         if (key.trim() === '') continue
-        const price = normalizePrice(value)
+        const price = normalizePriceEntry(value)
         if (price !== null) prices[key] = price
       }
       config.budget.prices = prices

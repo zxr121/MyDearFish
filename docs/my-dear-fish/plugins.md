@@ -112,7 +112,7 @@ The QQ bridge gives each group and each friend a separate social session (`sessi
 - A broken ledger fails closed: it is better to spend nothing this turn than to leak allowance. An owner-facing session gets one local reply; internal calls get the non-retryable `FISH_BUDGET_EXHAUSTED`.
 - Account balance comes from the host service `deepseekAccount.getBalance()` and refreshes every 15 minutes by default; a failed read records the attempt and does not affect chatting.
 - The balance is injected only into the local system prompt so she can judge whether optional work is worth doing; QQ and Bilibili pass outbound text through `redactOutbound`, which replaces sentences about allowance or balance and exact private amounts. Bilibili refuses the whole message on a hit.
-- Prices are conservative estimates and can be overridden per route; if a provider charges more, the wallet can still overshoot and the owner should calibrate `budget.prices`.
+- Prices can be overridden per route. The five base fields are peak prices; when `offPeak`, `peakHours`, and `peakDays` are all present, the ledger switches between peak and idle prices on the local clock, and a malformed schedule falls back to peak. A route calibrated to official rates makes the wallet match the real bill; uncalibrated routes keep the high default and can overshoot.
 
 ### Files and visibility
 
@@ -525,7 +525,7 @@ No plugin runs at full speed out of the box: the fish brain records without reca
 | --- | --- | --- |
 | Persona, names, default tone | `personaPrefix` in `fish/bundle/cordis.patch.yml` | Affects every new profile, and a user patch can still override it |
 | Whether the fish brain records or recalls | `mode`, `inject`, and the `episodes` / `recall` settings in `dsh-fish-mind` | Shadow mode changes do not affect conversation; only `live` + `inject` injects the workspace |
-| Daily allowance, rollover, and prices | `BIRTH_DAILY_GRANT_CNY` in `lib/budget.js`; prices under `budget.prices` in `config.json` | Changing the code amount affects all later grants; changing prices only affects estimates and never back-charges past spend |
+| Daily allowance, rollover, and prices | `BIRTH_DAILY_GRANT_CNY` in `lib/budget.js`; prices under `budget.prices` in `config.json`, with `offPeak` / `peakHours` / `peakDays` for peak scheduling | Changing the code amount affects all later grants; changing prices only affects estimates and never back-charges past spend |
 | Mood dimensions, judging frequency, judge model | Mood settings and the dimension table and judge chain in `lib/index.js` | Changing dimensions changes the injected line and face tiers |
 | Speak-up frequency and hours | Hit lines, interval, and quiet hours in speak-up settings | Turn off dry run to actually speak; changing hit lines is safer than changing code |
 | What speech reads | Watch list and auto-speech switch in speech settings | Empty listens to all sessions; clicking one narrows it; requires the extension and a DeepSeek page |

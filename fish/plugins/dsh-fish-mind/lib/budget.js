@@ -6,7 +6,8 @@
 //   · 账户余额只给她自己看；对外通道（QQ、B 站评论/私信）在代码层再做一道脱敏。
 //
 // 价格是估算：仓库里没有文本 token 价目表，中转 provider 的价格也各不相同。
-// DEFAULT_PRICE 故意取得偏高，宁可提前停，也不要把主人的钱花超。
+// DEFAULT_PRICE 故意取得偏高，宁可提前停，也不要把主人的钱花超；按路由配好官方价后，
+// 可以用 offPeak / peakHours / peakDays 描述峰谷日程，让账本对上真实账单。
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -57,20 +58,82 @@ export function normalizePrice(raw) {
   return price
 }
 
+function flatPrice(price) {
+  const flat = {}
+  for (const key of PRICE_KEYS) flat[key] = price[key]
+  return flat
+}
+
+/** 把 `[[9,12],[14,18]]` 归一成按起点排序的小时区间；空、越界或倒序都返回 null。 */
+export function normalizePeakHours(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const ranges = []
+  for (const item of raw) {
+    if (!Array.isArray(item) || item.length !== 2) return null
+    const start = Number(item[0])
+    const end = Number(item[1])
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null
+    if (start < 0 || end > 24 || start >= end) return null
+    ranges.push([start, end])
+  }
+  return ranges.sort((a, b) => a[0] - b[0])
+}
+
+/** 高峰日按 0=周日 … 6=周六；不写就是每天，写错就是没有日程。 */
+export function normalizePeakDays(raw) {
+  if (raw === undefined) return [0, 1, 2, 3, 4, 5, 6]
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const days = new Set()
+  for (const item of raw) {
+    const day = Number(item)
+    if (!Number.isInteger(day) || day < 0 || day > 6) return null
+    days.add(day)
+  }
+  return [...days].sort((a, b) => a - b)
+}
+
+/**
+ * 归一一条价格：基础五项是高峰价，`offPeak`、`peakHours`、`peakDays` 是可选日程。
+ * 日程缺项或非法就丢掉日程、只留基础价——宁可按高峰高估，也不要漏算。
+ */
+export function normalizePriceEntry(raw) {
+  if (!isPlainObject(raw)) return null
+  const price = normalizePrice(raw)
+  if (price === null) return null
+  const offPeak = normalizePrice(raw.offPeak)
+  const peakHours = normalizePeakHours(raw.peakHours)
+  const peakDays = normalizePeakDays(raw.peakDays)
+  if (offPeak === null || peakHours === null || peakDays === null) return price
+  return { ...price, offPeak, peakHours, peakDays }
+}
+
+function isPeakAt(at, entry) {
+  const date = new Date(at)
+  if (!entry.peakDays.includes(date.getDay())) return false
+  const hour = date.getHours() + date.getMinutes() / 60
+  return entry.peakHours.some(([start, end]) => hour >= start && hour < end)
+}
+
 /**
  * 找这次调用该用哪档价：`provider/model` → `model` → `provider` → 默认价。
+ * 配了完整峰谷日程的路由，按 `at` 所在的本地时间选高峰价或谷时价。
  * @param {object} prices - 配置里的 `budget.prices`。
  * @param {object} fallback - 配置里的 `budget.defaultPrice`。
  * @param {string} provider - provider 路由名。
  * @param {string} model - 模型名。
+ * @param {number} [at] - 判断高峰用的时间戳，默认当前时间。
  * @returns {{input:number,cacheRead:number,cacheWrite:number,output:number,reasoning:number}} 每百万 token 的人民币价。
  */
-export function resolvePrice(prices, fallback, provider, model) {
+export function resolvePrice(prices, fallback, provider, model, at = Date.now()) {
   const table = isPlainObject(prices) ? prices : {}
   for (const key of [`${provider}/${model}`, model, provider]) {
     if (typeof key !== 'string' || key === '') continue
-    const price = normalizePrice(table[key])
-    if (price !== null) return price
+    const entry = normalizePriceEntry(table[key])
+    if (entry === null) continue
+    if (entry.offPeak !== undefined) {
+      return flatPrice(isPeakAt(at, entry) ? entry : entry.offPeak)
+    }
+    return flatPrice(entry)
   }
   return normalizePrice(fallback) || { ...DEFAULT_PRICE }
 }
@@ -313,7 +376,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
   }
 
   function priceFor(provider, model) {
-    return resolvePrice(currentConfig.prices, currentConfig.defaultPrice, provider, model)
+    return resolvePrice(currentConfig.prices, currentConfig.defaultPrice, provider, model, now())
   }
 
   function status() {

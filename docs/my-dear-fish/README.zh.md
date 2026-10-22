@@ -17,7 +17,7 @@
 
 | 插件 | 版本 | 入口 | 能力 |
 | --- | --- | --- | --- |
-| `dsh-fish-mind` | 0.2.0 | `lib/index.js` | 共享经历流、情景记忆与原文回查、工具权限判定、隐私与注入防护。 |
+| `dsh-fish-mind` | 0.3.2 | `lib/index.js` | 共享经历流、情景记忆与原文回查、工具权限判定、隐私与注入防护，以及按官方峰谷价结算的零花钱账本。 |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | 每轮变化并随时间平复的心情。 |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | 无人说话时主动搭话。 |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | 通过 DeepSeek 网页语音朗读。 |

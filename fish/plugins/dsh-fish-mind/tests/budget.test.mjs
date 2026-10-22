@@ -9,7 +9,10 @@ import {
   estimateInputTokens,
   estimateRequestCost,
   localDay,
+  normalizePeakDays,
+  normalizePeakHours,
   normalizePrice,
+  normalizePriceEntry,
   openBudget,
   resolvePrice,
 } from '../lib/budget.js'
@@ -195,6 +198,110 @@ test('价格归一：缺项补 0，负数和垃圾值不收', () => {
     normalizePrice({ input: '3', cacheRead: -1, cacheWrite: 'x', output: 4 }),
     { input: 3, cacheRead: 0, cacheWrite: 0, output: 4, reasoning: 0 },
   )
+})
+
+test('峰谷日程归一：区间升序、周日到周六，坏值整条作废', () => {
+  assert.deepEqual(normalizePeakHours([[14, 18], [9, 12]]), [[9, 12], [14, 18]])
+  assert.equal(normalizePeakHours([]), null)
+  assert.equal(normalizePeakHours([[12, 9]]), null)
+  assert.equal(normalizePeakHours([[9, 25]]), null)
+  assert.equal(normalizePeakHours([[9]]), null)
+  assert.equal(normalizePeakHours('9-12'), null)
+
+  assert.deepEqual(normalizePeakDays(undefined), [0, 1, 2, 3, 4, 5, 6])
+  assert.deepEqual(normalizePeakDays([5, 1, 5]), [1, 5])
+  assert.equal(normalizePeakDays([]), null)
+  assert.equal(normalizePeakDays([7]), null)
+  assert.equal(normalizePeakDays([1.5]), null)
+
+  assert.deepEqual(
+    normalizePriceEntry({
+      input: 2,
+      offPeak: { input: 1 },
+      peakHours: [[9, 12]],
+      peakDays: [1],
+    }),
+    {
+      input: 2, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0,
+      offPeak: { input: 1, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+      peakHours: [[9, 12]],
+      peakDays: [1],
+    },
+  )
+  assert.deepEqual(
+    normalizePriceEntry({ input: 2, offPeak: { input: 1 }, peakHours: [[12, 9]] }),
+    { input: 2, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+  )
+  assert.equal(normalizePriceEntry(null), null)
+})
+
+test('峰谷价按本地时间切换：高峰算基础价，谷时和周末算 offPeak', () => {
+  const fallback = { input: 9, cacheRead: 9, cacheWrite: 9, output: 9, reasoning: 9 }
+  const schedule = {
+    input: 2, cacheRead: 0.04, cacheWrite: 2, output: 8, reasoning: 0,
+    offPeak: { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4, reasoning: 0 },
+    peakHours: [[9, 12], [14, 18]],
+    peakDays: [1, 2, 3, 4, 5],
+  }
+  const prices = { 'p/m': schedule }
+  const at = (dayOffset, hour, minute = 0) => new Date(2026, 9, 21 + dayOffset, hour, minute, 0).getTime()
+  const peak = { input: 2, cacheRead: 0.04, cacheWrite: 2, output: 8, reasoning: 0 }
+  const idle = { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4, reasoning: 0 }
+
+  // 2026-10-21 是周三。
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(0, 8, 59)), idle)
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(0, 9)), peak)
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(0, 11, 59)), peak)
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(0, 12)), idle)
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(0, 14)), peak)
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(0, 18)), idle)
+  // 10-24 周六、10-25 周日：整天都是谷时价。
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(3, 10)), idle)
+  assert.deepEqual(resolvePrice(prices, fallback, 'p', 'm', at(4, 10)), idle)
+  // 不写 peakDays 就是每天；日程写坏就退回基础价。
+  assert.deepEqual(
+    resolvePrice({ m: { ...schedule, peakDays: undefined } }, fallback, 'p', 'm', at(3, 10)),
+    peak,
+  )
+  assert.deepEqual(
+    resolvePrice({ m: { ...schedule, peakHours: [] } }, fallback, 'p', 'm', at(0, 13)),
+    peak,
+  )
+  assert.deepEqual(resolvePrice({ m: { input: 3 } }, fallback, 'p', 'm', at(0, 13)), {
+    input: 3, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0,
+  })
+})
+
+test('账本按峰谷价结算：高峰一百万缓存读 ¥0.04，谷时 ¥0.02', () => {
+  const dir = tempDir()
+  let clock = new Date(2026, 9, 21, 10, 0, 0).getTime()
+  const budget = openBudget({
+    dir,
+    config: baseConfig({
+      prices: {
+        'p/m': {
+          input: 2, cacheRead: 0.04, cacheWrite: 2, output: 8, reasoning: 0,
+          offPeak: { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4, reasoning: 0 },
+          peakHours: [[9, 12], [14, 18]],
+          peakDays: [1, 2, 3, 4, 5],
+        },
+      },
+    }),
+    now: () => clock,
+  })
+  const usage = { cacheReadTokens: 1_000_000 }
+  const peak = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  assert.equal(peak.price.cacheRead, 0.04)
+  budget.settle(peak, usage)
+  assert.equal(budget.status().spentTodayCny, 0.04)
+  assert.equal(budget.status().walletCny, 9.96)
+
+  clock = new Date(2026, 9, 21, 13, 0, 0).getTime()
+  const idle = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  assert.equal(idle.price.cacheRead, 0.02)
+  budget.settle(idle, usage)
+  assert.equal(budget.status().spentTodayCny, 0.06)
+  assert.equal(budget.status().walletCny, 9.94)
 })
 
 test('输入估算：中文一字一 token，英文 3.5 字符一 token', () => {

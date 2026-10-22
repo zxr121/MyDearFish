@@ -193,14 +193,19 @@ B 站子代理的提示词另有一段固定的外部内容规则：标题、简
 ```json
 "budget": {
   "prices": {
-    "apii/deepseek-v4-pro": { "input": 2, "cacheRead": 0.5, "cacheWrite": 2, "output": 8 }
+    "deepseek/deepseek-flash": {
+      "input": 2, "cacheRead": 0.04, "cacheWrite": 2, "output": 8,
+      "offPeak": { "input": 1, "cacheRead": 0.02, "cacheWrite": 1, "output": 4 },
+      "peakHours": [[9, 12], [14, 18]],
+      "peakDays": [1, 2, 3, 4, 5]
+    }
   },
   "defaultPrice": { "input": 4, "cacheRead": 1, "cacheWrite": 4, "output": 16 },
   "defaultMaxOutputTokens": 8192
 }
 ```
 
-查找顺序是 `provider/model` → `model` → `provider` → `defaultPrice`。价格故意取高：宁可提前停，也不要把主人的钱花超。
+查找顺序是 `provider/model` → `model` → `provider` → `defaultPrice`。基础五项是高峰价；`offPeak`、`peakHours`、`peakDays` 齐全时，按本机时钟在高峰价和谷时价之间切换。`peakDays` 用 0=周日 … 6=周六，不写就是每天；区间左闭右开。日程缺项或写坏就只按基础价算，仍然偏高而不是漏算。把路由配成官方单价后，钱包里的额度就对应真实账单；没配的路由继续用偏高的默认价。
 
 ### 余额与隐私
 
@@ -293,7 +298,7 @@ B 站子代理的提示词另有一段固定的外部内容规则：标题、简
 - `working`：短期层。`enabled` 关整层，`inject` 只关注入（仍转长期），`consolidate` 只关提炼（仍注入短期窗口）。`ttlMinutes` 1–1440、`rows` 2–60、`chars` 200–4000 决定当场想得起多少；`idleMinutes` 1–1440、`maxRows` 2–200、`minRows` 1–20 决定什么时候转长期；`maxFacts` 1–20、`maxTokens` 128–4096、`tickSeconds` 10–3600 是每次提炼的上限和检查频率。载入时会把 `minRows` 压到不超过 `maxRows`——门槛比窗口还高的话提炼永远攒不够，会静默死掉。
 - `budget.enabled`：关掉后不预留、不计量、不拦截，模型调用全部放行。只在排障时关。
 - `budget.inject`：关掉后系统提示里不再出现私密账本，她仍然受额度硬拦。
-- `budget.prices` / `budget.defaultPrice` / `budget.defaultMaxOutputTokens`：估算价格和输出上限；`dailyGrantCny` 不在这里，配置改不动每天额度。
+- `budget.prices` / `budget.defaultPrice` / `budget.defaultMaxOutputTokens`：估算价格和输出上限。价格条目可以用 `offPeak`、`peakHours`、`peakDays` 配峰谷日程；`dailyGrantCny` 不在这里，配置改不动每天额度。
 - `budget.balanceRefreshMinutes`：账户余额轮询间隔，1–1440 分钟。
 - `permissions.enabled`：关掉后只放行普通工具；DSH 目录、凭据、身份文件和本机探测命令仍然硬拒绝。除非在排障，不建议关。
 - `permissions.emergencyStop`：打开后所有工具调用立刻被拒，聊天本身还在。
@@ -367,7 +372,7 @@ mind.recentWindow({ rows: 12 })
 - 子代理会话（`origin: subagent` 或 `delegationDepth > 0`）整段跳过，避免把内部推理写进主记忆。
 - 插件注入的 `runtime-context`、`time-context` 等消息跳过，不算经历。
 - 审计只记录拒绝、审批和后台放行；用户会话的正常放行不记录，避免淹没审计。
-- 账本价格是估算；如果中转 provider 的实际单价比默认价高，仍可能花超，需要按实际价目表覆盖 `budget.prices`。
+- 账本价格是估算；没配路由或日程写坏时按偏高的默认价算。要让它对应真实账单，需要按实际价目表覆盖 `budget.prices`，峰谷计费就补 `offPeak` 和时段。
 - 预留按最坏情况算、结算按实际用量算，最后一笔调用可能把钱包略微带到负数；下一次调用会被硬拦。
 - 隐私护栏是正则和精确值匹配，不是语义级 DLP：换一种从没出现过的说法、只做推理不复述具体值，仍可能绕过；工具硬拒绝、提示词硬规则和对外失败关闭必须同时存在。
 - 注入防护同样是提示规则加正则扫描：改写、编码、翻译或只在推理里生效的注入可能漏过；固定提示、外部结果标记、危险命令名单和权限系统必须同时存在。危险命令名单是字符串匹配，故意混淆的 shell（变量拼接、远程脚本）仍可能绕过，后台会话默认连 `bash` 都不放行。
