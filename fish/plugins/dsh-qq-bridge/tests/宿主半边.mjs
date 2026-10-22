@@ -5,6 +5,7 @@
 //   3) interrupted 那轮不发；turn/end 不是 completed 不发
 //   4) 试运行开着 → 不真发（fetch 不被打）；总开关关着 → 不真发
 //   5) /state 路由能回出配置和 NapCat 探活结果
+//   6) 连发：空行/单换行拆段，一段一条；超限并回上一条不丢字
 // 跑法： node tests/宿主半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
@@ -112,6 +113,11 @@ const 块 = (type, text) => ({ type, text })
 const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('text', '第一条\n第二条'), 块('image', ''), 块('text', '第三条')] })
 报('提取正文：只收 text，reasoning/image 都不要', 正文 === '第一条\n第二条\n第三条', JSON.stringify(正文))
 报('提取正文：没有 text → 空串', 模.提取正文({ content: [块('reasoning', 'x')] }) === '')
+报('按段拆：空行分段', JSON.stringify(模.按段拆('甲\n\n乙')) === '["甲","乙"]', JSON.stringify(模.按段拆('甲\n\n乙')))
+报('按段拆：没有空行时单换行也拆', JSON.stringify(模.按段拆('甲\n乙')) === '["甲","乙"]', JSON.stringify(模.按段拆('甲\n乙')))
+报('按段拆：单行不拆、空串为空', JSON.stringify(模.按段拆('就一句')) === '["就一句"]' && JSON.stringify(模.按段拆('')) === '[]')
+报('连发段们：超限并回上一条，不悄悄丢字', JSON.stringify(模.连发段们('甲\n\n乙\n\n丙\n\n丁')) === '["甲","乙","丙\\n丁"]', JSON.stringify(模.连发段们('甲\n\n乙\n\n丙\n\n丁')))
+报('连发段们：限内原样', JSON.stringify(模.连发段们('甲\n\n乙')) === '["甲","乙"]')
 
 // ---------- 假 ctx ----------
 const 监听 = []
@@ -236,6 +242,20 @@ await new Promise((r) => setTimeout(r, 20))
 await new Promise((r) => setTimeout(r, 20))
 const 脱敏后 = 发了.at(-1)?.体.message[0].data.text || ''
 报('发 QQ 前先脱敏：余额和密钥留在本机', 脱敏后.includes('[金额已隐去]') && 脱敏后.includes('[密钥已隐去]') && !脱敏后.includes('123.45') && !脱敏后.includes('sk-'), JSON.stringify(脱敏后))
+
+// ②c 连发：空行拆段，一段一条私聊；再验单换行也拆
+const 之前c = 发了.length
+监听[0](会话, 助手消息(81, 1, [块('text', '宝宝\n\n我看看图')], false))
+监听[0](会话, 转完(81))
+await new Promise((r) => setTimeout(r, 700))
+const 连发 = 发了.slice(之前c)
+报('连发：空行拆成两条私聊', 连发.length === 2 && 连发.every((x) => x.url.endsWith('/send_private_msg')), JSON.stringify(连发.map((x) => x.体.message[0].data.text)))
+报('连发：两条各是一段', 连发.length === 2 && 连发[0].体.message[0].data.text === '宝宝' && 连发[1].体.message[0].data.text === '我看看图', JSON.stringify(连发.map((x) => x.体.message[0].data.text)))
+const 之前d = 发了.length
+监听[0](会话, 助手消息(82, 1, [块('text', '嗯嗯\n我看图')], false))
+监听[0](会话, 转完(82))
+await new Promise((r) => setTimeout(r, 700))
+报('连发：没有空行时单换行也拆', 发了.slice(之前d).length === 2, JSON.stringify(发了.slice(之前d).map((x) => x.体.message[0].data.text)))
 
 // ③ interrupted 那轮不发
 const 之前3 = 发了.length

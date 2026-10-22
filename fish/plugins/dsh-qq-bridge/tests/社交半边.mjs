@@ -619,6 +619,19 @@ await 收到回复('session-qq-social-group-1024', '在呀，怎么啦')
 const 群发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1024)
 报('主人 @ 后她的回话发回群', 群发.length === 群发之前 + 1 && 群发.at(-1).体.message[0].data.text === '在呀，怎么啦', JSON.stringify(群发.at(-1)))
 
+// ---------- 6b 连发：空行分段，一段一条发回原群；超限并回上一条 ----------
+写配置({ 群: ['1025'] })
+群消息表.set(1025, [一条群消息('连着说两句呗', { atSelf: true, id: 1702, 是主人: true })])
+const 群1025之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1025').length
+await 轮询社交()
+await 等()
+报('连发：主人 @ 照常开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1025').length === 群1025之前 + 1)
+const 群1025之前发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length
+await 收到回复('session-qq-social-group-1025', '来啦\n\n我看看\n\n你们聊什么\n\n我也想听\n\n再说点')
+await new Promise((r) => setTimeout(r, 1100))
+const 群1025发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).slice(群1025之前发)
+报('连发：五段只发三条，尾部并进最后一条', 群1025发.length === 3 && 群1025发[2].体.message[0].data.text === '你们聊什么\n我也想听\n再说点', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
+
 // ---------- 6c 图片：不单独触发，和文字一样走判断；被选中后作为 image 块进会话 ----------
 写配置({ 群: ['1016'] })
 群消息表.set(1016, [一条带图群消息(1603, { 是主人: true })])
