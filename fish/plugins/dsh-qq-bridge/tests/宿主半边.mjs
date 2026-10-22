@@ -52,6 +52,21 @@ globalThis.fetch = async (url, 选项) => {
       }),
     }
   }
+  if (u.includes('get_forward_msg')) {
+    if (体.id === 'res-ok') {
+      return {
+        json: async () => ({
+          status: 'ok', retcode: 0,
+          data: {
+            messages: [
+              { user_id: 321, sender: { nickname: '群友甲' }, message: [{ type: 'text', data: { text: '转发里的一条' } }] },
+            ],
+          },
+        }),
+      }
+    }
+    return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
+  }
   发了.push({ url: u, 体 })
   return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: 1 } }) }
 }
@@ -417,6 +432,19 @@ await 轮询回调()
 await new Promise((r) => setTimeout(r, 20))
 const 批文 = 转进的.at(-1)?.content?.[0]?.text || ''
 报('同一次轮询的多条消息合成一轮', 转进的.length === 之前批 + 1 && 批文.includes('第一句') && 批文.includes('第二句'), JSON.stringify(批文))
+
+// ⑯b 合并转发：展开内容进 DSH；拉不到也保留外层文字
+私聊消息时间 = Math.floor(Date.now() / 1000) + 1500
+私聊附加 = [
+  { user_id: 123, time: 私聊消息时间 + 1, message_id: 9401, message: [{ type: 'forward', data: { id: 'res-ok' } }] },
+  { user_id: 123, time: 私聊消息时间 + 2, message_id: 9402, message: [{ type: 'text', data: { text: '这个也看看' } }, { type: 'forward', data: { id: 'res-missing' } }] },
+]
+const 之前转发 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 转发文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('轮询：合并转发展开进 DSH', 转进的.length === 之前转发 + 1 && 转发文.includes('[转发消息 1 条]') && 转发文.includes('群友甲：转发里的一条'), JSON.stringify(转发文))
+报('轮询：转发拉不到也保留外层文字和占位', 转发文.includes('这个也看看') && 转发文.includes('[转发消息，没展开出来]'), JSON.stringify(转发文))
 私聊附加 = []
 
 // ⑰ 历史导入：四个口都在，且没打开开关 / 没鱼脑 / 没令牌时一个字节都不取

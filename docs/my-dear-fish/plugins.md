@@ -312,7 +312,7 @@ The speech plugin has two halves: a DSH host plugin that decides which turn fini
 
 ## QQ: dsh-qq-bridge
 
-The QQ bridge connects a DSH session to QQ in both directions: when DSH finishes a turn it sends the text to QQ in paragraphs; when the owner sends a QQ message the bridge polls it, delivers it into the target session, and DSH runs a normal turn. A poke is a QQ `notice` event that never enters message history, so the bridge runs a small local receiver for backend pushes. It does not need a bot account; it sends and receives through a local OneBot 11 HTTP backend such as NapCat or SnowLuma. With no target session it follows the most recently active session.
+The QQ bridge connects a DSH session to QQ in both directions: when DSH finishes a turn it sends the text to QQ in paragraphs; when the owner sends a QQ message the bridge polls it, delivers it into the target session, and DSH runs a normal turn. Forwarded chat records are expanded through one more backend call; a poke is a QQ `notice` event that never enters message history, so the bridge runs a small local receiver for backend pushes. It does not need a bot account; it sends and receives through a local OneBot 11 HTTP backend such as NapCat or SnowLuma. With no target session it follows the most recently active session.
 
 ### DSH to QQ
 
@@ -328,8 +328,18 @@ The QQ bridge connects a DSH session to QQ in both directions: when DSH finishes
 1. Every 4000 milliseconds it polls private history and group history, taking the latest 10 private messages and 30 group messages.
 2. It accepts only messages whose `user_id` equals the configured private QQ number; in a group it also recognizes only that number, and nobody else's messages enter DSH.
 3. It deduplicates by time and `message_id`; an image-only or emoji-only message is recorded too, so it is not fetched repeatedly.
-4. It keeps only text segments and joins them into one sentence; messages from the same poll become one turn, capped at 8000 characters per message and 12000 per poll, with the overflow marked as omitted, before building a user message with `source.kind = qq`.
+4. It keeps only text segments and joins them into one sentence; a `forward` segment is expanded through the backend first (see below) and then spliced into that sentence; messages from the same poll become one turn, capped at 8000 characters per message and 12000 per poll, with the overflow marked as omitted, before building a user message with `source.kind = qq`.
 5. It delivers the message through `agent.followup()` into the resolved target session; the target must be live, and an archived or missing session is abandoned (with no target it follows the most recently active session).
+
+### Forwarded messages
+
+A QQ “forwarded message / chat record” appears in OneBot history as only a `forward` segment with a resource id; the body is not inside it. After parsing a `forward` segment, the bridge calls the backend's `get_forward_msg`:
+
+1. It requests with `{ id }` and a 6-second timeout. Each returned node is parsed as an ordinary message, then rendered under `[转发消息 N 条]` with one `sender: content` line per node and appended to the original message.
+2. Expansion is bounded: at most the first 20 nodes, 160 characters per node, and 1200 characters in total; when cut off, the header says “共 N 条，只展开前 M 条”.
+3. A nested forward is left as a `[转发消息]` marker and never expanded recursively, so one forward inside another cannot flood the context.
+4. If the backend lacks `get_forward_msg`, times out, or returns a broken response, the outer message is not dropped: its own text still enters the context, with `[转发消息，没展开出来]` left where the forward was.
+5. Owner private chats, the owner bridge's group, and social groups/friends all use the same expansion; social messages are expanded before the interest judge, so forwarded content is visible to the judge too.
 
 ### Pokes
 
@@ -389,7 +399,8 @@ Social mode lets her choose which messages to watch and whether to join conversa
 
 ### Known limits
 
-- Only text is handled; images, voice, files, and quoted replies never become DSH content.
+- Text and images become DSH content; voice, files, and the quoted part of a reply never become text. Forwarded messages expand text only, and images inside a forward remain a `[图片]` placeholder and are not downloaded; anything beyond 20 nodes or 1200 characters is not expanded.
+- Forwarded messages depend on the backend's `get_forward_msg`; without it everything else works and the original message keeps a `[转发消息，没展开出来]` placeholder.
 - Owner-bridge QQ to DSH is polling rather than push, so delivery can lag by about 4 seconds and a message recalled between polls can be missed; social polling runs every 6 seconds.
 - Pokes use the separate event report and have nothing to do with polling; without the backend's HTTP report they never arrive. A poke carries no context, only who poked whom, so it says nothing about the chat before it.
 - The owner bridge recognizes only the configured QQ number in a group, so other speakers never enter the target session; social mode uses its own group/friend allowlist and independent sessions, so group chatter never enters the owner's target session.

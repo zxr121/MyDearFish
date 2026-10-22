@@ -61,6 +61,28 @@ const 图片段 = 模.解析消息段({
   message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } }],
 }, '999')
 报('消息段：图片带 url/file/summary', 图片段.文字 === '[图片]' && 图片段.图片们.length === 1 && 图片段.图片们[0].url.includes('qq.com.cn') && 图片段.图片们[0].file === 'a.jpg', JSON.stringify(图片段))
+const 转发段 = 模.解析消息段({
+  message: [{ type: 'forward', data: { id: 'res-1' } }],
+}, '999')
+报('消息段：合并转发留下 id', 转发段.文字 === '' && 转发段.转发们.length === 1 && 转发段.转发们[0].id === 'res-1', JSON.stringify(转发段))
+const 转发节点 = (名, 文本, uid = 700) => ({
+  user_id: uid,
+  sender: { nickname: 名 },
+  message: [{ type: 'text', data: { text: 文本 } }],
+})
+const 折叠 = 模.折叠转发([
+  转发节点('甲', '第一句\n第二句'),
+  转发节点('乙', '话'.repeat(300)),
+])
+报('折叠转发：一行一个说话人、压平换行、单条截断', 折叠.startsWith('[转发消息 2 条]') && 折叠.includes('甲：第一句 第二句') && 折叠.includes('乙：') && 折叠.includes('…'), JSON.stringify(折叠.slice(0, 260)))
+const 大转发 = 模.折叠转发(Array.from({ length: 30 }, (_, i) => 转发节点('人' + i, '第' + i + '条')))
+报('折叠转发：大转发只展开前 20 条', 大转发.includes('共 30 条，只展开前 20 条') && 大转发.includes('人19：第19条') && !大转发.includes('人20：'), JSON.stringify(大转发.slice(0, 200)))
+const 嵌套折叠 = 模.折叠转发([{
+  user_id: 1,
+  sender: { nickname: '甲' },
+  message: [{ type: 'forward', data: { id: 'nested' } }],
+}])
+报('折叠转发：嵌套转发只留标记、不再递归', 嵌套折叠.includes('甲：[转发消息]'), JSON.stringify(嵌套折叠))
 报('说话人：名片夹带控制字符时回退干净昵称', 模.取说话人名字('\n\n\b&ÿ\u0007Çý\n\u001d\u0012\u001b南宫问鸢⁧？喵⁧‭\u0010\u0000', '短鸢', '888') === '短鸢')
 报('说话人：名片正常时优先用名片', 模.取说话人名字(' 小鸢 ', '短鸢', '888') === '小鸢')
 报('说话人：昵称也带控制字符时去掉后再用', 模.取说话人名字('', '短\u0007鸢', '888') === '短鸢')
@@ -214,6 +236,7 @@ const 轮询社交 = 轮询回调们[1]
 // ---------- 假 fetch / 消息构造 ----------
 const 群消息表 = new Map()
 const 好友消息表 = new Map()
+const 转发表 = new Map()
 globalThis.fetch = async (url, 选项) => {
   const u = String(url)
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -227,6 +250,11 @@ globalThis.fetch = async (url, 选项) => {
   if (u.includes('get_friend_msg_history')) {
     const list = 好友消息表.get(Number(体.user_id)) || []
     return { json: async () => ({ status: 'ok', retcode: 0, data: { messages: list } }) }
+  }
+  if (u.includes('get_forward_msg')) {
+    const 内容 = 转发表.get(String(体.id))
+    if (!内容) return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
+    return { json: async () => ({ status: 'ok', retcode: 0, data: { messages: 内容 } }) }
   }
   if (u.includes('_get_group_notice')) {
     return {
@@ -316,6 +344,17 @@ const 一条带图群消息 = (id, { 是主人 = false, atSelf = false } = {}) =
   message: [
     ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
     { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[动画表情]', sub_type: 1 } },
+  ],
+})
+
+const 一条转发群消息 = (转发id, { uid = 888, id, time, 文本 = '' } = {}) => ({
+  user_id: uid,
+  time: time === undefined ? Math.floor(Date.now() / 1000) + 100 : time,
+  message_id: id === undefined ? 消息id++ : id,
+  sender: { card: `群友${uid}`, nickname: 'x' },
+  message: [
+    ...(文本 === '' ? [] : [{ type: 'text', data: { text: 文本 } }]),
+    { type: 'forward', data: { id: 转发id } },
   ],
 })
 
@@ -1054,6 +1093,25 @@ await 轮询社交()
 await 等()
 const 自指提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
 报('有人叫她名字 → 回复提示标出在说她', 自指提示.includes('[说到你]') && 自指提示.includes('大肥鱼今天好菜'), 自指提示.slice(0, 300))
+
+// ---------- 21n 合并转发：展开成一行一个说话人；拉不到也不丢外层消息 ----------
+写配置({ 群: ['1062'], 判断冷却秒: 10, 冷却秒: 10 })
+转发表.set('res-ok', [
+  { user_id: 701, sender: { nickname: '甲' }, message: [{ type: 'text', data: { text: '海边捡到一块贝壳' } }] },
+  { user_id: 702, sender: { nickname: '乙' }, message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/x.jpg', file: 'x.jpg' } }] },
+])
+群消息表.set(1062, [
+  一条转发群消息('res-ok', { id: 5401, 文本: '看看这个' }),
+  一条转发群消息('res-missing', { id: 5402, 文本: '这个也看看' }),
+])
+设判断(['5401', '5402'], true, 0.9, '转发里说到海')
+await 轮询社交()
+await 等()
+const 转发轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1062').at(-1)
+const 转发提示 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
+报('转发消息：展开进判断窗口', 转发提示.includes('[转发消息 2 条]') && 转发提示.includes('甲：海边捡到一块贝壳') && 转发提示.includes('乙：[图片]'), 转发提示.slice(0, 400))
+报('转发消息：拉不到也保留外层文字和占位', 转发提示.includes('这个也看看') && 转发提示.includes('[转发消息，没展开出来]'), 转发提示.slice(0, 400))
+报('转发消息：展开后照常开一轮', 转发轮 && String(转发轮.message.content[0].text).includes('海边捡到一块贝壳'), JSON.stringify(转发轮 && String(转发轮.message.content[0].text).slice(0, 300)))
 
 // ---------- 22 /models 与 /save 深层合并 ----------
 写配置({ 群: ['1019'], 快判: false })

@@ -102,14 +102,17 @@
   en: 4d227fa7ed35e5b6
   zh: eb4a2ca50877380b
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge:
-  en: 984e769c3287314c
-  zh: edda8c239d21ab91
+  en: 8296b48c097ec5b4
+  zh: 0584d6fb861106f7
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/dsh-to-qq:
   en: 7bc7665b911fa914
   zh: 61f561eb14f58f0f
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/qq-to-dsh:
-  en: 8db5946257e9943f
-  zh: a3957b24cdd25eec
+  en: 81dfab94863eaaf5
+  zh: e9b01fc73aaf3941
+/how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/forwarded-messages:
+  en: 6ad612211beb0878
+  zh: 26da45fde3de1ff4
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/pokes:
   en: e4e8143e319b7f8c
   zh: e29ab45b32b056e1
@@ -123,8 +126,8 @@
   en: 3819f6ab8ce69b1e
   zh: 9c708ef19d137c3a
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/known-limits:
-  en: 5b30658cf82d468d
-  zh: cbc6d5ed63dda7c0
+  en: 389b09c2376bb2d0
+  zh: 7e2d293c1084dc9e
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent:
   en: 3384b6baa62008cb
   zh: 455edcffadb839af

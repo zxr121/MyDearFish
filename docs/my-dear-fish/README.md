@@ -21,7 +21,7 @@ This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugin
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | Mood that changes per turn and settles over time. |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | Proactive conversation when nobody is talking. |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | Speech playback through the DeepSeek web voice. |
-| `dsh-qq-bridge` | 0.2.26 | `lib/host.js` | QQ messaging in both directions without a bot account, including pokes pushed by the backend; optional autonomous group interjection where she watches only what interests her and decides whether to reply, with a zero-cost fast pass once her interest profile matures. |
+| `dsh-qq-bridge` | 0.2.27 | `lib/host.js` | QQ messaging in both directions without a bot account, including expanded forwarded chat records and pokes pushed by the backend; optional autonomous group interjection where she watches only what interests her and decides whether to reply, with a zero-cost fast pass once her interest profile matures. |
 | `dsh-bili-subagent` | 0.2.3 | `index.js` | Bilibili browsing through a delegated subagent. |
 
 See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points; see the [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md) for the experience stream and permissions.
