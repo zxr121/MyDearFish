@@ -1,6 +1,6 @@
 {
   "name": "dsh-qq-bridge",
-  "version": "0.2.34",
+  "version": "0.2.35",
   "description": "通到 QQ：DSH 里的 AI 伙伴和 QQ 双向互通 —— 它说完话自动发到 QQ，你在 QQ 里说的话自动转进 DSH。走 OneBot 11 HTTP（SnowLuma / NapCat 都行）。",
   "license": "MIT",
   "type": "module",
