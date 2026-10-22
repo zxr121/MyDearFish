@@ -328,6 +328,28 @@ export function 在静音时段(静音, 当刻 = new Date()) {
   return 起 < 止 ? 现在 >= 起 && 现在 < 止 : 现在 >= 起 || 现在 < 止
 }
 
+// SnowLuma 实测会把乱码塞进 sender.card（\b、\u0007、bidi 标记等）。
+// 名片里只要出现控制字符就整张作废，否则这些字节会长期留在提示、会话和记忆里。
+const 名字坏字符 = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufffd]/
+const 名字坏字符全 = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufffd]/g
+
+/**
+ * 从 OneBot 的 sender 里取一个能进上下文的名字：名片干净就用名片，
+ * 否则回退昵称（去掉控制字符），再回退 QQ 号，最后才是“某人”。
+ * @param {unknown} 名片 - sender.card。
+ * @param {unknown} 昵称 - sender.nickname。
+ * @param {unknown} 号码 - 兜底的 QQ 号。
+ * @returns {string} 最长 32 个字符的干净名字。
+ */
+export function 取说话人名字(名片, 昵称, 号码) {
+  const 名片文本 = String(名片 === undefined || 名片 === null ? '' : 名片).trim()
+  if (名片文本 !== '' && !名字坏字符.test(名片文本)) return 名片文本.slice(0, 32)
+  const 昵称文本 = String(昵称 === undefined || 昵称 === null ? '' : 昵称).replace(名字坏字符全, '').trim()
+  if (昵称文本 !== '') return 昵称文本.slice(0, 32)
+  const 号码文本 = String(号码 === undefined || 号码 === null ? '' : 号码).trim()
+  return (号码文本 === '' ? '某人' : 号码文本).slice(0, 32)
+}
+
 /**
  * 把 OneBot 的消息段拆成“给人看的一句话 + 有没有叫到她”。
  * @param {object} 条 - history 接口返回的一条消息。
@@ -1536,6 +1558,15 @@ export function apply(ctx) {
         记账(`社交场景提示挂不上（${目标.叫}）：${String((error && error.message) || error)}`)
       }
       try {
+        // 社交会话对群友内容只读：继承来的工具全部隐藏，模型看不到 schema。
+        if (agentCtx.tools && typeof agentCtx.tools.restrict === 'function') {
+          agentCtx.tools.restrict({ allow: [] })
+        }
+      } catch (error) {
+        记账(`社交会话工具限制挂不上（${目标.叫}）：${String((error && error.message) || error)}`)
+      }
+      try {
+        // 兜住隐藏失效或旧会话里漏进来的调用。
         if (agentCtx.tools && typeof agentCtx.tools.guard === 'function') {
           agentCtx.tools.guard(() => 'QQ 群聊/好友会话里不调用工具。')
         }
@@ -2002,7 +2033,7 @@ export function apply(ctx) {
       游标 = Math.max(游标, at)
       const 段 = 解析消息段(条, 自己.号)
       if (段.文字 === '') continue
-      const 说话人 = String((条.sender && (条.sender.card || 条.sender.nickname)) || uid || '某人').slice(0, 32)
+      const 说话人 = 取说话人名字(条.sender && 条.sender.card, 条.sender && 条.sender.nickname, uid)
       const 主人 = 主人号 !== '' && uid === 主人号
       // 主人桥正在转发这个群时，这条主人消息由主人桥处理，社交桥不再重复看/回。
       const 主人走主路 = 主人 && 配置.转群 && String(配置.群号) === String(目标.号)

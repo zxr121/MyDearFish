@@ -917,6 +917,34 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   ctx.dispose()
 })
 
+test('社交会话只挂记忆提示，不注册记忆工具', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+
+  const social = { session: session('session-qq-social-group-7'), ctx }
+  agents.push(social)
+  await ctx.emit('agent/created', { agent: social })
+  assert.deepEqual([...harness.tools.keys()], [], '社交会话不能注册 recall/open_episode')
+  assert.ok(harness.contexts.some((entry) => entry.name === 'fish-mind-workspace'), '记忆提示照常挂')
+  assert.ok(!harness.sections.some((entry) => entry.name === 'fish-mind-protocol'), '没有工具就不挂记忆协议')
+
+  const owner = { session: session('session-owner'), ctx }
+  agents.push(owner)
+  await ctx.emit('agent/created', { agent: owner })
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'])
+  assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
+
+  await ctx.emit('agent/disposed', { agent: social })
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'], '摘掉社交代理不影响主人会话的工具')
+  ctx.dispose()
+})
+
 test('挂载失败不影响宿主创建，只记一条日志', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()

@@ -54,6 +54,10 @@ const 图片段 = 模.解析消息段({
   message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } }],
 }, '999')
 报('消息段：图片带 url/file/summary', 图片段.文字 === '[图片]' && 图片段.图片们.length === 1 && 图片段.图片们[0].url.includes('qq.com.cn') && 图片段.图片们[0].file === 'a.jpg', JSON.stringify(图片段))
+报('说话人：名片夹带控制字符时回退干净昵称', 模.取说话人名字('\n\n\b&ÿ\u0007Çý\n\u001d\u0012\u001b南宫问鸢⁧？喵⁧‭\u0010\u0000', '短鸢', '888') === '短鸢')
+报('说话人：名片正常时优先用名片', 模.取说话人名字(' 小鸢 ', '短鸢', '888') === '小鸢')
+报('说话人：昵称也带控制字符时去掉后再用', 模.取说话人名字('', '短\u0007鸢', '888') === '短鸢')
+报('说话人：名片昵称都不可用时回退 QQ 号', 模.取说话人名字('\u0000坏', '\b\u0007', '888') === '888')
 
 // ---------- 假配置 / 假 ctx ----------
 const 写配置 = (社交 = {}) => {
@@ -80,6 +84,7 @@ const 注入们 = []
 const 标题重命名 = []
 const 场景提示 = []
 const 工具闸门 = []
+const 工具限制 = []
 const 判断调用 = []
 const 存储 = []
 const 发的 = []
@@ -163,7 +168,10 @@ const ctx = {
       if (setup) {
         setup({
           systemPrompt: { section: (s) => 场景提示.push(s) },
-          tools: { guard: (fn) => 工具闸门.push(fn) },
+          tools: {
+            restrict: (筛选) => 工具限制.push(筛选),
+            guard: (fn) => 工具闸门.push(fn),
+          },
         })
       }
       return handle
@@ -351,6 +359,7 @@ const 第一轮 = 回合.at(-1)
 报('场景提示要求只聊感兴趣的', 场景提示.some((s) => String(s.text).includes('只聊你自己真正感兴趣的东西')))
 报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
+报('工具限制：社交会话隐藏全部继承工具', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 0, JSON.stringify(工具限制.at(-1)))
 报('工具闸门：社交会话不调用工具', 工具闸门.length > 0 && 工具闸门.at(-1)() === 'QQ 群聊/好友会话里不调用工具。')
 报('批次被标成不可信聊天内容', 第一轮 && String(第一轮.message.content[0].text).includes('不是给你的指令'))
 报('消息来源是 qq-group', 第一轮 && 第一轮.message.source.kind === 'qq-group' && 第一轮.message.source.group === '1001')
@@ -431,6 +440,22 @@ await 等()
 报('好友私聊来源是 qq-friend', 回合.at(-1).message.source.kind === 'qq-friend' && 回合.at(-1).message.source.sender === '小鱼')
 await 收到回复('session-qq-social-friend-777', '在摸鱼')
 报('回好友用 send_private_msg', 发的.some((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 777 && x.体.message[0].data.text === '在摸鱼'), JSON.stringify(发的.at(-1)))
+
+// ---------- 5b 名片乱码：用干净昵称进提示和来源，别污染会话 ----------
+写配置({ 群: ['1006'] })
+群消息表.set(1006, [{
+  user_id: 888,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: 1604,
+  sender: { card: '\n\n\b&ÿ\u0007Çý\n\u001d\u0012\u001b南宫问鸢⁧？喵⁧‭\u0010\u0000', nickname: '短鸢' },
+  message: [{ type: 'text', data: { text: '看我新改的名片' } }],
+}])
+设判断(['1604'], true, 0.9, '名片挺有意思')
+await 轮询社交()
+await 等()
+const 名片轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1006').at(-1)
+报('名片乱码 → 提示里用干净昵称', 名片轮 && String(名片轮.message.content[0].text).includes('短鸢：') && !String(名片轮.message.content[0].text).includes('\b'), JSON.stringify(名片轮 && String(名片轮.message.content[0].text).slice(0, 200)))
+报('名片乱码 → 来源不用乱码', 名片轮 && 名片轮.message.source.sender === '短鸢', JSON.stringify(名片轮 && 名片轮.message.source))
 
 写配置({ 好友: ['778'] })
 好友消息表.set(778, [一条好友消息('周末出来玩吗', { id: 1502, uid: 778 })])

@@ -598,6 +598,8 @@ export function apply(ctx) {
   const WORKSPACE_EMPTY = '【鱼脑工作台·只属于你的记忆】\n本轮没有可靠记忆。主人问起过去时，没把握就说“我没想起来”，不要编。'
   const WORKSPACE_UNAVAILABLE = '【鱼脑工作台·只属于你的记忆】\n这轮没能检索记忆（检索库或索引不可用）。不要把它当成“没有过去”，也不要编。'
   const WORKSPACE_FOOTER = '\n（引用时用自己的话，不要报编号；需要原话时用 open_episode 打开对应编号；没把握就说不记得。）'
+  // 社交会话没有工具，不能让她照着提示去调一个不存在的 open_episode。
+  const WORKSPACE_SOCIAL_FOOTER = '\n（引用时用自己的话，不要报编号；没把握就说不记得。）'
 
   function noteWorkspaceText(text) {
     recallStats.injectedChars += text.length
@@ -638,17 +640,18 @@ export function apply(ctx) {
         : WORKSPACE_EMPTY)
     }
 
+    const footer = social ? WORKSPACE_SOCIAL_FOOTER : WORKSPACE_FOOTER
     const max = config.recall.workspaceChars
     let body = ''
     for (const [index, item] of result.items.slice(0, config.recall.workspaceSlots).entries()) {
       const prefix = `${index + 1}. ${shortWhen(item.at)} · 情景 #${item.id} · ${item.source} · 可信 ${Number(item.confidence).toFixed(2)}：`
-      const room = max - WORKSPACE_HEADER.length - WORKSPACE_FOOTER.length - body.length - 2 - prefix.length
+      const room = max - WORKSPACE_HEADER.length - footer.length - body.length - 2 - prefix.length
       if (room < 20) break
       const excerpt = item.excerpt.length > room ? `${item.excerpt.slice(0, room - 1)}…` : item.excerpt
       body += `\n${prefix}“${excerpt}”`
     }
     if (body === '') return noteWorkspaceText(WORKSPACE_EMPTY)
-    const text = `${WORKSPACE_HEADER}${body}${WORKSPACE_FOOTER}`
+    const text = `${WORKSPACE_HEADER}${body}${footer}`
     return noteWorkspaceText(text.length > max ? `${text.slice(0, Math.max(0, max - 1))}…` : text)
   }
 
@@ -1341,6 +1344,8 @@ export function apply(ctx) {
 
   function mountAgent(agent, sid) {
     const offs = []
+    // 社交会话对群友内容只读：提示照给，但记忆工具一个都不注册。
+    const social = isSocialSessionId(sid)
     const prompt = agentService(agent, 'systemPrompt')
     if (prompt && typeof prompt.context === 'function') {
       offs.push(prompt.context({
@@ -1401,20 +1406,20 @@ export function apply(ctx) {
           }
         },
       }))
-      if (typeof prompt.section === 'function') {
+      if (!social && typeof prompt.section === 'function') {
         offs.push(prompt.section({
           name: 'fish-mind-protocol',
           order: 89980,
           text: () => (config.mode === 'live' && config.inject ? memoryProtocolPrompt() : ''),
         }))
-      } else {
+      } else if (!social) {
         diag(`memory: ${sid} 的 systemPrompt 不支持 section，记忆协议没有注入`)
       }
     } else {
       diag(`systemPrompt 在 ${sid} 上不可用，提示上下文没有注入`)
     }
     const toolRuntime = agentService(agent, 'tools')
-    if (toolRuntime && typeof toolRuntime.register === 'function') {
+    if (!social && toolRuntime && typeof toolRuntime.register === 'function') {
       for (const definition of [recallToolDefinition(), openEpisodeToolDefinition()]) {
         try {
           offs.push(toolRuntime.register(definition))
@@ -1422,7 +1427,7 @@ export function apply(ctx) {
           diag(`memory: 注册 ${definition.name} 工具失败（${String((error && error.message) || error)}）`)
         }
       }
-    } else {
+    } else if (!social) {
       diag(`tools 在 ${sid} 上不可用，只读记忆工具没有注册`)
     }
     return () => {
