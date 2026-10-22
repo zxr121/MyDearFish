@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import type { DesktopRelease } from '../src/release.ts'
-import { developmentRuntimeDirectory, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
+import { developmentRuntimeDirectory, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { prepareDevelopmentProject } from './development-project.ts'
 import { prepareDevelopmentApp } from './development-app.ts'
 import { preparePrimaryRuntime } from './prepare-primary-runtime.ts'
@@ -72,8 +72,8 @@ async function launchElectron(): Promise<void> {
     DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '1',
     ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
-    ELECTRON_USER_DATA_DIR: userData,
   }
+  delete environment.ELECTRON_RUN_AS_NODE
   console.log(`desktop development: DSH_HOME=${home}`)
   console.log(`desktop development: userData=${userData}`)
   console.log(`desktop development: inspectors main=${String(mainPort)}, renderer=${String(rendererPort)}, host=${String(hostPort)}`)
@@ -85,6 +85,8 @@ async function launchElectron(): Promise<void> {
   }
   await run(electron, [
     `--inspect=127.0.0.1:${String(mainPort)}`,
+    '--disable-gpu',
+    '--disable-software-rasterizer',
     APP_ROOT,
   ], APP_ROOT, environment)
 }
@@ -119,7 +121,10 @@ async function main(): Promise<void> {
     release,
     target: resolveDesktopBuildTarget(),
   })
-  await preparePrimaryRuntime()
+  const runtimeManifest = join(resolveDesktopTargetBuildPaths().runtime, 'primary-runtime', 'runtime.json')
+  if (!existsSync(runtimeManifest)) {
+    await preparePrimaryRuntime()
+  }
   await launchElectron()
 }
 
