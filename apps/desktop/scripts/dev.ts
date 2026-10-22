@@ -72,6 +72,7 @@ async function launchElectron(): Promise<void> {
     DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '1',
     ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
+    ELECTRON_USER_DATA_DIR: userData,
   }
   console.log(`desktop development: DSH_HOME=${home}`)
   console.log(`desktop development: userData=${userData}`)
@@ -84,8 +85,6 @@ async function launchElectron(): Promise<void> {
   }
   await run(electron, [
     `--inspect=127.0.0.1:${String(mainPort)}`,
-    `--remote-debugging-port=${String(rendererPort)}`,
-    `--user-data-dir=${userData}`,
     APP_ROOT,
   ], APP_ROOT, environment)
 }
