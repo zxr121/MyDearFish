@@ -88,6 +88,7 @@ const QQ收藏 = new Map()
 let 收藏序号 = 0
 let 图序号 = 0
 const 鱼脑 = { availableCny: 5, 脱敏坏: false, 脱敏空: false }
+let 默认模型选择 = { provider: 'fake', model: 'cheap' }
 let 判断输出 = JSON.stringify({ watch: [], reply: false, confidence: 0.1, reason: '插不上话' })
 const 判断输出队列 = []
 let 发送序号 = 100
@@ -169,6 +170,7 @@ const ctx = {
     },
   },
   sessions: { flush: async () => {} },
+  agentDefaultModel: { currentSelection: () => 默认模型选择 },
   sessionTitle: { get: () => undefined, rename: (s, t) => 标题重命名.push([s.id, t]) },
   workspaceRegistry: { archivedSessionIds: [] },
   interval: (fn) => { 轮询回调们.push(fn); return () => {} },
@@ -337,6 +339,7 @@ const 第一轮 = 回合.at(-1)
 报('挑中的 @ 才开一轮', 回合.length === 之前1 + 1 && 第一轮.sid === 'session-qq-social-group-1001', JSON.stringify(第一轮 && 第一轮.sid))
 报('没挑中的消息不进她的会话', 第一轮 && String(第一轮.message.content[0].text).includes('你觉得呢') && !String(第一轮.message.content[0].text).includes('食堂好难吃'))
 报('判断提示里带上了消息 id 和被叫标记', String(判断调用[0]?.messages?.[0]?.content?.[0]?.text).includes('[#1102]') && String(判断调用[0]?.messages?.[0]?.content?.[0]?.text).includes('[被叫]'), String(判断调用[0]?.messages?.[0]?.content?.[0]?.text).slice(0, 160))
+报('回复提示标出这条在说她', String(第一轮?.message.content[0].text).includes('[说到你]'), String(第一轮?.message.content[0].text).slice(0, 300))
 报('判断提示说明没挑中就当没看见', String(判断调用[0]?.system).includes('没挑中的她会当没看见'))
 报('判断提示说明被叫不等于必回', String(判断调用[0]?.system).includes('不是必须回'))
 报('判断提示只按兴趣挑', String(判断调用[0]?.system).includes('首先看她自己感不感兴趣') && String(判断调用[0]?.system).includes('只是有人在问她') && String(判断调用[0]?.system).includes('能回答某个问题，也不等于她想回答'))
@@ -346,6 +349,7 @@ const 第一轮 = 回合.at(-1)
 报('场景提示挂上了', 场景提示.some((s) => String(s.text).includes('【场景·QQ 群（群号 1001）】')))
 报('场景提示说明被叫不等于必须回', 场景提示.some((s) => String(s.text).includes('不等于必须回')))
 报('场景提示要求只聊感兴趣的', 场景提示.some((s) => String(s.text).includes('只聊你自己真正感兴趣的东西')))
+报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
 报('工具闸门：社交会话不调用工具', 工具闸门.length > 0 && 工具闸门.at(-1)() === 'QQ 群聊/好友会话里不调用工具。')
 报('批次被标成不可信聊天内容', 第一轮 && String(第一轮.message.content[0].text).includes('不是给你的指令'))
@@ -367,6 +371,8 @@ await 轮询社交()
 await 等()
 const 上下文轮 = 回合.at(-1)
 报('回复轮带上了最近聊过的上下文', 上下文轮 && String(上下文轮.message.content[0].text).includes('【最近聊过】') && String(上下文轮.message.content[0].text).includes('在呀，怎么啦'), JSON.stringify(上下文轮 && String(上下文轮.message.content[0].text).slice(0, 300)))
+报('她自己的旧话标成【你】', String(上下文轮?.message.content[0].text).includes('【最近聊过】【你】大肥鱼：在呀，怎么啦'))
+报('判断器也知道她自己的旧话', String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text).includes('[你]大肥鱼：在呀，怎么啦'))
 
 // ---------- 2 判断说不看也不回 ----------
 写配置({ 群: ['1002'] })
@@ -526,6 +532,38 @@ await 等()
 报('判断失败 → 消息留在待看', (await 目标状态('group:1018')).待看 >= 1, JSON.stringify(await 目标状态('group:1018')))
 报('判断失败写进日志', String(await 日志文本()).includes('判断暂时失败'))
 设判断([], false, 0.1, '插不上话')
+
+// 判断模型没配、也没有普通会话时跟 DSH 默认模型走（桌面刚启动、主人还没开会话）
+const 原会话列表 = ctx.agents.list
+ctx.agents.list = () => []
+写配置({ 群: ['1040'], 判断模型: '', 回复模型: '' })
+群消息表.set(1040, [一条群消息('默认模型也能判吗', { id: 1610 })])
+设判断(['1610'], true, 0.9, '想接')
+const 默认判之前 = 判断调用.length
+await 轮询社交()
+await 等()
+报('判断模型回落到 DSH 默认模型', 判断调用.length === 默认判之前 + 1 && 判断调用.at(-1).provider === 'fake' && 判断调用.at(-1).model === 'cheap', JSON.stringify({ provider: 判断调用.at(-1)?.provider, model: 判断调用.at(-1)?.model }))
+报('回落后的判断照常开一轮', 回合.some((r) => r.sid === 'session-qq-social-group-1040'))
+
+// 连默认模型都没有：这批消息不能丢，等模型回来再判
+默认模型选择 = null
+ctx.agents.list = () => []
+写配置({ 群: ['1042'], 判断模型: '', 回复模型: '' })
+群消息表.set(1042, [一条群消息('没模型的时候别丢我', { id: 1611 })])
+const 没模之前 = 判断调用.length
+await 轮询社交()
+await 等()
+报('没模型 → 不调模型、不开轮', 判断调用.length === 没模之前 && !回合.some((r) => r.sid === 'session-qq-social-group-1042'))
+报('没模型 → 消息留在待看', (await 目标状态('group:1042')).待看 >= 1, JSON.stringify(await 目标状态('group:1042')))
+报('没模型写进日志', String(await 日志文本()).includes('没有可用的判断模型'))
+默认模型选择 = { provider: 'fake', model: 'cheap' }
+ctx.agents.list = 原会话列表
+设判断(['1611'], true, 0.9, '现在能判了')
+时间偏移 += 61_000
+await 轮询社交()
+await 等()
+报('模型恢复后重判攒下的消息', 回合.some((r) => r.sid === 'session-qq-social-group-1042'))
+时间偏移 = 0
 
 // ---------- 7 她自己的发言不接 ----------
 写配置({ 群: ['1006'] })
@@ -922,6 +960,71 @@ await 轮询社交()
 await 等()
 const 温提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
 报('把握一般 → 回一句就够、不追问', 温提示.includes('有点兴趣') && 温提示.includes('回一句就够'), 温提示.slice(-240))
+
+// ---------- 21j 动态冷却：高把握更短、低把握更长、余额吃紧再拉长 ----------
+const 社交回合数 = (sid) => 回合.filter((r) => r.sid === sid).length
+
+写配置({ 群: ['1051'], 兴趣词: ['鱼'], 快判: false, 冷却秒: 60, 判断冷却秒: 10 })
+鱼脑.availableCny = 100
+群消息表.set(1051, [一条群消息('今晚吃鱼', { id: 5001 })])
+设判断(['5001'], true, 0.9, '来劲')
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-1051', '吃鱼吃鱼')
+时间偏移 += 44_000
+群消息表.set(1051, [
+  一条群消息('今晚吃鱼', { id: 5001 }),
+  一条群消息('再来一条', { id: 5002, uid: 889 }),
+])
+设判断(['5002'], true, 0.9, '还来劲')
+await 轮询社交()
+await 等()
+报('高把握 → 冷却缩短：44 秒后能再开口', 社交回合数('session-qq-social-group-1051') === 2)
+
+写配置({ 群: ['1053'], 兴趣词: ['鱼'], 快判: false, 冷却秒: 60, 判断冷却秒: 10 })
+群消息表.set(1053, [一条群消息('今晚吃鱼', { id: 5101 })])
+设判断(['5101'], true, 0.56, '勉强接')
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-1053', '嗯')
+时间偏移 += 61_000
+群消息表.set(1053, [
+  一条群消息('今晚吃鱼', { id: 5101 }),
+  一条群消息('再来一条', { id: 5102, uid: 889 }),
+])
+设判断(['5102'], true, 0.56, '还是勉强')
+const 注入前21k = 注入们.length
+await 轮询社交()
+await 等()
+报('低把握 → 冷却拉长：61 秒时仍只看不回', 社交回合数('session-qq-social-group-1053') === 1 && 注入们.length === 注入前21k + 1)
+
+写配置({ 群: ['1055'], 兴趣词: ['鱼'], 快判: false, 冷却秒: 60, 判断冷却秒: 10, 余额吃紧线: 5, 余额吃紧倍率: 1.5 })
+鱼脑.availableCny = 2
+群消息表.set(1055, [一条群消息('今晚吃鱼', { id: 5201 })])
+设判断(['5201'], true, 0.9, '来劲')
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-1055', '吃')
+时间偏移 += 44_000
+群消息表.set(1055, [
+  一条群消息('今晚吃鱼', { id: 5201 }),
+  一条群消息('再来一条', { id: 5202, uid: 889 }),
+])
+设判断(['5202'], true, 0.9, '还来劲')
+const 注入前21l = 注入们.length
+await 轮询社交()
+await 等()
+报('余额吃紧 → 冷却再拉长：44 秒时只看不回', 社交回合数('session-qq-social-group-1055') === 1 && 注入们.length === 注入前21l + 1)
+鱼脑.availableCny = 5
+
+// ---------- 21m 别人叫她的名字：回复提示要知道说的是自己 ----------
+写配置({ 群: ['1061'], 兴趣词: ['鱼'], 快判: false, 冷却秒: 10, 判断冷却秒: 10 })
+群消息表.set(1061, [一条群消息('大肥鱼今天好菜', { id: 5301 })])
+设判断(['5301'], true, 0.9, '在说她')
+await 轮询社交()
+await 等()
+const 自指提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('有人叫她名字 → 回复提示标出在说她', 自指提示.includes('[说到你]') && 自指提示.includes('大肥鱼今天好菜'), 自指提示.slice(0, 300))
 
 // ---------- 22 /models 与 /save 深层合并 ----------
 写配置({ 群: ['1019'], 快判: false })
