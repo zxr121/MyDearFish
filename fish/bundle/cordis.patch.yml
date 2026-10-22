@@ -79,21 +79,21 @@
 - insert:
     # 鱼脑：影子经历流 + Capability Broker。第一个挂，后面的插件都能用它的服务。
     - id: fish-mind
-      name: fish-mind
+      name: dsh-fish-mind
 
     - id: mood
-      name: feiyu-mood
+      name: dsh-feiyu-mood
 
     - id: speak-up
-      name: speak-up
+      name: dsh-speak-up
 
     - id: tts-bridge
-      name: tts-bridge
+      name: dsh-tts-bridge
 
     - id: qq-bridge
-      name: qq-bridge
+      name: dsh-qq-bridge
 
     - id: bili-scroll
-      name: bili-scroll
+      name: dsh-bili-subagent
       config:
         enabled: true
