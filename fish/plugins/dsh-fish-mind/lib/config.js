@@ -116,6 +116,11 @@ export function buildDefaults(dshHome) {
       inject: true,
       cueThreshold: 0.3,
     },
+    // 幽默层：只在轻松、没有正事和情绪负担的轮次给具体接话动作；
+    // 群聊/好友只在对方先开玩笑时给收敛版。
+    humor: {
+      inject: true,
+    },
     // 每天 ¥10 写死在 budget.js 的出生额度里，这里不提供修改项。
     budget: {
       enabled: true,
@@ -282,6 +287,12 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     config.innerLife.cueThreshold = pickFraction(inner.cueThreshold, config.innerLife.cueThreshold, 0, 1)
   } else if (raw.innerLife !== undefined) {
     diag('config: innerLife 不是对象，使用默认值')
+  }
+
+  if (isPlainObject(raw.humor)) {
+    config.humor.inject = pickBoolean(raw.humor.inject, config.humor.inject)
+  } else if (raw.humor !== undefined) {
+    diag('config: humor 不是对象，使用默认值')
   }
 
   if (isPlainObject(raw.budget)) {

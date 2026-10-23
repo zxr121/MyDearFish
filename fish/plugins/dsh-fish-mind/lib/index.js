@@ -23,6 +23,7 @@ import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, reset
 import { localDay, openBudget } from './budget.js'
 import { loadConfig } from './config.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
+import { humorPrompt } from './humor.js'
 import { buildOverview } from './overview.js'
 import { createBroker } from './permissions.js'
 import { createPrivacyGuard } from './privacy.js'
@@ -1535,6 +1536,20 @@ export function apply(ctx) {
             return innerPrompt(innerLife.urge())
           } catch (error) {
             diag(`inner: 组装内心提示失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-humor',
+        order: 909,
+        text: (assembly) => {
+          try {
+            if (config.mode !== 'live' || !config.inject || !config.humor?.inject) return ''
+            const { last, social: roomSocial } = workspaceSession(assembly)
+            return humorPrompt({ text: last && last.text, social: roomSocial })
+          } catch (error) {
+            diag(`humor: 组装幽默提示失败（${String((error && error.message) || error)}）`)
             return ''
           }
         },

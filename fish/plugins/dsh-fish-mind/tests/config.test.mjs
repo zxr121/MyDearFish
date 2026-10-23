@@ -17,6 +17,8 @@ test('默认配置是影子模式，权限开着，后台自主关着', () => {
   assert.equal(config.permissions.enabled, true)
   assert.equal(config.permissions.emergencyStop, false)
   assert.equal(config.permissions.autonomous.enabled, false)
+  assert.equal(config.innerLife.inject, true)
+  assert.equal(config.humor.inject, true)
   assert.ok(config.permissions.protectedReadPaths.includes('~/.ssh'))
   assert.ok(config.permissions.protectedReadPaths.some((path) => path.includes('.credentials.yaml')))
 })
@@ -67,6 +69,13 @@ test('不合法的字段逐个退回，不影响其它字段', () => {
   assert.equal(config.permissions.emergencyStop, true)
   assert.ok(config.permissions.protectedReadPaths.length > 0)
   assert.deepEqual(config.permissions.autonomous.allowTools, ['recall'])
+})
+
+test('幽默层可以单独关掉，坏值退回默认', () => {
+  const home = tempHome()
+  assert.equal(normalizeConfig({ humor: { inject: false } }, { dshHome: home }).humor.inject, false)
+  assert.equal(normalizeConfig({ humor: { inject: 'no' } }, { dshHome: home }).humor.inject, true)
+  assert.equal(normalizeConfig({ humor: [] }, { dshHome: home }).humor.inject, true)
 })
 
 test('外部 MCP 只读白名单：默认只认读类动作，配置里的首尾空格去掉', () => {

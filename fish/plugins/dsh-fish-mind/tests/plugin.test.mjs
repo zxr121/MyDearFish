@@ -878,6 +878,51 @@ test('卸载时收摊，不留下服务', () => {
   assert.equal(ctx.get('fishMind'), undefined)
 })
 
+test('幽默提示按轮次和气场合上，群聊只在对方先笑时轻接', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+
+  const owner = { session: session('session-owner'), ctx }
+  agents.push(owner)
+  await ctx.emit('agent/created', { agent: owner })
+  const humor = harness.contexts.find((entry) => entry.name === 'fish-mind-humor')
+  assert.ok(humor)
+  assert.equal(humor.order, 909)
+  const ownerAssembly = { agent: { session: session('session-owner') } }
+  assert.equal(humor.text(ownerAssembly), '', '还没有用户消息时不注入')
+
+  await ctx.emit('session/event', session('session-owner'), messageEvent('user/message', '今天楼下的猫又蹲在门口'))
+  assert.ok(humor.text(ownerAssembly).includes('把话接歪一点'))
+
+  await ctx.emit('session/event', session('session-owner'), messageEvent('user/message', '我奶奶住院了', { seq: 2 }))
+  assert.equal(humor.text(ownerAssembly), '', '生病住院时不教她开玩笑')
+
+  await ctx.emit('session/event', session('session-owner'), messageEvent('user/message', '今天走了两万步，笑死', { seq: 3 }))
+  assert.ok(humor.text(ownerAssembly).includes('对方这句是松的'))
+
+  const socialId = 'session-qq-social-group-7'
+  const social = { session: session(socialId), ctx }
+  agents.push(social)
+  await ctx.emit('agent/created', { agent: social })
+  const socialAssembly = { agent: { session: session(socialId) } }
+  await ctx.emit('session/event', session(socialId), messageEvent('user/message', '今天吃什么', { seq: 4, source: { kind: 'qq-group' } }))
+  assert.equal(humor.text(socialAssembly), '', '屋里没开玩笑就不教她开玩笑')
+  await ctx.emit('session/event', session(socialId), messageEvent('user/message', '这也太离谱了吧哈哈哈', { seq: 5, source: { kind: 'qq-group' } }))
+  assert.ok(humor.text(socialAssembly).includes('先跟着屋里的气氛'))
+
+  writeConfig(home, { mode: 'live', inject: true, humor: { inject: false } })
+  mind.reload()
+  assert.equal(humor.text(ownerAssembly), '', 'humor.inject=false 时整段关掉')
+  ctx.dispose()
+})
+
 test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async () => {
   const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   process.env.DSH_HOME = home
@@ -895,7 +940,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   await ctx.emit('agent/created', { agent })
   assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'])
   const names = harness.contexts.map((entry) => entry.name)
-  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy']) {
+  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor']) {
     assert.ok(names.includes(name), name)
   }
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
