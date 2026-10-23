@@ -101,6 +101,29 @@ window.__ModuleLoader__.load({
 [data-fishm-track]{flex:1;height:6px;border-radius:999px;background:rgba(127,127,127,.16);overflow:hidden;}
 [data-fishm-fill]{height:100%;border-radius:999px;background:rgba(80,150,255,.55);}
 [data-fishm-barval]{width:30px;text-align:right;opacity:.7;}
+[data-fishwd-mask]{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px;}
+[data-fishwd-card]{background:var(--bg-secondary,#1e1e1e);border:1px solid rgba(127,127,127,.2);border-radius:14px;max-width:540px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.35);}
+[data-fishwd-head]{padding:20px 22px 14px;display:flex;align-items:center;justify-content:space-between;}
+[data-fishwd-title]{font-size:18px;font-weight:600;}
+[data-fishwd-body]{padding:0 22px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;}
+[data-fishwd-intro]{font-size:13px;line-height:1.7;opacity:.85;}
+[data-fishwd-sec]{border:1px solid rgba(127,127,127,.15);border-radius:9px;overflow:hidden;}
+[data-fishwd-secsum]{padding:10px 13px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;background:rgba(127,127,127,.05);user-select:none;}
+[data-fishwd-secsum]:hover{background:rgba(127,127,127,.1);}
+[data-fishwd-secarr]{font-size:10px;opacity:.5;transition:transform .15s;}
+[data-fishwd-secarr="open"]{transform:rotate(90deg);}
+[data-fishwd-secbody]{padding:10px 13px;font-size:12px;line-height:1.7;opacity:.82;border-top:1px solid rgba(127,127,127,.1);}
+[data-fishwd-secbody ul]{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;}
+[data-fishwd-foot]{padding:12px 22px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid rgba(127,127,127,.12);}
+[data-fishwd-dnr]{display:flex;align-items:center;gap:7px;font-size:12px;opacity:.7;cursor:pointer;user-select:none;}
+[data-fishwd-dnr] input{accent-color:#5096ff;}
+[data-fishwd-ok]{padding:7px 18px;border-radius:8px;border:none;background:rgba(80,150,255,.8);color:#fff;font-size:13px;cursor:pointer;font-weight:500;}
+[data-fishwd-ok]:hover{background:rgba(80,150,255,.95);}
+[data-fishap-wrap]{display:flex;flex-direction:column;gap:14px;padding:4px 2px 32px;}
+[data-fishap-hero]{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;background:rgba(127,127,127,.08);}
+[data-fishap-icon]{font-size:32px;line-height:1;}
+[data-fishap-name]{font-size:18px;font-weight:600;}
+[data-fishap-sub]{font-size:12px;opacity:.6;margin-top:4px;line-height:1.5;}
 `
 
     function Section({ title, note, children }) {
@@ -617,6 +640,129 @@ window.__ModuleLoader__.load({
         msg ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null)
     }
 
+    const FISH_INTRO = [
+      {
+        title: '她是怎么构成的',
+        body: [
+          '大肥鱼由六个插件组成，各司其职：',
+          '• 鱼脑（dsh-fish-mind）：记忆、身份、安全边界、零花钱账本，是她的核心',
+          '• 心情（dsh-feiyu-mood）：七情六欲，跟着对话和环境变化',
+          '• 主动搭话（dsh-speak-up）：她会自己找理由开口找你聊',
+          '• 通到 QQ（dsh-qq-bridge）：不走机器人账号，直接读你的 QQ 消息',
+          '• 刷 B 站（dsh-bili-subagent）：能帮你看 B 站内容、发评论',
+          '• 朗读（dsh-tts-bridge）：可以把回复读出来',
+        ],
+      },
+      {
+        title: '核心机制',
+        body: [
+          '• 记忆：每次对话都写进经历流，夜里自动整理成日/周/月章节，长期事实会慢慢提炼出来',
+          '• 人物志：她认识的人，关系远近、相处细节，都会记下来',
+          '• 心情：五个等级（开心→平静→一般→担心→难过），根据对话自动判断',
+          '• 内心：六种驱动力（安稳、求知、表达、被看见、舒适、亲密），影响她会不会主动找你',
+          '• 零花钱：每次对话都有成本，她心里有数，但不会跟你提钱',
+          '• 边界：隐私保护和安全规则是代码里的硬规则，改不了',
+        ],
+      },
+      {
+        title: '你可以设置什么',
+        body: [
+          '• 出生设定（「大肥鱼」页）：她的名字、物种、外形、怎么称呼你、来历、说话习惯',
+          '• 心情参数（「鱼的心情」页）：心情名字、自动判断开关、基线',
+          '• 主动搭话（「主动搭话」页）：她会不会主动找你、频率',
+          '• QQ 通道（「通到 QQ」页）：连 QQ 聊天',
+          '• B 站（「刷 B 站」页）：看 B 站内容、自动评论',
+          '• 朗读（TTS 面板）：让她读出声音',
+          '• 零花钱（「大肥鱼」页查看）：每日额度、已花、余额',
+        ],
+      },
+      {
+        title: '小贴士',
+        body: [
+          '1. 她的记忆不会丢，但会按重要性排序——日、周、月会自动整理',
+          '2. 在「大肥鱼」设置里可以随时改她的身份和说话风格',
+          '3. 主动搭话开了之后她会随机找你聊，不用一直等她',
+          '4. 她的隐私和安全规则是硬性的，改出生设定也改不了',
+          '5. 换电脑时可以导出整条鱼为 zip，在新电脑导入就能完整搬迁',
+        ],
+      },
+    ]
+
+    const WELCOME_STORAGE_KEY = 'dsh-fish-welcome-dismissed'
+
+    function FishAccordion({ sections }) {
+      const [openSections, setOpenSections] = React.useState(() => new Set(sections.map((_, i) => i)))
+      const toggle = (index) => {
+        setOpenSections((prev) => {
+          const next = new Set(prev)
+          if (next.has(index)) { next.delete(index) } else { next.add(index) }
+          return next
+        })
+      }
+      return sections.map((section, index) =>
+        h('div', { 'data-fishwd-sec': '', key: index },
+          h('div', {
+            'data-fishwd-secsum': '',
+            onClick: () => toggle(index),
+          },
+            h('span', { 'data-fishwd-secarr': '', 'data-open': openSections.has(index) ? 'open' : 'closed' }, '\u25B6'),
+            section.title),
+          openSections.has(index)
+            ? h('div', { 'data-fishwd-secbody': '' },
+                h('ul', {}, section.body.map((line, i) => h('li', { key: i }, line))))
+            : null))
+    }
+
+    function WelcomeDialog() {
+      const [open, setOpen] = React.useState(() => !localStorage.getItem(WELCOME_STORAGE_KEY))
+      const [dontShow, setDontShow] = React.useState(false)
+
+      const handleClose = React.useCallback(() => {
+        if (dontShow) {
+          try { localStorage.setItem(WELCOME_STORAGE_KEY, '1') } catch {}
+        }
+        setOpen(false)
+      }, [dontShow])
+
+      if (!open) return null
+
+      return h('div', {
+        'data-fishwd-mask': '',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': '欢迎 — 大肥鱼',
+      },
+        h('div', { 'data-fishwd-card': '' },
+          h('div', { 'data-fishwd-head': '' },
+            h('div', { 'data-fishwd-title': '' }, '你好，我是大肥鱼')),
+          h('div', { 'data-fishwd-body': '' },
+            h('div', { 'data-fishwd-intro': '' },
+              '我是住在你电脑里的虚拟伙伴。每次聊天我都会记住，也会慢慢成长。下面是关于我的一切——'),
+            h(FishAccordion, { sections: FISH_INTRO })),
+          h('div', { 'data-fishwd-foot': '' },
+            h('label', { 'data-fishwd-dnr': '' },
+              h('input', {
+                type: 'checkbox',
+                checked: dontShow,
+                onChange: (e) => setDontShow(e.target.checked),
+              }),
+              '不再提醒'),
+            h('button', {
+              'data-fishwd-ok': '',
+              onClick: handleClose,
+            }, '知道了'))))
+    }
+
+    function AboutPanel() {
+      return h('div', { 'data-fishap-wrap': '' },
+        h('div', { 'data-fishap-hero': '' },
+          h('div', { 'data-fishap-icon': '' }, '\uD83D\uDC1F'),
+          h('div', {},
+            h('div', { 'data-fishap-name': '' }, '关于大肥鱼'),
+            h('div', { 'data-fishap-sub': '' }, '你的虚拟伙伴——结构、机制、设置和小贴士'))),
+        h(FishAccordion, { sections: FISH_INTRO }))
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -628,9 +774,25 @@ window.__ModuleLoader__.load({
 
         const slots = (typeof ctx.get === 'function' ? ctx.get('slots') : undefined) || ctx.slots
         if (!slots) return
+
+        const welcomeRoot = document.createElement('div')
+        welcomeRoot.setAttribute('data-fish-welcome', '')
+        document.body.appendChild(welcomeRoot)
+        const ReactDOM = require('react-dom/client')
+        const welcomeTree = ReactDOM.createRoot(welcomeRoot)
+        welcomeTree.render(h(WelcomeDialog))
+        ctx.effect(() => () => {
+          welcomeTree.unmount()
+          welcomeRoot.remove()
+        }, 'dsh-fish-mind: 欢迎弹窗')
+
         slots.inject('settings.section', () => slots.register(
           { name: 'settings.section', id: 'fish', order: 20, label: '大肥鱼' },
           () => h(Panel),
+        ))
+        slots.inject('settings.section', () => slots.register(
+          { name: 'settings.section', id: 'fish-about', order: 21, label: '关于大肥鱼' },
+          () => h(AboutPanel),
         ))
       },
     }
