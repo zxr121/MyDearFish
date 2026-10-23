@@ -460,6 +460,7 @@ const 自动房 = 'session-qq-private-123'
 报('/receive：没填目标 → 自动建 QQ 私聊房', 收到 && 收到.ok === true && 登记的会话.has(自动房), JSON.stringify(收到))
 报('QQ 私聊房标题写成“QQ 私聊 123”', 标题重命名.some(([sid, t]) => sid === 自动房 && t === 'QQ 私聊 123'), JSON.stringify(标题重命名))
 报('QQ 私聊场景提示挂上了', 场景提示.some((s) => String(s.text).includes('【场景·QQ 私聊】')))
+报('QQ 私聊场景提示要求少打句号、语气可爱', 场景提示.some((s) => String(s.text).includes('句尾基本不加句号') && String(s.text).includes('可爱')))
 报('没有工作区 → 自动建一个并挂上', 建的工作区.length > 0 && 挂工作区记录.includes(自动房), JSON.stringify({ 建: 建的工作区, 挂: 挂工作区记录 }))
 报('私聊消息进了自动房', 转进的.length > 0 && JSON.stringify(转进的.at(-1).content[0].text).includes('没填目标'))
 const 之前自动 = 发了.length
