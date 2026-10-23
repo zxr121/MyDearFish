@@ -161,6 +161,7 @@ window.__ModuleLoader__.load({
       const [只看熟, 设只看熟] = React.useState(false)
       const [展开人, 设展开人] = React.useState('')
       const [全部人, 设全部人] = React.useState(false)
+      const [全部关系, 设全部关系] = React.useState(false)
 
       React.useEffect(() => {
         拉()
@@ -324,6 +325,7 @@ window.__ModuleLoader__.load({
       const 戳态 = 态.戳一戳 || {}
       const 本轮 = 导态.本轮 || {}
       const 人物页 = 人物态 && Array.isArray(人物态.人物) ? 人物态.人物 : []
+      const 关系页 = 人物态 && Array.isArray(人物态.关系网) ? 人物态.关系网 : []
       const 人物词 = 人物搜.trim().toLowerCase()
       const 全局熟 = (p) => Number(p && p.关系 && p.关系.熟) || 0
       const 人物筛过 = 人物页.filter((p) => {
@@ -333,13 +335,19 @@ window.__ModuleLoader__.load({
         const 文 = [
           p.名, p.号,
           ...(Array.isArray(p.别名) ? p.别名 : []),
+          ...(Array.isArray(p.账号) ? p.账号.map((a) => a.号 + ' ' + (a.名 || '')) : []),
           ...房间.map((r) => r.叫),
           ...(Array.isArray(p.事实) ? p.事实.map((f) => f.文 + ' ' + (f.房叫 || '')) : []),
+          ...(Array.isArray(p.关系们) ? p.关系们.map((r) => r.谁 + ' ' + r.关系) : []),
+          ...(Array.isArray(p.被说) ? p.被说.map((r) => r.谁 + ' ' + r.关系) : []),
         ].join(' ').toLowerCase()
         return 文.includes(人物词)
       })
       const 人物显示 = 人物词 !== '' || 全部人 ? 人物筛过 : 人物筛过.slice(0, 40)
       const 人物熟 = 人物页.filter((p) => 全局熟(p) >= 35).length
+      const 账号数 = 人物态 && Number(人物态.账号数)
+        ? 人物态.账号数
+        : 人物页.reduce((n, p) => n + (Number(p.账号数) || 0), 0)
 
       return h(
         'div',
@@ -490,7 +498,7 @@ window.__ModuleLoader__.load({
             onChange: (e) => { 设兴趣文本(e.target.value); 改社交('兴趣词', 拆列表(e.target.value)) },
           }), '只有她真正感兴趣的话题才会看、才可能接；留空时只能靠她在这间屋里看过的东西判断。'),
           行('关注上限', 数框(社交.关注上限, (v) => 改社交('关注上限', v), 1, 1, 30), '小模型一次最多挑几条她感兴趣的消息进入视线；没挑中的当没看见。'),
-          行('记人', 勾(社交.记人, (v) => 改社交('记人', v)), '在群和好友私聊里认人、记长期有用的事（近况、喜好、边界）。关系跟着人走，群和私聊是同一段关系；事实和边界也互通，但私下说过的事不会在群里点名复述。只存本机；关掉 = 不认人，也不读写人物志。'),
+          行('记人', 勾(社交.记人, (v) => 改社交('记人', v)), '在群和好友私聊里认人、记长期有用的事（近况、喜好、边界）和人与人之间的关系。同一个人的大号小号算同一个人，只占一张卡；群和私聊是同一段关系，事实和边界互通，但私下说过的事不会在群里点名复述。只存本机；关掉 = 不认人，也不读写人物志。'),
           行('学说话', 勾(社交.学说话, (v) => 改社交('学说话', v)), '慢慢摸清对方打字的节奏（句子长短、标点、语气词、表情、连发），回话时只顺着节奏和语气，不抄原话、不学口癖/方言/骂人话，也不会让她说出来。统计只存本机；对方说「别学我」会立刻停。关掉 = 不统计也不贴合。'),
           行('快判', 勾(社交.快判, (v) => 改社交('快判', v)), '她看过的消息攒够后，先用零成本注意力分挡掉没兴趣也没对话信号的，再交给判断模型；学习期仍每条都判。'),
           行('快判名额',
@@ -524,10 +532,12 @@ window.__ModuleLoader__.load({
               (社态.在静音 ? '｜现在静音中' : ''),
           ),
           h('div', { style: { ...S.dim, marginTop: 4 } },
-            '人物志：' + ((社态.人物 && 社态.人物.认识) || 0) + ' 个' +
+            '人物志：' + ((社态.人物 && 社态.人物.认识) || 0) + ' 个人' +
+              (社态.人物 && 社态.人物.账号 ? '、' + 社态.人物.账号 + ' 个号' : '') +
+              (社态.人物 && 社态.人物.关系 ? '、' + 社态.人物.关系 + ' 条关系' : '') +
               (社态.人物 && 社态.人物.熟 ? '，熟人以上 ' + 社态.人物.熟 + ' 个' : '') +
               (社态.人物 && Array.isArray(社态.人物.最近) && 社态.人物.最近.length
-                ? ' · 最近：' + 社态.人物.最近.slice(0, 5).map((p) => (p.主人 ? '主人' : p.名) + '（' + p.号 + '）').join('、')
+                ? ' · 最近：' + 社态.人物.最近.slice(0, 5).map((p) => (p.主人 ? '主人' : p.名) + '（' + p.号 + (p.账号数 > 1 ? ' 等 ' + p.账号数 + ' 个号' : '') + '）').join('、')
                 : '') +
               (社交.记人 ? '' : '（记人已关）'),
           ),
@@ -553,13 +563,16 @@ window.__ModuleLoader__.load({
         h('div', { style: S.card },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '人物志（她认识的人）'),
           h('div', { style: S.dim },
-            '关系跟着人走：同一个 QQ 在群和私聊里是同一段关系。这里能看到总的关系，' +
-              '也能点开看每间屋里的相处；事实和边界也跟着人走，并标明是从哪间屋听来的。' +
+            '一个人一张卡：同一个人的大号和小号都算同一个人，号都列在他名下。' +
+              '关系跟着人走，群和私聊里是同一段关系；她也记得人和人之间的关系（谁是谁的弟弟、同学、对象），' +
+              '别人自己说出来的会直接记住，她自己看出来的也会记。事实和边界跟着人走，并标明是从哪间屋听来的。' +
               '打字风格只量句子长短、标点、语气词这些节奏，不存原话；对方说过「别学我」就会停。' +
               '私下说过的事她知道，但不会在群里点名复述。只存在本机。',
           ),
           h('div', { style: { ...S.dim, marginTop: 4 } },
-            '共 ' + 人物页.length + ' 个' +
+            '共 ' + 人物页.length + ' 个人' +
+              (账号数 > 人物页.length ? '（' + 账号数 + ' 个号）' : '') +
+              (关系页.length ? ' · ' + 关系页.length + ' 条关系' : '') +
               (人物熟 ? '，熟人以上 ' + 人物熟 + ' 个' : '') +
               (人物态 && 人物态.文件 ? ' · ' + 人物态.文件 : '') +
               (社交.记人 ? '' : '（记人已关，下面是之前记下的）') +
@@ -569,7 +582,7 @@ window.__ModuleLoader__.load({
             h('input', {
               type: 'text',
               style: { ...S.input, flex: '1 1 220px', width: 'auto' },
-              placeholder: '搜名字、QQ、房间或她记得的事',
+              placeholder: '搜名字、QQ、小号、房间、关系或她记得的事',
               value: 人物搜,
               onChange: (e) => 设人物搜(e.target.value),
             }),
@@ -592,9 +605,13 @@ window.__ModuleLoader__.load({
             const 展开 = 展开人 === p.号
             const 事实们 = Array.isArray(p.事实) ? p.事实 : []
             const 边界们 = Array.isArray(p.边界) ? p.边界 : []
+            const 账号们 = Array.isArray(p.账号) ? p.账号 : []
+            const 关系们 = Array.isArray(p.关系们) ? p.关系们 : []
+            const 被说 = Array.isArray(p.被说) ? p.被说 : []
             const 总 = p.关系 && typeof p.关系 === 'object' ? p.关系 : null
             const 风格 = p.风格 && typeof p.风格 === 'object' ? p.风格 : null
             const 出处 = (x) => (x.房叫 || x.房 || '') + (x.密 ? '，私下' : '')
+            const 来源说 = (来源) => 来源 === '自认' ? '自己说这是他的号' : 来源 === '模型' ? '看出来的' : '见过'
             return h('div', {
               key: p.号,
               style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: '8px 10px', marginTop: 8 },
@@ -611,15 +628,25 @@ window.__ModuleLoader__.load({
                   ),
                   h('div', { style: S.dim },
                     (Array.isArray(p.别名) && p.别名.length ? '也叫 ' + p.别名.join('、') + ' · ' : '') +
+                      (账号们.length > 1 ? 账号们.length + ' 个号（都算同一个人）· ' : '') +
                       '认识 ' + (p.天数 || 0) + ' 天 · 见过 ' + (p.见过 || 0) + ' 次' +
                       ' · 暖 ' + ((p.印象 && p.印象.暖) || 0) + ' / 信 ' + ((p.印象 && p.印象.信) || 0) +
                       (总 ? ' · ' + 总.阶段 + ' · 口气' + 总.口气 : '') +
-                      (房间.length ? ' · ' + 房间.length + ' 间屋子' : ' · 还没在屋里说过话'),
+                      (房间.length ? ' · ' + 房间.length + ' 间屋子' : ' · 还没在屋里说过话') +
+                      (关系们.length ? ' · ' + 关系们.length + ' 条关系' : ''),
                   ),
                 ),
                 h('span', { style: { ...S.dim, flex: '0 0 auto' } }, 展开 ? '收起 ▲' : '展开 ▼'),
               ),
               展开 ? h('div', { style: { marginTop: 6 } },
+                账号们.length > 1
+                  ? h('div', { style: { fontSize: 12, marginTop: 4 } },
+                      '账号（都算同一个人）：' +
+                        账号们.map((a) => (a.主 ? '主号 ' : '') + a.号 +
+                          (a.名 && a.名 !== p.名 ? ' ' + a.名 : '') +
+                          '（' + 来源说(a.来源) + (a.房叫 ? ' · ' + a.房叫 : '') + '）').join('；'),
+                    )
+                  : null,
                 总
                   ? h('div', { style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' } },
                       h('div', { style: { fontWeight: 600, fontSize: 12 } }, '总的关系（群和私聊共用）'),
@@ -630,6 +657,20 @@ window.__ModuleLoader__.load({
                           (总.最后At ? ' · 最近 ' + 时间短(总.最后At) : '') +
                           (总.上次她说At ? ' · 她上次开口 ' + 时间短(总.上次她说At) : ''),
                       ),
+                    )
+                  : null,
+                关系们.length || 被说.length
+                  ? h('div', { style: { fontSize: 12, marginTop: 4 } },
+                      h('span', { style: { fontWeight: 600 } }, '关系网：'),
+                      [
+                        ...关系们.map((r) => r.谁 +
+                          (r.谁号 && r.谁号 !== r.谁 ? '（' + r.谁号 + '）' : '') +
+                          ' 是他' + r.关系 + '（' + (r.明说 ? '他说的' : '她看出来的') +
+                          (r.房叫 ? ' · ' + r.房叫 : '') + (r.密 ? ' · 私下' : '') + '）'),
+                        ...被说.map((r) => r.谁 + ' 说 他 是 ' + r.关系 +
+                          '（' + (r.明说 ? '明说' : '看出来的') +
+                          (r.房叫 ? ' · ' + r.房叫 : '') + (r.密 ? ' · 私下' : '') + '）'),
+                      ].join('；'),
                     )
                   : null,
                 风格
@@ -694,6 +735,26 @@ window.__ModuleLoader__.load({
             : null,
           !人物词 && 全部人 && 人物筛过.length > 40
             ? h('div', { style: { marginTop: 8 } }, 按钮('先只看最近 40 个', () => 设全部人(false)))
+            : null,
+          关系页.length
+            ? h('div', { style: { marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)' } },
+                h('div', { style: { fontWeight: 600, fontSize: 13 } }, '关系网（' + 关系页.length + ' 条）'),
+                h('div', { style: { ...S.dim, marginTop: 2 } },
+                  '人和人之间的关系：谁是谁的弟弟、同学、对象。她只在本机记着，不会当成聊天工具，也不会在群里替人公开介绍。'),
+                (全部关系 ? 关系页 : 关系页.slice(0, 10)).map((e, i) => h('div', {
+                  key: [e.甲, e.乙, e.关系, e.房, i].join('|'),
+                  style: { ...S.日志行, marginTop: 4 },
+                },
+                  e.甲名 + ' 的' + e.关系 + '：' + e.乙名 +
+                    (e.乙号 ? '（' + e.乙号 + '）' : '') +
+                    ' · ' + (e.明说 ? '明说' : '看出来的') +
+                    (e.密 ? ' · 私下' : '') + ' · ' + (e.房叫 || e.房),
+                )),
+                关系页.length > 10
+                  ? h('div', { style: { marginTop: 8 } },
+                      按钮(全部关系 ? '先看最近 10 条' : '显示全部 ' + 关系页.length + ' 条', () => 设全部关系(!全部关系)))
+                  : null,
+              )
             : null,
         ),
         h('div', { style: { ...S.dim, marginTop: 6 } },
