@@ -31,10 +31,12 @@ export function parseSeen(text) {
     if (!bv) continue
     const nums = [...line.matchAll(/\b(\d{9,})\b/g)].map((m) => Number(m[1]))
     if (!nums.length) continue
-    // 约定：第一个长数字 = rpid；如果后面还有第二个，且明显是另一个 id，就当 root（楼中楼）
+    // 约定：第一个长数字 = rpid，第二个 = root（楼中楼），第三个 = 被回复的评论 id
+    // （旧记录只有两个数字：root 列当时存的就是目标评论，所以 target 回退到 root）
     const rpid = nums[0]
     const root = nums.length > 1 ? nums[1] : 0
-    rows.push({ bv: bv[0], rpid, root, line: line.trim().slice(0, 160) })
+    const target = nums.length > 2 ? nums[2] : root
+    rows.push({ bv: bv[0], rpid, root, target, line: line.trim().slice(0, 160) })
   }
   return rows
 }

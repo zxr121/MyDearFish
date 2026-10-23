@@ -22,7 +22,7 @@
  *   · **总开关 → 打开之后下面才展开子开关**（峰谷自动刷 → 中午 / 晚上）
  *   · **数字项要能自己填**（定量刷：每天几条）
  *   · **账号绑定必须在设置页里**（扫码登录 + 二维码直接显示在页里）
- *   · 会发东西出去的（自动评论）、要下大模型的（本地转写）**默认关**
+ *   · 会发东西出去的（自动评论 / 自动回复 / 私信）、要下大模型的（本地转写）**默认关**
  * ============================================================================
  */
 window.__ModuleLoader__.load({
@@ -150,6 +150,7 @@ window.__ModuleLoader__.load({
       const [gapHours, setGapHours] = React.useState(null)
       const [perScan, setPerScan] = React.useState(null)
       const [perRound, setPerRound] = React.useState(null)
+      const [replyRound, setReplyRound] = React.useState(null)   // 每轮最多回几条收到的回复（本地草稿）
       const [dmUid, setDmUid] = React.useState(null)        // 私信收件人 UID（本地草稿）
       const [dmMode, setDmMode] = React.useState(null)      // 投递方式：off / only / both
       const [subProvider, setSubProvider] = React.useState(null)   // 派子代理用的 provider
@@ -183,6 +184,7 @@ window.__ModuleLoader__.load({
         if (cfg && gapHours === null) setGapHours(String(cfg.gapHours ?? 3))
         if (cfg && perScan === null) setPerScan(String(cfg.perScan ?? 1))
         if (cfg && perRound === null) setPerRound(String(cfg.commentPerRound ?? 1))
+        if (cfg && replyRound === null) setReplyRound(String(cfg.replyPerRound ?? 1))
         if (cfg && mention === null) setMention(cfg.mentionName || '')
         if (cfg && dmUid === null) setDmUid(cfg.dmUid ? String(cfg.dmUid) : '')
         if (cfg && dmMode === null) setDmMode(cfg.dmMode || 'off')
@@ -523,8 +525,8 @@ window.__ModuleLoader__.load({
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '它会不会替你说话'),
           h(ToggleRow, {
-            label: '自动评论并 @ 你',
-            note: '默认关；开了之后它会在挑中的视频下面留评论，并 @ 你填的那个人',
+            label: '自动在评论区留言',
+            note: '默认关；开了之后它会在挑中的视频下面留一条短评论。@ 谁是选填',
             on: sw('autoComment'),
             onChange: (v) => patch({ autoComment: v }, '自动评论'),
           }),
@@ -532,7 +534,7 @@ window.__ModuleLoader__.load({
             h('div', { 'data-bd-row': '' },
               h('div', { 'data-bd-grow': '' },
                 h('div', { 'data-bd-label': '' }, '每轮最多发几条评论'),
-                h('div', { 'data-bd-note': '' }, '每条评论里 @ 一次下面那个人；填 0 = 这一轮不发评论')),
+                h('div', { 'data-bd-note': '' }, '不 @ 人也照常发；填 0 = 这一轮不发评论')),
               h('input', {
                 'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 20,
                 value: perRound ?? '',
@@ -540,20 +542,37 @@ window.__ModuleLoader__.load({
                 // ⭐ 0 是合法值（= 这一轮不发评论）；范围与 index.js 的 clampPatch 一致（0–20）
                 onBlur: () => { const n = Math.max(0, Math.min(Number(perRound) || 0, 20)); setPerRound(String(n)); patch({ commentPerRound: n }, '每轮几条评论') },
               })),
-            h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称）'),
+            h('div', { 'data-bd-label': '' }, '要 @ 谁（B站 昵称，可不填）'),
             h('input', {
               'data-bd-input': '', value: mention ?? '',
-              placeholder: '填你要 @ 的那个人的 B站 昵称；留空 = 只写报告、不发评论',
+              placeholder: '填要 @ 的昵称；留空 = 只发评论、不 @ 人',
               onChange: (e) => setMention(e.target.value),
               onBlur: () => { const v = String(mention || '').trim(); setMention(v); patch({ mentionName: v }, '要 @ 谁') },
             }),
-            h('div', { 'data-bd-note': '' }, '留空的话它就不发评论了 —— 因为评论存在的意义就是 @ 那一下')) : null,
+            h('div', { 'data-bd-note': '' }, '评论里 @ 一下能让对方收到提醒；不想 @ 谁就留空')) : null,
+          h(ToggleRow, {
+            label: '自动回复收到的回复',
+            note: '默认关；开了之后，别人回了她的评论，她会挑着回一句（只回真的冲她来的，不发私信）',
+            on: sw('autoReply'),
+            onChange: (v) => patch({ autoReply: v }, '自动回复'),
+          }),
+          sw('autoReply') ? h('div', { 'data-bd-sub': '' },
+            h('div', { 'data-bd-row': '' },
+              h('div', { 'data-bd-grow': '' },
+                h('div', { 'data-bd-label': '' }, '每轮最多回几条'),
+                h('div', { 'data-bd-note': '' }, '和顶层评论分开算额度；填 0 = 这一轮不回评')),
+              h('input', {
+                'data-bd-input': '', 'data-bd-num': '', type: 'number', min: 0, max: 10,
+                value: replyRound ?? '',
+                onChange: (e) => setReplyRound(e.target.value),
+                onBlur: () => { const n = Math.max(0, Math.min(Number(replyRound) || 0, 10)); setReplyRound(String(n)); patch({ replyPerRound: n }, '每轮几条回复') },
+              }))) : null,
           h('div', { 'data-bd-label': '' }, '投递方式（评论 还是 私信）'),
           h('select', {
             'data-bd-input': '', value: dmMode ?? 'off',
             onChange: (e) => { setDmMode(e.target.value); patch({ dmMode: e.target.value }, '投递方式') },
           },
-            h('option', { value: 'off' }, '只发评论 —— 在视频下面 @ 你（默认）'),
+            h('option', { value: 'off' }, '只发评论 —— 在视频下面留言（默认）'),
             h('option', { value: 'only' }, '只私信 —— 一条公开评论都不发，最不打扰别人'),
             h('option', { value: 'both' }, '评论 + 私信 —— 两边都发')),
           (dmMode && dmMode !== 'off') ? h('div', { 'data-bd-sub': '' },
