@@ -17,6 +17,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
+import {
+  baseRoomKey,
+  roomScope,
+  roomKind,
+  roomLabel as rhythmRoomLabel,
+  nextReviewAt,
+  REVIEW_INTERVALS,
+} from './rhythm.js'
 
 const require = createRequire(import.meta.url)
 
@@ -27,7 +35,7 @@ try {
   DatabaseSync = undefined
 }
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PARAMETERS = {
@@ -164,6 +172,18 @@ function clamp01(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return 0
   return Math.min(1, Math.max(0, number))
+}
+
+function clamp(value, min, max) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return min
+  return Math.min(max, Math.max(min, number))
+}
+
+function stampText(ts) {
+  const date = new Date(Number(ts) || 0)
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function round2(value) {
@@ -322,8 +342,8 @@ function startsWithAny(value, prefixes) {
  * @returns {string} `owner` 或 `social:<会话编号>`。
  */
 export function chapterScope(sessionId) {
-  const session = String(sessionId ?? '')
-  return startsWithAny(session, SOCIAL_ROOM_PREFIXES) ? `social:${session}` : 'owner'
+  // 桥重置会话会给 id 加 `-r<时间>` 后缀；章节和事实都该跟着房间走，而不是跟着后缀走。
+  return roomScope(sessionId, roomKind(sessionId))
 }
 
 function isSocialSession(sessionId) {
@@ -415,7 +435,11 @@ CREATE TABLE IF NOT EXISTS episodes (
   chapter_id INTEGER REFERENCES chapters(id),
   session_id TEXT NOT NULL DEFAULT '',
   source_trust REAL NOT NULL DEFAULT 0.8,
-  entities TEXT NOT NULL DEFAULT '[]'
+  entities TEXT NOT NULL DEFAULT '[]',
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at INTEGER NOT NULL DEFAULT 0,
+  next_review_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS facts (
@@ -428,7 +452,12 @@ CREATE TABLE IF NOT EXISTS facts (
   confidence REAL NOT NULL,
   source TEXT NOT NULL,
   source_ids TEXT NOT NULL DEFAULT '[]',
-  superseded_by INTEGER REFERENCES facts(id)
+  superseded_by INTEGER REFERENCES facts(id),
+  scope TEXT NOT NULL DEFAULT 'owner',
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at INTEGER NOT NULL DEFAULT 0,
+  next_review_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS people (
@@ -525,6 +554,27 @@ CREATE TABLE IF NOT EXISTS sleep_runs (
   tasks TEXT NOT NULL DEFAULT '[]',
   notes TEXT
 );
+
+CREATE TABLE IF NOT EXISTS consolidation_state (
+  room TEXT PRIMARY KEY,
+  cursor_id INTEGER NOT NULL DEFAULT 0,
+  cursor_at INTEGER NOT NULL DEFAULT 0,
+  last_run_at INTEGER NOT NULL DEFAULT 0,
+  last_status TEXT NOT NULL DEFAULT '',
+  runs INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS memory_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_kind TEXT NOT NULL,
+  target_id INTEGER NOT NULL,
+  due_at INTEGER NOT NULL DEFAULT 0,
+  done_at INTEGER NOT NULL,
+  result TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS memory_reviews_target ON memory_reviews(target_kind, target_id, done_at);
+CREATE INDEX IF NOT EXISTS memory_reviews_done ON memory_reviews(done_at);
+CREATE INDEX IF NOT EXISTS consolidation_last ON consolidation_state(last_run_at);
 `
 
 /**
@@ -590,6 +640,36 @@ export function openStore({ dir, config, diag = () => {} }) {
         if (!columns.has('abstractive_summary')) {
           handle.exec('ALTER TABLE chapters ADD COLUMN abstractive_summary TEXT')
         }
+      }
+      if (version < 5) {
+        const addColumns = (table, additions) => {
+          const columns = new Set(handle.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name))
+          for (const [name, definition] of additions) {
+            if (!columns.has(name)) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`)
+          }
+        }
+        addColumns('episodes', [
+          ['recall_count', 'INTEGER NOT NULL DEFAULT 0'],
+          ['review_count', 'INTEGER NOT NULL DEFAULT 0'],
+          ['last_recalled_at', 'INTEGER NOT NULL DEFAULT 0'],
+          ['next_review_at', 'INTEGER NOT NULL DEFAULT 0'],
+        ])
+        addColumns('facts', [
+          ['scope', "TEXT NOT NULL DEFAULT 'owner'"],
+          ['recall_count', 'INTEGER NOT NULL DEFAULT 0'],
+          ['review_count', 'INTEGER NOT NULL DEFAULT 0'],
+          ['last_recalled_at', 'INTEGER NOT NULL DEFAULT 0'],
+          ['next_review_at', 'INTEGER NOT NULL DEFAULT 0'],
+        ])
+        // 老情景和老事实也从第一次巩固后 3 天排队，第一次启动就接得上。
+        handle.exec(`UPDATE episodes SET next_review_at = end_ts + ${3 * DAY_MS} WHERE next_review_at = 0`)
+        handle.exec(`UPDATE facts SET next_review_at = COALESCE(valid_from, 0) + ${3 * DAY_MS} WHERE next_review_at = 0 AND valid_from IS NOT NULL`)
+        handle.exec('CREATE INDEX IF NOT EXISTS episodes_review ON episodes(next_review_at)')
+        handle.exec('CREATE INDEX IF NOT EXISTS facts_review ON facts(next_review_at)')
+        handle.exec('CREATE INDEX IF NOT EXISTS facts_scope ON facts(scope, superseded_by)')
+        handle.exec('CREATE INDEX IF NOT EXISTS consolidation_last ON consolidation_state(last_run_at)')
+        handle.exec('CREATE INDEX IF NOT EXISTS memory_reviews_target ON memory_reviews(target_kind, target_id, done_at)')
+        handle.exec('CREATE INDEX IF NOT EXISTS memory_reviews_done ON memory_reviews(done_at)')
       }
       handle.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
       handle.exec('COMMIT')
@@ -731,14 +811,15 @@ export function openStore({ dir, config, diag = () => {} }) {
     ORDER BY id DESC LIMIT 1
   `)
   const factInsertStmt = db && db.prepare(`
-    INSERT INTO facts (subject, predicate, object, valid_from, confidence, source, source_ids)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO facts
+      (subject, predicate, object, valid_from, confidence, source, source_ids, scope, next_review_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const factSupersedeStmt = db && db.prepare(`
     UPDATE facts SET superseded_by = ?, valid_to = ? WHERE id = ?
   `)
   const factListStmt = db && db.prepare(`
-    SELECT subject, predicate, object, confidence, valid_from AS validFrom
+    SELECT subject, predicate, object, confidence, valid_from AS validFrom, scope
     FROM facts WHERE superseded_by IS NULL ORDER BY id DESC LIMIT ?
   `)
   const factActiveAllStmt = db && db.prepare(`
@@ -833,6 +914,135 @@ export function openStore({ dir, config, diag = () => {} }) {
   `)
   const runInsertStmt = db && db.prepare(`
     INSERT INTO sleep_runs (started_at, finished_at, status, tasks, notes) VALUES (?, ?, ?, ?, ?)
+  `)
+  const roomPendingStmt = db && db.prepare(`
+    SELECT id, ts, session_id, role, actor, source_kind, content, salience
+    FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND role IN ('user', 'assistant')
+      AND (session_id = ? OR session_id LIKE ? ESCAPE '\\') AND id > ?
+    ORDER BY ts ASC, id ASC LIMIT ?
+  `)
+  const recentRoomsStmt = db && db.prepare(`
+    SELECT session_id AS sessionId, MAX(ts) AS lastAt, MAX(id) AS lastId, COUNT(*) AS events
+    FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND ts >= ?
+    GROUP BY session_id ORDER BY lastAt DESC LIMIT ?
+  `)
+  const roomStatesStmt = db && db.prepare(`
+    SELECT room, cursor_id AS cursorId, cursor_at AS cursorAt, last_run_at AS lastRunAt,
+           last_status AS lastStatus, runs
+    FROM consolidation_state ORDER BY last_run_at DESC LIMIT ?
+  `)
+  const roomStateUpsertStmt = db && db.prepare(`
+    INSERT INTO consolidation_state (room, cursor_id, cursor_at, last_run_at, last_status, runs)
+    VALUES (?, ?, ?, ?, ?, 1)
+    ON CONFLICT(room) DO UPDATE SET
+      cursor_id = CASE WHEN excluded.cursor_id > cursor_id THEN excluded.cursor_id ELSE cursor_id END,
+      cursor_at = excluded.cursor_at,
+      last_run_at = excluded.last_run_at,
+      last_status = excluded.last_status,
+      runs = runs + (CASE WHEN excluded.runs > 0 THEN 1 ELSE 0 END)
+  `)
+  const roomStateTouchStmt = db && db.prepare(`
+    INSERT INTO consolidation_state (room, cursor_id, cursor_at, last_run_at, last_status, runs)
+    VALUES (?, 0, 0, ?, ?, 0)
+    ON CONFLICT(room) DO UPDATE SET last_run_at = excluded.last_run_at, last_status = excluded.last_status
+  `)
+  const episodesBetweenStmt = db && db.prepare(`
+    SELECT ep.id, ep.start_ts AS at, ep.end_ts AS endAt, ep.session_id AS sessionId, ep.channel,
+           ep.importance, ep.summary,
+           COALESCE((SELECT e.content FROM experiences e
+             WHERE e.episode_id = ep.id AND e.dropped IS NULL AND e.content <> ''
+             ORDER BY e.id ASC LIMIT 1), '') AS excerpt
+    FROM episodes ep
+    WHERE ep.end_ts >= ? AND ep.start_ts < ?
+      AND ep.session_id NOT LIKE 'session-qq-import-%' AND ep.session_id NOT LIKE 'qq-import-%'
+    ORDER BY ep.start_ts ASC, ep.id ASC LIMIT ?
+  `)
+  const factsBetweenStmt = db && db.prepare(`
+    SELECT id, subject, predicate, object, confidence, scope, valid_from AS validFrom
+    FROM facts
+    WHERE superseded_by IS NULL AND valid_from >= ? AND valid_from < ?
+    ORDER BY id ASC LIMIT ?
+  `)
+  const dueEpisodeStmt = db && db.prepare(`
+    SELECT ep.id, ep.end_ts AS at, ep.end_ts AS endAt, ep.session_id AS sessionId, ep.channel,
+           ep.importance, ep.next_review_at AS nextReviewAt,
+           COALESCE((SELECT e.content FROM experiences e
+             WHERE e.episode_id = ep.id AND e.dropped IS NULL AND e.content <> ''
+             ORDER BY e.id ASC LIMIT 1), '') AS excerpt
+    FROM episodes ep
+    WHERE ep.next_review_at > 0 AND ep.next_review_at <= ?
+    ORDER BY ep.next_review_at ASC, ep.id ASC LIMIT ?
+  `)
+  const dueFactStmt = db && db.prepare(`
+    SELECT id, subject, predicate, object, confidence, scope, next_review_at AS nextReviewAt
+    FROM facts
+    WHERE superseded_by IS NULL AND next_review_at > 0 AND next_review_at <= ?
+    ORDER BY next_review_at ASC, id ASC LIMIT ?
+  `)
+  const episodeReviewRowStmt = db && db.prepare(`
+    SELECT id, end_ts AS at, recall_count AS recallCount, review_count AS reviewCount,
+           last_recalled_at AS lastRecalledAt, next_review_at AS nextReviewAt
+    FROM episodes WHERE id = ?
+  `)
+  const factReviewRowStmt = db && db.prepare(`
+    SELECT id, valid_from AS at, recall_count AS recallCount, review_count AS reviewCount,
+           last_recalled_at AS lastRecalledAt, next_review_at AS nextReviewAt
+    FROM facts WHERE id = ?
+  `)
+  const episodeReviewUpdateStmt = db && db.prepare(`
+    UPDATE episodes
+    SET recall_count = ?, review_count = ?, last_recalled_at = ?, next_review_at = ?
+    WHERE id = ?
+  `)
+  const factReviewUpdateStmt = db && db.prepare(`
+    UPDATE facts
+    SET recall_count = ?, review_count = ?, last_recalled_at = ?, next_review_at = ?
+    WHERE id = ?
+  `)
+  const reviewLogStmt = db && db.prepare(`
+    INSERT INTO memory_reviews (target_kind, target_id, due_at, done_at, result)
+    VALUES (?, ?, ?, ?, ?)
+  `)
+  const selfModelListStmt = db && db.prepare(`
+    SELECT key, value, confidence, source, updated_at AS updatedAt
+    FROM self_model ORDER BY updated_at DESC LIMIT ?
+  `)
+  const selfModelUpsertStmt = db && db.prepare(`
+    INSERT INTO self_model (key, value, confidence, source, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value, confidence = excluded.confidence,
+      source = excluded.source, updated_at = excluded.updated_at
+  `)
+  const peopleListStmt = db && db.prepare(`
+    SELECT id, display_name AS displayName, role, model, trust, last_seen AS lastSeen
+    FROM people ORDER BY last_seen DESC, id ASC LIMIT ?
+  `)
+  const peopleUpsertStmt = db && db.prepare(`
+    INSERT INTO people (id, display_name, role, model, trust, last_seen)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      display_name = excluded.display_name,
+      role = CASE WHEN excluded.role = '' THEN role ELSE excluded.role END,
+      model = excluded.model, trust = excluded.trust, last_seen = excluded.last_seen
+  `)
+  const affectInsertStmt = db && db.prepare(`
+    INSERT INTO affect_log (ts, valence, arousal, dominance, label, drives, body, reason)
+    VALUES (?, ?, ?, ?, ?, '{}', '{}', ?)
+  `)
+  const affectRecentStmt = db && db.prepare(`
+    SELECT ts, valence, arousal, dominance, label, reason
+    FROM affect_log ORDER BY ts DESC, id DESC LIMIT ?
+  `)
+  const intentionInsertStmt = db && db.prepare(`
+    INSERT INTO intentions (text, trigger, due_at, status, created_by, confidence)
+    VALUES (?, ?, ?, 'open', ?, ?)
+  `)
+  const intentionOpenStmt = db && db.prepare(`
+    SELECT id, text, trigger, due_at AS dueAt, created_by AS createdBy, confidence
+    FROM intentions WHERE status = 'open' ORDER BY due_at ASC, id DESC LIMIT ?
   `)
 
   function appendJsonl(record) {
@@ -2115,6 +2325,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     const object = trim(fact.object, 240)
     if (subject === '' || predicate === '' || object === '') return { action: 'skipped', reason: 'empty' }
     const at = Number.isFinite(fact.at) ? Number(fact.at) : Date.now()
+    const scope = String(fact.scope ?? 'owner') === 'owner' ? 'owner' : trim(fact.scope, 120)
     try {
       const active = factActiveStmt.get(subject, predicate)
       if (active && String(active.object) === object) return { action: 'same', id: Number(active.id) }
@@ -2129,6 +2340,9 @@ export function openStore({ dir, config, diag = () => {} }) {
         confidence,
         trim(fact.source || 'consolidation', 40),
         JSON.stringify(sourceIds),
+        scope,
+        nextReviewAt(0, validFrom),
+        at,
       )
       const id = Number(info.lastInsertRowid)
       if (active) factSupersedeStmt.run(id, at, Number(active.id))
@@ -2140,17 +2354,32 @@ export function openStore({ dir, config, diag = () => {} }) {
     }
   }
 
-  /** 当前生效的事实（被取代的不返回）；给状态页和提炼前的粗筛用。 */
-  function listFacts(limit = 40) {
+  /**
+   * 当前生效的事实（被取代的不返回）；给状态页、事实摘要和提炼前的粗筛用。
+   * @param {number} [limit] - 最多返回多少条。
+   * @param {{ scope?: string, scopes?: string[] }} [options] - 只取某个范围，或某个范围集合。
+   * @returns {object[]} 事实列表，带 scope。
+   */
+  function listFacts(limit = 40, options = {}) {
     if (db === null) return []
     const max = Math.min(Math.max(1, Number(limit) || 40), 500)
+    const wanted = Array.isArray(options.scopes) && options.scopes.length > 0
+      ? new Set(options.scopes.map((scope) => String(scope)))
+      : null
+    const only = typeof options.scope === 'string' && options.scope !== '' ? options.scope : ''
     try {
-      return factListStmt.all(max).map((row) => ({
+      const rows = factListStmt.all(max * 4).filter((row) => {
+        if (only !== '' && String(row.scope) !== only) return false
+        if (wanted !== null && !wanted.has(String(row.scope))) return false
+        return true
+      })
+      return rows.slice(0, max).map((row) => ({
         subject: String(row.subject ?? ''),
         predicate: String(row.predicate ?? ''),
         object: String(row.object ?? ''),
         confidence: Number(row.confidence) || 0,
         validFrom: Number(row.validFrom) || 0,
+        scope: String(row.scope || 'owner'),
       }))
     } catch {
       return []
@@ -2196,6 +2425,469 @@ export function openStore({ dir, config, diag = () => {} }) {
   }
 
   /**
+   * 最近活动过的房间。桥重置后的会话按去掉后缀的房间合并，
+   * 导入记录和系统写入（session_id 为空）不算房间。
+   * @param {{ since?: number, limit?: number }} [options]
+   * @returns {{ room: string, sessions: string[], lastAt: number, lastId: number, events: number, kind: string, label: string }[]}
+   */
+  function activeRooms(options = {}) {
+    if (db === null) return []
+    const since = Number.isFinite(options.since) ? Number(options.since) : 0
+    const limit = Math.min(Math.max(1, Number(options.limit) || 30), 100)
+    let rows = []
+    try {
+      rows = recentRoomsStmt.all(since, limit * 4)
+    } catch (error) {
+      diag(`store: 读活跃房间失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+    const rooms = new Map()
+    for (const row of rows) {
+      const sessionId = String(row.sessionId ?? '')
+      if (sessionId === '') continue
+      const kind = roomKind(sessionId)
+      if (kind === 'imported') continue
+      const room = baseRoomKey(sessionId)
+      let entry = rooms.get(room)
+      if (!entry) {
+        entry = { room, sessions: [], lastAt: 0, lastId: 0, events: 0, kind, label: rhythmRoomLabel(sessionId, kind) }
+        rooms.set(room, entry)
+      }
+      entry.sessions.push(sessionId)
+      entry.lastAt = Math.max(entry.lastAt, Number(row.lastAt) || 0)
+      entry.lastId = Math.max(entry.lastId, Number(row.lastId) || 0)
+      entry.events += Number(row.events) || 0
+    }
+    return [...rooms.values()].sort((left, right) => right.lastAt - left.lastAt).slice(0, limit)
+  }
+
+  /**
+   * 一间屋子在水位之后的待处理对话。
+   * @param {string} room - 去掉重置后缀的房间。
+   * @param {number} cursorId - 已经处理到的经历 id。
+   * @param {number} [limit] - 最多取多少行。
+   * @returns {object[]} 按时间正序。
+   */
+  function roomPending(room, cursorId = 0, limit = 200) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 200), 500)
+    try {
+      return roomPendingStmt.all(String(room), `${String(room)}-r%`, Math.max(0, Number(cursorId) || 0), max).map((row) => ({
+        id: Number(row.id),
+        at: Number(row.ts) || 0,
+        sessionId: String(row.session_id ?? ''),
+        role: String(row.role ?? ''),
+        actor: String(row.actor ?? ''),
+        source: String(row.source_kind ?? ''),
+        text: String(row.content ?? ''),
+        salience: Number(row.salience) || 0,
+      }))
+    } catch (error) {
+      diag(`store: 读房间待处理失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+  }
+
+  /** 每个房间的巩固水位和最近状态。 */
+  function roomStates(limit = 50) {
+    if (db === null) return []
+    try {
+      return roomStatesStmt.all(Math.min(Math.max(1, Number(limit) || 50), 200)).map((row) => ({
+        room: String(row.room ?? ''),
+        cursorId: Number(row.cursorId) || 0,
+        cursorAt: Number(row.cursorAt) || 0,
+        lastRunAt: Number(row.lastRunAt) || 0,
+        lastStatus: String(row.lastStatus ?? ''),
+        runs: Number(row.runs) || 0,
+        kind: roomKind(row.room),
+        label: rhythmRoomLabel(row.room),
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** 成功处理完一间屋子：前移水位并记一次运行。 */
+  function saveRoomState({ room, cursorId, cursorAt = 0, status = 'ok', ranAt = Date.now() }) {
+    if (db === null) return false
+    try {
+      roomStateUpsertStmt.run(
+        String(room),
+        Math.max(0, Number(cursorId) || 0),
+        Math.max(0, Number(cursorAt) || 0),
+        Number(ranAt) || Date.now(),
+        String(status || 'ok').slice(0, 60),
+      )
+      return true
+    } catch (error) {
+      diag(`store: 写房间水位失败（${String((error && error.message) || error)}）`)
+      return false
+    }
+  }
+
+  /** 失败或没模型可用：只记状态，不碰水位，让同一批材料下次重来。 */
+  function noteRoomRun(room, status = 'error', ranAt = Date.now()) {
+    if (db === null) return false
+    try {
+      roomStateTouchStmt.run(String(room), Number(ranAt) || Date.now(), String(status || 'error').slice(0, 60))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** 某一天的本地情景，按时间正序，带第一句原文当摘要原料。 */
+  function episodesBetween(start, end, limit = 80) {
+    if (db === null) return []
+    try {
+      return episodesBetweenStmt.all(Number(start) || 0, Number(end) || 0, Math.min(Math.max(1, Number(limit) || 80), 400)).map((row) => ({
+        id: Number(row.id),
+        at: Number(row.at) || 0,
+        endAt: Number(row.endAt) || 0,
+        sessionId: String(row.sessionId ?? ''),
+        source: sourceLabel(row.channel || '') || rhythmRoomLabel(row.sessionId),
+        summary: clipText(String(row.summary || row.excerpt || ''), 240),
+        importance: round2(row.importance),
+        when: stampText(row.at),
+      }))
+    } catch (error) {
+      diag(`store: 读当日情景失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+  }
+
+  /** 某一段时间里新写入的事实。 */
+  function factsBetween(start, end, limit = 80) {
+    if (db === null) return []
+    try {
+      return factsBetweenStmt.all(Number(start) || 0, Number(end) || 0, Math.min(Math.max(1, Number(limit) || 80), 400)).map((row) => ({
+        id: Number(row.id),
+        subject: String(row.subject ?? ''),
+        predicate: String(row.predicate ?? ''),
+        object: String(row.object ?? ''),
+        confidence: Number(row.confidence) || 0,
+        scope: String(row.scope || 'owner'),
+        validFrom: Number(row.validFrom) || 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** 到期的复习项，情景和事实一起排队。 */
+  function dueReviews(now = Date.now(), limit = 8) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 8), 40)
+    const out = []
+    try {
+      for (const row of dueEpisodeStmt.all(Number(now), max)) {
+        out.push({
+          kind: 'episode',
+          id: Number(row.id),
+          at: Number(row.at) || 0,
+          source: sourceLabel(row.channel || '') || rhythmRoomLabel(row.sessionId),
+          text: clipText(String(row.excerpt || ''), 200),
+          nextReviewAt: Number(row.nextReviewAt) || 0,
+        })
+      }
+    } catch (error) {
+      diag(`store: 读到期情景失败（${String((error && error.message) || error)}）`)
+    }
+    try {
+      for (const row of dueFactStmt.all(Number(now), max)) {
+        out.push({
+          kind: 'fact',
+          id: Number(row.id),
+          at: Number(row.nextReviewAt) || 0,
+          source: String(row.scope || 'owner') === 'owner' ? '主人' : '社交',
+          text: `${row.subject}·${row.predicate}：${row.object}`,
+          nextReviewAt: Number(row.nextReviewAt) || 0,
+        })
+      }
+    } catch (error) {
+      diag(`store: 读到期事实失败（${String((error && error.message) || error)}）`)
+    }
+    return out.sort((left, right) => left.nextReviewAt - right.nextReviewAt).slice(0, max)
+  }
+
+  /**
+   * 复习完成：复习次数加一，记下这次回看，并按 3/7/21/60 排下一次。
+   * 走完 60 天就进入长期记忆，不再排期；内容和原文一条都不删。
+   */
+  function markReviewed(items, options = {}) {
+    if (db === null) return { updated: 0, reason: 'degraded' }
+    const now = Number.isFinite(options.now) ? Number(options.now) : Date.now()
+    const intervals = Array.isArray(options.intervals) && options.intervals.length > 0 ? options.intervals : REVIEW_INTERVALS
+    const result = String(options.result || 'review').slice(0, 40)
+    const list = (Array.isArray(items) ? items : []).filter((item) => item && (item.kind === 'episode' || item.kind === 'fact'))
+    let updated = 0
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const item of list) {
+        const id = Math.trunc(Number(item.id))
+        if (!id) continue
+        const row = item.kind === 'episode' ? episodeReviewRowStmt.get(id) : factReviewRowStmt.get(id)
+        if (!row) continue
+        const reviewCount = Number(row.reviewCount) + 1
+        const next = nextReviewAt(reviewCount, now, intervals)
+        const update = item.kind === 'episode' ? episodeReviewUpdateStmt : factReviewUpdateStmt
+        update.run(Number(row.recallCount) || 0, reviewCount, now, next, id)
+        reviewLogStmt.run(item.kind, id, Number(row.nextReviewAt) || 0, now, result)
+        updated += 1
+      }
+      db.exec('COMMIT')
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {}
+      diag(`store: 复习排期失败（${String((error && error.message) || error)}）`)
+      return { updated: 0, reason: 'error' }
+    }
+    return { updated }
+  }
+
+  /**
+   * 召回触发再巩固：记下召回次数和最近一次想起的时间。
+   * 同一个目标一小时内只算一次，避免一轮对话里反复召回把计数刷高。
+   */
+  function touchRecalled(items, options = {}) {
+    if (db === null) return { updated: 0 }
+    const now = Number.isFinite(options.now) ? Number(options.now) : Date.now()
+    const minInterval = Math.max(0, Number.isFinite(options.minIntervalMs) ? Number(options.minIntervalMs) : 60 * 60 * 1000)
+    const list = (Array.isArray(items) ? items : []).filter((item) => item && (item.kind === 'episode' || item.kind === 'fact'))
+    let updated = 0
+    for (const item of list) {
+      const id = Math.trunc(Number(item.id))
+      if (!id) continue
+      const row = item.kind === 'episode' ? episodeReviewRowStmt.get(id) : factReviewRowStmt.get(id)
+      if (!row) continue
+      const last = Number(row.lastRecalledAt) || 0
+      if (minInterval > 0 && last > 0 && now - last < minInterval) continue
+      const update = item.kind === 'episode' ? episodeReviewUpdateStmt : factReviewUpdateStmt
+      update.run(Number(row.recallCount) + 1, Number(row.reviewCount) || 0, now, Number(row.nextReviewAt) || 0, id)
+      reviewLogStmt.run(item.kind, id, Number(row.nextReviewAt) || 0, now, 'recall')
+      updated += 1
+    }
+    return { updated }
+  }
+
+  /** 给夜间整理排第一次复习：当天最显著的情景，巩固后 3 天回看。 */
+  function scheduleFirstReview(ids, from = Date.now(), intervals = REVIEW_INTERVALS) {
+    if (db === null) return 0
+    const list = (Array.isArray(ids) ? ids : []).map((id) => Math.trunc(Number(id))).filter(Boolean)
+    let updated = 0
+    try {
+      const stmt = db.prepare('UPDATE episodes SET next_review_at = ? WHERE id = ? AND next_review_at = 0')
+      for (const id of list) {
+        const info = stmt.run(nextReviewAt(0, from, intervals), id)
+        updated += Number(info.changes) || 0
+      }
+    } catch (error) {
+      diag(`store: 排第一次复习失败（${String((error && error.message) || error)}）`)
+    }
+    return updated
+  }
+
+  /** 当前自我模型，最多几条。 */
+  function getSelfModel(limit = 12) {
+    if (db === null) return []
+    try {
+      return selfModelListStmt.all(Math.min(Math.max(1, Number(limit) || 12), 60)).map((row) => ({
+        key: String(row.key ?? ''),
+        value: String(row.value ?? ''),
+        confidence: Number(row.confidence) || 0,
+        source: String(row.source ?? ''),
+        updatedAt: Number(row.updatedAt) || 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** 夜间/周整理写回自我模型；同 key 覆盖，保留最新认识。 */
+  function saveSelfModel(items, options = {}) {
+    if (db === null) return 0
+    const at = Number.isFinite(options.at) ? Number(options.at) : Date.now()
+    const source = String(options.source || 'sleep').slice(0, 40)
+    let saved = 0
+    for (const item of Array.isArray(items) ? items : []) {
+      const key = clipText(item && item.key, 60)
+      const value = clipText(item && item.value, 240)
+      if (key === '' || value === '') continue
+      try {
+        selfModelUpsertStmt.run(key, value, clamp01(item.confidence || 0.6), source, at)
+        saved += 1
+      } catch (error) {
+        diag(`store: 自我模型写入失败（${String((error && error.message) || error)}）`)
+      }
+    }
+    return saved
+  }
+
+  /** 人物志：只存她从相处里总结的观察，不动 QQ 桥自己的联系人表。 */
+  function listPeople(limit = 30) {
+    if (db === null) return []
+    try {
+      return peopleListStmt.all(Math.min(Math.max(1, Number(limit) || 30), 100)).map((row) => {
+        let note = ''
+        try {
+          const model = JSON.parse(String(row.model || '{}'))
+          note = typeof model.note === 'string' ? model.note : ''
+        } catch {}
+        return {
+          id: String(row.id ?? ''),
+          displayName: String(row.displayName ?? ''),
+          role: String(row.role ?? ''),
+          note,
+          trust: Number(row.trust) || 0,
+          lastSeen: Number(row.lastSeen) || 0,
+        }
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /** 夜间关系笔记：按人合并，note 覆盖为最新观察。 */
+  function savePeople(items, options = {}) {
+    if (db === null) return 0
+    const at = Number.isFinite(options.at) ? Number(options.at) : Date.now()
+    let saved = 0
+    for (const item of Array.isArray(items) ? items : []) {
+      const person = clipText(item && item.person, 60)
+      const note = clipText(item && item.note, 240)
+      if (person === '' || note === '') continue
+      try {
+        peopleUpsertStmt.run(person, person, '', JSON.stringify({ note }), clamp01(item.trust || 0.5), at)
+        saved += 1
+      } catch (error) {
+        diag(`store: 人物志写入失败（${String((error && error.message) || error)}）`)
+      }
+    }
+    return saved
+  }
+
+  /** 夜间 REM 的整体情绪读数。 */
+  function saveAffect(affect, options = {}) {
+    if (db === null || !affect) return false
+    const at = Number.isFinite(options.at) ? Number(options.at) : Date.now()
+    try {
+      affectInsertStmt.run(
+        at,
+        clamp(Number(affect.valence) || 0, -1, 1),
+        clamp01(Number(affect.arousal) || 0.4),
+        clamp01(Number(affect.dominance) || 0.5),
+        clipText(affect.label, 40),
+        String(options.reason || 'sleep').slice(0, 80),
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** 最近几条夜间情绪读数。 */
+  function recentAffect(limit = 7) {
+    if (db === null) return []
+    try {
+      return affectRecentStmt.all(Math.min(Math.max(1, Number(limit) || 7), 30)).map((row) => ({
+        at: Number(row.ts) || 0,
+        valence: Number(row.valence) || 0,
+        arousal: Number(row.arousal) || 0,
+        dominance: Number(row.dominance) || 0,
+        label: String(row.label ?? ''),
+        reason: String(row.reason ?? ''),
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** REM 里冒出的打算；只记，不自动执行。 */
+  function saveIntentions(items, options = {}) {
+    if (db === null) return 0
+    const at = Number.isFinite(options.at) ? Number(options.at) : Date.now()
+    let saved = 0
+    for (const item of Array.isArray(items) ? items : []) {
+      const text = clipText(item && item.text, 160)
+      const trigger = clipText(item && item.trigger, 80)
+      if (text === '' || trigger === '') continue
+      try {
+        intentionInsertStmt.run(
+          text,
+          trigger,
+          Number(item.dueAt) > 0 ? Number(item.dueAt) : null,
+          String(options.source || 'sleep').slice(0, 40),
+          clamp01(item.confidence || 0.6),
+        )
+        saved += 1
+      } catch (error) {
+        diag(`store: 打算写入失败（${String((error && error.message) || error)}）`)
+      }
+      if (saved >= 6) break
+    }
+    return saved
+  }
+
+  /** 还开着的打算，给状态页看。 */
+  function openIntentions(limit = 10) {
+    if (db === null) return []
+    try {
+      return intentionOpenStmt.all(Math.min(Math.max(1, Number(limit) || 10), 50)).map((row) => ({
+        id: Number(row.id),
+        text: String(row.text ?? ''),
+        trigger: String(row.trigger ?? ''),
+        dueAt: Number(row.dueAt) || 0,
+        createdBy: String(row.createdBy ?? ''),
+        confidence: Number(row.confidence) || 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  function getMeta(key) {
+    if (db === null) return ''
+    try {
+      return String(metaGetStmt.get(String(key))?.value ?? '')
+    } catch {
+      return ''
+    }
+  }
+
+  function setMeta(key, value) {
+    if (db === null) return false
+    try {
+      metaSetStmt.run(String(key), String(value ?? ''))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** 记忆周期的计数，给状态页和健康检查用。 */
+  function cycleStats(now = Date.now()) {
+    if (db === null) {
+      return { rooms: [], dueEpisodes: 0, dueFacts: 0, reviewedEpisodes: 0, reviewedFacts: 0, lastReviewAt: 0 }
+    }
+    const count = (sql, ...args) => {
+      try {
+        return Number(db.prepare(sql).get(...args)?.n) || 0
+      } catch {
+        return 0
+      }
+    }
+    return {
+      rooms: roomStates(50),
+      dueEpisodes: count('SELECT COUNT(*) AS n FROM episodes WHERE next_review_at > 0 AND next_review_at <= ?', Number(now)),
+      dueFacts: count('SELECT COUNT(*) AS n FROM facts WHERE next_review_at > 0 AND next_review_at <= ? AND superseded_by IS NULL', Number(now)),
+      reviewedEpisodes: count('SELECT COUNT(*) AS n FROM episodes WHERE review_count > 0'),
+      reviewedFacts: count('SELECT COUNT(*) AS n FROM facts WHERE review_count > 0 AND superseded_by IS NULL'),
+      lastReviewAt: count('SELECT COALESCE(MAX(done_at), 0) AS n FROM memory_reviews'),
+    }
+  }
+
+  /**
    * 按会话聚合最近经历，给其他插件选“她最近待在哪个会话”用。
    * @param {number} limit - 最多返回多少个会话。
    * @returns {{ id: string, lastAt: number, events: number }[]} 按最近活动倒序。
@@ -2228,6 +2920,8 @@ export function openStore({ dir, config, diag = () => {} }) {
         runs: 0,
         lastEpisodeAt: 0,
         lastChapterAt: 0,
+        dueEpisodes: 0,
+        dueFacts: 0,
         dbBytes: 0,
         jsonlBytes: fileSize(jsonlPath),
       }
@@ -2241,6 +2935,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     const runs = Number(db.prepare('SELECT COUNT(*) AS n FROM sleep_runs').get()?.n ?? 0)
     const lastEpisodeAt = Number(db.prepare('SELECT MAX(end_ts) AS at FROM episodes').get()?.at ?? 0)
     const lastChapterAt = Number(db.prepare("SELECT MAX(end_ts) AS at FROM chapters WHERE level = 'day'").get()?.at ?? 0)
+    const cycle = cycleStats()
     return {
       degraded: false,
       total,
@@ -2252,6 +2947,8 @@ export function openStore({ dir, config, diag = () => {} }) {
       runs,
       lastEpisodeAt,
       lastChapterAt,
+      dueEpisodes: cycle.dueEpisodes,
+      dueFacts: cycle.dueFacts,
       dbBytes: fileSize(dbPath),
       jsonlBytes: fileSize(jsonlPath),
     }
@@ -2490,6 +3187,28 @@ export function openStore({ dir, config, diag = () => {} }) {
     listFacts,
     exportFacts,
     recordRun,
+    activeRooms,
+    roomPending,
+    roomStates,
+    saveRoomState,
+    noteRoomRun,
+    episodesBetween,
+    factsBetween,
+    dueReviews,
+    markReviewed,
+    touchRecalled,
+    scheduleFirstReview,
+    getSelfModel,
+    saveSelfModel,
+    listPeople,
+    savePeople,
+    saveAffect,
+    recentAffect,
+    saveIntentions,
+    openIntentions,
+    getMeta,
+    setMeta,
+    cycleStats,
     stats,
     countToday,
     countBetween,

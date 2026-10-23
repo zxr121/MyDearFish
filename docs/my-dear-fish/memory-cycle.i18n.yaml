@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for memory-cycle.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/memory-cycle.md
+/memory-consolidation-cycle:
+  en: 731dc159745ca9b6
+  zh: 8803b247763fa48d
+/memory-consolidation-cycle/what-the-first-two-days-showed:
+  en: b44613f3970b50c7
+  zh: 60f56e5d41580498
+/memory-consolidation-cycle/the-human-timeline-mapped:
+  en: e2d0670abe8d1c66
+  zh: 10e3ea7c3050e759
+/memory-consolidation-cycle/rooms-before-time:
+  en: 4c10b236c4e9799a
+  zh: 06d4c080017224ee
+/memory-consolidation-cycle/micro-consolidation:
+  en: 86c0849301f0e3b9
+  zh: 027ba51bb22f219d
+/memory-consolidation-cycle/nightly-sleep:
+  en: e7e511c66f796a50
+  zh: 50e0e47cf7505969
+/memory-consolidation-cycle/spaced-reactivation:
+  en: 6a849ba4afebb53b
+  zh: a3111dc9d1c254aa
+/memory-consolidation-cycle/weekly-and-monthly-integration:
+  en: 76cb8b749eb45cde
+  zh: f3cf175fe60a7562
+/memory-consolidation-cycle/reconsolidation-and-forgetting:
+  en: 68ca56ca9477a585
+  zh: 6a8261bce812d1db
+/memory-consolidation-cycle/configuration-and-visibility:
+  en: e987deb9f3dbf2f2
+  zh: fb9be787b9ebcd3a
+/memory-consolidation-cycle/backfill-and-acceptance:
+  en: a4db6f5077b5ed8f
+  zh: 752e37cfa67f43f4
+/memory-consolidation-cycle/limits:
+  en: feb789bd6fa19853
+  zh: 7c2119823cf5ae3e

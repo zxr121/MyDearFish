@@ -94,6 +94,37 @@ export function buildDefaults(dshHome) {
       summaryChars: 320,
       abstractive: true,
     },
+    // 记忆周期：每间屋子的微巩固、夜里两段整理、3/7/21/60 天的回看。
+    // 不设遗忘：时间只影响排序，原文和长期记忆一条都不删。
+    cycle: {
+      enabled: true,
+      micro: {
+        roomRows: 24,
+        roomChars: 6000,
+        maxRooms: 1,
+        maxPerHour: 6,
+      },
+      nightly: {
+        hour: 3,
+        minute: 30,
+        minNewExperiences: 6,
+        catchUpDays: 2,
+      },
+      review: {
+        intervals: [3, 7, 21, 60],
+        limit: 8,
+      },
+      weekly: {
+        weekday: 1,
+        hour: 4,
+        minute: 10,
+      },
+      monthly: {
+        day: 1,
+        hour: 4,
+        minute: 20,
+      },
+    },
     // 短期记忆：最近这半小时的原话直接进提示，放凉或攒多了就提炼成能查的事实转长期。
     working: {
       enabled: true,
@@ -268,6 +299,59 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     config.chapters.abstractive = pickBoolean(c.abstractive, config.chapters.abstractive)
   } else if (raw.chapters !== undefined) {
     diag('config: chapters 不是对象，使用默认值')
+  }
+
+  if (isPlainObject(raw.cycle)) {
+    const c = raw.cycle
+    config.cycle.enabled = pickBoolean(c.enabled, config.cycle.enabled)
+    if (isPlainObject(c.micro)) {
+      config.cycle.micro.roomRows = pickNumber(c.micro.roomRows, config.cycle.micro.roomRows, 4, 200)
+      config.cycle.micro.roomChars = pickNumber(c.micro.roomChars, config.cycle.micro.roomChars, 400, 20000)
+      config.cycle.micro.maxRooms = pickNumber(c.micro.maxRooms, config.cycle.micro.maxRooms, 1, 20)
+      config.cycle.micro.maxPerHour = pickNumber(c.micro.maxPerHour, config.cycle.micro.maxPerHour, 1, 60)
+    } else if (c.micro !== undefined) {
+      diag('config: cycle.micro 不是对象，使用默认值')
+    }
+    if (isPlainObject(c.nightly)) {
+      config.cycle.nightly.hour = pickNumber(c.nightly.hour, config.cycle.nightly.hour, 0, 23)
+      config.cycle.nightly.minute = pickNumber(c.nightly.minute, config.cycle.nightly.minute, 0, 59)
+      config.cycle.nightly.minNewExperiences = pickNumber(
+        c.nightly.minNewExperiences,
+        config.cycle.nightly.minNewExperiences,
+        0,
+        500,
+      )
+      config.cycle.nightly.catchUpDays = pickNumber(c.nightly.catchUpDays, config.cycle.nightly.catchUpDays, 1, 14)
+    } else if (c.nightly !== undefined) {
+      diag('config: cycle.nightly 不是对象，使用默认值')
+    }
+    if (isPlainObject(c.review)) {
+      const intervals = Array.isArray(c.review.intervals)
+        ? c.review.intervals
+          .map((value) => Math.round(Number(value)))
+          .filter((value) => Number.isFinite(value) && value >= 1 && value <= 3650)
+        : []
+      if (intervals.length > 0) config.cycle.review.intervals = intervals.slice(0, 8)
+      config.cycle.review.limit = pickNumber(c.review.limit, config.cycle.review.limit, 1, 40)
+    } else if (c.review !== undefined) {
+      diag('config: cycle.review 不是对象，使用默认值')
+    }
+    if (isPlainObject(c.weekly)) {
+      config.cycle.weekly.weekday = pickNumber(c.weekly.weekday, config.cycle.weekly.weekday, 0, 6)
+      config.cycle.weekly.hour = pickNumber(c.weekly.hour, config.cycle.weekly.hour, 0, 23)
+      config.cycle.weekly.minute = pickNumber(c.weekly.minute, config.cycle.weekly.minute, 0, 59)
+    } else if (c.weekly !== undefined) {
+      diag('config: cycle.weekly 不是对象，使用默认值')
+    }
+    if (isPlainObject(c.monthly)) {
+      config.cycle.monthly.day = pickNumber(c.monthly.day, config.cycle.monthly.day, 1, 28)
+      config.cycle.monthly.hour = pickNumber(c.monthly.hour, config.cycle.monthly.hour, 0, 23)
+      config.cycle.monthly.minute = pickNumber(c.monthly.minute, config.cycle.monthly.minute, 0, 59)
+    } else if (c.monthly !== undefined) {
+      diag('config: cycle.monthly 不是对象，使用默认值')
+    }
+  } else if (raw.cycle !== undefined) {
+    diag('config: cycle 不是对象，使用默认值')
   }
 
   if (isPlainObject(raw.working)) {
