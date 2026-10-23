@@ -244,6 +244,7 @@ function chapterNodeOverview(node, depth = 0) {
     at: number(node.at),
     endAt: number(node.endAt),
     summary: text(node.summary, 240),
+    abstractiveSummary: text(node.abstractiveSummary, 240),
     importance: number(node.importance),
     episodeCount: number(node.episodeCount),
     children,

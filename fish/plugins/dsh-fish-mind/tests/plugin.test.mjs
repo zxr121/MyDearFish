@@ -1154,7 +1154,7 @@ test('短期窗口只补别的窗口刚说过的话，过时效就不占提示',
 test('短期放凉后转长期：提炼成事实并写回经历流，再跑一次不重复烧模型', async () => {
   const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   process.env.DSH_HOME = home
-  writeConfig(home, { mode: 'shadow', inject: true, working: { idleMinutes: 20, minRows: 2 } })
+  writeConfig(home, { mode: 'shadow', inject: true, working: { idleMinutes: 20, minRows: 2 }, chapters: { abstractive: false } })
   const ctx = fakeContext()
   memoryHarness(ctx)
   ctx.set('agents', { list: () => [{ session: session('session-1'), ctx, options: { provider: 'deepseek', model: 'dsh-test' } }] })
@@ -1174,7 +1174,7 @@ test('短期放凉后转长期：提炼成事实并写回经历流，再跑一�
   assert.deepEqual(await mind.consolidate('shadow'), { ran: false, reason: 'disabled' })
   assert.equal(calls.length, 0)
 
-  writeConfig(home, { mode: 'live', inject: true, working: { idleMinutes: 20, minRows: 2 } })
+  writeConfig(home, { mode: 'live', inject: true, working: { idleMinutes: 20, minRows: 2 }, chapters: { abstractive: false } })
   mind.reload()
   const now = Date.now()
   await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '我叫EMT，QQ也叫这个', {

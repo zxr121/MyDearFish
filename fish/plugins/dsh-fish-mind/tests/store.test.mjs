@@ -575,10 +575,10 @@ test('旧 v2 库打开时补齐章节列、索引和关系表', () => {
   const store = openStore({ dir })
   assert.equal(store.stats().degraded, false)
   const columns = store._db().prepare('PRAGMA table_info(chapters)').all().map((row) => row.name)
-  for (const name of ['parent_id', 'level', 'scope', 'entities', 'importance', 'channel', 'source_trust']) {
+  for (const name of ['parent_id', 'level', 'scope', 'entities', 'importance', 'channel', 'source_trust', 'abstractive_summary']) {
     assert.ok(columns.includes(name), name)
   }
-  assert.equal(store._db().prepare('PRAGMA user_version').get().user_version, 3)
+  assert.equal(store._db().prepare('PRAGMA user_version').get().user_version, 4)
   store.insert(record('今天在咖啡馆见到小蓝', { at: Date.now() }))
   store.upsertFact({ subject: '小蓝', predicate: '喜欢', object: '咖啡馆' })
   assert.equal(store.listRelations().length, 1)

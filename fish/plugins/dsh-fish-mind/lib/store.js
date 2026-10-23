@@ -27,7 +27,7 @@ try {
   DatabaseSync = undefined
 }
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PARAMETERS = {
@@ -486,6 +486,7 @@ CREATE TABLE IF NOT EXISTS chapters (
   start_ts INTEGER,
   end_ts INTEGER,
   summary TEXT,
+  abstractive_summary TEXT,
   key_episode_ids TEXT NOT NULL DEFAULT '[]',
   parent_id INTEGER REFERENCES chapters(id),
   level TEXT NOT NULL DEFAULT 'day',
@@ -583,6 +584,12 @@ export function openStore({ dir, config, diag = () => {} }) {
         handle.exec('CREATE INDEX IF NOT EXISTS relations_dst ON relations(dst_type, dst_id, relation)')
         handle.exec('CREATE INDEX IF NOT EXISTS relations_active ON relations(valid_to)')
         handle.exec('CREATE INDEX IF NOT EXISTS relations_fact ON relations(fact_id)')
+      }
+      if (version < 4) {
+        const columns = new Set(handle.prepare('PRAGMA table_info(chapters)').all().map((row) => row.name))
+        if (!columns.has('abstractive_summary')) {
+          handle.exec('ALTER TABLE chapters ADD COLUMN abstractive_summary TEXT')
+        }
       }
       handle.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
       handle.exec('COMMIT')
@@ -766,12 +773,12 @@ export function openStore({ dir, config, diag = () => {} }) {
   `)
   const chapterBriefStmt = db && db.prepare('SELECT id, title, level FROM chapters WHERE id = ?')
   const chapterByIdStmt = db && db.prepare(`
-    SELECT id, title, level, scope, start_ts, end_ts, summary, key_episode_ids,
+    SELECT id, title, level, scope, start_ts, end_ts, summary, abstractive_summary, key_episode_ids,
            importance, channel, source_trust, entities, parent_id
     FROM chapters WHERE id = ?
   `)
   const chapterChildrenStmt = db && db.prepare(`
-    SELECT id, title, level, start_ts, end_ts, summary, importance, channel, source_trust
+    SELECT id, title, level, start_ts, end_ts, summary, abstractive_summary, importance, channel, source_trust
     FROM chapters WHERE parent_id = ? ORDER BY start_ts ASC, id ASC
   `)
   const chapterEpisodesStmt = db && db.prepare(`
@@ -807,6 +814,14 @@ export function openStore({ dir, config, diag = () => {} }) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const chapterAssignStmt = db && db.prepare('UPDATE episodes SET chapter_id = ? WHERE id = ?')
+  const pendingAbstractiveChaptersStmt = db && db.prepare(`
+    SELECT id, level, scope, title, summary FROM chapters
+    WHERE abstractive_summary IS NULL AND level = 'day'
+    ORDER BY start_ts DESC LIMIT 20
+  `)
+  const updateAbstractiveSummaryStmt = db && db.prepare(
+    'UPDATE chapters SET abstractive_summary = ? WHERE id = ?'
+  )
   const relationInsertRawStmt = db && db.prepare(`
     INSERT INTO relations (src_type, src_id, relation, dst_type, dst_id, fact_id, valid_from, confidence, source_ids)
     VALUES ('subject', ?, ?, 'value', ?, ?, ?, ?, ?)
@@ -1217,6 +1232,7 @@ export function openStore({ dir, config, diag = () => {} }) {
       at: Number(row.start_ts) || 0,
       endAt: Number(row.end_ts) || 0,
       summary: String(row.summary || ''),
+      abstractiveSummary: String(row.abstractive_summary || ''),
       importance: round2(row.importance),
       channel: roomLabel(channel) || sourceLabel(channel),
       confidence: round2(row.source_trust),
@@ -1567,6 +1583,38 @@ export function openStore({ dir, config, diag = () => {} }) {
       excerpt: clipText(String(firstEpisodeTextStmt.get(Number(episode.id))?.content || '').replace(/\s+/g, ' ').trim(), 180),
     }))
     return detail
+  }
+
+  /** 列出待生成摘要的日章节（abstractive_summary IS NULL），最多 20 条。 */
+  function pendingAbstractiveChapters() {
+    if (db === null) return []
+    try {
+      return pendingAbstractiveChaptersStmt.all().map((row) => ({
+        id: Number(row.id),
+        level: String(row.level || 'day'),
+        scope: String(row.scope || 'owner'),
+        title: String(row.title || ''),
+        summary: String(row.summary || ''),
+      }))
+    } catch (error) {
+      diag(`store: 读待摘要章节失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+  }
+
+  /** 写入章节的生成式摘要。 */
+  function updateAbstractiveSummary(chapterId, summary) {
+    if (db === null) return { ok: false, reason: 'degraded' }
+    const id = Math.trunc(Number(chapterId))
+    if (!Number.isFinite(id) || id <= 0) return { ok: false, reason: 'bad-id' }
+    const text = String(summary || '').trim().slice(0, 200)
+    try {
+      updateAbstractiveSummaryStmt.run(text, id)
+      return { ok: true, id, summary: text }
+    } catch (error) {
+      diag(`store: 写章节摘要失败（${String((error && error.message) || error)}）`)
+      return { ok: false, reason: 'write-error' }
+    }
   }
 
   /** 当前生效的关系边（从长期事实派生），最近的在前。 */
@@ -2430,6 +2478,8 @@ export function openStore({ dir, config, diag = () => {} }) {
     chapterTree,
     listChapters,
     openChapter,
+    pendingAbstractiveChapters,
+    updateAbstractiveSummary,
     listRelations,
     syncRelationsFromFacts,
     encodePending,

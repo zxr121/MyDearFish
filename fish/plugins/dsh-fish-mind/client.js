@@ -156,11 +156,12 @@ window.__ModuleLoader__.load({
     function ChapterBranch({ node }) {
       const children = list(node && node.children)
       const level = node && node.level === 'month' ? '月' : node && node.level === 'week' ? '周' : '日'
+      const displaySummary = (node && node.abstractiveSummary) || (node && node.summary)
       return h('div', { 'data-fishm-branch': '' },
         h('div', { 'data-fishm-item': '' },
           h('div', { 'data-fishm-meta': '' }, `${level} · ${when(node && node.at)} · ${num(node && node.episodeCount)} 段`),
           h('div', {}, (node && node.title) || '—'),
-          node && node.summary ? h('div', { 'data-fishm-note': '' }, node.summary) : null),
+          displaySummary ? h('div', { 'data-fishm-note': '' }, displaySummary) : null),
         children.length > 0
           ? h('div', { 'data-fishm-branchchildren': '' }, children.map((child, index) => h(ChapterBranch, {
               node: child,

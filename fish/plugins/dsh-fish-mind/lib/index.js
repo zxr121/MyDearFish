@@ -173,14 +173,109 @@ export function apply(ctx) {
   if (caughtUp > 0) diag(`store: 启动时从 JSONL 补齐了 ${caughtUp} 条经历`)
 
   /**
+   * 用模型把章节摘要改成她自己的话。日章节从情景首条消息生成，周/月章节从子章节摘要生成。
+   * 失败时保留原文摘录，不阻塞后续流程。
+   * @param {object} chapter - 章节对象（id, level, scope, title, summary）。
+   * @returns {Promise<{ok: boolean, summary?: string, reason?: string}>}
+   */
+  async function summarizeChapter(chapter) {
+    if (!chapter || !Number.isFinite(chapter.id)) return { ok: false, reason: 'bad-chapter' }
+    const llm = ctx.get('llm')
+    if (!llm || typeof llm.stream !== 'function') return { ok: false, reason: 'no-model' }
+
+    let input = ''
+    if (chapter.level === 'day') {
+      const episodes = store.openChapter(chapter.id)
+      if (!episodes || !Array.isArray(episodes.episodes)) return { ok: false, reason: 'no-episodes' }
+      input = episodes.episodes
+        .map((ep) => String(ep.excerpt || '').trim())
+        .filter(Boolean)
+        .join('\n')
+    } else {
+      const tree = store.chapterTree({ scope: chapter.scope })
+      if (!tree || !Array.isArray(tree.months)) return { ok: false, reason: 'no-tree' }
+      const collect = (node) => {
+        if (node.level === chapter.level) return String(node.abstractiveSummary || node.summary || '').trim()
+        return (node.children || []).map(collect).filter(Boolean).join('\n')
+      }
+      input = collect(tree)
+    }
+
+    if (!input) return { ok: false, reason: 'empty-input' }
+
+    const levelLabel = chapter.level === 'day' ? '这一天' : chapter.level === 'week' ? '这一周' : '这一月'
+    const prompt = `用你自己的话总结${levelLabel}发生了什么，要像你在跟主人聊天时提到的那样自然。不要列清单，不要报时间戳，只讲重要的事。一两句话就够。\n\n资料：\n${input}`
+
+    const target = extractionTarget()
+    if (!target) return { ok: false, reason: 'no-target' }
+
+    const messages = [{
+      role: 'user',
+      id: randomUUID(),
+      content: [{ type: 'text', text: prompt }],
+      source: { kind: 'plugin', plugin: 'dsh-fish-mind' },
+    }]
+
+    let out = ''
+    try {
+      for await (const chunk of llm.stream({
+        provider: target.provider,
+        model: target.model,
+        system: '你是大肥鱼，正在用自己的话讲过去发生的事。',
+        messages,
+        maxTokens: 120,
+        temperature: 0.6,
+      })) {
+        if (!chunk) continue
+        if (chunk.type === 'text-delta') out += chunk.text
+        if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
+          return { ok: false, reason: 'model-error' }
+        }
+      }
+    } catch (error) {
+      diag(`memory: 章节 ${chapter.id} 摘要生成失败（${String((error && error.message) || error)}）`)
+      return { ok: false, reason: 'stream-error' }
+    }
+
+    const summary = out.trim().replace(/\s+/g, ' ').slice(0, 200)
+    if (!summary) return { ok: false, reason: 'empty-output' }
+
+    const result = store.updateAbstractiveSummary(chapter.id, summary)
+    if (!result.ok) return { ok: false, reason: 'write-error' }
+    return { ok: true, summary }
+  }
+
+  /**
+   * 扫描所有待摘要的日章节，逐个生成 abstractive_summary。
+   * 周/月章节在下次 buildChapters 时从子章节摘要派生。
+   * @returns {Promise<{summarized: number, failed: number}>}
+   */
+  async function summarizePendingChapters() {
+    if (config.chapters.abstractive === false) return { summarized: 0, failed: 0, reason: 'disabled' }
+    const pending = store.pendingAbstractiveChapters()
+    if (pending.length === 0) return { summarized: 0, failed: 0 }
+
+    let summarized = 0
+    let failed = 0
+    for (const chapter of pending) {
+      const result = await summarizeChapter(chapter)
+      if (result.ok) summarized += 1
+      else failed += 1
+    }
+    if (summarized > 0) diag(`memory: 已为 ${summarized} 个章节生成自然语言摘要`)
+    if (failed > 0) diag(`memory: ${failed} 个章节摘要生成失败，保留原文摘录`)
+    return { summarized, failed }
+  }
+
+  /**
    * 把情景重新编成章节、把长期事实重新连成关系边。两者都是从经历流派生的，
    * 随时可以重做；这里的调用只负责在启动、导入、重建和定时检查后接上。
    * @param {string} reason - 写进诊断日志的触发原因。
    * @param {{ force?: boolean, relations?: boolean }} [options] - 强制重编或同时同步关系边。
-   * @returns {{ relations: object|null, chapters: object|null, error: string }} 结果计数。
+   * @returns {{ relations: object|null, chapters: object|null, abstractive: object|null, error: string }} 结果计数。
    */
   function organizeMemory(reason, options = {}) {
-    const outcome = { relations: null, chapters: null, error: '' }
+    const outcome = { relations: null, chapters: null, abstractive: null, error: '' }
     if (config.mode === 'off') return outcome
     try {
       // 关系边从事实派生；导入、旧库升级和重建后需要整体补一次，平时由 upsertFact 增量维护。
@@ -190,6 +285,12 @@ export function apply(ctx) {
         if (outcome.chapters.built) {
           diag(`memory: 章节树已更新（日 ${outcome.chapters.days} / 周 ${outcome.chapters.weeks} / 月 ${outcome.chapters.months}，${reason}）`)
         }
+        // 章节建好后，异步生成自然语言摘要（不阻塞主流程）。
+        summarizePendingChapters().then((result) => {
+          outcome.abstractive = result
+        }).catch((error) => {
+          diag(`memory: 摘要生成异步失败（${String((error && error.message) || error)}）`)
+        })
       }
       return outcome
     } catch (error) {
