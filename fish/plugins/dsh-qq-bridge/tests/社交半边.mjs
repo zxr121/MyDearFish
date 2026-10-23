@@ -712,7 +712,7 @@ const 句拆前发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x
 await 收到回复('session-qq-social-group-1030', '鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')
 await new Promise((r) => setTimeout(r, 700))
 const 句拆发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1030).slice(句拆前发)
-报('连发：整段多句断成两条', 句拆发.length === 2 && 句拆发[0].体.message[0].data.text === '鱼片没有，自己人不能切片。' && 句拆发[1].体.message[0].data.text === '倒是那个小兔话，我听着还挺亲切。', JSON.stringify(句拆发.map((x) => x.体.message[0].data.text)))
+报('连发：整段多句断成两条，句号收掉', 句拆发.length === 2 && 句拆发[0].体.message[0].data.text === '鱼片没有，自己人不能切片' && 句拆发[1].体.message[0].data.text === '倒是那个小兔话，我听着还挺亲切', JSON.stringify(句拆发.map((x) => x.体.message[0].data.text)))
 
 // ---------- 6c 图片：不单独触发，和文字一样走判断；被选中后作为 image 块进会话 ----------
 写配置({ 群: ['1016'] })

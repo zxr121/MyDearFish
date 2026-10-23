@@ -1243,6 +1243,28 @@ export function 按段拆(文字) {
     .filter((s) => s.length > 0)
 }
 
+/**
+ * 发送前的最后一道口语化：收掉中文句号——句尾直接去掉，句中换成空格；
+ * 省略号、问号、感叹号和链接里的点原样保留。
+ * @param {string} 文字 - 要发出去的一条文字。
+ * @returns {string} 收过句号的文字。
+ */
+export function 收句号(文字) {
+  let 文 = String(文字 || '')
+  if (!/[。．]/u.test(文)) return 文
+  const 护 = []
+  const 藏 = (段) => {
+    护.push(段)
+    return `\u0000${护.length - 1}\u0000`
+  }
+  文 = 文.replace(/https?:\/\/[^\s，。！？；]+/giu, 藏)
+  文 = 文.replace(/[。．]{2,}/gu, 藏)
+  文 = 文.replace(/[。．](?=\s|$|[」』”’）)\]】》])/gu, '')
+  文 = 文.replace(/[。．]\s*/gu, ' ')
+  文 = 文.replace(/\u0000(\d+)\u0000/gu, (_, i) => 护[Number(i)] || '')
+  return 文.replace(/[ \t]{2,}/gu, ' ').trim()
+}
+
 /** 把一段多句的文字按句尾标点拆开（真人连发通常一句一条）；单句不拆。 */
 export function 按句拆(文字) {
   return String(文字 || '')
@@ -3919,7 +3941,9 @@ export function apply(ctx) {
       if (!脱敏.ok) return
       脱敏文本 = 脱敏.text
     }
-    const 项们 = 脱敏文本 === '' ? [] : 拆连发项(脱敏文本)
+    const 项们 = (脱敏文本 === '' ? [] : 拆连发项(脱敏文本))
+      .map((项) => (项.文字 === undefined ? 项 : { ...项, 文字: 收句号(项.文字) }))
+      .filter((项) => 项.文字 === undefined || 项.文字 !== '')
     const action = 目标.类型 === 'group' ? 'send_group_msg' : 'send_private_msg'
     let 全过 = true
     let 真发出 = false
@@ -3966,11 +3990,12 @@ export function apply(ctx) {
       if (i < 项们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
     }
     const 文字条数 = 项们.filter((x) => x.文字 !== undefined).length
+    const 发出文字 = 项们.map((x) => (x.文字 === undefined ? '' : x.文字)).filter(Boolean).join(' ')
     if (项们.length > 0) {
-      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}）` : '开口有问题'}：「${脱敏文本.slice(0, 50)}${脱敏文本.length > 50 ? '…' : ''}」`)
+      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}）` : '开口有问题'}：「${发出文字.slice(0, 50)}${发出文字.length > 50 ? '…' : ''}」`)
     }
-    // 把自己刚说的话放进缓冲，下一轮判断时知道她已经说过了
-    const 干净说 = 脱敏文本.replace(/\[发表情:\s*#?\d{1,9}\s*\]/g, '').trim()
+    // 把自己刚说的话放进缓冲，下一轮判断时知道她已经说过了；存真正发出去的版本，别再教自己带句号。
+    const 干净说 = 发出文字.trim()
     const 说出 = [干净说, ...发出的表情.map((label) => `[发了一张表情包：${label}]`)].filter(Boolean).join(' ')
     const 缓冲 = (社交缓冲.get(目标.key) || []).concat([{
       id: `self-${Date.now()}`,
@@ -4033,6 +4058,8 @@ export function apply(ctx) {
   async function 发到QQ(配置, 文字) {
     const 出 = []
     const 项们 = 拆连发项(文字)
+      .map((项) => (项.文字 === undefined ? 项 : { ...项, 文字: 收句号(项.文字) }))
+      .filter((项) => 项.文字 === undefined || 项.文字 !== '')
     const 目标们 = []
     if (配置.转私聊 && 配置.私聊QQ) 目标们.push({ 类型: 'private', 号: Number(配置.私聊QQ) })
     if (配置.转群 && 配置.群号) 目标们.push({ 类型: 'group', 号: Number(配置.群号) })
