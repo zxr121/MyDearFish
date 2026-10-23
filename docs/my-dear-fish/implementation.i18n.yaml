@@ -12,23 +12,23 @@
   en: 2e11a979a9baa4e5
   zh: 530c57204c920d19
 /fish-implementation-approach/layering-decides-who-wins:
-  en: c3b5f5f6cc36f7dd
-  zh: c1b61d293d4b9835
+  en: f5822ef5be1efbbd
+  zh: 0e15dc74d8199c23
 /fish-implementation-approach/six-plugins-one-body:
-  en: 38659ee6c70e89a6
-  zh: db08a2627a8880e0
+  en: d5859f805e0b8ade
+  zh: 5f65d9b3820338ca
 /fish-implementation-approach/memory-derives-from-one-append-only-stream:
-  en: 8015ff0db10e26d5
-  zh: 39c5de432ca5a4b0
+  en: 410915b0acbb540d
+  zh: 7e6e20444770b95b
 /fish-implementation-approach/cost-is-paid-while-forming-then-gets-cheap:
   en: 8e75c755a462aabc
   zh: 4416920bcfe70bd7
 /fish-implementation-approach/safety-boundaries-are-code-not-her-mood:
-  en: 6309ab5d931c10d9
-  zh: 90b87b458f4333a3
+  en: 14c6de1251425886
+  zh: 871a91de06d32a81
 /fish-implementation-approach/rollout-read-before-write:
   en: 4c0c0c53b3921c98
   zh: cb4ac0cf53178c78
 /fish-implementation-approach/trade-offs-this-shape-buys-and-pays:
-  en: e39f33842359287e
-  zh: daab8380dc669cc4
+  en: b24330757039653c
+  zh: 70a2789b3f677804

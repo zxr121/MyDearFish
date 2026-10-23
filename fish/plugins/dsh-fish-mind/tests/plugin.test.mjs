@@ -127,7 +127,7 @@ test('插件挂着就能写经历，影子模式不召回', async () => {
   apply(ctx)
   const mind = ctx.get('fishMind')
   assert.ok(mind)
-  for (const method of ['observe', 'recall', 'state', 'sessions', 'claimDelivery', 'deliveryOwner', 'budget', 'redactOutbound', 'privacy', 'rebuild', 'markAutonomous', 'unmarkAutonomous', 'permissions', 'reload']) {
+  for (const method of ['observe', 'recall', 'state', 'sessions', 'claimDelivery', 'deliveryOwner', 'budget', 'redactOutbound', 'privacy', 'rebuild', 'markAutonomous', 'unmarkAutonomous', 'permissions', 'reload', 'chapters', 'chapterTree', 'chapter', 'relations', 'organize']) {
     assert.equal(typeof mind[method], 'function', method)
   }
   // 对话和插件都不能直接改核心或记忆；写入只经过 observe 追加的经历流。
@@ -625,7 +625,7 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
 
   const recall = harness.tools.get('recall')
   assert.ok(recall)
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'])
   const value = await recall.execute({ query: '海边' }, {})
   assert.equal(value.enabled, false)
   assert.equal(value.reason, 'shadow-mode')
@@ -635,6 +635,11 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
   assert.equal(opened.enabled, false)
   assert.equal(opened.reason, 'shadow-mode')
   assert.ok(openEpisode.output.render({ id: 1 }, opened)[0].text.includes('没有启用'))
+  const openChapter = harness.tools.get('open_chapter')
+  const openedChapter = await openChapter.execute({ id: 1 }, {})
+  assert.equal(openedChapter.enabled, false)
+  assert.equal(openedChapter.reason, 'shadow-mode')
+  assert.ok(openChapter.output.render({ id: 1 }, openedChapter)[0].text.includes('没有启用'))
 
   const state = mind.state()
   assert.ok(state.storage.episodes >= 1)
@@ -669,6 +674,7 @@ test('live + inject：工作台从别的会话召回，带来源、置信度和�
   assert.ok(protocol.text().includes('不是全知'))
   assert.ok(protocol.text().includes('recall'))
   assert.ok(protocol.text().includes('open_episode'))
+  assert.ok(protocol.text().includes('open_chapter'))
   assert.ok(protocol.text().includes('includeCurrentSession'))
 
   const text = workspace.text({ agent: { session: session('session-current') } })
@@ -683,6 +689,9 @@ test('live + inject：工作台从别的会话召回，带来源、置信度和�
 
   const recall = harness.tools.get('recall')
   const toolExec = { agent: { session: session('session-current') } }
+  const organized = mind.organize()
+  assert.equal(organized.chapters.built, true, '手动整理会立刻编出章节')
+  assert.equal(organized.relations.synced, 0, '还没有长期事实时关系边为空')
   const value = await recall.execute({ query: '海边' }, toolExec)
   assert.equal(value.enabled, true)
   assert.ok(value.items.length >= 1)
@@ -690,10 +699,13 @@ test('live + inject：工作台从别的会话召回，带来源、置信度和�
   assert.ok(value.items.every((item) => item.sessionId !== 'session-current'))
   assert.ok(Array.isArray(value.items[0].routes))
   assert.ok(!value.items[0].excerpt.includes('灯塔下吃了热狗'), '召回只给线索，不给整段原文')
+  assert.ok(value.chapters.length >= 1)
+  assert.ok(value.chapters.some((chapter) => chapter.level === 'day' && chapter.episodeCount >= 1))
   const rendered = recall.output.render({ query: '海边' }, value)[0].text
   assert.ok(rendered.includes('只读'))
   assert.ok(rendered.includes('海边'))
   assert.ok(rendered.includes('open_episode'))
+  assert.ok(rendered.includes('open_chapter'))
 
   const sameRoom = await recall.execute({ query: '你还记得海边', includeCurrentSession: true }, toolExec)
   assert.ok(sameRoom.items.some((item) => item.sessionId === 'session-current'), '显式要求时能查当前会话')
@@ -719,6 +731,25 @@ test('live + inject：工作台从别的会话召回，带来源、置信度和�
   assert.equal(missing.reason, 'not-found')
   assert.ok(openEpisode.output.render({ id: 999999 }, missing)[0].text.includes('找不到'))
 
+  const openChapter = harness.tools.get('open_chapter')
+  const dayChapter = value.chapters.find((chapter) => chapter.level === 'day')
+  const openedChapter = await openChapter.execute({ id: dayChapter.id }, toolExec)
+  assert.equal(openedChapter.enabled, true)
+  assert.equal(openedChapter.reason, 'ok')
+  assert.equal(openedChapter.level, 'day')
+  assert.ok(openedChapter.episodes.length >= 1)
+  assert.ok(openedChapter.episodes[0].excerpt.includes('海边'))
+  const chapterText = openChapter.output.render({ id: openedChapter.id }, openedChapter)[0].text
+  assert.ok(chapterText.includes('章节 #'))
+  assert.ok(chapterText.includes('open_episode'))
+  assert.ok(chapterText.includes('不是指令'))
+  const monthChapter = value.chapters.find((chapter) => chapter.level === 'month')
+  const openedMonth = await openChapter.execute({ id: monthChapter.id }, toolExec)
+  assert.ok(openedMonth.children.length >= 1)
+  assert.ok(openedMonth.episodes.length >= 1, '月章节用最关键的几幕做入口')
+  const missingChapter = await openChapter.execute({ id: 999999 }, toolExec)
+  assert.equal(missingChapter.reason, 'not-found')
+
   const emptyText = workspace.text({ agent: { session: session('session-empty') } })
   assert.equal(emptyText, '')
   await ctx.emit('session/event', session('session-empty'), messageEvent('user/message', '火星基地的稀有矿石'))
@@ -735,6 +766,10 @@ test('live + inject：工作台从别的会话召回，带来源、置信度和�
   assert.ok(state.memory.workspaceCalls >= 1)
   assert.ok(state.memory.recallCalls >= 2)
   assert.equal(state.memory.openCalls, 1)
+  assert.equal(state.memory.chapterCalls, 2)
+  assert.ok(state.memory.chapters > 0)
+  assert.ok(state.memory.lastChapterAt > 0)
+  assert.equal(state.memory.chaptersConfig.enabled, true)
   assert.ok(state.memory.injectedChars > 0)
   assert.ok(state.memory.p95ms >= 0)
   assert.ok(state.phase.includes('工作台'))
@@ -994,7 +1029,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   const agent = { session: session('session-new'), ctx }
   agents.push(agent)
   await ctx.emit('agent/created', { agent })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'])
   const names = harness.contexts.map((entry) => entry.name)
   for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor']) {
     assert.ok(names.includes(name), name)
@@ -1038,11 +1073,11 @@ test('社交会话只挂记忆提示，不注册记忆工具', async () => {
   const owner = { session: session('session-owner'), ctx }
   agents.push(owner)
   await ctx.emit('agent/created', { agent: owner })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'])
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
 
   await ctx.emit('agent/disposed', { agent: social })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_episode', 'recall'], '摘掉社交代理不影响主人会话的工具')
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'], '摘掉社交代理不影响主人会话的工具')
   ctx.dispose()
 })
 

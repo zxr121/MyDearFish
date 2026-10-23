@@ -85,6 +85,9 @@ window.__ModuleLoader__.load({
 [data-fishm-list]{display:flex;flex-direction:column;gap:4px;}
 [data-fishm-item]{font-size:12px;line-height:1.6;padding:6px 9px;border-radius:7px;background:rgba(127,127,127,.06);}
 [data-fishm-meta]{font-size:11px;opacity:.55;margin-bottom:2px;}
+[data-fishm-tree]{display:flex;flex-direction:column;gap:5px;}
+[data-fishm-branch]{display:flex;flex-direction:column;gap:5px;}
+[data-fishm-branchchildren]{display:flex;flex-direction:column;gap:5px;margin-left:10px;padding-left:9px;border-left:1px solid rgba(127,127,127,.2);}
 [data-fishm-msg]{font-size:12px;opacity:.82;min-height:16px;line-height:1.6;}
 [data-fishm-msg[data-kind="error"]{color:#d4685f;opacity:1;}
 [data-fishm-banner]{font-size:12px;line-height:1.6;padding:9px 12px;border-radius:8px;background:rgba(220,160,60,.15);}
@@ -148,6 +151,22 @@ window.__ModuleLoader__.load({
             }, `${room.kind} · 熟 ${num(room.familiar)} · 互动 ${num(room.interactions)}`)))
           : null,
         h('div', { 'data-fishm-meta': '' }, '最近 ' + when(person.lastAt)))
+    }
+
+    function ChapterBranch({ node }) {
+      const children = list(node && node.children)
+      const level = node && node.level === 'month' ? '月' : node && node.level === 'week' ? '周' : '日'
+      return h('div', { 'data-fishm-branch': '' },
+        h('div', { 'data-fishm-item': '' },
+          h('div', { 'data-fishm-meta': '' }, `${level} · ${when(node && node.at)} · ${num(node && node.episodeCount)} 段`),
+          h('div', {}, (node && node.title) || '—'),
+          node && node.summary ? h('div', { 'data-fishm-note': '' }, node.summary) : null),
+        children.length > 0
+          ? h('div', { 'data-fishm-branchchildren': '' }, children.map((child, index) => h(ChapterBranch, {
+              node: child,
+              key: index,
+            })))
+          : null)
     }
 
     function Panel() {
@@ -404,6 +423,8 @@ window.__ModuleLoader__.load({
           h('div', { 'data-fishm-grid': '' },
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '经历'), h('div', {}, `${num(memory.total)} 条`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '情景'), h('div', {}, `${num(memory.episodes)} 段`)),
+            h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '章节'), h('div', {}, `${num(memory.chapters)} 个`)),
+            h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '关系'), h('div', {}, `${num(memory.relations)} 条`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '长期事实'), h('div', {}, `${num(memory.facts)} 条`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '今天'), h('div', {}, `${num(memory.today)} 条`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '最近情景'), h('div', {}, when(memory.lastEpisodeAt)))),
@@ -424,6 +445,24 @@ window.__ModuleLoader__.load({
                 'data-fishm-item': '',
                 key: index,
               }, `${fact.subject} · ${fact.predicate} · ${fact.object}`))),
+          h('details', { 'data-fishm-details': '' },
+            h('summary', {}, `记忆章节${num(memory.chapters) > 0 ? ` · ${num(memory.chapters)} 个` : ' · 还没编好'}`),
+            list(memory.chapterTree).length === 0
+              ? h('div', { 'data-fishm-note': '' }, '还没有足够的经历编成日/周/月章节。')
+              : h('div', { 'data-fishm-tree': '' }, list(memory.chapterTree).map((month, index) => h(ChapterBranch, {
+                  node: month,
+                  key: index,
+                })))),
+          h('details', { 'data-fishm-details': '' },
+            h('summary', {}, `关系边${num(memory.relations) > 0 ? ` · ${num(memory.relations)} 条` : ' · 还没有'}`),
+            list(memory.relationList).length === 0
+              ? h('div', { 'data-fishm-note': '' }, '还没有从长期事实里连出关系。')
+              : h('div', { 'data-fishm-list': '' }, list(memory.relationList).map((relation, index) => h('div', {
+                  'data-fishm-item': '',
+                  key: index,
+                },
+                  h('div', { 'data-fishm-meta': '' }, `可信 ${num(relation.confidence)} · 从 ${when(relation.validFrom)} 起`),
+                  `${relation.src} · ${relation.relation} · ${relation.dst}`)))),
           h('details', { 'data-fishm-details': '' },
             h('summary', {}, '自我提示（只读）'),
             h('pre', { 'data-fishm-prompt': '' }, data.selfPrompt || ''))),

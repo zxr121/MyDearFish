@@ -44,9 +44,9 @@ profile 依次组合 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@my
 
 ## 记忆只从一条只追加流派生
 
-看见的一切都先写成一条经历：用户消息、她自己的回复、QQ 往来、主动搭话、上下文压缩摘要、B 站报告，以及从 Tulpa 只读翻进来的私聊旧记录。经历追加进 `experience.jsonl` 且永不修改，派生行放在 SQLite `mind.sqlite`；库坏了就从 JSONL 全量重放重建。编码只用规则：同一会话内按时间间隔和话题变化切情景，规则显著性决定哪条值得留一行情景。召回把四路结果融合——FTS5 关键词、实体与人物、时间窗口、图扩展——返回一小包证据。
+看见的一切都先写成一条经历：用户消息、她自己的回复、QQ 往来、主动搭话、上下文压缩摘要、B 站报告，以及从 Tulpa 只读翻进来的私聊旧记录。经历追加进 `experience.jsonl` 且永不修改，派生行放在 SQLite `mind.sqlite`；库坏了就从 JSONL 全量重放重建。编码只用规则：同一会话内按时间间隔和话题变化切情景，规则显著性决定哪条值得留一行情景；情景再按日、周、月长成章节树，转长期提炼出的事实落成关系边。召回把五路结果融合——FTS5 关键词、实体与人物、时间窗口、章节目录、关系图——返回一小包证据。
 
-两级只读把摘要和原文分开：`recall` 给证据包和情景编号，`open_episode` 按编号打开那一幕的原始消息，一页装不下就用返回的 `nextOffset` 接着读。这么切是有意的——正文按 `archiveChars` 完整存档，索引和召回只看前 `maxTextChars`，于是一次超长粘贴也拖不慢热路径。细节见[认知方案的数据模型](cognition.zh.md)和 [fish-mind README](../../fish/plugins/dsh-fish-mind/README.md)。
+三级只读把目录、摘要和原文分开：`recall` 给证据包和情景编号，`open_chapter` 按章节编号展开日/周/月目录，`open_episode` 按情景编号打开那一幕的原始消息，一页装不下就用返回的 `nextOffset` 接着读。这么切是有意的——正文按 `archiveChars` 完整存档，索引和召回只看前 `maxTextChars`，于是一次超长粘贴也拖不慢热路径。细节见[认知方案的数据模型](cognition.zh.md)和 [fish-mind README](../../fish/plugins/dsh-fish-mind/README.md)。
 
 记忆没有对话写入口。服务面上唯一会改状态的方法是 `observe`，`remember` 和 `forget` 不作为工具存在，事实、自我模型和人物关系都由内部固化流程产出。想查她记得什么、或者彻底删掉，就在文件层打开或删除 `$DSH_HOME/fish-mind/`。
 

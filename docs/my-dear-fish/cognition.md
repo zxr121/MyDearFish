@@ -389,19 +389,20 @@ E <- E + 0.25 * S * (1 - E)
 ### Retrieval and reconstruction
 
 ```text
-R = 0.32*lex + 0.18*entity + 0.14*recency + 0.14*salience
-  + 0.10*affect + 0.07*graph + 0.05*trust
+R = 0.27*lex + 0.17*entity + 0.13*recency + 0.13*salience
+  + 0.10*affect + 0.09*chapter + 0.07*graph + 0.04*trust
 
 recency = (1 + age_days / 7)^(-0.6)
 affect  = 1 - abs(query_valence - memory_valence) / 2
+chapter = overlap(chapter_text, query)
 graph   = 1 / (1 + hops)
 ```
 
-Retrieval has four paths: FTS5 full text, entity and person filters, a time window, and graph expansion (episodes sharing a person or entity). Each path takes its top 20; after deduplication the scores are fused with the formula above and the top 6 enter the workspace. `lex` is a normalized BM25 score; `trust` is source trust; `graph` expands only one hop so the whole relationship graph does not pour in. When the top score is below 0.35, return "no strong memory" instead of forcing an irrelevant one. For a deeper recall, the model can call the `recall` tool with different cues; that is "I cannot remember it, let me try another cue".
+Retrieval has five paths: FTS5 full text, entity and person filters, a time window, the chapter directory, and the relation graph. The chapter directory organizes episodes into day, week, and month layers, matching the coarse layer first and then landing on specific scenes; the relation graph follows subject–predicate–object edges derived from facts and expands one hop from existing candidates. Each path takes its top 20; after deduplication the scores are fused with the formula above and the top 6 enter the workspace. `lex` is a normalized BM25 score; `trust` is source trust; a time-only or chapter-only hit gets a 0.45 lexical floor, and a relation-only hit gets 0.35, so weak evidence is not cut off by the strong-match threshold. Both `chapter` and `graph` expand only one hop so the whole relationship graph does not pour in. When the top score is below 0.35, return "no strong memory" instead of forcing an irrelevant one. For a deeper recall, the model can call the `recall` tool with different cues; that is "I cannot remember it, let me try another cue".
 
-Reconstruction gives the model an evidence packet, not a full transcript: time, people, summary, two or three key quotes, source, and confidence. The prompt explicitly requires: use only facts in the packet; say the details are unclear when they are missing; do not present an inference as something you were told. Optional model reranking runs only when the query is ambiguous or the stakes are high, on at most 20 candidates, so it does not add a call every turn.
+Reconstruction gives the model an evidence packet, not a full transcript: time, people, summary, two or three key quotes, source, and confidence; the workspace also opens with a one-line chapter directory for the matched period, coarse context before individual scenes. The prompt explicitly requires: use only facts in the packet; say the details are unclear when they are missing; do not present an inference as something you were told. Optional model reranking runs only when the query is ambiguous or the stakes are high, on at most 20 candidates, so it does not add a call every turn.
 
-Cues and verbatim text are two levels: the workspace and `recall` return only the evidence packet and an episode id, never a whole transcript; to check exact wording, dates, or details, the model opens that episode with the read-only `open_episode` tool, and when one page cannot hold it, passes the returned `nextOffset` back as `offset` to keep reading. Machine storage is far larger than a human brain's, so the body archives in full up to `archiveChars` (200000 by default) while the index, entities, and summaries read only the first `maxTextChars` (4000 by default). When the context overflows, the harness compacts it and that summary is written as an experience labelled “上下文压缩摘要”, so compaction cannot erase her own condensation from long-term memory and the raw messages stay in the experience stream.
+Cues and verbatim text have three levels: the workspace and `recall` return only the evidence packet and an episode id, never a whole transcript; to look at a stretch of days first, the read-only `open_chapter` tool expands a day, week, or month chapter, with a day chapter listing every episode from that day and week or month chapters listing child chapters and a few key scenes; to check exact wording, dates, or details, the model opens that episode with the read-only `open_episode` tool, and when one page cannot hold it, passes the returned `nextOffset` back as `offset` to keep reading. Machine storage is far larger than a human brain's, so the body archives in full up to `archiveChars` (200000 by default) while the index, entities, and summaries read only the first `maxTextChars` (4000 by default). When the context overflows, the harness compacts it and that summary is written as an experience labelled “上下文压缩摘要”, so compaction cannot erase her own condensation from long-term memory and the raw messages stay in the experience stream.
 
 ### Reconsolidation and prediction error
 

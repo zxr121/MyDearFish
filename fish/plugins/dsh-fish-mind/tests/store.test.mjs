@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { openStore, parseTimeWindow, tokenize } from '../lib/store.js'
 
 function tempStore(config) {
@@ -536,5 +537,199 @@ test('转长期流水记进 sleep_runs，状态页能计数', () => {
   assert.equal(row.status, 'ok')
   assert.deepEqual(JSON.parse(row.tasks), ['facts'])
   assert.equal(row.notes, '提炼 2 条')
+  store.close()
+})
+
+test('旧 v2 库打开时补齐章节列、索引和关系表', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fish-mind-store-'))
+  const legacy = new DatabaseSync(join(dir, 'mind.sqlite'))
+  legacy.exec(`
+    CREATE TABLE chapters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      start_ts INTEGER,
+      end_ts INTEGER,
+      summary TEXT,
+      key_episode_ids TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE TABLE episodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      start_ts INTEGER NOT NULL,
+      end_ts INTEGER NOT NULL,
+      title TEXT,
+      summary TEXT,
+      participants TEXT NOT NULL DEFAULT '[]',
+      channel TEXT,
+      topic TEXT,
+      outcome TEXT,
+      importance REAL NOT NULL DEFAULT 0,
+      chapter_id INTEGER REFERENCES chapters(id),
+      session_id TEXT NOT NULL DEFAULT '',
+      source_trust REAL NOT NULL DEFAULT 0.8,
+      entities TEXT NOT NULL DEFAULT '[]'
+    );
+    PRAGMA user_version = 2;
+  `)
+  legacy.close()
+
+  const store = openStore({ dir })
+  assert.equal(store.stats().degraded, false)
+  const columns = store._db().prepare('PRAGMA table_info(chapters)').all().map((row) => row.name)
+  for (const name of ['parent_id', 'level', 'scope', 'entities', 'importance', 'channel', 'source_trust']) {
+    assert.ok(columns.includes(name), name)
+  }
+  assert.equal(store._db().prepare('PRAGMA user_version').get().user_version, 3)
+  store.insert(record('今天在咖啡馆见到小蓝', { at: Date.now() }))
+  store.upsertFact({ subject: '小蓝', predicate: '喜欢', object: '咖啡馆' })
+  assert.equal(store.listRelations().length, 1)
+  const built = store.buildChapters({ force: true })
+  assert.equal(built.built, true)
+  assert.ok(store.stats().chapters > 0)
+  store.close()
+})
+
+test('章节树按日、周、月分层，群聊单独成树，导入记录不编进亲历', () => {
+  const { store } = tempStore()
+  const noon = new Date()
+  noon.setHours(12, 0, 0, 0)
+  const at = noon.getTime()
+  const socialId = 'session-qq-social-group-7'
+
+  store.insert(record('早上在咖啡馆写代码', { at: at - 2 * 3_600_000, seq: 1 }))
+  store.insert(record('下午去公园散步，风很舒服', { at: at + 2 * 3_600_000, seq: 2 }))
+  store.insert(record('群里在聊火星基地的矿石', {
+    at, sessionId: socialId, seq: 1, source: 'qq-group', kind: 'user',
+  }))
+  store.insert(record('旧记录里提到海边的灯塔', {
+    at, sessionId: 'qq-import-batch-1', seq: 1, source: 'qq-import', kind: 'user',
+  }))
+
+  const built = store.buildChapters({ force: true })
+  assert.equal(built.built, true)
+  assert.equal(built.days, 2, '主人一天一段，群聊自己一天一段')
+  assert.ok(built.weeks >= 2)
+  assert.ok(built.months >= 1)
+
+  const tree = store.chapterTree({ months: 3 })
+  assert.equal(tree.scope, 'owner')
+  const ownerMonth = tree.months[0]
+  assert.equal(ownerMonth.level, 'month')
+  const ownerWeek = ownerMonth.children[0]
+  assert.equal(ownerWeek.level, 'week')
+  const ownerDay = ownerWeek.children[0]
+  assert.equal(ownerDay.level, 'day')
+  assert.equal(ownerDay.episodeCount, 2)
+  assert.equal(ownerWeek.episodeCount, 2)
+  assert.equal(ownerMonth.episodeCount, 2)
+  assert.ok(ownerDay.summary.includes('咖啡馆'))
+  assert.ok(!ownerDay.summary.includes('旧记录'), '导入的往事不算亲历')
+
+  const socialDays = store.listChapters(10, { scope: `social:${socialId}` })
+  assert.equal(socialDays.length, 1)
+  assert.ok(socialDays[0].title.includes('群聊'))
+  assert.equal(socialDays[0].episodeCount, 1)
+  assert.equal(socialDays[0].scope, 'social')
+  assert.ok(socialDays[0].summary.includes('火星基地'))
+  assert.ok(!socialDays[0].summary.includes('咖啡馆'), '群聊章节不混入主人私人经历')
+
+  const socialTree = store.chapterTree({ months: 3, scope: `social:${socialId}` })
+  assert.equal(socialTree.scope, 'social')
+  assert.equal(socialTree.months[0].episodeCount, 1)
+  store.close()
+})
+
+test('补编码进来的旧经历也会触发章节重建', () => {
+  const { store } = tempStore()
+  const noon = new Date()
+  noon.setHours(12, 0, 0, 0)
+  const at = noon.getTime()
+  store.insert(record('今天在咖啡馆写代码', { at, seq: 1 }))
+  assert.equal(store.buildChapters().built, true)
+  assert.equal(store.buildChapters().built, false, '没有新情景就不重编')
+  store.insert(record('前天在海边看日落', { at: at - 2 * 24 * 3_600_000, seq: 2 }))
+  const rebuilt = store.buildChapters()
+  assert.equal(rebuilt.built, true, '旧经历补编码后也要进章节')
+  assert.equal(rebuilt.days, 2)
+  store.close()
+})
+
+test('章节召回先给目录再给情景，群聊只查得到自己的章节', () => {
+  const { store } = tempStore()
+  const noon = new Date()
+  noon.setHours(12, 0, 0, 0)
+  const at = noon.getTime()
+  const socialId = 'session-qq-social-group-7'
+  store.insert(record('「小蓝」今天在咖啡馆陪我坐了一下午', { at, seq: 1 }))
+  store.insert(record('咖啡馆的拿铁很好喝', { at: at + 2 * 3_600_000, seq: 2 }))
+  store.insert(record('群里在聊火星基地的矿石', {
+    at, sessionId: socialId, seq: 1, source: 'qq-group', kind: 'user',
+  }))
+  store.buildChapters({ force: true })
+
+  const recalled = store.recall('咖啡馆')
+  assert.equal(recalled.reason, 'ok')
+  assert.ok(recalled.items.length >= 1)
+  assert.ok(recalled.chapters.length >= 1)
+  const day = recalled.chapters.find((chapter) => chapter.level === 'day')
+  assert.ok(day)
+  assert.equal(day.episodeCount, 2)
+  assert.equal(day.scope, 'owner')
+  assert.ok(day.title.includes('月'))
+
+  const opened = store.openChapter(day.id)
+  assert.equal(opened.reason, 'ok')
+  assert.equal(opened.level, 'day')
+  assert.equal(opened.episodes.length, 2)
+  assert.ok(opened.episodes[0].excerpt.includes('咖啡馆'))
+
+  const monthChapter = recalled.chapters.find((chapter) => chapter.level === 'month')
+  const openedMonth = store.openChapter(monthChapter.id)
+  assert.equal(openedMonth.children.length, 1)
+  assert.equal(openedMonth.children[0].level, 'week')
+  assert.ok(openedMonth.episodes.length >= 1, '月章节用关键情景做入口')
+
+  const social = store.recall('火星基地', { sessionId: socialId })
+  assert.ok(social.items.every((item) => item.sessionId === socialId))
+  assert.ok(social.chapters.length >= 1)
+  assert.ok(social.chapters.every((chapter) => chapter.scope === 'social'))
+  assert.ok(social.chapters.every((chapter) => !chapter.title.includes('咖啡馆')))
+
+  const ownerOnly = store.recall('咖啡馆', { sessionId: socialId })
+  assert.equal(ownerOnly.items.length, 0, '群聊不能顺着咖啡馆查到主人私事')
+  assert.equal(ownerOnly.chapters.length, 0)
+  store.close()
+})
+
+test('关系边跟着事实更新；重建后章节和关系仍然一致', async () => {
+  const { store } = tempStore()
+  const at = Date.now()
+  store.insert(record('「小蓝」今天在咖啡馆陪我坐了一下午', { at }))
+  assert.equal(store.upsertFact({ subject: '小蓝', predicate: '喜欢', object: '咖啡馆', at }).action, 'added')
+  let relations = store.listRelations()
+  assert.equal(relations.length, 1)
+  assert.equal(relations[0].src, '小蓝')
+  assert.equal(relations[0].dst, '咖啡馆')
+
+  assert.equal(store.upsertFact({ subject: '小蓝', predicate: '喜欢', object: '鲸鱼', at: at + 1_000 }).action, 'superseded')
+  relations = store.listRelations()
+  assert.equal(relations.length, 1, '旧关系让位，不留下两条同时生效')
+  assert.equal(relations[0].dst, '鲸鱼')
+
+  const recalled = store.recall('小蓝喜欢什么')
+  assert.ok(recalled.items.length >= 1)
+  assert.ok(recalled.items.some((item) => item.routes.includes('relation')))
+
+  store.buildChapters({ force: true })
+  const before = store.stats()
+  assert.ok(before.chapters > 0)
+  assert.equal(before.relations, 1)
+  const rebuilt = await store.rebuild()
+  assert.ok(rebuilt.chapters > 0)
+  assert.equal(rebuilt.relations, 1)
+  const after = store.stats()
+  assert.equal(after.chapters, before.chapters)
+  assert.equal(after.relations, 1)
+  assert.equal(store.listRelations()[0].dst, '鲸鱼')
+  assert.equal(store.chapterTree({ months: 3 }).months.length, 1)
   store.close()
 })

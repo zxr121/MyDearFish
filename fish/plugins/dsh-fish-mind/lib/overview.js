@@ -226,6 +226,30 @@ function boundariesOverview(permissions, privacy, injection) {
   }
 }
 
+function safeRead(read, fallback) {
+  try {
+    return read()
+  } catch (error) {
+    // 章节和关系是后来的派生物，旧库或损坏的索引不该让整个设置页打不开。
+    return fallback
+  }
+}
+
+function chapterNodeOverview(node, depth = 0) {
+  const children = depth >= 2 || !Array.isArray(node.children) ? [] : node.children.map((child) => chapterNodeOverview(child, depth + 1))
+  return {
+    id: number(node.id),
+    level: ['day', 'week', 'month'].includes(node.level) ? node.level : 'day',
+    title: text(node.title, 80),
+    at: number(node.at),
+    endAt: number(node.endAt),
+    summary: text(node.summary, 240),
+    importance: number(node.importance),
+    episodeCount: number(node.episodeCount),
+    children,
+  }
+}
+
 function memoryOverview(store, now) {
   const stats = store.stats()
   const recent = store.recentWindow({ since: now - 30 * 24 * 60 * 60 * 1000, rows: 16 })
@@ -245,19 +269,39 @@ function memoryOverview(store, now) {
     confidence: number(fact.confidence),
     validFrom: number(fact.validFrom),
   }))
+  const chapterTree = (safeRead(() => store.chapterTree({ months: 3 }), { months: [] }).months || [])
+    .map((month) => chapterNodeOverview(month))
+  const recentChapters = safeRead(() => store.listChapters(12, { scope: 'owner' }), []).map((chapter) => ({
+    ...chapterNodeOverview(chapter),
+    scope: text(chapter.scope, 20),
+  }))
+  const relations = safeRead(() => store.listRelations(30), []).map((relation) => ({
+    id: number(relation.id),
+    src: text(relation.src, 60),
+    relation: text(relation.relation, 60),
+    dst: text(relation.dst, 120),
+    confidence: number(relation.confidence),
+    validFrom: number(relation.validFrom),
+  }))
   return {
     total: number(stats.total),
     today: typeof store.countToday === 'function' ? number(store.countToday()) : 0,
     dropped: number(stats.dropped),
     episodes: number(stats.episodes),
+    chapters: number(stats.chapters),
+    relations: number(stats.relations),
     facts: number(stats.facts),
     runs: number(stats.runs),
     lastEpisodeAt: number(stats.lastEpisodeAt),
+    lastChapterAt: number(stats.lastChapterAt),
     dbBytes: number(stats.dbBytes),
     jsonlBytes: number(stats.jsonlBytes),
     degraded: stats.degraded === true,
     recent,
     recentFacts: facts,
+    chapterTree,
+    recentChapters,
+    relationList: relations,
   }
 }
 

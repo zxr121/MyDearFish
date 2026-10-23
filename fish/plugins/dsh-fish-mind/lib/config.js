@@ -87,6 +87,12 @@ export function buildDefaults(dshHome) {
       workspaceChars: 900,
       excludeCurrentSession: true,
     },
+    // 章节树：日 → 周 → 月，从情景自动抽目录；摘要是抽取式的，不额外调模型。
+    chapters: {
+      enabled: true,
+      tickMinutes: 10,
+      summaryChars: 320,
+    },
     // 短期记忆：最近这半小时的原话直接进提示，放凉或攒多了就提炼成能查的事实转长期。
     working: {
       enabled: true,
@@ -251,6 +257,15 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     )
   } else if (raw.recall !== undefined) {
     diag('config: recall 不是对象，使用默认值')
+  }
+
+  if (isPlainObject(raw.chapters)) {
+    const c = raw.chapters
+    config.chapters.enabled = pickBoolean(c.enabled, config.chapters.enabled)
+    config.chapters.tickMinutes = pickNumber(c.tickMinutes, config.chapters.tickMinutes, 1, 1440)
+    config.chapters.summaryChars = pickNumber(c.summaryChars, config.chapters.summaryChars, 80, 2000)
+  } else if (raw.chapters !== undefined) {
+    diag('config: chapters 不是对象，使用默认值')
   }
 
   if (isPlainObject(raw.working)) {

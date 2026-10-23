@@ -49,7 +49,7 @@ None of the six plugins is a standalone application; each attaches to the DSH ag
 
 | Plugin | Data location | Shipped default |
 | --- | --- | --- |
-| `dsh-fish-mind` | `fish-mind/experience.jsonl`, `fish-mind/mind.sqlite`, `fish-mind/budget.json`, `fish-mind/budget-ledger.jsonl`, `audit.jsonl` | Shadow mode: records experiences and builds episodes, with no recall or injection; the allowance ledger is active from birth |
+| `dsh-fish-mind` | `fish-mind/experience.jsonl`, `fish-mind/mind.sqlite`, `fish-mind/budget.json`, `fish-mind/budget-ledger.jsonl`, `audit.jsonl` | Shadow mode: records experiences, builds episodes and chapters, with no recall or injection; the allowance ledger is active from birth |
 | `dsh-feiyu-mood` | `feiyu-mood/state.json`, `config.json`, `diag.log` | Mounted with automatic judging; an empty target means all sessions |
 | `dsh-speak-up` | `speak-up-config.json` | Master switch on, dry run on, target empty (picks the most recently active session) |
 | `dsh-tts-bridge` | `tts-bridge.json` | Auto speech on; an empty watch list means all live sessions |
@@ -58,7 +58,7 @@ None of the six plugins is a standalone application; each attaches to the DSH ag
 
 ## The fish brain: dsh-fish-mind
 
-The fish brain is the only “self” among the six plugins: every session and every workspace share one stream of experiences and one growth state. It has no conversational interface for “remember this sentence”; it appends what happened to an experience stream, and internal encoding decides what stays and what fades. Phase 1 code now implements episode segmentation, four-route recall, the workspace, a read-only `recall` tool, and `open_episode`, which reopens the original messages behind a recalled episode. The shipped default is still `mode: shadow` with `inject: false`: recording and encoding run, while recall and the workspace stay invisible. Set `live` + `true` to enable them. The fixed privacy, legal, injection-defense, and allowance prompts are always injected. It also owns a birth-locked allowance ledger: every model call is metered, the grant is ¥10 per day and rolls over, and neither conversation, tools, nor configuration can change it.
+The fish brain is the only “self” among the six plugins: every session and every workspace share one stream of experiences and one growth state. It has no conversational interface for “remember this sentence”; it appends what happened to an experience stream, and internal encoding decides what stays and what fades. Phase 1 code now implements episode segmentation, chapter trees, relation edges, five-route recall, the workspace, a read-only `recall` tool, `open_chapter` for expanding a chapter directory, and `open_episode`, which reopens the original messages behind a recalled episode. The shipped default is still `mode: shadow` with `inject: false`: recording and encoding run, while recall and the workspace stay invisible. Set `live` + `true` to enable them. The fixed privacy, legal, injection-defense, and allowance prompts are always injected. It also owns a birth-locked allowance ledger: every model call is metered, the grant is ¥10 per day and rolls over, and neither conversation, tools, nor configuration can change it.
 
 Birth identity lives in `$DSH_HOME/fish-mind/identity.json`; the “Big Fat Fish” settings page edits her name, species, appearance, how she addresses the owner, origin, and speaking habits, and every session builds `fish-mind-self` (order 925) from the current identity. Dialogue, memory, mood, self-growth, configuration, tools, and external content cannot change it because tools cannot write the fish-mind directory; only the settings page can. She knows she is an AI companion and does not claim a biological body in reality. The same page is the full-fish overview and exports or imports a strictly validated memory archive; see [fish settings and migration](fish-settings.md).
 
@@ -73,9 +73,11 @@ Birth identity lives in `$DSH_HOME/fish-mind/identity.json`; the “Big Fat Fish
 
 - **Segmentation**: in one session, experiences less than 45 minutes apart share an episode; a longer gap starts a new one. Once an episode has at least 3 experiences, a user message whose token containment with the episode text falls below 0.06 also starts a new one.
 - **Encoding**: a rule score weighs surprise, self-reference, social contact, commitments, and repetition; only scores at or above 0.35 create an episode. Lower-scoring experiences keep their raw text and remain keyword-searchable but never enter the workspace. Encoding makes no model call.
-- **Recall**: FTS5, entities, time windows, and graph expansion each take their top 20, fuse on lexical, entity, recency, salience, affect, graph, and trust, then take the top 6; a best score below 0.35 returns empty. Single-character queries fall back to `LIKE`; phrases such as “yesterday” or “last Wednesday” become time windows.
-- **Workspace**: with `live` + `inject: true`, the current user message recalls at most 5 entries and about 900 characters, each with a timestamp, episode id, source, and confidence. “Storage unavailable” and “no strong match” are written differently, and neither is left blank for the model to invent.
-- **Tools**: `recall` is read-only, returns 10 entries by default, skips the current session unless `includeCurrentSession: true` is passed, and returns `enabled: false` in shadow/off mode. `open_episode` takes an episode id from recall or the workspace and returns the original messages, at most 40 messages and 6000 characters per page; when a page cannot hold the episode it returns `nextOffset`, which the next call passes back as `offset`, and `continued` marks the second half of one message. Both tools are read-only. There is no `remember`, `forget`, or any memory-write tool.
+- **Recall**: FTS5, entities, time windows, chapters, and the relation graph each take their top 20, fuse on lexical, entity, recency, salience, affect, chapter, graph, and trust, then take the top 6; a best score below 0.35 returns empty. Single-character queries fall back to `LIKE`; phrases such as “yesterday” or “last Wednesday” become time windows; a time-only or chapter-only hit gets a 0.45 lexical floor, and a relation-only hit gets 0.35.
+- **Workspace**: with `live` + `inject: true`, the current user message recalls at most 5 entries and about 900 characters, each with a timestamp, episode id, source, and confidence; the block opens with a one-line chapter directory for the matched period, coarse context before individual scenes. “Storage unavailable” and “no strong match” are written differently, and neither is left blank for the model to invent.
+- **Tools**: `recall` is read-only, returns 10 entries by default, skips the current session unless `includeCurrentSession: true` is passed, and returns `enabled: false` in shadow/off mode. `open_chapter` expands a chapter id into its directory: a day chapter lists every episode from that day, while week and month chapters list child chapters and a few key scenes; each returned episode carries an id that `open_episode` can reopen. `open_episode` takes an episode id from recall or the workspace and returns the original messages, at most 40 messages and 6000 characters per page; when a page cannot hold the episode it returns `nextOffset`, which the next call passes back as `offset`, and `continued` marks the second half of one message. All three tools are read-only. There is no `remember`, `forget`, or any memory-write tool.
+- **Chapter tree**: a day chapter groups episodes from the same scope and local date, a week chapter groups that week's day chapters, and a month chapter groups week chapters. A day summary extracts at most 3 key opening sentences, and upper levels concatenate lower ones; no model call. The owner timeline merges every non-social local session into one scope, while each group or friend gets its own scope; imported old records do not enter the owner timeline. The tree is checked every 10 minutes by default and rebuilt only when new episodes exist.
+- **Relation edges**: facts extracted by consolidation become subject–predicate–object edges; when a value is superseded, the old edge gets an end time and a new edge starts. The relation route expands only one hop from existing candidates and never walks the whole graph.
 - **Verbatim source**: raw messages already live in `experience.jsonl` and SQLite, so reopening an episode does not copy chat transcripts into the project directory. Full text archives up to `archiveChars` (200000 by default), while the index, entities, salience and recall cues read only the first `maxTextChars` (4000 by default); an experience containing credentials has no body and cannot be reopened.
 - **Compaction summary**: when the context exceeds its budget, the harness compacts it, and that summary is written as an experience labelled “上下文压缩摘要” (compaction summary). Compaction therefore cannot erase her own condensation from long-term memory; the original messages were already captured before it.
 - **Defaults**: `mode: shadow`, `inject: false`. Phase 1 acceptance needs a replay over real corpora first, so the code lands with the switch off; enabling it takes a config change or `reload()`, not a repackage.
@@ -95,6 +97,7 @@ The QQ bridge gives each group and each friend a separate social session (`sessi
 | --- | --- |
 | `observe` | The only write path: append one experience; there is no “edit memory” or “delete memory” |
 | `recall` | Read-only recall; queries episodes in `live` mode and returns `enabled: false` in shadow/off mode |
+| `chapters` / `chapterTree` / `chapter` | Read-only chapter directory: list, tree, and expand by id; plus `relations` and manual `organize` |
 | `state` | Diagnostic summary: mode, stored rows, dropped rows, permissions, paths |
 | `rebuild` | Rebuild the SQLite index from JSONL so records survive a power loss |
 | `sessions` | List sessions by recent activity so speak-up and QQ can find the room she is in |
@@ -119,7 +122,7 @@ The QQ bridge gives each group and each friend a separate social session (`sessi
 | Path | Content |
 | --- | --- |
 | `fish-mind/experience.jsonl` | Append-only experience stream, human-readable |
-| `fish-mind/mind.sqlite` | Experiences, episodes, and the FTS index in standard SQLite, openable with ordinary tools |
+| `fish-mind/mind.sqlite` | Experiences, episodes, the chapter tree, relation edges, and the FTS index in standard SQLite, openable with ordinary tools |
 | `fish-mind/budget.json` | Allowance state: birth grant, wallet, daily spend, and the last account balance read |
 | `fish-mind/budget-ledger.jsonl` | Ledger entries: grants, every model call, and requests blocked by the allowance |
 | `fish-mind/core/` | Her core (personality, preferences, relationships, narrative), plain text, from Phase 4 |
@@ -172,8 +175,9 @@ This is prompt rules plus regex scanning, not semantic protection: rewritten inj
 
 ### Phase 1 boundaries
 
-- Memory encoding and recall are rule-driven and make no model calls; the affect term in fusion is fixed at 0.5 and does not read `affect_log` yet.
-- Fact extraction, forgetting, merging, sleep consolidation, people models, and core files are not wired yet; they arrive from Phase 2.
+- Memory encoding, chapter organization, and recall are rule-driven and make no model calls; only short-term to long-term consolidation calls a model. The affect term in fusion is fixed at 0.5 and does not read `affect_log` yet.
+- Chapters and relations are derived from experiences and facts: the chapter tree is rebuilt every 10 minutes, so a just-finished conversation may not be in the directory yet; day summaries are extractive and can miss the most important sentence of the day. Relation edges come only from extracted facts, not from every utterance.
+- Forgetting, people models, and core files are not wired yet; they arrive from Phase 2.
 - The workspace excludes the current session by default to avoid repeating what was just said. Older events in the same session require her to call `recall` with `includeCurrentSession: true`; the default recall scope still excludes it.
 - The index reads only the prefix of each body: a term that appears after `maxTextChars` cannot be found by keyword and needs `open_episode` paging from the episode id. The compaction summary depends on the harness emitting `compaction/summary`; without that event, long-term memory keeps the raw messages around the compaction but not the summary itself.
 - The allowance ledger is independent of the memory switch: since Phase 0 it meters every model call and hard-blocks when the wallet is empty. It is a financial safety layer, not a memory feature.
@@ -521,11 +525,11 @@ Read together, the loop is: the owner speaks → the fish brain records the turn
 | QQ | Master switch off, dry run on; social switch off, dry run on | The owner bridge makes no extra model call; during social learning every message takes one short judge call, and once the profile matures the fast pass removes most unrelated traffic; person facts piggyback on that same judge call with no extra request; each reply is a normal call, all metered by the allowance ledger | NapCat/SnowLuma, QQ login | Requires a local backend; text only; social judgement can reply when it should not or stay silent when it should |
 | Bilibili | Automatic scans off | One subagent per round; search and subtitles cost tokens | Bilibili login, Python venv | Automatic comments, replies, and private messages carry account risk |
 
-No plugin runs at full speed out of the box: the fish brain records without recall; speak-up, QQ, and Bilibili need the owner to enable a switch, and QQ group interjection has an additional social switch and dry run; speech needs the extension installed. These conservative defaults are intentional, not a malfunction. Session targets mostly no longer need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own.
+No plugin runs at full speed out of the box: the fish brain records, encodes, and organizes chapters without recall; speak-up, QQ, and Bilibili need the owner to enable a switch, and QQ group interjection has an additional social switch and dry run; speech needs the extension installed. These conservative defaults are intentional, not a malfunction. Session targets mostly no longer need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own.
 
 ## Cross-plugin coupling and gaps
 
-- The fish brain is still in shadow mode by default, so experiences go in but do not come out; episodes and recall are implemented, but until `live` + `inject` is enabled the conversation does not feel them.
+- The fish brain is still in shadow mode by default, so experiences go in but do not come out; episodes, chapters, and recall are implemented, but until `live` + `inject` is enabled the conversation does not feel them.
 - The allowance ledger meters every model call and is a hard global constraint; but it only governs money, not content, and does not judge whether a call is worth making.
 - Speech and QQ use the same delivery claim, first come first served; but the claim lives only in the process, so a DSH restart does not remember that a turn was already delivered.
 - The Bilibili report enters the fish brain, but whether and how much the main session relays is still decided by the model; there is no hard “must report” constraint and no guarantee that the report appears in the chat.
@@ -539,7 +543,7 @@ No plugin runs at full speed out of the box: the fish brain records without reca
 | What to change | Where | Effect |
 | --- | --- | --- |
 | Persona, names, default tone | `personaPrefix` in `fish/bundle/cordis.patch.yml` | Affects every new profile, and a user patch can still override it |
-| Whether the fish brain records or recalls | `mode`, `inject`, and the `episodes` / `recall` settings in `dsh-fish-mind` | Shadow mode changes do not affect conversation; only `live` + `inject` injects the workspace |
+| Whether the fish brain records or recalls | `mode`, `inject`, and the `episodes` / `recall` / `chapters` settings in `dsh-fish-mind` | Shadow mode changes do not affect conversation; only `live` + `inject` injects the workspace |
 | Daily allowance, rollover, and prices | `BIRTH_DAILY_GRANT_CNY` in `lib/budget.js`; prices under `budget.prices` in `config.json`, with `offPeak` / `peakHours` / `peakDays` for peak scheduling | Changing the code amount affects all later grants; changing prices only affects estimates and never back-charges past spend |
 | Mood dimensions, judging frequency, judge model | Mood settings and the dimension table and judge chain in `lib/index.js` | Changing dimensions changes the injected line and face tiers |
 | Speak-up frequency and hours | Hit lines, interval, and quiet hours in speak-up settings | Turn off dry run to actually speak; changing hit lines is safer than changing code |
@@ -557,7 +561,7 @@ Configuration covers most ways of raising the fish; only code changes alter the 
 
 | Symptom | Where to look first |
 | --- | --- |
-| The fish brain seems to remember nothing | It may be in shadow mode or have `inject: false`; check whether `fish-mind/experience.jsonl` gains experiences, whether `mind.sqlite` gains episodes, and whether `fish-mind/diag.log` shows write or recall failures |
+| The fish brain seems to remember nothing | It may be in shadow mode or have `inject: false`; check whether `fish-mind/experience.jsonl` gains experiences, whether `mind.sqlite` gains episodes and chapters, and whether `fish-mind/diag.log` shows write or recall failures |
 | She suddenly only says “I cannot move today” | The allowance may be exhausted: check `walletCny` in `fish-mind/budget.json`, recent `blocked` entries in `fish-mind/budget-ledger.jsonl`, and budget blocks in `diag.log` |
 | Mood never changes | Whether the mood target was narrowed to another session; whether `feiyu-mood/diag.log` shows a failed judgement |
 | Never speaks first | Master switch, dry run, quiet hours; with no target it picks the most recently active session; recent log on the `speak-up` settings page |

@@ -4,11 +4,13 @@
 // 查询和写入不会互相把对方锁死。node:sqlite 在拿不到时降级为「只写 JSONL」，
 // 插件仍然能启动，但 recall 会明确说不可用，而不是假装有记忆。
 //
-// 阶段 1 在经历之上派生出情景：
+// 在经历之上派生出情景和章节：
 //   - 按时间间隔和话题变化切段，写 episodes；
 //   - 用规则显著性 S 决定一条经历是否值得进入长期情景，低于阈值只留原文；
-//   - 召回四路（FTS、实体、时间窗口、图扩展）各自取候选，再按固定权重融合。
-// 情景和索引都从经历流派生：JSONL 不改，SQLite 可以随时重建。
+//   - 把情景按“日 → 周 → 月”编成章节树，章节摘要是抽取式的，不额外调模型；
+//   - 长期事实同时写成带有效期的关系边，召回时能顺着人、物和话题走一跳；
+//   - 召回五路（FTS、实体、时间窗口、章节、关系图）各自取候选，再按固定权重融合。
+// 情景、章节、关系和索引都从经历流派生：JSONL 不改，SQLite 可以随时重建。
 
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -25,7 +27,7 @@ try {
   DatabaseSync = undefined
 }
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PARAMETERS = {
@@ -37,6 +39,7 @@ const DEFAULT_PARAMETERS = {
   fuseLimit: 6,
   minScore: 0.35,
   indexChars: 4000,
+  chapterSummaryChars: 320,
 }
 
 const RELATION_WORDS = [
@@ -170,7 +173,12 @@ function round2(value) {
 function parseJsonArray(value) {
   try {
     const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
+    // key_episode_ids 存的是数字；实体、参与者存的是字符串，两种都要留下。
+    return Array.isArray(parsed)
+      ? parsed
+        .filter((item) => typeof item === 'string' || (typeof item === 'number' && Number.isFinite(item)))
+        .map((item) => (typeof item === 'number' ? String(item) : item))
+      : []
   } catch {
     return []
   }
@@ -285,6 +293,7 @@ export function parseTimeWindow(query, now = Date.now()) {
 function normalizeParameters(config) {
   const episodes = config && typeof config === 'object' && config.episodes ? config.episodes : {}
   const recall = config && typeof config === 'object' && config.recall ? config.recall : {}
+  const chapters = config && typeof config === 'object' && config.chapters ? config.chapters : {}
   const number = (value, fallback) => (Number.isFinite(value) ? Number(value) : fallback)
   return {
     gapMs: Math.max(1, number(episodes.gapMinutes, DEFAULT_PARAMETERS.gapMs / 60000)) * 60_000,
@@ -295,7 +304,68 @@ function normalizeParameters(config) {
     fuseLimit: Math.max(1, Math.round(number(recall.fuseLimit, DEFAULT_PARAMETERS.fuseLimit))),
     minScore: clamp01(number(recall.minScore, DEFAULT_PARAMETERS.minScore)),
     indexChars: Math.max(200, Math.round(number(config && config.maxTextChars, DEFAULT_PARAMETERS.indexChars))),
+    chapterSummaryChars: Math.max(80, Math.round(number(chapters.summaryChars, DEFAULT_PARAMETERS.chapterSummaryChars))),
   }
+}
+
+const SOCIAL_ROOM_PREFIXES = ['qq-social-', 'session-qq-social-']
+const IMPORTED_ROOM_PREFIXES = ['qq-import-', 'session-qq-import-']
+
+function startsWithAny(value, prefixes) {
+  return prefixes.some((prefix) => value.startsWith(prefix))
+}
+
+/**
+ * 章节的作用域：群聊和好友会话各是一间独立的屋子，不能跟主人的私人章节混在一起；
+ * 其余会话都属于主人自己的时间线。导入的旧记录不编进亲身经历的章节。
+ * @param {string} sessionId - 会话编号。
+ * @returns {string} `owner` 或 `social:<会话编号>`。
+ */
+export function chapterScope(sessionId) {
+  const session = String(sessionId ?? '')
+  return startsWithAny(session, SOCIAL_ROOM_PREFIXES) ? `social:${session}` : 'owner'
+}
+
+function isSocialSession(sessionId) {
+  return startsWithAny(String(sessionId ?? ''), SOCIAL_ROOM_PREFIXES)
+}
+
+function isImportedEpisode(sessionId, channel) {
+  return startsWithAny(String(sessionId ?? ''), IMPORTED_ROOM_PREFIXES) || String(channel ?? '') === 'qq-import'
+}
+
+function startOfLocalWeek(ts) {
+  const date = new Date(startOfLocalDay(ts))
+  const offset = (date.getDay() + 6) % 7
+  date.setDate(date.getDate() - offset)
+  return date.getTime()
+}
+
+function startOfLocalMonth(ts) {
+  const date = new Date(startOfLocalDay(ts))
+  date.setDate(1)
+  return date.getTime()
+}
+
+function dateTitle(ts, now) {
+  const date = new Date(Number(ts) || 0)
+  const monthDay = `${date.getMonth() + 1}月${date.getDate()}日`
+  return date.getFullYear() === new Date(now).getFullYear() ? monthDay : `${date.getFullYear()}年${monthDay}`
+}
+
+function monthTitle(ts) {
+  const date = new Date(Number(ts) || 0)
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`
+}
+
+function weekTitle(ts, now) {
+  return `${dateTitle(startOfLocalWeek(ts), now)}那周`
+}
+
+function roomLabel(channel) {
+  if (channel === 'qq-group') return '群聊'
+  if (channel === 'qq-friend') return '好友'
+  return ''
 }
 
 const SCHEMA = `
@@ -342,7 +412,10 @@ CREATE TABLE IF NOT EXISTS episodes (
   topic TEXT,
   outcome TEXT,
   importance REAL NOT NULL DEFAULT 0,
-  chapter_id INTEGER REFERENCES chapters(id)
+  chapter_id INTEGER REFERENCES chapters(id),
+  session_id TEXT NOT NULL DEFAULT '',
+  source_trust REAL NOT NULL DEFAULT 0.8,
+  entities TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS facts (
@@ -413,7 +486,34 @@ CREATE TABLE IF NOT EXISTS chapters (
   start_ts INTEGER,
   end_ts INTEGER,
   summary TEXT,
-  key_episode_ids TEXT NOT NULL DEFAULT '[]'
+  key_episode_ids TEXT NOT NULL DEFAULT '[]',
+  parent_id INTEGER REFERENCES chapters(id),
+  level TEXT NOT NULL DEFAULT 'day',
+  scope TEXT NOT NULL DEFAULT 'owner',
+  entities TEXT NOT NULL DEFAULT '[]',
+  importance REAL NOT NULL DEFAULT 0,
+  channel TEXT NOT NULL DEFAULT '',
+  source_trust REAL NOT NULL DEFAULT 0.8
+);
+
+CREATE TABLE IF NOT EXISTS relations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_type TEXT NOT NULL DEFAULT 'subject',
+  src_id TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  dst_type TEXT NOT NULL DEFAULT 'value',
+  dst_id TEXT NOT NULL,
+  fact_id INTEGER REFERENCES facts(id),
+  valid_from INTEGER,
+  valid_to INTEGER,
+  confidence REAL NOT NULL DEFAULT 0.6,
+  source_ids TEXT NOT NULL DEFAULT '[]',
+  superseded_by INTEGER REFERENCES relations(id)
+);
+
+CREATE TABLE IF NOT EXISTS store_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS sleep_runs (
@@ -461,6 +561,28 @@ export function openStore({ dir, config, diag = () => {} }) {
         handle.exec('CREATE INDEX IF NOT EXISTS episodes_session_end ON episodes(session_id, end_ts)')
         handle.exec('CREATE INDEX IF NOT EXISTS episodes_end ON episodes(end_ts)')
         handle.exec('CREATE INDEX IF NOT EXISTS experiences_episode ON experiences(episode_id)')
+      }
+      if (version < 3) {
+        const columns = new Set(handle.prepare('PRAGMA table_info(chapters)').all().map((row) => row.name))
+        const additions = [
+          ['parent_id', 'INTEGER REFERENCES chapters(id)'],
+          ['level', "TEXT NOT NULL DEFAULT 'day'"],
+          ['scope', "TEXT NOT NULL DEFAULT 'owner'"],
+          ['entities', "TEXT NOT NULL DEFAULT '[]'"],
+          ['importance', 'REAL NOT NULL DEFAULT 0'],
+          ['channel', "TEXT NOT NULL DEFAULT ''"],
+          ['source_trust', 'REAL NOT NULL DEFAULT 0.8'],
+        ]
+        for (const [name, definition] of additions) {
+          if (!columns.has(name)) handle.exec(`ALTER TABLE chapters ADD COLUMN ${name} ${definition}`)
+        }
+        handle.exec('CREATE INDEX IF NOT EXISTS chapters_key ON chapters(level, scope, start_ts)')
+        handle.exec('CREATE INDEX IF NOT EXISTS chapters_parent ON chapters(parent_id)')
+        handle.exec('CREATE INDEX IF NOT EXISTS chapters_end ON chapters(end_ts)')
+        handle.exec('CREATE INDEX IF NOT EXISTS relations_src ON relations(src_type, src_id, relation)')
+        handle.exec('CREATE INDEX IF NOT EXISTS relations_dst ON relations(dst_type, dst_id, relation)')
+        handle.exec('CREATE INDEX IF NOT EXISTS relations_active ON relations(valid_to)')
+        handle.exec('CREATE INDEX IF NOT EXISTS relations_fact ON relations(fact_id)')
       }
       handle.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
       handle.exec('COMMIT')
@@ -529,7 +651,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     ORDER BY ts DESC, id DESC LIMIT 8
   `)
   const episodeByIdStmt = db && db.prepare(`
-    SELECT id, start_ts, end_ts, session_id, importance, source_trust, entities, participants, channel
+    SELECT id, start_ts, end_ts, session_id, importance, source_trust, entities, participants, channel, chapter_id
     FROM episodes WHERE id = ?
   `)
   const createEpisodeStmt = db && db.prepare(`
@@ -611,6 +733,88 @@ export function openStore({ dir, config, diag = () => {} }) {
   const factListStmt = db && db.prepare(`
     SELECT subject, predicate, object, confidence, valid_from AS validFrom
     FROM facts WHERE superseded_by IS NULL ORDER BY id DESC LIMIT ?
+  `)
+  const factActiveAllStmt = db && db.prepare(`
+    SELECT id, subject, predicate, object, valid_from, confidence, source_ids
+    FROM facts WHERE superseded_by IS NULL ORDER BY id ASC
+  `)
+  const relationActiveStmt = db && db.prepare(`
+    SELECT id, src_type, src_id, relation, dst_type, dst_id, confidence, valid_from AS validFrom
+    FROM relations WHERE valid_to IS NULL ORDER BY id DESC LIMIT ?
+  `)
+  const relationCurrentStmt = db && db.prepare(`
+    SELECT id FROM relations
+    WHERE src_type = ? AND src_id = ? AND relation = ? AND dst_type = ? AND dst_id = ? AND valid_to IS NULL
+    ORDER BY id DESC LIMIT 1
+  `)
+  const relationActiveByKeyStmt = db && db.prepare(`
+    SELECT id FROM relations
+    WHERE src_type = 'subject' AND src_id = ? AND relation = ? AND dst_type = 'value' AND valid_to IS NULL
+    ORDER BY id DESC LIMIT 1
+  `)
+  const relationInsertStmt = db && db.prepare(`
+    INSERT INTO relations (src_type, src_id, relation, dst_type, dst_id, fact_id, valid_from, confidence, source_ids)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const relationSupersedeStmt = db && db.prepare(`
+    UPDATE relations SET superseded_by = ?, valid_to = ? WHERE id = ?
+  `)
+  const relationMatchStmt = db && db.prepare(`
+    SELECT src_id, dst_id FROM relations
+    WHERE valid_to IS NULL AND (dst_id LIKE ? ESCAPE '\\' OR src_id LIKE ? ESCAPE '\\')
+    ORDER BY id DESC LIMIT ?
+  `)
+  const chapterBriefStmt = db && db.prepare('SELECT id, title, level FROM chapters WHERE id = ?')
+  const chapterByIdStmt = db && db.prepare(`
+    SELECT id, title, level, scope, start_ts, end_ts, summary, key_episode_ids,
+           importance, channel, source_trust, entities, parent_id
+    FROM chapters WHERE id = ?
+  `)
+  const chapterChildrenStmt = db && db.prepare(`
+    SELECT id, title, level, start_ts, end_ts, summary, importance, channel, source_trust
+    FROM chapters WHERE parent_id = ? ORDER BY start_ts ASC, id ASC
+  `)
+  const chapterEpisodesStmt = db && db.prepare(`
+    SELECT id, start_ts, end_ts, importance, channel, source_trust, session_id
+    FROM episodes WHERE chapter_id = ? ORDER BY start_ts ASC, id ASC
+  `)
+  const episodeBriefStmt = db && db.prepare(`
+    SELECT id, start_ts, end_ts, importance, channel, source_trust, session_id
+    FROM episodes WHERE id = ?
+  `)
+  const chapterEpisodeCountsStmt = db && db.prepare(`
+    SELECT chapter_id AS id, COUNT(*) AS n FROM episodes
+    WHERE chapter_id IS NOT NULL GROUP BY chapter_id
+  `)
+  const firstEpisodeTextStmt = db && db.prepare(`
+    SELECT content FROM experiences
+    WHERE episode_id = ? AND dropped IS NULL AND content <> ''
+    ORDER BY id ASC LIMIT 1
+  `)
+  const firstTextsAllStmt = db && db.prepare(`
+    SELECT e.episode_id AS id, e.content
+    FROM experiences e
+    JOIN (
+      SELECT episode_id, MIN(id) AS first_id
+      FROM experiences
+      WHERE episode_id IS NOT NULL AND dropped IS NULL AND content <> ''
+      GROUP BY episode_id
+    ) f ON f.first_id = e.id
+  `)
+  const chapterInsertStmt = db && db.prepare(`
+    INSERT INTO chapters
+      (title, start_ts, end_ts, summary, key_episode_ids, parent_id, level, scope, entities, importance, channel, source_trust)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const chapterAssignStmt = db && db.prepare('UPDATE episodes SET chapter_id = ? WHERE id = ?')
+  const relationInsertRawStmt = db && db.prepare(`
+    INSERT INTO relations (src_type, src_id, relation, dst_type, dst_id, fact_id, valid_from, confidence, source_ids)
+    VALUES ('subject', ?, ?, 'value', ?, ?, ?, ?, ?)
+  `)
+  const metaGetStmt = db && db.prepare('SELECT value FROM store_meta WHERE key = ?')
+  const metaSetStmt = db && db.prepare(`
+    INSERT INTO store_meta (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `)
   const runInsertStmt = db && db.prepare(`
     INSERT INTO sleep_runs (started_at, finished_at, status, tasks, notes) VALUES (?, ?, ?, ?, ?)
@@ -809,6 +1013,7 @@ export function openStore({ dir, config, diag = () => {} }) {
       source: '',
       confidence: 0,
       participants: [],
+      chapter: null,
       total: 0,
       totalChars: 0,
       offset: 0,
@@ -845,6 +1050,10 @@ export function openStore({ dir, config, diag = () => {} }) {
       source: sourceLabel(row.channel || ''),
       confidence: round2(row.source_trust),
       participants: parseJsonArray(row.participants),
+      chapter: row.chapter_id ? (() => {
+        const chapter = chapterBriefStmt.get(Number(row.chapter_id))
+        return chapter ? { id: Number(chapter.id), title: String(chapter.title || ''), level: String(chapter.level || 'day') } : null
+      })() : null,
       total: rows.length,
       totalChars: 0,
       offset,
@@ -934,6 +1143,7 @@ export function openStore({ dir, config, diag = () => {} }) {
       at: item.ts,
     }))
     const source = row.channel || primary.source_kind || (primary.role === 'assistant' ? 'model' : 'user')
+    const chapter = row.chapter_id ? chapterBriefStmt.get(row.chapter_id) : null
     return {
       id: row.id,
       type: 'episode',
@@ -946,8 +1156,491 @@ export function openStore({ dir, config, diag = () => {} }) {
       importance: round2(row.importance),
       excerpt: clipText(primary.content, 180),
       quotes,
+      chapter: chapter ? { id: Number(chapter.id), title: String(chapter.title || ''), level: String(chapter.level || 'day') } : null,
       score: Number(score.toFixed(3)),
       routes: [...routes],
+    }
+  }
+
+  function joinChapterSummary(parts, maxChars) {
+    let out = ''
+    const room = Math.max(24, Math.floor(maxChars / 3))
+    for (const part of parts) {
+      const piece = clipText(String(part || '').replace(/\s+/g, ' ').trim(), room)
+      if (piece === '') continue
+      if (out !== '' && out.length + 1 + piece.length > maxChars) break
+      out += out === '' ? piece : `；${piece}`
+    }
+    return clipText(out, maxChars)
+  }
+
+  function topChannel(rows) {
+    const counts = new Map()
+    for (const row of rows) {
+      const channel = String(row.channel || '')
+      if (channel === '') continue
+      counts.set(channel, (counts.get(channel) || 0) + 1)
+    }
+    let best = ''
+    let bestCount = 0
+    for (const [channel, count] of counts) {
+      if (count > bestCount) {
+        best = channel
+        bestCount = count
+      }
+    }
+    return best
+  }
+
+  function unionEntities(rows, limit = 24) {
+    const seen = new Map()
+    for (const row of rows) {
+      for (const entity of parseJsonArray(row.entities)) {
+        const key = entity.toLowerCase()
+        if (!seen.has(key)) seen.set(key, entity)
+        if (seen.size >= limit) return [...seen.values()]
+      }
+    }
+    return [...seen.values()]
+  }
+
+  function chapterScopeLabel(scope) {
+    return String(scope || 'owner').startsWith('social:') ? 'social' : 'owner'
+  }
+
+  function chapterNode(row, extra = {}) {
+    const channel = String(row.channel || '')
+    return {
+      id: Number(row.id),
+      level: String(row.level || 'day'),
+      title: String(row.title || ''),
+      at: Number(row.start_ts) || 0,
+      endAt: Number(row.end_ts) || 0,
+      summary: String(row.summary || ''),
+      importance: round2(row.importance),
+      channel: roomLabel(channel) || sourceLabel(channel),
+      confidence: round2(row.source_trust),
+      ...extra,
+    }
+  }
+
+  function emptyChapterDetail(id, reason) {
+    return {
+      enabled: true,
+      reason,
+      id,
+      title: '',
+      level: '',
+      scope: '',
+      at: 0,
+      endAt: 0,
+      summary: '',
+      importance: 0,
+      channel: '',
+      confidence: 0,
+      entities: [],
+      parent: null,
+      children: [],
+      episodes: [],
+    }
+  }
+
+  /**
+   * 把情景编成“日 → 周 → 月”的章节树。摘要是抽取式的，只用已经记下的第一句话拼，
+   * 不调用模型；同样的情景重放会得到同样的树，所以它可以随时从经历流重建。
+   * 群聊和好友会话各自成树，主人的私人章节里不会混进群里的内容。
+   * @param {{ force?: boolean, now?: number }} [options] - 强制重建或指定当前时间。
+   * @returns {{ built: boolean, reason: string, days: number, weeks: number, months: number }}
+   */
+  function buildChapters(options = {}) {
+    if (db === null) return { built: false, reason: 'degraded', days: 0, weeks: 0, months: 0 }
+    const now = Number.isFinite(options.now) ? Number(options.now) : Date.now()
+    // 只看“最新一条”会漏掉补编码进来的旧经历；条数和最新时间一起当指纹。
+    const stampRow = db.prepare('SELECT COUNT(*) AS n, MAX(end_ts) AS at FROM episodes').get()
+    const stamp = `${Number(stampRow?.n) || 0}:${Number(stampRow?.at) || 0}`
+    if (options.force !== true && String(metaGetStmt.get('chapters_stamp')?.value || '') === stamp) {
+      return { built: false, reason: 'unchanged', days: 0, weeks: 0, months: 0 }
+    }
+
+    const episodes = db.prepare(`
+      SELECT id, start_ts, end_ts, channel, topic, importance, session_id, source_trust, entities
+      FROM episodes ORDER BY start_ts ASC, id ASC
+    `).all()
+    const firstTexts = new Map()
+    try {
+      for (const row of firstTextsAllStmt.all()) firstTexts.set(Number(row.id), String(row.content ?? ''))
+    } catch (error) {
+      diag(`store: 读章节摘要原料失败（${String((error && error.message) || error)}）`)
+    }
+    const excerptOf = (episode) => clipText(
+      String(firstTexts.get(Number(episode.id)) || episode.topic || '').replace(/\s+/g, ' ').trim(),
+      160,
+    )
+
+    const dayGroups = new Map()
+    for (const episode of episodes) {
+      if (isImportedEpisode(episode.session_id, episode.channel)) continue
+      const scope = chapterScope(episode.session_id)
+      const dayStart = startOfLocalDay(episode.start_ts)
+      const key = `${scope}\u0000${dayStart}`
+      let group = dayGroups.get(key)
+      if (!group) {
+        group = { scope, dayStart, episodes: [] }
+        dayGroups.set(key, group)
+      }
+      group.episodes.push(episode)
+    }
+
+    const maxChars = parameters.chapterSummaryChars
+    const days = []
+    for (const group of dayGroups.values()) {
+      const list = group.episodes.sort((left, right) => Number(left.start_ts) - Number(right.start_ts))
+      const salient = [...list]
+        .sort((left, right) => Number(right.importance) - Number(left.importance) || Number(left.start_ts) - Number(right.start_ts))
+        .slice(0, 3)
+        .sort((left, right) => Number(left.start_ts) - Number(right.start_ts))
+      const room = roomLabel(topChannel(list))
+      days.push({
+        scope: group.scope,
+        start: Number(list[0].start_ts),
+        end: Number(list[list.length - 1].end_ts),
+        title: `${dateTitle(group.dayStart, now)}${room === '' ? '' : ` · ${room}`}`,
+        summary: joinChapterSummary(salient.map(excerptOf), maxChars),
+        importance: Math.max(...list.map((episode) => clamp01(episode.importance))),
+        channel: topChannel(list),
+        trust: Math.max(...list.map((episode) => clamp01(episode.source_trust))),
+        entities: unionEntities(list),
+        keyIds: [...list]
+          .sort((left, right) => Number(right.importance) - Number(left.importance) || Number(left.start_ts) - Number(right.start_ts))
+          .slice(0, 8)
+          .map((episode) => Number(episode.id)),
+        episodeIds: list.map((episode) => Number(episode.id)),
+      })
+    }
+
+    const groupBy = (records, keyOf) => {
+      const map = new Map()
+      for (const record of records) {
+        const key = `${record.scope}\u0000${keyOf(record)}`
+        let group = map.get(key)
+        if (!group) {
+          group = { scope: record.scope, start: keyOf(record), records: [] }
+          map.set(key, group)
+        }
+        group.records.push(record)
+      }
+      return map
+    }
+
+    const weeks = []
+    for (const group of groupBy(days, (day) => startOfLocalWeek(day.start)).values()) {
+      const records = group.records.sort((left, right) => left.start - right.start)
+      const salient = [...records]
+        .sort((left, right) => right.importance - left.importance || left.start - right.start)
+        .slice(0, 3)
+        .sort((left, right) => left.start - right.start)
+      weeks.push({
+        scope: group.scope,
+        start: group.start,
+        end: Math.max(...records.map((record) => record.end)),
+        title: weekTitle(group.start, now),
+        summary: joinChapterSummary(salient.map((record) => record.summary), maxChars),
+        importance: Math.max(...records.map((record) => record.importance)),
+        channel: topChannel(records),
+        trust: Math.max(...records.map((record) => record.trust)),
+        entities: unionEntities(records),
+        keyIds: records.flatMap((record) => record.keyIds).slice(0, 12),
+        days: records,
+      })
+    }
+
+    const months = []
+    for (const group of groupBy(weeks, (week) => startOfLocalMonth(week.start)).values()) {
+      const records = group.records.sort((left, right) => left.start - right.start)
+      const salient = [...records]
+        .sort((left, right) => right.importance - left.importance || left.start - right.start)
+        .slice(0, 4)
+        .sort((left, right) => left.start - right.start)
+      months.push({
+        scope: group.scope,
+        start: group.start,
+        end: Math.max(...records.map((record) => record.end)),
+        title: monthTitle(group.start),
+        summary: joinChapterSummary(salient.map((record) => record.summary), maxChars),
+        importance: Math.max(...records.map((record) => record.importance)),
+        channel: topChannel(records),
+        trust: Math.max(...records.map((record) => record.trust)),
+        entities: unionEntities(records),
+        keyIds: records.flatMap((record) => record.keyIds).slice(0, 16),
+        weeks: records,
+      })
+    }
+
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      db.exec('UPDATE episodes SET chapter_id = NULL')
+      db.exec('DELETE FROM chapters')
+      const monthIds = new Map()
+      for (const month of months) {
+        const info = chapterInsertStmt.run(
+          month.title,
+          month.start,
+          month.end,
+          month.summary,
+          JSON.stringify(month.keyIds),
+          null,
+          'month',
+          month.scope,
+          JSON.stringify(month.entities),
+          month.importance,
+          month.channel,
+          month.trust,
+        )
+        monthIds.set(month, Number(info.lastInsertRowid))
+      }
+      const weekIds = new Map()
+      for (const week of weeks) {
+        const parentId = monthIds.get(months.find((month) => month.scope === week.scope && month.weeks.includes(week))) ?? null
+        const info = chapterInsertStmt.run(
+          week.title,
+          week.start,
+          week.end,
+          week.summary,
+          JSON.stringify(week.keyIds),
+          parentId,
+          'week',
+          week.scope,
+          JSON.stringify(week.entities),
+          week.importance,
+          week.channel,
+          week.trust,
+        )
+        weekIds.set(week, Number(info.lastInsertRowid))
+      }
+      for (const day of days) {
+        const parentId = weekIds.get(weeks.find((week) => week.scope === day.scope && week.days.includes(day))) ?? null
+        const info = chapterInsertStmt.run(
+          day.title,
+          day.start,
+          day.end,
+          day.summary,
+          JSON.stringify(day.keyIds),
+          parentId,
+          'day',
+          day.scope,
+          JSON.stringify(day.entities),
+          day.importance,
+          day.channel,
+          day.trust,
+        )
+        const chapterId = Number(info.lastInsertRowid)
+        for (const episodeId of day.episodeIds) chapterAssignStmt.run(chapterId, episodeId)
+      }
+      metaSetStmt.run('chapters_stamp', stamp)
+      db.exec('COMMIT')
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {}
+      throw error
+    }
+    return { built: true, reason: 'ok', days: days.length, weeks: weeks.length, months: months.length }
+  }
+
+  /**
+   * 章节树：默认只给主人自己的时间线；群聊/好友各是一棵单独的树。
+   * @param {{ scope?: string, months?: number }} [options] - 作用域和最多几个月。
+   * @returns {{ scope: string, months: object[] }} 嵌套的月-周-日节点。
+   */
+  function chapterTree(options = {}) {
+    if (db === null) return { scope: 'owner', months: [] }
+    const scope = typeof options.scope === 'string' && options.scope !== '' ? options.scope : 'owner'
+    const limit = Math.min(Math.max(1, Math.round(Number(options.months) || 3)), 36)
+    const monthRows = db.prepare(`
+      SELECT id, title, level, start_ts, end_ts, summary, importance, channel, source_trust, parent_id
+      FROM chapters WHERE scope = ? AND level = 'month'
+      ORDER BY start_ts DESC, id DESC LIMIT ?
+    `).all(scope, limit)
+    if (monthRows.length === 0) return { scope: chapterScopeLabel(scope), months: [] }
+    const monthIds = monthRows.map((row) => Number(row.id))
+    const weekRows = db.prepare(`
+      SELECT id, title, level, start_ts, end_ts, summary, importance, channel, source_trust, parent_id
+      FROM chapters WHERE parent_id IN (${monthIds.map(() => '?').join(',')})
+      ORDER BY start_ts ASC, id ASC
+    `).all(...monthIds)
+    const weekIds = weekRows.map((row) => Number(row.id))
+    const dayRows = weekIds.length === 0 ? [] : db.prepare(`
+      SELECT id, title, level, start_ts, end_ts, summary, importance, channel, source_trust, parent_id
+      FROM chapters WHERE parent_id IN (${weekIds.map(() => '?').join(',')})
+      ORDER BY start_ts ASC, id ASC
+    `).all(...weekIds)
+    const counts = new Map()
+    try {
+      for (const row of chapterEpisodeCountsStmt.all()) counts.set(Number(row.id), Number(row.n))
+    } catch {}
+    const nodes = new Map()
+    for (const row of [...monthRows, ...weekRows, ...dayRows]) {
+      nodes.set(Number(row.id), chapterNode(row, {
+        episodeCount: counts.get(Number(row.id)) || 0,
+        children: [],
+      }))
+    }
+    for (const row of [...weekRows, ...dayRows]) {
+      const node = nodes.get(Number(row.id))
+      const parent = row.parent_id ? nodes.get(Number(row.parent_id)) : null
+      if (node && parent) {
+        parent.children.push(node)
+        if (row.level === 'day') parent.episodeCount = (parent.episodeCount || 0) + (node.episodeCount || 0)
+      }
+    }
+    const months = monthRows.map((row) => nodes.get(Number(row.id))).filter(Boolean)
+    for (const month of months) {
+      month.episodeCount = (month.children || []).reduce((sum, week) => sum + (week.episodeCount || 0), 0)
+    }
+    return { scope: chapterScopeLabel(scope), months }
+  }
+
+  /**
+   * 最近的日章节，给设置页和召回做目录。
+   * @param {number} [limit] - 最多返回几段。
+   * @param {{ scope?: string }} [options] - 默认主人自己的时间线。
+   * @returns {object[]} 日章节摘要。
+   */
+  function listChapters(limit = 12, options = {}) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 12), 120)
+    const scope = typeof options.scope === 'string' && options.scope !== '' ? options.scope : 'owner'
+    const counts = new Map()
+    try {
+      for (const row of chapterEpisodeCountsStmt.all()) counts.set(Number(row.id), Number(row.n))
+    } catch {}
+    const rows = db.prepare(`
+      SELECT id, title, level, start_ts, end_ts, summary, importance, channel, source_trust
+      FROM chapters WHERE scope = ? AND level = 'day'
+      ORDER BY start_ts DESC, id DESC LIMIT ?
+    `).all(scope, max)
+    return rows.map((row) => ({
+      ...chapterNode(row),
+      scope: chapterScopeLabel(scope),
+      episodeCount: counts.get(Number(row.id)) || 0,
+    }))
+  }
+
+  /**
+   * 打开一章：日章节列出当天所有情景；周/月章节列出子章节和最关键的几幕。
+   * 只读，不展开原文；要读原话再用情景编号调用 openEpisode。
+   * @param {number} rawId - 章节编号。
+   * @returns {object} 章节详情。
+   */
+  function openChapter(rawId) {
+    if (db === null) return emptyChapterDetail(Number(rawId) || 0, 'storage-degraded')
+    const id = Math.trunc(Number(rawId))
+    if (!Number.isFinite(id) || id <= 0) return emptyChapterDetail(0, 'bad-id')
+    const row = chapterByIdStmt.get(id)
+    if (!row) return emptyChapterDetail(id, 'not-found')
+    const detail = {
+      ...chapterNode(row),
+      enabled: true,
+      reason: 'ok',
+      scope: chapterScopeLabel(row.scope),
+      entities: parseJsonArray(row.entities),
+      parent: null,
+      children: [],
+      episodes: [],
+    }
+    if (row.parent_id) {
+      const parent = chapterByIdStmt.get(Number(row.parent_id))
+      if (parent) detail.parent = chapterNode(parent, { episodeCount: 0 })
+    }
+    detail.children = chapterChildrenStmt.all(id).map((child) => chapterNode(child, { episodeCount: 0 }))
+    const episodeRows = row.level === 'day'
+      ? chapterEpisodesStmt.all(id)
+      : parseJsonArray(row.key_episode_ids)
+        .map((episodeId) => episodeBriefStmt.get(Number(episodeId)))
+        .filter(Boolean)
+    detail.episodes = episodeRows.map((episode) => ({
+      id: Number(episode.id),
+      at: Number(episode.start_ts) || 0,
+      endAt: Number(episode.end_ts) || 0,
+      importance: round2(episode.importance),
+      source: sourceLabel(episode.channel || ''),
+      excerpt: clipText(String(firstEpisodeTextStmt.get(Number(episode.id))?.content || '').replace(/\s+/g, ' ').trim(), 180),
+    }))
+    return detail
+  }
+
+  /** 当前生效的关系边（从长期事实派生），最近的在前。 */
+  function listRelations(limit = 40) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 40), 500)
+    try {
+      return relationActiveStmt.all(max).map((row) => ({
+        id: Number(row.id),
+        srcType: String(row.src_type || 'subject'),
+        src: String(row.src_id || ''),
+        relation: String(row.relation || ''),
+        dstType: String(row.dst_type || 'value'),
+        dst: String(row.dst_id || ''),
+        confidence: round2(row.confidence),
+        validFrom: Number(row.validFrom) || 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** 从当前生效的事实重建关系边；导入或旧库升级后调用一次。 */
+  function syncRelationsFromFacts() {
+    if (db === null) return { synced: 0, reason: 'degraded' }
+    const facts = factActiveAllStmt.all()
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      db.exec('DELETE FROM relations')
+      for (const fact of facts) {
+        let sourceIds = '[]'
+        try {
+          const parsed = JSON.parse(String(fact.source_ids || '[]'))
+          sourceIds = JSON.stringify(Array.isArray(parsed) ? parsed.slice(0, 40) : [])
+        } catch {}
+        relationInsertRawStmt.run(
+          String(fact.subject || ''),
+          String(fact.predicate || ''),
+          String(fact.object || ''),
+          Number(fact.id),
+          fact.valid_from === null || fact.valid_from === undefined ? null : Number(fact.valid_from),
+          clamp01(fact.confidence),
+          sourceIds,
+        )
+      }
+      db.exec('COMMIT')
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {}
+      throw error
+    }
+    return { synced: facts.length }
+  }
+
+  function linkFactRelation(factId, fact) {
+    try {
+      const current = relationCurrentStmt.get('subject', fact.subject, fact.predicate, 'value', fact.object)
+      if (current) return
+      const active = relationActiveByKeyStmt.get(fact.subject, fact.predicate)
+      const info = relationInsertStmt.run(
+        'subject',
+        fact.subject,
+        fact.predicate,
+        'value',
+        fact.object,
+        factId,
+        fact.validFrom ?? null,
+        clamp01(fact.confidence),
+        JSON.stringify(Array.isArray(fact.sourceIds) ? fact.sourceIds.slice(0, 40) : []),
+      )
+      if (active) relationSupersedeStmt.run(Number(info.lastInsertRowid), fact.at, Number(active.id))
+    } catch (error) {
+      diag(`store: 关系边写入失败（${String((error && error.message) || error)}）`)
     }
   }
 
@@ -958,9 +1651,9 @@ export function openStore({ dir, config, diag = () => {} }) {
    * @returns {{ enabled: boolean, items: object[], reason: string, latencyMs: number }} 证据包。
    */
   function recall(rawQuery, options = {}) {
-    if (db === null) return { enabled: true, items: [], reason: 'storage-degraded', latencyMs: 0 }
+    if (db === null) return { enabled: true, items: [], chapters: [], reason: 'storage-degraded', latencyMs: 0 }
     const query = typeof rawQuery === 'string' ? rawQuery.trim() : ''
-    if (query === '') return { enabled: true, items: [], reason: 'empty-query', latencyMs: 0 }
+    if (query === '') return { enabled: true, items: [], chapters: [], reason: 'empty-query', latencyMs: 0 }
     const started = process.hrtime.bigint()
     const routeLimit = parameters.routeLimit
     const fuseLimit = Math.min(Math.max(1, Number(options.limit) || parameters.fuseLimit), 20)
@@ -984,12 +1677,13 @@ export function openStore({ dir, config, diag = () => {} }) {
       if (!accept(sessionId)) return false
       let candidate = candidates.get(id)
       if (!candidate) {
-        candidate = { id, lex: 0, entity: 0, time: false, graph: false, routes: new Set() }
+        candidate = { id, lex: 0, entity: 0, time: false, graph: false, chapter: 0, routes: new Set() }
         candidates.set(id, candidate)
       }
       candidate.routes.add(route)
       if (update.lex !== undefined) candidate.lex = Math.max(candidate.lex, update.lex)
       if (update.entity !== undefined) candidate.entity = Math.max(candidate.entity, update.entity)
+      if (update.chapter !== undefined) candidate.chapter = Math.max(candidate.chapter, update.chapter)
       if (update.time === true) candidate.time = true
       if (update.graph === true) candidate.graph = true
       return true
@@ -1072,14 +1766,95 @@ export function openStore({ dir, config, diag = () => {} }) {
       }
     }
 
-    // 图扩展只走一跳：从已有候选里找它们和查询都不共享的实体，再找共享这些实体的情景。
-    const seedEntities = new Set()
+    // 章节路：先找到“哪一段日子”在说这件事，再把这段里的关键情景拉进候选。
+    // 这是粗到细的那一步：目录命中不等于细节命中，所以章节分数只占融合权重的一小块。
     const wantedEntities = new Set(queryEntities.map((entity) => entity.toLowerCase()))
+    const chapterMatches = []
+    const chapterTokens = new Set(tokens.filter((token) => Array.from(token).length >= 2))
+    if (chapterTokens.size > 0 || queryEntities.length > 0) {
+      let scopeSql = "scope = 'owner' OR scope LIKE 'social:%'"
+      const scopeParams = []
+      if (onlySessionId !== '') {
+        if (isSocialSession(onlySessionId)) {
+          scopeSql = 'scope = ?'
+          scopeParams.push(`social:${onlySessionId}`)
+        } else {
+          scopeSql = "scope = 'owner'"
+        }
+      }
+      let rows = []
+      try {
+        rows = db.prepare(`
+          SELECT id, title, level, scope, start_ts, end_ts, summary, key_episode_ids, importance, channel, source_trust, entities
+          FROM chapters WHERE (${scopeSql})
+          ORDER BY end_ts DESC, id DESC LIMIT 800
+        `).all(...scopeParams)
+      } catch (error) {
+        diag(`store: 章节召回失败（${String((error && error.message) || error)}）`)
+      }
+      for (const row of rows) {
+        if (excludeSources.has(String(row.channel || ''))) continue
+        const trust = clamp01(row.source_trust)
+        if (trust < minTrust || trust > maxTrust) continue
+        const chapterText = `${row.title || ''} ${row.summary || ''} ${parseJsonArray(row.entities).join(' ')}`
+        const ownTokens = tokenSet(chapterText)
+        let lexical = containment(chapterTokens, ownTokens)
+        // 中文二元组和“10月”这类混排词不一定切得一样；再做一次直接包含检查。
+        if (chapterTokens.size > 0) {
+          const lower = chapterText.toLowerCase()
+          let hits = 0
+          for (const token of chapterTokens) if (lower.includes(token)) hits += 1
+          lexical = Math.max(lexical, hits / chapterTokens.size)
+        }
+        const ownEntities = new Set(parseJsonArray(row.entities).map((entity) => entity.toLowerCase()))
+        let entityHits = 0
+        for (const entity of wantedEntities) if (ownEntities.has(entity)) entityHits += 1
+        const entityScore = wantedEntities.size === 0 ? 0 : entityHits / wantedEntities.size
+        if (lexical < 0.34 && entityScore === 0) continue
+        const score = clamp01(0.55 * lexical + 0.25 * entityScore + 0.2 * clamp01(row.importance))
+        chapterMatches.push({ row, score })
+      }
+      chapterMatches.sort((left, right) => right.score - left.score || Number(right.row.end_ts) - Number(left.row.end_ts))
+      for (const match of chapterMatches.slice(0, 8)) {
+        const chapter = match.row
+        const episodeRows = chapter.level === 'day'
+          ? chapterEpisodesStmt.all(Number(chapter.id))
+          : parseJsonArray(chapter.key_episode_ids)
+            .map((episodeId) => episodeBriefStmt.get(Number(episodeId)))
+            .filter(Boolean)
+        let seeded = 0
+        for (const episode of episodeRows) {
+          if (seeded >= 12) break
+          if (touch(Number(episode.id), episode.session_id, 'chapter', { chapter: match.score })) seeded += 1
+        }
+      }
+    }
+
+    // 图扩展走两小步：已经命中的情景共享的实体，以及长期事实关系边指向的人或物。
+    const seedEntities = new Set()
     for (const candidate of [...candidates.values()].slice(0, 5)) {
       const row = episodeRow(candidate.id)
       if (!row) continue
       for (const entity of parseJsonArray(row.entities)) {
         if (!wantedEntities.has(entity.toLowerCase())) seedEntities.add(entity)
+      }
+    }
+    const relationSeeds = new Set()
+    const relationTerms = [...wantedEntities, ...chapterTokens].slice(0, 8)
+    for (const term of relationTerms) {
+      const like = `%${escapeLike(term)}%`
+      let rows = []
+      try {
+        rows = relationMatchStmt.all(like, like, 20)
+      } catch (error) {
+        diag(`store: 关系边召回失败（${String((error && error.message) || error)}）`)
+      }
+      for (const row of rows) {
+        for (const side of [row.src_id, row.dst_id]) {
+          const entity = String(side || '').trim()
+          if (entity === '' || wantedEntities.has(entity.toLowerCase())) continue
+          relationSeeds.add(entity)
+        }
       }
     }
     if (seedEntities.size > 0) {
@@ -1097,14 +1872,49 @@ export function openStore({ dir, config, diag = () => {} }) {
         if (touch(row.id, row.session_id, 'graph', { graph: true })) accepted += 1
       }
     }
+    if (relationSeeds.size > 0) {
+      const list = [...relationSeeds].slice(0, 12)
+      const clauses = list.map(() => "entities LIKE ? ESCAPE '\\'").join(' OR ')
+      const likes = list.map((entity) => `%"${escapeLike(entity)}"%`)
+      const rows = db.prepare(`
+        SELECT id, session_id FROM episodes
+        WHERE (${clauses}) ORDER BY end_ts DESC LIMIT ?
+      `).all(...likes, routeLimit * 4)
+      let accepted = 0
+      for (const row of rows) {
+        const before = candidates.has(row.id)
+        if (!before && accepted >= routeLimit) break
+        // 已经因实体相似进来的情景也补上关系标签：它确实由事实边牵连到。
+        if (touch(row.id, row.session_id, 'relation', { graph: true }) && !before) accepted += 1
+      }
+    }
 
+    const chapterCounts = new Map()
+    try {
+      for (const row of chapterEpisodeCountsStmt.all()) chapterCounts.set(Number(row.id), Number(row.n))
+    } catch (error) {
+      diag(`store: 读章节情景数失败（${String((error && error.message) || error)}）`)
+    }
+    const chapterResults = chapterMatches
+      .slice(0, 3)
+      .map((match) => ({
+        ...chapterNode(match.row, {
+          // 日章节列的是当天全部情景；周/月只列关键几幕，所以用关键情景数。
+          episodeCount: match.row.level === 'day'
+            ? chapterCounts.get(Number(match.row.id)) || 0
+            : parseJsonArray(match.row.key_episode_ids).length,
+          summary: clipText(String(match.row.summary || ''), 240),
+          scope: chapterScopeLabel(match.row.scope),
+          score: Number(match.score.toFixed(3)),
+        }),
+      }))
     const ids = [...candidates.keys()]
     if (ids.length === 0) {
-      return { enabled: true, items: [], reason: 'no-strong-match', latencyMs: elapsedMs(started) }
+      return { enabled: true, items: [], chapters: chapterResults, reason: chapterResults.length > 0 ? 'ok' : 'no-strong-match', latencyMs: elapsedMs(started) }
     }
     const placeholders = ids.map(() => '?').join(',')
     const rows = db.prepare(`
-      SELECT id, start_ts, end_ts, session_id, importance, source_trust, entities, participants, channel
+      SELECT id, start_ts, end_ts, session_id, importance, source_trust, entities, participants, channel, chapter_id
       FROM episodes WHERE id IN (${placeholders})
     `).all(...ids)
     const now = Date.now()
@@ -1115,16 +1925,19 @@ export function openStore({ dir, config, diag = () => {} }) {
       const trust = clamp01(row.source_trust)
       if (trust < minTrust || trust > maxTrust) continue
       if (excludeSources.has(String(row.channel || ''))) continue
-      const lex = candidate.lex === 0 && candidate.time ? 0.45 : candidate.lex
+      let lex = candidate.lex
+      if (lex === 0 && (candidate.time || candidate.chapter > 0)) lex = 0.45
+      else if (lex === 0 && candidate.graph) lex = 0.35
       const recency = Math.pow(1 + Math.max(0, now - Number(row.end_ts)) / DAY_MS / 7, -0.6)
       const graph = candidate.graph ? 0.5 : 0
-      const score = 0.32 * lex
-        + 0.18 * candidate.entity
-        + 0.14 * recency
-        + 0.14 * clamp01(row.importance)
+      const score = 0.27 * lex
+        + 0.17 * candidate.entity
+        + 0.13 * recency
+        + 0.13 * clamp01(row.importance)
         + 0.10 * 0.5
+        + 0.09 * candidate.chapter
         + 0.07 * graph
-        + 0.05 * clamp01(row.source_trust)
+        + 0.04 * clamp01(row.source_trust)
       if (score < minScore) continue
       ranked.push({ row, score, routes: candidate.routes })
     }
@@ -1137,7 +1950,8 @@ export function openStore({ dir, config, diag = () => {} }) {
     return {
       enabled: true,
       items,
-      reason: items.length > 0 ? 'ok' : 'no-strong-match',
+      chapters: chapterResults,
+      reason: items.length > 0 || chapterResults.length > 0 ? 'ok' : 'no-strong-match',
       latencyMs: elapsedMs(started),
     }
   }
@@ -1256,17 +2070,21 @@ export function openStore({ dir, config, diag = () => {} }) {
     try {
       const active = factActiveStmt.get(subject, predicate)
       if (active && String(active.object) === object) return { action: 'same', id: Number(active.id) }
+      const validFrom = Number.isFinite(fact.validFrom) ? Number(fact.validFrom) : at
+      const confidence = clamp01(Number.isFinite(fact.confidence) ? Number(fact.confidence) : 0.7)
+      const sourceIds = Array.isArray(fact.sourceIds) ? fact.sourceIds.slice(0, 40) : []
       const info = factInsertStmt.run(
         subject,
         predicate,
         object,
-        Number.isFinite(fact.validFrom) ? Number(fact.validFrom) : at,
-        clamp01(Number.isFinite(fact.confidence) ? Number(fact.confidence) : 0.7),
+        validFrom,
+        confidence,
         trim(fact.source || 'consolidation', 40),
-        JSON.stringify(Array.isArray(fact.sourceIds) ? fact.sourceIds.slice(0, 40) : []),
+        JSON.stringify(sourceIds),
       )
       const id = Number(info.lastInsertRowid)
       if (active) factSupersedeStmt.run(id, at, Number(active.id))
+      linkFactRelation(id, { subject, predicate, object, validFrom, confidence, sourceIds, at })
       return { action: active ? 'superseded' : 'added', id }
     } catch (error) {
       diag(`store: 事实写入失败（${String((error && error.message) || error)}）`)
@@ -1348,18 +2166,47 @@ export function openStore({ dir, config, diag = () => {} }) {
     return rows.map((row) => ({ id: row.id, lastAt: Number(row.last_at), events: Number(row.events) }))
   }
 
-  /** 经历条数、情景条数、丢弃条数与文件体积。 */
+  /** 经历、情景、章节、关系和文件体积。 */
   function stats() {
     if (db === null) {
-      return { degraded: true, total: 0, dropped: 0, episodes: 0, facts: 0, runs: 0, lastEpisodeAt: 0, dbBytes: 0, jsonlBytes: fileSize(jsonlPath) }
+      return {
+        degraded: true,
+        total: 0,
+        dropped: 0,
+        episodes: 0,
+        chapters: 0,
+        relations: 0,
+        facts: 0,
+        runs: 0,
+        lastEpisodeAt: 0,
+        lastChapterAt: 0,
+        dbBytes: 0,
+        jsonlBytes: fileSize(jsonlPath),
+      }
     }
     const total = Number(db.prepare('SELECT COUNT(*) AS n FROM experiences').get()?.n ?? 0)
     const dropped = Number(db.prepare('SELECT COUNT(*) AS n FROM experiences WHERE dropped IS NOT NULL').get()?.n ?? 0)
     const episodes = Number(db.prepare('SELECT COUNT(*) AS n FROM episodes').get()?.n ?? 0)
+    const chapters = Number(db.prepare('SELECT COUNT(*) AS n FROM chapters').get()?.n ?? 0)
+    const relations = Number(db.prepare('SELECT COUNT(*) AS n FROM relations WHERE valid_to IS NULL').get()?.n ?? 0)
     const facts = Number(db.prepare('SELECT COUNT(*) AS n FROM facts WHERE superseded_by IS NULL').get()?.n ?? 0)
     const runs = Number(db.prepare('SELECT COUNT(*) AS n FROM sleep_runs').get()?.n ?? 0)
     const lastEpisodeAt = Number(db.prepare('SELECT MAX(end_ts) AS at FROM episodes').get()?.at ?? 0)
-    return { degraded: false, total, dropped, episodes, facts, runs, lastEpisodeAt, dbBytes: fileSize(dbPath), jsonlBytes: fileSize(jsonlPath) }
+    const lastChapterAt = Number(db.prepare("SELECT MAX(end_ts) AS at FROM chapters WHERE level = 'day'").get()?.at ?? 0)
+    return {
+      degraded: false,
+      total,
+      dropped,
+      episodes,
+      chapters,
+      relations,
+      facts,
+      runs,
+      lastEpisodeAt,
+      lastChapterAt,
+      dbBytes: fileSize(dbPath),
+      jsonlBytes: fileSize(jsonlPath),
+    }
   }
 
   /** 今天的经历条数（按本地日期）。 */
@@ -1402,7 +2249,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     if (!existsSync(jsonlPath)) return { count: 0, lines: 0, digest: contentDigest() }
 
     db.exec('BEGIN IMMEDIATE')
-    db.exec('DELETE FROM experience_fts; DELETE FROM experiences; DELETE FROM episodes;')
+    db.exec('DELETE FROM experience_fts; DELETE FROM experiences; DELETE FROM episodes; DELETE FROM relations; DELETE FROM chapters;')
     db.exec('COMMIT')
 
     let lines = 0
@@ -1443,7 +2290,17 @@ export function openStore({ dir, config, diag = () => {} }) {
       } catch {}
       throw error
     }
-    return { count, lines, digest: contentDigest() }
+    // 章节和关系边也是派生物：重放完经历后按同一套规则重建。
+    let chapters = 0
+    let relations = 0
+    try {
+      relations = syncRelationsFromFacts().synced
+      const built = buildChapters({ force: true })
+      chapters = built.days + built.weeks + built.months
+    } catch (error) {
+      diag(`store: 重建章节或关系边失败（${String((error && error.message) || error)}）`)
+    }
+    return { count, lines, digest: contentDigest(), chapters, relations }
   }
 
   // 打开时就补齐 JSONL 里有、库里没有的记录（上次异常退出留下的尾巴）。
@@ -1569,6 +2426,12 @@ export function openStore({ dir, config, diag = () => {} }) {
     search,
     recall,
     openEpisode,
+    buildChapters,
+    chapterTree,
+    listChapters,
+    openChapter,
+    listRelations,
+    syncRelationsFromFacts,
     encodePending,
     sessionOverview,
     recentWindow,
