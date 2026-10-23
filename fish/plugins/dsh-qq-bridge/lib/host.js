@@ -3048,26 +3048,43 @@ export function apply(ctx) {
       if (cfg && cfg.provider && cfg.model) return { provider: cfg.provider, model: cfg.model }
     } catch (error) {}
     // 桌面版刚启动、主人还没开会话时上面找不到人，但 DSH 已经有默认模型；不回落就会把群消息整批丢掉。
-    return 默认模型() || null
+    // 判断只做便宜筛选，不跟着主人最高档思考。
+    const 兜 = 默认模型()
+    return 兜 ? { provider: 兜.provider, model: 兜.model } : null
   }
 
   function 回复模型选项(配置) {
     const 指定 = 配置.社交.回复模型
     if (指定 === '') return undefined
     const i = 指定.indexOf('/')
-    return { provider: 指定.slice(0, i), model: 指定.slice(i + 1) }
+    const 选项 = { provider: 指定.slice(0, i), model: 指定.slice(i + 1) }
+    // 手选的回复模型跟默认路由一致时，沿用主人在 DSH 里选的推理档；换到别的模型就不硬套。
+    const 兜 = 默认模型()
+    if (兜 && 兜.provider === 选项.provider && 兜.model === 选项.model && 兜.reasoningEffort !== undefined) {
+      选项.reasoningEffort = 兜.reasoningEffort
+    }
+    return 选项
   }
 
   /**
    * 自动建的会话没人替它选模型；不传 provider/model 时 agent 会直接拒绝开轮。
    * 优先问 DSH 的默认模型服务，旧环境 / 测试没有它时再从活着的普通会话请求头里取。
+   * 推理档跟主人选的那一份走：她聊天用的还是同一档思考，不因为换了通道就掉回默认。
    */
   function 默认模型() {
     try {
       const 选 = ctx.agentDefaultModel && typeof ctx.agentDefaultModel.currentSelection === 'function'
         ? ctx.agentDefaultModel.currentSelection()
         : null
-      if (选 && 选.provider && 选.model) return { provider: 选.provider, model: 选.model }
+      if (选 && 选.provider && 选.model) {
+        return {
+          provider: 选.provider,
+          model: 选.model,
+          ...(选.reasoningEffort === undefined || 选.reasoningEffort === null || String(选.reasoningEffort) === ''
+            ? {}
+            : { reasoningEffort: String(选.reasoningEffort) }),
+        }
+      }
     } catch (error) {}
     try {
       for (const a of ctx.agents.list() || []) {
@@ -3075,7 +3092,15 @@ export function apply(ctx) {
         if (!sid || 是社交会话(sid) || 是主人QQ会话(sid)) continue
         const h = a.session && typeof a.session.requestHeader === 'function' ? a.session.requestHeader() : null
         const cfg = h && h.config
-        if (cfg && cfg.provider && cfg.model) return { provider: cfg.provider, model: cfg.model }
+        if (cfg && cfg.provider && cfg.model) {
+          return {
+            provider: cfg.provider,
+            model: cfg.model,
+            ...(cfg.reasoningEffort === undefined || cfg.reasoningEffort === null || String(cfg.reasoningEffort) === ''
+              ? {}
+              : { reasoningEffort: String(cfg.reasoningEffort) }),
+          }
+        }
       }
     } catch (error) {}
     return undefined

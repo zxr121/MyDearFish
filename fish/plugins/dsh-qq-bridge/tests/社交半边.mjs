@@ -276,6 +276,7 @@ const 装配监听 = []
 const 工具闸门 = []
 const 工具限制 = []
 const 判断调用 = []
+const 建会话选项 = []
 const 存储 = []
 const 发的 = []
 const 附件们 = []
@@ -283,7 +284,7 @@ const QQ收藏 = new Map()
 let 收藏序号 = 0
 let 图序号 = 0
 const 鱼脑 = { availableCny: 5, 脱敏坏: false, 脱敏空: false }
-let 默认模型选择 = { provider: 'fake', model: 'cheap' }
+let 默认模型选择 = { provider: 'fake', model: 'cheap', reasoningEffort: 'max' }
 let 判断输出 = JSON.stringify({ watch: [], reply: false, confidence: 0.1, reason: '插不上话' })
 const 判断输出队列 = []
 let 发送序号 = 100
@@ -359,7 +360,8 @@ const ctx = {
       e.name = 'SessionPersistenceNotFoundError'
       throw e
     },
-    create: async ({ sessionId, setup }) => {
+    create: async ({ sessionId, setup, agentOptions }) => {
+      建会话选项.push({ sessionId: String(sessionId), agentOptions })
       const agent = 造agent(String(sessionId))
       const handle = { agent, dispose: () => { 登记的会话.delete(String(sessionId)) } }
       登记的会话.set(String(sessionId), handle)
@@ -861,6 +863,9 @@ await 轮询社交()
 await 等()
 报('判断模型回落到 DSH 默认模型', 判断调用.length === 默认判之前 + 1 && 判断调用.at(-1).provider === 'fake' && 判断调用.at(-1).model === 'cheap', JSON.stringify({ provider: 判断调用.at(-1)?.provider, model: 判断调用.at(-1)?.model }))
 报('回落后的判断照常开一轮', 回合.some((r) => r.sid === 'session-qq-social-group-1040'))
+const 建1040 = 建会话选项.find((项) => 项.sessionId === 'session-qq-social-group-1040')
+报('新建社交会话继承主人的推理档', 建1040?.agentOptions?.provider === 'fake' && 建1040?.agentOptions?.model === 'cheap' && 建1040?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1040?.agentOptions))
+报('判断调用不跟着用最高推理档', 判断调用.at(-1)?.reasoningEffort === undefined, String(判断调用.at(-1)?.reasoningEffort))
 
 // 连默认模型都没有：这批消息不能丢，等模型回来再判
 默认模型选择 = null
@@ -873,7 +878,7 @@ await 等()
 报('没模型 → 不调模型、不开轮', 判断调用.length === 没模之前 && !回合.some((r) => r.sid === 'session-qq-social-group-1042'))
 报('没模型 → 消息留在待看', (await 目标状态('group:1042')).待看 >= 1, JSON.stringify(await 目标状态('group:1042')))
 报('没模型写进日志', String(await 日志文本()).includes('没有可用的判断模型'))
-默认模型选择 = { provider: 'fake', model: 'cheap' }
+默认模型选择 = { provider: 'fake', model: 'cheap', reasoningEffort: 'max' }
 ctx.agents.list = 原会话列表
 设判断(['1611'], true, 0.9, '现在能判了')
 时间偏移 += 61_000
