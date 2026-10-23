@@ -620,7 +620,8 @@ window.__ModuleLoader__.load({
                   ? h('div', { style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' } },
                       h('div', { style: { fontWeight: 600, fontSize: 12 } }, '总的关系（群和私聊共用）'),
                       h('div', { style: S.dim },
-                        '熟 ' + 总.熟 + ' · 暖 ' + 总.暖 + ' · 张力 ' + 总.张力 +
+                        '综合好感 ' + (总.综合 === undefined ? '—' : 总.综合) + ' / 100 · ' +
+                          '熟 ' + 总.熟 + ' · 暖 ' + 总.暖 + ' · 张力 ' + 总.张力 +
                           ' · 聊过 ' + 总.互动 + ' 次 · 被叫 ' + 总.被叫 + ' 次' +
                           (总.最后At ? ' · 最近 ' + 时间短(总.最后At) : '') +
                           (总.上次她说At ? ' · 她上次开口 ' + 时间短(总.上次她说At) : ''),
