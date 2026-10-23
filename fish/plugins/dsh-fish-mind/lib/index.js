@@ -26,6 +26,7 @@ import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } fr
 import { buildOverview } from './overview.js'
 import { createBroker } from './permissions.js'
 import { createPrivacyGuard } from './privacy.js'
+import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
 import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
 import { extractionPrompt, factSentence, parseFacts, planConsolidation, shorttermText } from './working.js'
@@ -114,6 +115,7 @@ export function apply(ctx) {
   let config = loadConfig({ dshHome, diag })
   const store = openStore({ dir, config, diag })
   applyImportedFacts({ dir, store, diag })
+  const innerLife = createInnerLife({ dir, store, config, diag })
   const budget = openBudget({ dir, config: config.budget, diag })
   const privacy = createPrivacyGuard({ dshHome, diag })
   const privacyStats = { streamHits: 0, toolResults: 0, outboundHits: 0, learned: 0, untrustedResults: 0, injectionHits: 0 }
@@ -1091,6 +1093,7 @@ export function apply(ctx) {
         lastEventAt: metrics.lastEventAt,
         lastTurnAt,
       },
+      inner: innerLife.snapshot(),
       permissions: broker.describe(),
       privacy: { ...privacy.describe(), stats: { ...privacyStats } },
       injection: {
@@ -1123,6 +1126,21 @@ export function apply(ctx) {
     state,
     /** 最近活动过的会话摘要；只读，给 QQ、朗读和主动搭话选投递位置。 */
     sessions: (limit) => store.sessionOverview(limit),
+    /**
+     * 此刻的倾述欲：0 到 1 的强度，加一件想讲的由头。只读，不产生消息。
+     * @returns {object} `{ enabled, strength, cue, affect, drives, urges }`
+     */
+    urge: () => innerLife.urge(),
+    /**
+     * 她真的开口之后记一次饱足；讲过由头之后 24 小时内不再重复。
+     * @param {number|string|null} [cueId] - 这次讲的由头；没有就只记“刚开过口”。
+     * @returns {{ ok: boolean }} 写入结果。
+     */
+    spoke: (cueId) => innerLife.spoke(cueId),
+    /** 主动搭话的开口提示：有由头就用由头，没有就只给情绪和驱力。 */
+    confidePrompt: (inner) => buildConfidePrompt(inner || innerLife.urge()),
+    /** 设置页只读：七情、六欲、倾述欲和最近一次开口。 */
+    innerState: () => innerLife.snapshot(),
     /**
      * 同一条回复只允许一个外部通道投递。先到先得，返回 `{ claimed, by }`。
      * 这是进程内协调，不写入经历，也不改变记忆。
@@ -1190,6 +1208,7 @@ export function apply(ctx) {
       config = loadConfig({ dshHome, diag })
       identity = loadIdentity(dir, diag)
       store.setConfig(config)
+      innerLife.reload()
       broker = createBroker({ config, dshHome, audit, diag, privacy })
       budget.setConfig(config.budget)
       loadAutonomousState()
@@ -1248,6 +1267,7 @@ export function apply(ctx) {
             injection: snapshot.injection,
             phase: snapshot.phase,
           }),
+          inner: snapshot.inner,
         })
       })
 
@@ -1500,6 +1520,21 @@ export function apply(ctx) {
             return workspacePrompt(assembly)
           } catch (error) {
             diag(`memory: 组装工作台失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-inner',
+        order: 908,
+        text: () => {
+          try {
+            // 群聊/好友会话拿不到主人私下的由头，整段内心提示都不注入。
+            if (social) return ''
+            if (config.mode !== 'live' || !config.inject || !config.innerLife?.inject) return ''
+            return innerPrompt(innerLife.urge())
+          } catch (error) {
+            diag(`inner: 组装内心提示失败（${String((error && error.message) || error)}）`)
             return ''
           }
         },

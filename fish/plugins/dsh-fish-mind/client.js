@@ -45,6 +45,14 @@ window.__ModuleLoader__.load({
     const yen = (value) => '¥' + (Number.isFinite(value) ? Number(value).toFixed(2) : '0.00')
     const yesNo = (value) => (value === true ? '开' : '关')
     const list = (value) => (Array.isArray(value) ? value : [])
+    const INNER_DRIVES = [
+      ['stability', '安稳'],
+      ['curiosity', '求知'],
+      ['expression', '表达'],
+      ['recognition', '被看见'],
+      ['comfort', '舒适'],
+      ['intimacy', '亲密'],
+    ]
 
     const CSS = `
 [data-fishm-wrap]{display:flex;flex-direction:column;gap:16px;padding:4px 2px 32px;}
@@ -287,6 +295,7 @@ window.__ModuleLoader__.load({
       const limits = identity.limits || {}
       const memory = data.memory || {}
       const mood = data.mood || {}
+      const inner = data.inner || {}
       const social = data.social || {}
       const channels = data.channels || {}
       const wallet = data.wallet || {}
@@ -417,6 +426,26 @@ window.__ModuleLoader__.load({
           h('details', { 'data-fishm-details': '' },
             h('summary', {}, '自我提示（只读）'),
             h('pre', { 'data-fishm-prompt': '' }, data.selfPrompt || ''))),
+
+        h('details', { 'data-fishm-details': '' },
+          h('summary', {}, `内心${inner.enabled ? ` · 倾述欲 ${Math.round(num(inner.strength) * 100)}%` : ' · 还没启动'}`),
+          inner.enabled
+            ? h('div', { 'data-fishm-sec': '' },
+                h(Row, { label: '此刻', value: inner.affect && inner.affect.phrase ? `${inner.affect.phrase}${inner.affect.mood ? `（心情 ${num(inner.affect.mood)}）` : ''}` : '—' }),
+                inner.cue
+                  ? h(Row, { label: '心里挂着', value: inner.cue.text })
+                  : h(Row, { label: '心里挂着', value: '这会儿没有特别想讲的事' }),
+                h(Row, { label: '上次开口', value: inner.state && inner.state.lastSpokeAt ? when(inner.state.lastSpokeAt) : '还没记过' }),
+                h('div', { 'data-fishm-bars': '' }, INNER_DRIVES.map(([key, label]) => h('div', {
+                  'data-fishm-bar': '',
+                  key,
+                },
+                  h('span', { 'data-fishm-barlabel': '' }, label),
+                  h('span', { 'data-fishm-track': '' },
+                    h('span', { 'data-fishm-fill': '', style: { width: `${Math.max(0, Math.min(100, num(inner.drives && inner.drives[key]) * 100))}%` } })),
+                  h('span', { 'data-fishm-barval': '' }, `${Math.round(num(inner.drives && inner.drives[key]) * 100)}`)))),
+                h('div', { 'data-fishm-note': '' }, '只读。数值是行为权重，不是需求条；群聊和好友会话不会拿到只属于主人的由头。'))
+            : h('div', { 'data-fishm-note': '' }, '内心层会跟着心情经历和相处空档慢慢长出来。')),
 
         h('details', { 'data-fishm-details': '' },
           h('summary', {}, `心情${mood.available ? ` · ${mood.label || ''} ${num(mood.mood)}` : ' · 还没启动过'}`),

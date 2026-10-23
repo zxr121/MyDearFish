@@ -566,6 +566,36 @@ export function openStore({ dir, config, diag = () => {} }) {
     WHERE dropped IS NULL AND content <> '' AND ts >= ? AND role IN ('user', 'assistant')
     ORDER BY ts DESC, id DESC LIMIT ?
   `)
+  const innerSocialStmt = db && db.prepare(`
+    SELECT MAX(ts) AS t FROM experiences
+    WHERE dropped IS NULL AND role = 'user' AND kind IN ('user', 'qq', 'qq-group', 'qq-friend')
+  `)
+  const innerOwnerStmt = db && db.prepare(`
+    SELECT MAX(ts) AS t FROM experiences
+    WHERE dropped IS NULL AND role = 'user' AND kind IN ('user', 'qq')
+  `)
+  const innerShareStmt = db && db.prepare(`
+    SELECT MAX(ts) AS t FROM experiences
+    WHERE dropped IS NULL AND role = 'assistant' AND kind = 'assistant'
+      AND session_id NOT LIKE 'qq-social-%' AND session_id NOT LIKE 'session-qq-social-%'
+  `)
+  const innerBiliStmt = db && db.prepare(`
+    SELECT MAX(ts) AS t FROM experiences WHERE dropped IS NULL AND source_kind = 'bili'
+  `)
+  const innerBiliCountStmt = db && db.prepare(`
+    SELECT COUNT(*) AS n FROM experiences WHERE dropped IS NULL AND source_kind = 'bili' AND ts >= ?
+  `)
+  const innerAffectStmt = db && db.prepare(`
+    SELECT id, ts, content, meta, salience FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND source_kind = 'mood' AND ts >= ?
+    ORDER BY ts DESC, id DESC LIMIT ?
+  `)
+  const innerCueStmt = db && db.prepare(`
+    SELECT id, ts, content, kind, source_kind, salience, meta FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND ts >= ?
+      AND (kind = 'affect' OR kind = 'user' OR kind = 'qq' OR source_kind = 'bili')
+    ORDER BY ts DESC, id DESC LIMIT 80
+  `)
   const factActiveStmt = db && db.prepare(`
     SELECT id, object FROM facts
     WHERE subject = ? AND predicate = ? AND superseded_by IS NULL
@@ -1455,6 +1485,73 @@ export function openStore({ dir, config, diag = () => {} }) {
     return { ...parameters }
   }
 
+  /**
+   * 内心层要的只读信号：最近有人说话、主人单独说话、她上次回主人、B 站新见闻、
+   * 最近的心情经历和可以拿来当“由头”的经历。
+   * 群聊和好友会话只参与“有人说话”的时间，不作为由头带进主人会话。
+   * @param {number} [now] - 当前时间。
+   * @returns {{ lastSocialAt: number, lastOwnerAt: number, lastOwnerReplyAt: number, lastBiliAt: number, biliRecent: number, affects: object[], cues: object[] }}
+   */
+  function innerSignals(now = Date.now()) {
+    const empty = {
+      lastSocialAt: 0,
+      lastOwnerAt: 0,
+      lastOwnerReplyAt: 0,
+      lastBiliAt: 0,
+      biliRecent: 0,
+      affects: [],
+      cues: [],
+    }
+    if (db === null) return empty
+    const stamp = (statement) => {
+      try {
+        return Number(statement?.get()?.t) || 0
+      } catch {
+        return 0
+      }
+    }
+    const since = now - 72 * 60 * 60 * 1000
+    let affects = []
+    let cues = []
+    let biliRecent = 0
+    try {
+      affects = innerAffectStmt.all(since, 40).map((row) => ({
+        id: Number(row.id),
+        at: Number(row.ts) || 0,
+        text: String(row.content ?? ''),
+        meta: row.meta,
+        salience: Number(row.salience) || 0,
+      }))
+    } catch (error) {
+      diag(`store: 读心情经历失败（${String((error && error.message) || error)}）`)
+    }
+    try {
+      cues = innerCueStmt.all(since).map((row) => ({
+        id: Number(row.id),
+        at: Number(row.ts) || 0,
+        text: String(row.content ?? ''),
+        kind: String(row.kind ?? ''),
+        source: String(row.source_kind ?? ''),
+        salience: Number(row.salience) || 0,
+        meta: row.meta,
+      }))
+    } catch (error) {
+      diag(`store: 读内心由头失败（${String((error && error.message) || error)}）`)
+    }
+    try {
+      biliRecent = Number(innerBiliCountStmt.get(now - 48 * 60 * 60 * 1000)?.n) || 0
+    } catch {}
+    return {
+      lastSocialAt: stamp(innerSocialStmt),
+      lastOwnerAt: stamp(innerOwnerStmt),
+      lastOwnerReplyAt: stamp(innerShareStmt),
+      lastBiliAt: stamp(innerBiliStmt),
+      biliRecent,
+      affects,
+      cues,
+    }
+  }
+
   function close() {
     try {
       db?.close()
@@ -1475,6 +1572,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     encodePending,
     sessionOverview,
     recentWindow,
+    innerSignals,
     upsertFact,
     listFacts,
     exportFacts,

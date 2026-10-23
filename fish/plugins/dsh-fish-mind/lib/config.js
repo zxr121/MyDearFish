@@ -110,6 +110,12 @@ export function buildDefaults(dshHome) {
       bili: true,
       compaction: true,
     },
+    // 内心层：七情标签、六欲权重和倾述欲。注入只对主人会话生效，
+    // 群聊/好友会话拿不到主人私下的由头。
+    innerLife: {
+      inject: true,
+      cueThreshold: 0.3,
+    },
     // 每天 ¥10 写死在 budget.js 的出生额度里，这里不提供修改项。
     budget: {
       enabled: true,
@@ -268,6 +274,14 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     }
   } else if (raw.capture !== undefined) {
     diag('config: capture 不是对象，使用默认值')
+  }
+
+  if (isPlainObject(raw.innerLife)) {
+    const inner = raw.innerLife
+    config.innerLife.inject = pickBoolean(inner.inject, config.innerLife.inject)
+    config.innerLife.cueThreshold = pickFraction(inner.cueThreshold, config.innerLife.cueThreshold, 0, 1)
+  } else if (raw.innerLife !== undefined) {
+    diag('config: innerLife 不是对象，使用默认值')
   }
 
   if (isPlainObject(raw.budget)) {

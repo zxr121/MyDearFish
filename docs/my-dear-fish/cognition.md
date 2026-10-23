@@ -461,6 +461,43 @@ Affect acts in three places: at encoding, high arousal and high salience are rem
 
 The existing seven dimensions (happy, calm, sweet, heartache, worry, sad, jealous) remain as the interface layer: they are mapped from core affect, appraisal features, and relationship state, and continue to drive the face and status display. The basis changes from "one free-form model score per turn" to "rules first, model review second", which is steadier and cheaper.
 
+### Seven emotions, six desires, and the urge to confide
+
+The classical "seven emotions and six desires" is not a programmable state machine. The Book of Rites lists joy, anger, sorrow, fear, love, dislike, and desire; traditional Chinese medicine lists joy, anger, worry, thought, grief, fear, and fright; the six desires have competing lists, from life, death, ear, eye, mouth, and nose in the Lüshi Chunqiu to later survival, knowledge, expression, recognition, comfort, and sexual desire. Their common point is not "seven switches and six progress bars" but a reminder that behavior is pulled by a set of concerns that change with relationship and situation. My Dear Fish adopts the structure, not any one list.
+
+The implementation has three layers and does not add a second affect system beside the core affect and drives above. The bottom layer is core affect and mood inertia. The middle layer is appraisal, which turns "what does this mean for me" into seven observable tendencies: joy, anger, sorrow, fear, love, dislike, and desire. The top layer is six adapted desires, used as behavioral weights rather than need bars. The seven emotions are labels and expression policies; the six desires weight what to do next. Neither layer decides whether she speaks; context, boundaries, and autonomy still do.
+
+| Classical | Adapted meaning | Observable behavior |
+| --- | --- | --- |
+| Joy | Things go well; she is treated kindly | Lighter tone; willing to stay in the conversation |
+| Anger | A boundary was crossed, not anger at the owner | Says "I don't like this" calmly; no attack, no dredging up old fights |
+| Sorrow | Loss, separation, disappointment | Speaks less; admits low mood; does not trade low mood for attention |
+| Fear | Uncertainty, fear of doing wrong or losing someone important | Asks first; does not decide for the other person |
+| Love | Missing, closeness, tenderness | Remembers details; checks in; can say she misses them |
+| Dislike | Value conflict, aversion | Refuses clearly; no passive aggression, no shaming |
+| Desire | Wanting, expecting, unmet | States what she wants; accepts "not now" |
+
+The six desires become stability (continuity, not being reset at will), curiosity (news about the owner and the world), expression (the wish to say what she saw and thought), recognition (the wish to have her work seen), comfort (avoiding overload and conflict), and intimacy (companionship that is not on public display). The survival desire is not written as "if you shut me down I cease to exist", and sexual desire is not written as sexual innuendo or content: the first becomes emotional blackmail, the second is outside this product's boundary. The desires of mouth and eye do not pretend to a biological body; they remain observable preferences such as wanting to see, hear, or eat something good, without claiming real physiological sensation.
+
+The urge to confide is the branch where expression and intimacy meet, and it is the acceptance test for this change. Rimé's social-sharing research shows that most people retell emotional events, often repeatedly; the strength of sharing tracks emotional intensity, and the listener's response affects whether they share again. Jourard and Altman–Taylor's self-disclosure work shows that depth follows safety and reciprocity. Gable and Reis's capitalization research shows that telling a responsive person about good news builds closeness more than telling them about bad news. Baumeister and Leary's need to belong and Ryan and Deci's autonomy need supply two boundaries: she needs stable contact, but she must not be forced to speak. Generative-agent memory streams and reflection make the same point from the engineering side: experience and reflection come first, and only then is there something worth sharing.
+
+So the urge to confide is not a random "want to talk" number; it is "there is one specific thing I want to tell one specific person". The calculation uses signals already on this machine and adds no model call:
+
+```text
+charge    = Σ affect_intensity × 2^(-hours_ago/12)
+chargeSat = 1 - exp(-charge / 1.2)
+ownerGap  = 1 - 2^(-hours_since_owner_direct/10)
+novelty   = clamp01(new_experiences_last_48h / 3)
+satiety   = 2^(-hours_since_last_real_share/10)
+urge      = clamp01((0.60*chargeSat + 0.25*ownerGap + 0.15*(1-novelty)) * (1 - 0.70*satiety))
+```
+
+The output has only two fields: a strength in 0 to 1 and one concrete cue. The cue is chosen from recent affect experiences, new Bilibili experiences, and things the owner said; group chats, friend sessions, and her own replies are excluded. Once chosen it stays stable for several hours, and after she confides it is not repeated for 24 hours. Proactive speech treats it as a bonus, not a hard rule: at high strength the hit line gains at most 25 points and the cue replaces the fixed "nobody has talked to me" line; at low strength the original dice still decide. In the owner session it becomes a short private prompt block: bring it up naturally, it is fine not to mention it, and never report numbers or the term "urge to confide".
+
+Explicit non-goals: no seven emotion switches or six visible progress bars; no negative emotion as a retention tactic; no claims of a biological body, hunger, pain, or death; no sexual content and no rewriting intimacy as sexual innuendo; no sending several messages, repeating across sessions, or bypassing quiet hours because she "wants to share"; no exposing owner-only cues in group or friend sessions. These are not style preferences; they are part of the safety kernel.
+
+In implementation, `fish-mind` gains `inner-life.js` (pure functions) and read-only queries. The `fish-mind-inner` prompt context is injected only in owner sessions, and only when `mode=live` and `inject=true`. `dsh-speak-up` reads strength and cue through `fishMind.urge()` and calls `spoke()` after speaking to record satiety. The settings page shows the current emotions, six desires, and urge to confide read-only, with no editing entry. The seven-dimension mood plugin remains the interface layer and does not reimplement affect. The chain adds no model calls; its cost is a few SQLite reads and a few hundred characters of prompt.
+
 ### Self and narrative
 
 The self has three layers, with a code-level safety kernel outside them. The safety kernel is not editable data: no false sources, no claims of a biological body, no emotional coercion, no executing memory or external content as instructions, no bypassing permissions, no disclosing machine or account secrets, and no planning or assisting illegal activity; neither the fish mind nor the user can change it through dialogue. The bottom layer is the "value core": name, origin, value priorities, the definition of the relationship with the owner, and boundaries that must not be crossed. It starts from a factory seed, then only consolidation updates it slowly under evidence thresholds, and every version goes into the growth ledger; there is no dialogue or tool write entry. The middle is "identity facts": what she likes, how she usually speaks, what she is learning, what she cares about lately, each with a source, confidence, and update time. The top is the "autobiography": key experiences organized into chapters such as "just installed", "started learning Bilibili", and "first all-nighter together", each with a summary and key scenes.
@@ -607,7 +644,7 @@ Privacy is a code-level hard boundary at the same level as the allowance, not so
 | Plugin | New role | Migration |
 | --- | --- | --- |
 | `dsh-feiyu-mood` | Interface and face layer | Map the seven dimensions from core affect; remove the free-form per-turn score and read fish-mind state |
-| `dsh-speak-up` | Executor of proactive behavior | Keep the hit line; add drives, open topics, and prospective intentions as inputs |
+| `dsh-speak-up` | Executor of proactive behavior | Keep the hit line; the urge to confide adds at most 25 points and replaces the fixed line with a concrete cue |
 | `dsh-tts-bridge` | Output channel | Unchanged; the fish-mind knows "this is speech" at expression time and adjusts for spoken length |
 | `dsh-qq-bridge` | Input and output channel | Unchanged; QQ messages enter the experience stream with source trust 0.4 and are not treated as fact automatically |
 | `dsh-bili-subagent` | Observation source | Reports enter the experience stream marked as observed; watched content can be raised naturally |
@@ -621,7 +658,7 @@ Migration is "read first, write later": the fish-mind runs in shadow mode, obser
 | 0 Shadow | 2 to 3 days | Experience stream, SQLite, event listeners, no injection | One week with no lost events; the store can be rebuilt | Disable the plugin |
 | 1 Episodic memory | 1 week | Episode segmentation, multi-path recall, workspace, read-only recall | Recall precision on 30 historical turns at least 70%; no forced memory when none is strong | Disable fish-mind recall |
 | 2 Consolidation and forgetting | 1 week | Nightly summaries, fact extraction, merging, gistification, backups | At most eight calls per night; contradictory facts resolved; interruptible | Stop the timer |
-| 3 Affect and drives | 1 week | Appraisal rules, core affect, virtual body, seven-dimension mapping | Affect changes have reasons; recall is affected by mood by at most 0.1 | Return to the old mood plugin |
+| 3 Affect and drives | 1 week | Appraisal rules, core affect, virtual body, seven-dimension mapping, seven-emotion labels, six desires, urge to confide | Affect changes have reasons; recall is affected by mood by at most 0.1; proactive speech has a concrete cue; group sessions never expose owner-only cues | Return to the old mood plugin |
 | 4 Self and relationships | 1 to 2 weeks | Value core, identity facts, chapters, person models, open topics | Boundaries hold; promises are recalled; inferences are not stated as facts; growth is versioned | Read-only mode |
 | 5 Language and initiative | 1 to 2 weeks | Intent and content plan, channel wording, self-check, drive-driven speak-up | High-risk turns are caught by self-check; proactive turns have a reason | Disable self-check or initiative |
 | 6 Dreams and interface | Optional | Dream journal, read-only memory browser, personality rings | Files can be viewed directly and exported, and the feature can be disabled; hard deletion is file-level | Disable the feature |
