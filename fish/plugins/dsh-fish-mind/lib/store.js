@@ -2449,13 +2449,21 @@ export function openStore({ dir, config, diag = () => {} }) {
       const room = baseRoomKey(sessionId)
       let entry = rooms.get(room)
       if (!entry) {
-        entry = { room, sessions: [], lastAt: 0, lastId: 0, events: 0, kind, label: rhythmRoomLabel(sessionId, kind) }
+        entry = { room, sessions: [], lastAt: 0, lastId: 0, events: 0, kind, label: rhythmRoomLabel(sessionId, kind), cursorId: 0 }
         rooms.set(room, entry)
       }
       entry.sessions.push(sessionId)
       entry.lastAt = Math.max(entry.lastAt, Number(row.lastAt) || 0)
       entry.lastId = Math.max(entry.lastId, Number(row.lastId) || 0)
       entry.events += Number(row.events) || 0
+    }
+    // 从 consolidation_state 读取每间屋子的游标。
+    const states = roomStates(rooms.size * 2)
+    for (const state of states) {
+      const entry = rooms.get(state.room)
+      if (entry) {
+        entry.cursorId = state.cursorId
+      }
     }
     return [...rooms.values()].sort((left, right) => right.lastAt - left.lastAt).slice(0, limit)
   }

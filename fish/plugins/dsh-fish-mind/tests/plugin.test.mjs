@@ -1159,7 +1159,7 @@ test('短期放凉后转长期：提炼成事实并写回经历流，再跑一�
   memoryHarness(ctx)
   ctx.set('agents', { list: () => [{ session: session('session-1'), ctx, options: { provider: 'deepseek', model: 'dsh-test' } }] })
   const calls = []
-  let reply = '[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}]'
+  let reply = '{"facts":[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}],"gist":"主人在自我介绍"}'
   ctx.set('llm', {
     async * stream(options) {
       calls.push(options)
@@ -1191,7 +1191,7 @@ test('短期放凉后转长期：提炼成事实并写回经历流，再跑一�
   assert.equal(calls.length, 1)
   assert.equal(calls[0].provider, 'deepseek')
   assert.equal(calls[0].model, 'dsh-test')
-  assert.ok(calls[0].system.includes('只输出 JSON 数组'))
+  assert.ok(calls[0].system.includes('只输出 JSON 对象'))
   assert.ok(calls[0].messages[0].content[0].text.includes('我叫EMT'), '原文要交给模型看')
 
   const [fact] = mind.facts(10)
@@ -1220,7 +1220,7 @@ test('短期放凉后转长期：提炼成事实并写回经历流，再跑一�
   assert.equal(calls.length, 1)
 
   // 新的两句原文 + 模型又给出同一件事：只多一次调用，不多存一份。
-  reply = '[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}]'
+  reply = '{"facts":[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}],"gist":"主人在重复自我介绍"}'
   await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '以后也叫我EMT', {
     seq: 3,
     time: now - 25 * 60_000,

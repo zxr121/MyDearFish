@@ -32,6 +32,20 @@ import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } fro
 import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
 import { extractionPrompt, factSentence, parseFacts, planConsolidation, shorttermText } from './working.js'
+import {
+  formatFactDigest,
+  lastMonthlySlot,
+  lastWeeklySlot,
+  microPrompt,
+  monthlyPrompt,
+  nightlyRemPrompt,
+  nightlySwsPrompt,
+  parseCycleJson,
+  pendingNights,
+  planRoomPass,
+  roomScope,
+  weeklyPrompt,
+} from './rhythm.js'
 import { isTrustedLocalRequest, readBodyLimited, readJsonLimited, sendBytes, sendJson } from './local-http.js'
 
 export const name = 'fish-mind'
@@ -707,8 +721,21 @@ export function apply(ctx) {
     recallStats.calls += 1
     recallStats.lastAt = Date.now()
     if (source === 'workspace') recallStats.workspaceCalls += 1
-    if (result.items.length > 0) recallStats.hits += 1
-    else recallStats.misses += 1
+    if (result.items.length > 0) {
+      recallStats.hits += 1
+      const recallItems = result.items
+        .filter((item) => item && (item.kind === 'episode' || item.kind === 'fact'))
+        .map((item) => ({ kind: item.kind, id: item.id }))
+      if (recallItems.length > 0) {
+        try {
+          store.touchRecalled(recallItems, { now: Date.now() })
+        } catch (error) {
+          diag(`recall: 再巩固标记失败（${String((error && error.message) || error)}）`)
+        }
+      }
+    } else {
+      recallStats.misses += 1
+    }
     recallStats.latencies.push(elapsed)
     if (recallStats.latencies.length > METRICS_WINDOW) recallStats.latencies.shift()
     return result
@@ -842,7 +869,7 @@ export function apply(ctx) {
     const footer = social ? WORKSPACE_SOCIAL_FOOTER : WORKSPACE_FOOTER
     const max = config.recall.workspaceChars
     let body = ''
-    // 先给一层“哪段日子”的粗目录，再放具体情景；这是人回忆时先想起上下文的样子。
+    // 先给一层”哪段日子”的粗目录，再放具体情景；这是人回忆时先想起上下文的样子。
     const topChapter = Array.isArray(result.chapters)
       ? result.chapters.find((chapter) => chapter.level === 'day') || result.chapters[0]
       : null
@@ -850,12 +877,18 @@ export function apply(ctx) {
       const gist = typeof topChapter.summary === 'string' ? topChapter.summary.slice(0, 90) : ''
       body += `\n那阵子的目录：${topChapter.title}${gist === '' ? '' : `；${gist}`}`
     }
+    // 事实摘要：把和当前房间相关的长期事实放在情景前面，帮助模型快速定位已知信息。
+    const facts = store.listFacts(6, { scope: social && sessionId !== '' ? roomScope(sessionId) : 'owner' })
+    const factDigest = formatFactDigest(facts, { limit: 6, chars: 260 })
+    if (factDigest !== '') {
+      body += `\n已经记住的：${factDigest}`
+    }
     for (const [index, item] of result.items.slice(0, config.recall.workspaceSlots).entries()) {
       const prefix = `${index + 1}. ${shortWhen(item.at)} · 情景 #${item.id} · ${item.source} · 可信 ${Number(item.confidence).toFixed(2)}：`
       const room = max - WORKSPACE_HEADER.length - footer.length - body.length - 2 - prefix.length
       if (room < 20) break
       const excerpt = item.excerpt.length > room ? `${item.excerpt.slice(0, room - 1)}…` : item.excerpt
-      body += `\n${prefix}“${excerpt}”`
+      body += `\n${prefix}”${excerpt}”`
     }
     if (body === '') return noteWorkspaceText(WORKSPACE_EMPTY)
     const text = `${WORKSPACE_HEADER}${body}${footer}`
@@ -920,8 +953,8 @@ export function apply(ctx) {
   let consolidating = false
 
   /**
-   * 短期→长期：把放凉或攒多的窗口交给模型提炼成事实，去重后写回经历流。
-   * 原文一条都不删，提炼只是多加几条查得到的说法。
+   * 按房间做微巩固：每间屋子独立游标，挑出放凉或攒多的对话提炼成事实。
+   * 主人房问生活事实，社交房只问这间屋里的人和约定。
    * @param {string} reason - 触发原因，进 sleep_runs 和 diag。
    */
   async function consolidateOnce(reason) {
@@ -929,27 +962,359 @@ export function apply(ctx) {
     if (config.mode !== 'live' || !config.working.enabled || !config.working.consolidate) {
       return { ran: false, reason: 'disabled' }
     }
+    if (!config.cycle.enabled) {
+      return { ran: false, reason: 'cycle-disabled' }
+    }
     consolidating = true
     const started = Date.now()
     try {
-      const rows = store.recentWindow({ since: working.lastConsolidatedAt, rows: config.working.maxRows })
-      const plan = planConsolidation(rows, {
-        lastConsolidatedAt: working.lastConsolidatedAt,
-        idleMs: config.working.idleMinutes * 60_000,
-        maxRows: config.working.maxRows,
-        minRows: config.working.minRows,
-      })
-      if (!plan.ready) return { ran: false, reason: plan.reason }
+      const maxRooms = Math.max(1, Number(config.cycle.micro.maxRooms) || 1)
+      const maxPerHour = Math.max(1, Number(config.cycle.micro.maxPerHour) || 6)
+      const rooms = store.activeRooms({ limit: maxRooms, maxPerHour })
+      if (rooms.length === 0) {
+        return { ran: false, reason: 'no-rooms' }
+      }
+      // 先检查有没有房间有待处理的行，没有就提前返回，不浪费模型调用。
+      let hasPending = false
+      for (const room of rooms) {
+        const cursorId = Number(room.cursorId) || 0
+        const rows = store.roomPending(room.room, cursorId, 200)
+        if (rows.length > 0) {
+          hasPending = true
+          break
+        }
+      }
+      if (!hasPending) {
+        return { ran: false, reason: 'not-enough' }
+      }
       const llm = ctx.get('llm')
       const target = extractionTarget()
       if (!llm || typeof llm.stream !== 'function' || target === null) {
         working.lastStatus = 'no-model'
         return { ran: false, reason: 'no-model' }
       }
-      const prompt = extractionPrompt(plan.pending, {
-        knownFacts: store.listFacts(40),
-        maxFacts: config.working.maxFacts,
-      })
+      let totalFacts = 0
+      let totalWritten = 0
+      let processedRooms = 0
+      for (const room of rooms) {
+        const roomId = room.room
+        const kind = room.kind || 'owner'
+        const cursorId = Number(room.cursorId) || 0
+        const rows = store.roomPending(roomId, cursorId, 200)
+        if (rows.length === 0) continue
+        const plan = planRoomPass(rows, {
+          cursorId,
+          now: started,
+          idleMs: config.working.idleMinutes * 60_000,
+          minRows: config.working.minRows,
+          maxRows: config.cycle.micro.roomRows,
+          chars: config.cycle.micro.roomChars,
+          rowChars: 320,
+        })
+        if (!plan.ready) {
+          store.noteRoomRun(roomId, `skip:${plan.reason}`, started)
+          continue
+        }
+        const scope = roomScope(roomId, kind)
+        const knownFacts = store.listFacts(40, { scope })
+        const prompt = microPrompt(plan.selected, {
+          kind,
+          maxFacts: config.working.maxFacts,
+          knownFacts,
+          chars: config.cycle.micro.roomChars,
+          rowChars: 320,
+        })
+        const messages = [{
+          role: 'user',
+          id: randomUUID(),
+          content: [{ type: 'text', text: prompt.user }],
+          source: { kind: 'plugin', plugin: 'dsh-fish-mind' },
+        }]
+        let out = ''
+        for await (const chunk of llm.stream({
+          provider: target.provider,
+          model: target.model,
+          system: prompt.system,
+          messages,
+          maxTokens: config.working.maxTokens,
+          temperature: 0.2,
+        })) {
+          if (!chunk) continue
+          if (chunk.type === 'text-delta') out += chunk.text
+          if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
+            store.noteRoomRun(roomId, 'model-error', started)
+            diag(`memory: 房间 ${roomId} 提炼被模型拒绝（${String((chunk.reason.failure && chunk.reason.failure.message) || 'error')}）`)
+            continue
+          }
+        }
+        const parsed = parseCycleJson(out, { maxFacts: config.working.maxFacts })
+        const facts = parsed.facts || []
+        const newest = plan.selected.reduce((acc, row) => Math.max(acc, Number(row.at) || 0), 0)
+        let written = 0
+        for (const fact of facts) {
+          const result = store.upsertFact({
+            subject: fact.subject,
+            predicate: fact.predicate,
+            object: fact.object,
+            confidence: fact.confidence,
+            source: 'consolidation',
+            at: newest,
+            scope,
+          })
+          if (result.action === 'added' || result.action === 'superseded') {
+            written += 1
+            observe({
+              at: newest,
+              sessionId: roomId,
+              kind: 'consolidation',
+              role: 'system',
+              actor: 'fish',
+              source: 'consolidation',
+              text: `【我自己想明白的】${factSentence(fact)}`,
+              meta: { trust: 0.6, confidence: fact.confidence, scope },
+            })
+          }
+        }
+        totalFacts += facts.length
+        totalWritten += written
+        processedRooms += 1
+        store.saveRoomState({
+          room: roomId,
+          cursorId: plan.advanceToId,
+          cursorAt: newest,
+          status: written > 0 ? 'ok' : 'nothing-worth',
+          ranAt: started,
+        })
+        store.recordRun({
+          startedAt: started,
+          finishedAt: Date.now(),
+          status: `micro:${kind}:${written > 0 ? 'ok' : 'skip'}`,
+          tasks: facts.map((fact) => `${fact.subject}·${fact.predicate}·${fact.object}`),
+          notes: `room=${roomId} reason=${reason} pending=${plan.pending} written=${written}`,
+        })
+        diag(`memory: 房间 ${roomId}（${kind}）微巩固：看 ${plan.selected.length} 条，新记住 ${written} 条`)
+        if (written > 0) organizeMemory('consolidate')
+      }
+      working.factsWritten += totalWritten
+      working.factsSkipped += totalFacts - totalWritten
+      working.lastRunAt = Date.now()
+      working.lastStatus = processedRooms === 0 ? 'no-rooms' : `ok:${reason}`
+      working.runs += 1
+      saveWorking()
+      return { ran: true, reason, rooms: processedRooms, facts: totalFacts, written: totalWritten }
+    } catch (error) {
+      working.lastStatus = 'error'
+      diag(`memory: 微巩固失败（${String((error && error.message) || error)}）`)
+      return { ran: false, reason: 'error' }
+    } finally {
+      consolidating = false
+    }
+  }
+
+  const cycleState = {
+    lastNightlyAt: 0,
+    lastWeeklyAt: 0,
+    lastMonthlyAt: 0,
+    lastNightlyDay: '',
+  }
+
+  function loadCycleState() {
+    try {
+      const raw = store.getMeta('cycle-state')
+      if (!raw) return
+      const parsed = JSON.parse(String(raw))
+      if (Number.isFinite(parsed.lastNightlyAt)) cycleState.lastNightlyAt = Number(parsed.lastNightlyAt)
+      if (Number.isFinite(parsed.lastWeeklyAt)) cycleState.lastWeeklyAt = Number(parsed.lastWeeklyAt)
+      if (Number.isFinite(parsed.lastMonthlyAt)) cycleState.lastMonthlyAt = Number(parsed.lastMonthlyAt)
+      if (typeof parsed.lastNightlyDay === 'string') cycleState.lastNightlyDay = parsed.lastNightlyDay
+    } catch {}
+  }
+
+  function saveCycleState() {
+    try {
+      store.setMeta('cycle-state', JSON.stringify(cycleState))
+    } catch {}
+  }
+
+  loadCycleState()
+
+  let nightlyRunning = false
+
+  /**
+   * 夜间整理：慢波（事实、要旨、修正）+ REM（情绪、关系、自我）。
+   * 每个结束日只跑一次，失败不推进日期。
+   */
+  async function nightlyConsolidate() {
+    if (nightlyRunning) return { ran: false, reason: 'in-flight' }
+    if (!config.cycle.enabled) return { ran: false, reason: 'disabled' }
+    const nights = pendingNights({
+      now: Date.now(),
+      lastDay: cycleState.lastNightlyDay,
+      hour: config.cycle.nightly.hour,
+      minute: config.cycle.nightly.minute,
+      catchUpDays: config.cycle.nightly.catchUpDays,
+    })
+    if (nights.length === 0) return { ran: false, reason: 'no-pending-nights' }
+    const minExperiences = Math.max(1, Number(config.cycle.nightly.minNewExperiences) || 6)
+    nightlyRunning = true
+    try {
+      for (const night of nights) {
+        const episodes = store.episodesBetween(night.start, night.end, 80)
+        const facts = store.factsBetween(night.start, night.end, 80)
+        if (episodes.length < minExperiences && facts.length === 0) {
+          store.recordRun({
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+            status: 'nightly-skip:few-experiences',
+            tasks: [],
+            notes: `day=${night.dayKey} episodes=${episodes.length} facts=${facts.length}`,
+          })
+          continue
+        }
+        const llm = ctx.get('llm')
+        const target = extractionTarget()
+        if (!llm || typeof llm.stream !== 'function' || target === null) {
+          return { ran: false, reason: 'no-model' }
+        }
+        const due = store.dueReviews(Date.now(), 8)
+        const swsPrompt = nightlySwsPrompt({
+          dayKey: night.dayKey,
+          episodes,
+          facts,
+          due,
+        })
+        const swsMessages = [{
+          role: 'user',
+          id: randomUUID(),
+          content: [{ type: 'text', text: swsPrompt.user }],
+          source: { kind: 'plugin', plugin: 'dsh-fish-mind' },
+        }]
+        let swsOut = ''
+        for await (const chunk of llm.stream({
+          provider: target.provider,
+          model: target.model,
+          system: swsPrompt.system,
+          messages: swsMessages,
+          maxTokens: 800,
+          temperature: 0.3,
+        })) {
+          if (!chunk) continue
+          if (chunk.type === 'text-delta') swsOut += chunk.text
+        }
+        const swsResult = parseCycleJson(swsOut, { maxFacts: 10 })
+        let written = 0
+        for (const fact of swsResult.facts) {
+          const result = store.upsertFact({
+            subject: fact.subject,
+            predicate: fact.predicate,
+            object: fact.object,
+            confidence: fact.confidence,
+            source: 'nightly-sws',
+            at: night.end,
+            scope: 'owner',
+          })
+          if (result.action === 'added' || result.action === 'superseded') written += 1
+        }
+        for (const correction of swsResult.corrections) {
+          const result = store.upsertFact({
+            subject: correction.subject,
+            predicate: correction.predicate,
+            object: correction.object,
+            confidence: correction.confidence,
+            source: 'nightly-correction',
+            at: night.end,
+            scope: 'owner',
+          })
+          if (result.action === 'added' || result.action === 'superseded') written += 1
+        }
+        const remPrompt = nightlyRemPrompt({
+          dayKey: night.dayKey,
+          episodes,
+          selfModel: store.getSelfModel(8),
+          people: store.listPeople(12),
+        })
+        const remMessages = [{
+          role: 'user',
+          id: randomUUID(),
+          content: [{ type: 'text', text: remPrompt.user }],
+          source: { kind: 'plugin', plugin: 'dsh-fish-mind' },
+        }]
+        let remOut = ''
+        for await (const chunk of llm.stream({
+          provider: target.provider,
+          model: target.model,
+          system: remPrompt.system,
+          messages: remMessages,
+          maxTokens: 600,
+          temperature: 0.4,
+        })) {
+          if (!chunk) continue
+          if (chunk.type === 'text-delta') remOut += chunk.text
+        }
+        const remResult = parseCycleJson(remOut, { maxFacts: 6 })
+        if (remResult.self.length > 0) {
+          store.saveSelfModel(remResult.self, { merge: true })
+        }
+        if (remResult.relations.length > 0) {
+          store.savePeople(remResult.relations, { merge: true })
+        }
+        if (remResult.intentions.length > 0) {
+          store.saveIntentions(remResult.intentions, { merge: true })
+        }
+        if (remResult.affect) {
+          store.saveAffect(remResult.affect, { at: night.end })
+        }
+        if (due.length > 0) {
+          store.markReviewed(due, { now: Date.now(), result: 'nightly-review' })
+        }
+        cycleState.lastNightlyAt = Date.now()
+        cycleState.lastNightlyDay = night.dayKey
+        saveCycleState()
+        store.recordRun({
+          startedAt: Date.now(),
+          finishedAt: Date.now(),
+          status: `nightly:${written > 0 ? 'ok' : 'skip'}`,
+          tasks: [...swsResult.facts, ...swsResult.corrections].map((fact) => `${fact.subject}·${fact.predicate}·${fact.object}`),
+          notes: `day=${night.dayKey} episodes=${episodes.length} facts=${facts.length} written=${written} self=${remResult.self.length} relations=${remResult.relations.length}`,
+        })
+        diag(`memory: 夜间整理 ${night.dayKey}：情景 ${episodes.length}，事实 ${facts.length}，新写 ${written}，自我 ${remResult.self.length}，关系 ${remResult.relations.length}`)
+      }
+      return { ran: true, reason: 'nightly', nights: nights.length }
+    } catch (error) {
+      diag(`memory: 夜间整理失败（${String((error && error.message) || error)}）`)
+      return { ran: false, reason: 'error' }
+    } finally {
+      nightlyRunning = false
+    }
+  }
+
+  let weeklyRunning = false
+
+  /**
+   * 每周整理：把七天的目录接成一条连续的线，更新自我和关系。
+   */
+  async function weeklyConsolidate() {
+    if (weeklyRunning) return { ran: false, reason: 'in-flight' }
+    if (!config.cycle.enabled) return { ran: false, reason: 'disabled' }
+    const slot = lastWeeklySlot(Date.now(), {
+      weekday: config.cycle.weekly.weekday,
+      hour: config.cycle.weekly.hour,
+      minute: config.cycle.weekly.minute,
+    })
+    if (slot <= cycleState.lastWeeklyAt) return { ran: false, reason: 'not-due' }
+    weeklyRunning = true
+    try {
+      const now = Date.now()
+      const weekStart = now - 7 * 24 * 60 * 60 * 1000
+      const chapters = store.listChapters({ since: weekStart, limit: 10 })
+      const facts = store.listFacts(30)
+      const relations = store.listRelations(20)
+      const llm = ctx.get('llm')
+      const target = extractionTarget()
+      if (!llm || typeof llm.stream !== 'function' || target === null) {
+        return { ran: false, reason: 'no-model' }
+      }
+      const prompt = weeklyPrompt({ days: chapters, facts, relations })
       const messages = [{
         role: 'user',
         id: randomUUID(),
@@ -962,68 +1327,108 @@ export function apply(ctx) {
         model: target.model,
         system: prompt.system,
         messages,
-        maxTokens: config.working.maxTokens,
-        temperature: 0.2,
+        maxTokens: 800,
+        temperature: 0.3,
       })) {
         if (!chunk) continue
         if (chunk.type === 'text-delta') out += chunk.text
-        if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
-          working.lastStatus = 'model-error'
-          diag(`memory: 提炼被模型拒绝（${String((chunk.reason.failure && chunk.reason.failure.message) || 'error')}）`)
-          return { ran: false, reason: 'model-error' }
-        }
       }
-      const facts = parseFacts(out, { max: config.working.maxFacts })
-      const newest = plan.pending.reduce((acc, row) => Math.max(acc, Number(row.at) || 0), 0)
-      let written = 0
-      for (const fact of facts) {
-        const result = store.upsertFact({
-          subject: fact.subject,
-          predicate: fact.predicate,
-          object: fact.object,
-          confidence: fact.confidence,
-          source: 'consolidation',
-          at: newest,
-        })
-        if (result.action === 'added' || result.action === 'superseded') {
-          written += 1
-          // 写回经历流：走同一条脱敏和编码链路，长期召回才查得到这句话。
-          observe({
-            at: newest,
-            sessionId: '',
-            kind: 'consolidation',
-            role: 'system',
-            actor: 'fish',
-            source: 'consolidation',
-            text: `【我自己想明白的】${factSentence(fact)}`,
-            meta: { trust: 0.6, confidence: fact.confidence },
-          })
-        }
+      const result = parseCycleJson(out, { maxFacts: 6 })
+      if (result.self.length > 0) {
+        store.saveSelfModel(result.self, { merge: true })
       }
-      working.factsWritten += written
-      working.factsSkipped += facts.length - written
-      working.lastConsolidatedAt = newest + 1
-      working.lastRunAt = Date.now()
-      working.lastStatus = facts.length === 0 ? 'nothing-worth' : `ok:${reason}`
-      working.runs += 1
-      saveWorking()
+      if (result.relations.length > 0) {
+        store.savePeople(result.relations, { merge: true })
+      }
+      if (result.intentions.length > 0) {
+        store.saveIntentions(result.intentions, { merge: true })
+      }
+      cycleState.lastWeeklyAt = slot
+      saveCycleState()
       store.recordRun({
-        startedAt: started,
+        startedAt: Date.now(),
         finishedAt: Date.now(),
-        status: working.lastStatus,
-        tasks: facts.map((fact) => `${fact.subject}·${fact.predicate}·${fact.object}`),
-        notes: `reason=${reason} pending=${plan.pending.length} written=${written}`,
+        status: 'weekly:ok',
+        tasks: [],
+        notes: `chapters=${chapters.length} self=${result.self.length} relations=${result.relations.length}`,
       })
-      diag(`memory: 短期转长期（${reason}，看 ${plan.pending.length} 条，新记住 ${written} 条）`)
-      // 提炼完顺手把章节树接上，刚放凉的那段对话当天就能在目录里翻到。
-      if (written > 0) organizeMemory('consolidate')
-      return { ran: true, reason, facts: facts.length, written }
+      diag(`memory: 每周整理：章节 ${chapters.length}，自我 ${result.self.length}，关系 ${result.relations.length}`)
+      return { ran: true, reason: 'weekly' }
     } catch (error) {
-      working.lastStatus = 'error'
-      diag(`memory: 转长期提炼失败（${String((error && error.message) || error)}）`)
+      diag(`memory: 每周整理失败（${String((error && error.message) || error)}）`)
       return { ran: false, reason: 'error' }
     } finally {
-      consolidating = false
+      weeklyRunning = false
+    }
+  }
+
+  let monthlyRunning = false
+
+  /**
+   * 每月整理：看一个月的章节，更新自我模型和长期关系走向。
+   */
+  async function monthlyConsolidate() {
+    if (monthlyRunning) return { ran: false, reason: 'in-flight' }
+    if (!config.cycle.enabled) return { ran: false, reason: 'disabled' }
+    const slot = lastMonthlySlot(Date.now(), {
+      day: config.cycle.monthly.day,
+      hour: config.cycle.monthly.hour,
+      minute: config.cycle.monthly.minute,
+    })
+    if (slot <= cycleState.lastMonthlyAt) return { ran: false, reason: 'not-due' }
+    monthlyRunning = true
+    try {
+      const now = Date.now()
+      const monthStart = now - 30 * 24 * 60 * 60 * 1000
+      const chapters = store.listChapters({ since: monthStart, limit: 12 })
+      const selfModel = store.getSelfModel(8)
+      const llm = ctx.get('llm')
+      const target = extractionTarget()
+      if (!llm || typeof llm.stream !== 'function' || target === null) {
+        return { ran: false, reason: 'no-model' }
+      }
+      const prompt = monthlyPrompt({ chapters, selfModel })
+      const messages = [{
+        role: 'user',
+        id: randomUUID(),
+        content: [{ type: 'text', text: prompt.user }],
+        source: { kind: 'plugin', plugin: 'dsh-fish-mind' },
+      }]
+      let out = ''
+      for await (const chunk of llm.stream({
+        provider: target.provider,
+        model: target.model,
+        system: prompt.system,
+        messages,
+        maxTokens: 600,
+        temperature: 0.3,
+      })) {
+        if (!chunk) continue
+        if (chunk.type === 'text-delta') out += chunk.text
+      }
+      const result = parseCycleJson(out, { maxFacts: 4 })
+      if (result.self.length > 0) {
+        store.saveSelfModel(result.self, { merge: true })
+      }
+      if (result.relations.length > 0) {
+        store.savePeople(result.relations, { merge: true })
+      }
+      cycleState.lastMonthlyAt = slot
+      saveCycleState()
+      store.recordRun({
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        status: 'monthly:ok',
+        tasks: [],
+        notes: `chapters=${chapters.length} self=${result.self.length} relations=${result.relations.length}`,
+      })
+      diag(`memory: 每月整理：章节 ${chapters.length}，自我 ${result.self.length}，关系 ${result.relations.length}`)
+      return { ran: true, reason: 'monthly' }
+    } catch (error) {
+      diag(`memory: 每月整理失败（${String((error && error.message) || error)}）`)
+      return { ran: false, reason: 'error' }
+    } finally {
+      monthlyRunning = false
     }
   }
 
@@ -1292,6 +1697,16 @@ export function apply(ctx) {
           factsWritten: working.factsWritten,
           factsSkipped: working.factsSkipped,
           injectedChars: working.injectedChars,
+        },
+        cycle: {
+          enabled: config.cycle.enabled,
+          lastNightlyAt: cycleState.lastNightlyAt,
+          lastWeeklyAt: cycleState.lastWeeklyAt,
+          lastMonthlyAt: cycleState.lastMonthlyAt,
+          lastNightlyDay: cycleState.lastNightlyDay,
+          dueEpisodes: stats.dueEpisodes || 0,
+          dueFacts: stats.dueFacts || 0,
+          rooms: store.activeRooms({ limit: 10 }),
         },
       },
       metrics: {
@@ -2253,6 +2668,48 @@ export function apply(ctx) {
     timer.unref?.()
     return () => clearInterval(timer)
   }, 'fish-mind: 短期转长期')
+
+  ctx.effect(() => {
+    // 夜间整理：凌晨把刚结束的一天压成要旨、校正事实、整理情绪和关系。
+    if (config.mode === 'off' || !config.cycle.enabled) return () => {}
+    const check = () => { void nightlyConsolidate() }
+    const timer = setInterval(check, 5 * 60 * 1000)
+    timer.unref?.()
+    const kick = setTimeout(check, 10_000)
+    kick.unref?.()
+    return () => {
+      clearInterval(timer)
+      clearTimeout(kick)
+    }
+  }, 'fish-mind: 夜间整理')
+
+  ctx.effect(() => {
+    // 每周整理：周一凌晨把七天接成一条线。
+    if (config.mode === 'off' || !config.cycle.enabled) return () => {}
+    const check = () => { void weeklyConsolidate() }
+    const timer = setInterval(check, 15 * 60 * 1000)
+    timer.unref?.()
+    const kick = setTimeout(check, 15_000)
+    kick.unref?.()
+    return () => {
+      clearInterval(timer)
+      clearTimeout(kick)
+    }
+  }, 'fish-mind: 每周整理')
+
+  ctx.effect(() => {
+    // 每月整理：每月一号凌晨看这个月的章节，更新自我模型。
+    if (config.mode === 'off' || !config.cycle.enabled) return () => {}
+    const check = () => { void monthlyConsolidate() }
+    const timer = setInterval(check, 30 * 60 * 1000)
+    timer.unref?.()
+    const kick = setTimeout(check, 20_000)
+    kick.unref?.()
+    return () => {
+      clearInterval(timer)
+      clearTimeout(kick)
+    }
+  }, 'fish-mind: 每月整理')
 
   ctx.effect(() => {
     // 章节树跟着新情景慢慢长：没有新经历时 buildChapters 会自己跳过，不白扫一遍。
