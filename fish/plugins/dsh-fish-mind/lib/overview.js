@@ -27,8 +27,13 @@ function number(value, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+// 经历正文常带「【QQ 群聊·群 123456】」这类外壳，总览只做预览，顺手把号码抹掉。
+function maskContacts(value) {
+  return value.replace(/((?:QQ|qq|群聊|群号|群|私聊)[^0-9]{0,6})(\d{5,12})/g, '$1***')
+}
+
 function text(value, max) {
-  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : ''
+  return typeof value === 'string' ? maskContacts(value.replace(/\s+/g, ' ').trim()).slice(0, max) : ''
 }
 
 function readJson(path) {

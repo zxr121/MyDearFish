@@ -52,7 +52,7 @@ function writeSource() {
     actor: 'owner',
     sessionId: 'session-1',
     sourceKind: 'user',
-    text: '今天去看海了',
+    text: '【QQ 群聊·群 555666777】今天去看海了',
   }) + '\n')
   mkdirSync(join(home, 'feiyu-mood'), { recursive: true })
   writeFileSync(join(home, 'feiyu-mood', 'state.json'), JSON.stringify({
@@ -113,7 +113,7 @@ test('整条鱼能打包再读回，校验数量、身份、心情和人物志',
   const parsed = parseFishArchive(bundle.buffer)
   assert.equal(parsed.identity.name, '小鲸')
   assert.equal(parsed.experience.length, 1)
-  assert.equal(parsed.experience[0].text, '今天去看海了')
+  assert.equal(parsed.experience[0].text, '【QQ 群聊·群 555666777】今天去看海了')
   assert.deepEqual(parsed.facts, [{ subject: '阿蓝', predicate: '喜欢', object: '鲸鱼', confidence: 0.9, validFrom: 1000 }])
   assert.equal(parsed.mood.mood, 72)
   assert.equal(parsed.mood.timeline.length, 1)
@@ -287,6 +287,8 @@ test('设置页总览带完整画像，但不带 QQ 号、群号和本机路径'
   const serialized = JSON.stringify(overview)
   assert.equal(serialized.includes('123456789'), false)
   assert.equal(serialized.includes('987654321'), false)
+  assert.equal(serialized.includes('555666777'), false)
+  assert.equal(overview.memory.recent[0].text.includes('群 ***'), true)
   assert.equal(serialized.includes(source.home), false)
   source.store.close()
 })
