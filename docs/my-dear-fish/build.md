@@ -6,9 +6,9 @@ Running the packaging command locally or in GitHub Actions builds an unsigned x6
 
 ## GitHub Actions
 
-The workflow [.github/workflows/build-fish-exe.yml](../../.github/workflows/build-fish-exe.yml) runs on manual dispatch. It installs Node 24 and pnpm 11.28.5, installs dependencies with the frozen lockfile, generates an incrementing build version, writes `apps/desktop/.env.windows` pointing at this repository's releases, runs `pnpm run package:desktop:win:x64:unsigned -- --build-version <version>`, verifies the installer, differential file, and update metadata, then creates a GitHub Release marked latest.
+The workflow [.github/workflows/build-fish-exe.yml](../../.github/workflows/build-fish-exe.yml) runs on manual dispatch or on a pushed `fish-release-*` tag. It installs Node 24 and pnpm 11.28.5, installs dependencies with the frozen lockfile, generates an incrementing build version, writes `apps/desktop/.env.windows` pointing at this repository's releases, runs `pnpm run package:desktop:win:x64:unsigned -- --build-version <version>`, verifies the installer, differential file, and update metadata, then creates a GitHub Release marked latest.
 
-1. Open **Actions → Build fish Windows installer → Run workflow** on `master`.
+1. Open **Actions → Build fish Windows installer → Run workflow** on `master`, or push a tag such as `git tag fish-release-20261023 && git push origin fish-release-20261023`.
 2. Wait for the `package` job; the job times out after 90 minutes.
 3. Download the installer from the **Releases** page after the run; the run page also retains the artifact `dsh-fish-windows-installer` for 14 days.
 

@@ -6,9 +6,9 @@
 
 ## GitHub Actions
 
-工作流 [.github/workflows/build-fish-exe.yml](../../.github/workflows/build-fish-exe.yml) 手动触发。它安装 Node 24 与 pnpm 11.28.5，用冻结的锁文件安装依赖，生成递增的构建版本，写入指向本仓库 Release 的 `apps/desktop/.env.windows`，运行 `pnpm run package:desktop:win:x64:unsigned -- --build-version <版本>`，校验安装包、增量文件与更新元数据，然后创建标记为 latest 的 GitHub Release。
+工作流 [.github/workflows/build-fish-exe.yml](../../.github/workflows/build-fish-exe.yml) 由手动触发或推送 `fish-release-*` 标签触发。它安装 Node 24 与 pnpm 11.28.5，用冻结的锁文件安装依赖，生成递增的构建版本，写入指向本仓库 Release 的 `apps/desktop/.env.windows`，运行 `pnpm run package:desktop:win:x64:unsigned -- --build-version <版本>`，校验安装包、增量文件与更新元数据，然后创建标记为 latest 的 GitHub Release。
 
-1. 在 `master` 上打开 **Actions → Build fish Windows installer → Run workflow**。
+1. 在 `master` 上打开 **Actions → Build fish Windows installer → Run workflow**；或推送一个标签，例如 `git tag fish-release-20261023 && git push origin fish-release-20261023`。
 2. 等待 `package` 作业完成；该作业在 90 分钟后超时。
 3. 运行结束后在 **Releases** 页面下载安装包；运行页面仍保留工件 `dsh-fish-windows-installer` 14 天。
 

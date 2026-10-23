@@ -2,6 +2,9 @@ name: Build fish Windows installer
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'fish-release-*'
 
 permissions:
   contents: write
