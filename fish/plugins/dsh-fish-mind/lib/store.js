@@ -2342,7 +2342,6 @@ export function openStore({ dir, config, diag = () => {} }) {
         JSON.stringify(sourceIds),
         scope,
         nextReviewAt(0, validFrom),
-        at,
       )
       const id = Number(info.lastInsertRowid)
       if (active) factSupersedeStmt.run(id, at, Number(active.id))

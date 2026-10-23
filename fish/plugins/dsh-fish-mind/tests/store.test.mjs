@@ -498,7 +498,7 @@ test('事实写入：同一件事重复提炼不会存成两份', () => {
   assert.equal(changed.action, 'superseded')
   assert.equal(store.stats().facts, 1, '旧值被取代，生效的还是一条')
   assert.deepEqual(store.listFacts(), [{
-    subject: '主人', predicate: '昵称', object: '小鱼', confidence: 0.7, validFrom: at + 1_000,
+    subject: '主人', predicate: '昵称', object: '小鱼', confidence: 0.7, validFrom: at + 1_000, scope: 'owner',
   }])
 
   const rows = store._db().prepare('SELECT id, object, valid_to, superseded_by FROM facts ORDER BY id').all()
@@ -578,7 +578,7 @@ test('旧 v2 库打开时补齐章节列、索引和关系表', () => {
   for (const name of ['parent_id', 'level', 'scope', 'entities', 'importance', 'channel', 'source_trust', 'abstractive_summary']) {
     assert.ok(columns.includes(name), name)
   }
-  assert.equal(store._db().prepare('PRAGMA user_version').get().user_version, 4)
+  assert.equal(store._db().prepare('PRAGMA user_version').get().user_version, 5)
   store.insert(record('今天在咖啡馆见到小蓝', { at: Date.now() }))
   store.upsertFact({ subject: '小蓝', predicate: '喜欢', object: '咖啡馆' })
   assert.equal(store.listRelations().length, 1)
