@@ -1788,6 +1788,99 @@ const 人物页 = 存储[0]
     人物页.关系网.some((e) => e.甲 === '92101' && e.乙 === '小陈' && e.关系 === '弟弟'),
   JSON.stringify({ 总数: 人物页 && 人物页.总数, 账号数: 人物页 && 人物页.账号数, 关系数: 人物页 && 人物页.关系数 }))
 
+// ---------- 23 回合失败：连续失败暂停、设置页可见、重置后换新会话 ----------
+写配置({ 群: ['1099'], 快判: false, 判断冷却秒: 0, 冷却秒: 1, 冷却最短秒: 1, 冷却最长倍率: 1 })
+const 失败群 = 1099
+const 失败sid = 'session-qq-social-group-1099'
+let 失败序号 = 8001
+const 发一条并开轮 = async () => {
+  失败序号 += 1
+  const 已有 = 群消息表.get(失败群) || []
+  群消息表.set(失败群, [...已有, 一条群消息('鱼又冒头了 ' + 失败序号, { id: 失败序号, time: Math.floor(Date.now() / 1000) + 200 })])
+  设判断([String(失败序号)], true, 0.9, '接一句')
+  await 轮询社交()
+  await 等()
+}
+await 发一条并开轮()
+报('准备接话：待发已挂上', (await 目标状态('group:1099')).待发 === true)
+监听[0]({ id: 失败sid }, { type: 'turn/end', data: { turn: 7, reason: { kind: 'error', error: { message: 'transport closed', code: 'TRANSPORT' } } } })
+await 等()
+let 失态 = await 目标状态('group:1099')
+报('回合失败马上清掉待发，不留到 180 秒超时', 失态.待发 === false)
+报('失败在设置页可见，带错误码和连续次数', 失态.故障 && 失态.故障.连续 === 1 && 失态.故障.最后码 === 'TRANSPORT' && 失态.故障.最后说 === 'transport closed', JSON.stringify(失态.故障))
+报('失败写进日志', (await 日志文本()).includes('连续 1 次') && (await 日志文本()).includes('transport closed'))
+
+时间偏移 += 2000
+await 发一条并开轮()
+监听[0]({ id: 失败sid }, { type: 'turn/end', data: { turn: 8, reason: { kind: 'error', error: { message: 'transport closed', code: 'TRANSPORT' } } } })
+await 等()
+时间偏移 += 2000
+await 发一条并开轮()
+监听[0]({ id: 失败sid }, { type: 'turn/end', data: { turn: 9, reason: { kind: 'error', error: { message: 'transport closed', code: 'TRANSPORT' } } } })
+await 等()
+失态 = await 目标状态('group:1099')
+报('连续 3 轮失败：这一路暂停，不再开新回合', 失态.暂停中 === true && 失态.故障.暂停到 > Date.now(), JSON.stringify(失态.故障))
+报('暂停时给主人 QQ 发系统提醒', 发的.some((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 123 && String(x.体.message[0].data.text).startsWith('【大肥鱼·系统】') && String(x.体.message[0].data.text).includes('重置这个聊天')), JSON.stringify(发的.slice(-3)))
+
+// 暂停期间照收消息，但不花判断和回复的钱
+const 暂停前判断 = 判断调用.length
+const 暂停前回合 = 回合.length
+时间偏移 += 2000
+失败序号 += 1
+群消息表.set(失败群, [...群消息表.get(失败群), 一条群消息('暂停里还在说话', { id: 失败序号, time: Math.floor(Date.now() / 1000) + 200 })])
+await 轮询社交()
+await 等()
+报('暂停期间只看不判：判断和回复都不再花钱', 判断调用.length === 暂停前判断 && 回合.length === 暂停前回合)
+报('暂停期间消息留在待看里，没丢', (await 目标状态('group:1099')).待看 >= 1)
+
+// 重置：旧句柄释放，新 id 落盘，目标状态跟着换
+const 旧id = 失态.会话id
+报('重置前旧会话活着', 登记的会话.has(旧id))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/session-reset')(造请求({ key: 'group:1099', 会话id: 旧id }), fakeRes)
+const 重置回 = 存储.at(-1)
+报('重置接口换了一间新会话', 重置回 && 重置回.ok === true && 重置回.会话id !== 旧id && 重置回.会话id.startsWith(旧id + '-r'), JSON.stringify(重置回))
+报('重置释放旧会话句柄', !登记的会话.has(旧id))
+报('重置记进 qq-bridge-sessions.json', (() => {
+  const p = join(家, 'qq-bridge-sessions.json')
+  if (!existsSync(p)) return false
+  const j = JSON.parse(readFileSync(p, 'utf8'))
+  return j.重置 && j.重置['group:1099'] && j.重置['group:1099'].会话id === 重置回.会话id && j.重置['group:1099'].旧会话id === 旧id
+})())
+失态 = await 目标状态('group:1099')
+报('重置后状态换成新 id、故障和待看清空', 失态.会话id === 重置回.会话id && 失态.故障 === null && 失态.暂停中 === false && 失态.待看 === 0 && 失态.重置 && 失态.重置.旧会话id === 旧id, JSON.stringify(失态))
+
+// 下一轮在新会话里开，不再回旧屋
+时间偏移 += 5000
+失败序号 += 1
+群消息表.set(失败群, [...群消息表.get(失败群), 一条群消息('新屋第一句', { id: 失败序号, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断([String(失败序号)], true, 0.9, '新屋接一句')
+await 轮询社交()
+await 等()
+报('重置后下一轮开在新会话里', 回合.at(-1).sid === 重置回.会话id && 登记的会话.has(重置回.会话id), JSON.stringify({ 期望: 重置回.会话id, 实到: 回合.at(-1).sid }))
+await 收到回复(重置回.会话id, '我在呢', 30)
+报('新会话成功一轮后没有故障', (await 目标状态('group:1099')).故障 === null)
+
+// ---------- 24 主人私聊失败可见 + 重置 ----------
+写配置({ 群: [] })
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/receive')(造请求({ text: '在吗' }), fakeRes)
+报('/receive 建起主人私聊会话', 存储.at(-1).ok === true && 登记的会话.has('session-qq-private-123'), JSON.stringify(存储.at(-1)))
+监听[0]({ id: 'session-qq-private-123' }, { type: 'turn/end', data: { turn: 3, reason: { kind: 'error', error: { message: 'cold request failed', code: 'TRANSPORT' } } } })
+await 等()
+let 私聊态 = (await 宿主.概况()).社交.私聊
+报('主人私聊失败在设置页可见', 私聊态 && 私聊态.故障 && 私聊态.故障.连续 === 1 && 私聊态.故障.最后码 === 'TRANSPORT', JSON.stringify(私聊态))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/session-reset')(造请求({ key: 'private:123' }), fakeRes)
+const 私聊重置 = 存储.at(-1)
+报('主人私聊也能重置成新会话', 私聊重置 && 私聊重置.ok === true && 私聊重置.会话id.startsWith('session-qq-private-123-r'), JSON.stringify(私聊重置))
+报('私聊重置后旧的 agent 被释放', !登记的会话.has('session-qq-private-123'))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/receive')(造请求({ text: '还在吗' }), fakeRes)
+报('重置后主人下一句进新会话', 存储.at(-1).ok === true && 登记的会话.has(私聊重置.会话id) && !登记的会话.has('session-qq-private-123'), JSON.stringify(存储.at(-1)))
+私聊态 = (await 宿主.概况()).社交.私聊
+报('私聊状态换成新 id、故障清空', 私聊态.会话id === 私聊重置.会话id && 私聊态.故障 === null, JSON.stringify(私聊态))
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

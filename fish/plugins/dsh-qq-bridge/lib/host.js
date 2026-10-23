@@ -56,6 +56,10 @@ const 待看条数上限 = 50
 const 待看字数上限 = 12000
 // 有人叫完她之后，同一个人接着说的话仍算在对她说；超过这个时间就不再继承。
 const 连续叫秒 = 60
+// 一轮失败会在设置页露出来；连续几轮都失败就先停一会儿，免得对着坏会话反复花钱。
+const 社交失败暂停次 = 3
+const 社交失败暂停毫秒 = 10 * 60_000
+const 故障通知间隔毫秒 = 60 * 60_000
 // 兴趣画像成熟前每条都交给判断模型（学习期）；成熟后才用零成本快判挡掉明显无关的消息。
 const 画像成熟样本 = 20
 const 画像成熟词 = 6
@@ -63,6 +67,8 @@ const 画像词上限 = 160
 const 熟人上限 = 120
 // 人物志只记“长期有用的一点点”：人数、事实、别名、边界、片段都有上限。
 const 人物文件 = join(目录, 'qq-social-people.json')
+// 主人点过「重置这个聊天」之后，群/好友/主人私聊改用的新会话 id；旧档原地不动。
+const 会话重置文件 = join(目录, 'qq-bridge-sessions.json')
 const 人物上限 = 300
 const 事实上限 = 24
 const 别名上限 = 6
@@ -2809,6 +2815,8 @@ export function apply(ctx) {
   const 社交丢记At = new Map() // 'group:123' → 上次因硬闸丢掉消息的记账时间（免得每 6 秒刷一条日志）
   const 社交快记At = new Map() // 'group:123' → 上次快判全挡的记账时间（快判会经常命中，别刷屏）
   const 社交队列 = new Map() // 'group:123' → Promise（同一间屋子串行开回合）
+  const 社交故障 = new Map() // 'group:123' / 'private:456' → { 连续, 最后At, 最后说, 最后码, 暂停到, 通知At }
+  const 会话重置 = new Map() // 'group:123' / 'private:456' → { 会话id, 旧会话id, 重置At }
   const 社交句柄 = new Map() // sessionId → AgentHandle（插件收摊时释放）
   const 主人句柄 = new Map() // 主人 QQ 私聊会话的 AgentHandle，也由插件释放
   const 挂过工作区 = new Set() // 已经挂进工作区的 sessionId（别每轮重复挂）
@@ -2894,7 +2902,7 @@ export function apply(ctx) {
     if (手填 !== '') return 手填
     // 没手填：有主人 QQ 就开/续一间 QQ 私聊专用屋，不再依赖“最近聊过的会话”。
     const 主人号 = String(配置.私聊QQ || '').trim()
-    if (主人号 !== '') return 主人QQ会话id(主人号)
+    if (主人号 !== '') return 会话idof(`private:${主人号}`, 主人QQ会话id(主人号))
     if (自动目标 && Date.now() - 自动目标At < 10_000) return 自动目标
     自动目标 = 最近会话()
     自动目标At = Date.now()
@@ -2911,6 +2919,141 @@ export function apply(ctx) {
       ctx.logger?.info(`qq-bridge: ${文本}`)
     } catch (error) {}
   }
+
+  // ---------- 会话重置记录 / 故障账 ----------
+
+  /** 重置记录坏掉只影响“换新屋”，不让整座桥起不来。 */
+  function 读会话重置() {
+    let 存 = null
+    try {
+      存 = JSON.parse(readFileSync(会话重置文件, 'utf8'))
+    } catch (error) {
+      if (error && error.code !== 'ENOENT') {
+        记账(`读聊天重置记录失败（${会话重置文件}）：${String((error && error.message) || error)}`)
+      }
+      return
+    }
+    for (const [key, 值] of Object.entries((存 && 存.重置) || {})) {
+      const 会话id = String((值 && 值.会话id) || '').trim()
+      if (会话id === '') continue
+      会话重置.set(String(key), {
+        会话id,
+        旧会话id: String((值 && 值.旧会话id) || ''),
+        重置At: Number(值 && 值.重置At) || 0,
+      })
+    }
+  }
+
+  function 存会话重置() {
+    try {
+      mkdirSync(目录, { recursive: true })
+      writeFileSync(会话重置文件, JSON.stringify({ 重置: Object.fromEntries(会话重置) }, null, 2), 'utf8')
+      return true
+    } catch (error) {
+      记账(`写不进聊天重置记录（${会话重置文件}）：${String((error && error.message) || error)}`)
+      return false
+    }
+  }
+
+  /** 这个聊天现在该用哪间会话：主人重置过就用新的，否则用默认 id。 */
+  function 会话idof(key, 默认id) {
+    const 覆盖 = 会话重置.get(String(key))
+    const id = 覆盖 && typeof 覆盖.会话id === 'string' ? 覆盖.会话id.trim() : ''
+    return id !== '' ? id : 默认id
+  }
+
+  function 故障of(key) {
+    const k = String(key)
+    const 现 = 社交故障.get(k)
+    if (现) return 现
+    const 新 = { 连续: 0, 最后At: 0, 最后说: '', 最后码: '', 暂停到: 0, 通知At: 0 }
+    社交故障.set(k, 新)
+    return 新
+  }
+
+  /** 设置页只在她有故障时看到一张小条；恢复后自己消失。 */
+  function 故障明细(key) {
+    const f = 社交故障.get(String(key))
+    if (!f || (f.连续 === 0 && f.暂停到 === 0)) return null
+    return {
+      连续: f.连续,
+      最后At: f.最后At,
+      最后说: f.最后说,
+      最后码: f.最后码,
+      暂停到: f.暂停到 > Date.now() ? f.暂停到 : 0,
+    }
+  }
+
+  function 重置明细(key) {
+    const 覆盖 = 会话重置.get(String(key))
+    if (!覆盖) return null
+    return { 旧会话id: String(覆盖.旧会话id || ''), 重置At: Number(覆盖.重置At) || 0 }
+  }
+
+  function 在故障暂停(目标) {
+    const f = 社交故障.get(String(目标 && 目标.key))
+    return !!(f && f.暂停到 > Date.now())
+  }
+
+  /** 成功一次就把连续失败清零；之前露出的故障条也随之消失。 */
+  function 清社交失败(key) {
+    const f = 社交故障.get(String(key))
+    if (!f) return
+    f.连续 = 0
+    f.暂停到 = 0
+  }
+
+  function 记社交失败(key, 叫, 说, 码 = '') {
+    const f = 故障of(key)
+    f.连续 += 1
+    f.最后At = Date.now()
+    f.最后说 = String(说 || '未知错误').slice(0, 160)
+    f.最后码 = String(码 || '')
+    记账(`${叫} 这一轮失败（连续 ${f.连续} 次，${f.最后码 || 'UNKNOWN'}）：${f.最后说}`)
+    return f
+  }
+
+  /** 连续失败到阈值：暂停这一路的新回合，并给主人发一次 QQ 系统提醒。 */
+  function 暂停社交(叫, f) {
+    f.暂停到 = Date.now() + 社交失败暂停毫秒
+    记账(`${叫} 连续 ${f.连续} 次失败，先停 ${Math.round(社交失败暂停毫秒 / 60_000)} 分钟不再开新回合`)
+    提醒故障(叫, f, true)
+  }
+
+  /** 提醒每小时最多一次，避免坏掉时反复弹。 */
+  function 提醒故障(叫, f, 已暂停) {
+    const 现在 = Date.now()
+    if (f.通知At !== 0 && 现在 - f.通知At < 故障通知间隔毫秒) return
+    f.通知At = 现在
+    void 通知故障(叫, f, 已暂停)
+  }
+
+  async function 通知故障(叫, f, 已暂停) {
+    const 分钟 = Math.round(社交失败暂停毫秒 / 60_000)
+    const 说 = `${叫}的会话连续 ${f.连续} 轮没能完成（${f.最后码 || 'UNKNOWN'}）。`
+      + (已暂停 ? `我先停 ${分钟} 分钟，不再开新回合。` : '')
+      + '要是一直没动静，去「设置 → 通到 QQ」点「重置这个聊天」；旧记录还在磁盘上。'
+    const 成 = await 告诉主人(说)
+    记账(成
+      ? `已给主人的 QQ 发提醒：${叫} 连续 ${f.连续} 轮失败`
+      : '没能给主人发 QQ 提醒（总开关 / 试运行 / 静音 / 私聊QQ / 脱敏任一不满足）')
+  }
+
+  /** 只走主人私聊；总开关、试运行、静音和脱敏都拦着，不为了报错破例。 */
+  async function 告诉主人(说) {
+    const 配置 = 读配置()
+    const 号 = String(配置.私聊QQ || '').trim()
+    if (!配置.总开关 || 配置.试运行 || 号 === '') return false
+    if (在静音时段(配置.社交.静音)) return false
+    const 脱敏 = 对外脱敏(`【大肥鱼·系统】${说}`)
+    if (!脱敏.ok) return false
+    const 体 = 私人消息体(脱敏.text)
+    体.user_id = Number(号)
+    const r = await 发一个(配置.NapCat, 'send_private_msg', 体)
+    return r.ok
+  }
+
+  读会话重置()
 
   // ---------- 社交桥：QQ 账号、目标、冷却、判断、会话 ----------
 
@@ -2944,11 +3087,13 @@ export function apply(ctx) {
     const 出 = []
     const 主人号 = String(配置.私聊QQ || '').trim()
     for (const 号 of 配置.社交.群) {
-      出.push({ key: `group:${号}`, 类型: 'group', 号, 会话id: 社交会话id('group', 号), 叫: `群 ${号}` })
+      const key = `group:${号}`
+      出.push({ key, 类型: 'group', 号, 会话id: 会话idof(key, 社交会话id('group', 号)), 叫: `群 ${号}` })
     }
     for (const 号 of 配置.社交.好友) {
       if (号 === 主人号) continue
-      出.push({ key: `friend:${号}`, 类型: 'friend', 号, 会话id: 社交会话id('friend', 号), 叫: `好友 ${号}` })
+      const key = `friend:${号}`
+      出.push({ key, 类型: 'friend', 号, 会话id: 会话idof(key, 社交会话id('friend', 号)), 叫: `好友 ${号}` })
     }
     return 出
   }
@@ -4025,6 +4170,9 @@ export function apply(ctx) {
 
   /** 拿社交会话：先恢复旧档，确实没有才新建；每个群/好友一间，互不串。 */
   async function 拿社交agent(目标) {
+    // 排队的回合可能带着重置前的旧 id：每次按当前记录重新取一次。
+    const 当前id = 会话idof(目标.key, 目标.会话id)
+    if (当前id !== 目标.会话id) 目标 = { ...目标, 会话id: 当前id }
     const 现有 = ctx.agents.get(目标.会话id)
     if (现有) {
       const 旧cwd = (现有.session && 现有.session.header && 现有.session.header.cwd) || ''
@@ -4124,7 +4272,7 @@ export function apply(ctx) {
   async function 拿主人agent(配置) {
     const 号 = String(配置.私聊QQ || '').trim()
     if (号 === '') return null
-    const sid = 主人QQ会话id(号)
+    const sid = 会话idof(`private:${号}`, 主人QQ会话id(号))
     const 现有 = ctx.agents.get(sid)
     if (现有) {
       const 旧cwd = (现有.session && 现有.session.header && 现有.session.header.cwd) || ''
@@ -4305,6 +4453,7 @@ export function apply(ctx) {
 
   /** 真的开一轮：社交会话里说完，由 session/event 收回结果发回原处。 */
   async function 开社交一轮(配置, 目标, 批, 理由, 节奏 = '') {
+    if (在故障暂停(目标)) return
     const agent = await 拿社交agent(目标)
     if (!agent) return
     const sid = String((agent.session && agent.session.id) || 目标.会话id)
@@ -4332,10 +4481,11 @@ export function apply(ctx) {
     const agent = await 拿社交agent(目标)
     if (!agent) return
     try {
+      const sid = String((agent.session && agent.session.id) || 目标.会话id)
       agent.inject(手搓社交消息(目标, 拼一批(目标, 批, true, '', 配置), 批.some((m) => m.主人), 批[批.length - 1]?.说话人))
       await 冲刷会话(agent)
       const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || ''
-      await 挂工作区(await 取工作区(实际cwd), 目标.会话id)
+      await 挂工作区(await 取工作区(实际cwd), sid)
       记账(`${目标.叫} 看了 ${批.length} 条，不回：${原因}`)
     } catch (error) {
       记账(`社交上下文注入失败（${目标.叫}）：${String((error && error.message) || error)}`)
@@ -4387,7 +4537,9 @@ export function apply(ctx) {
    * 只看不回走 inject，不唤醒回复模型；没挑中的消息直接丢掉。
    */
   async function 处理社交待看(配置, 目标) {
+    // 戳一戳的正文还要等回来，先并进待看；暂停期间不再花判断的钱。
     结算挂起的叫(目标, 配置)
+    if (在故障暂停(目标)) return
     const 全部 = 社交待看.get(目标.key) || []
     if (全部.length === 0) return
     // 同一人常常一句一句发；等一小会儿再判，@ 和后半句就能进同一批。
@@ -4642,7 +4794,8 @@ export function apply(ctx) {
     for (const [sid, 待] of 社交待发) {
       if (Date.now() - 待.发起At > 180_000) {
         社交待发.delete(sid)
-        记账(`等社交回合超时（${待.目标.叫}），这轮没有发出去`)
+        const f = 记社交失败(待.目标.key, 待.目标.叫, '等了 180 秒还没结束，这轮没有发出去', 'TIMEOUT')
+        if (f.连续 >= 社交失败暂停次) 暂停社交(待.目标.叫, f)
       }
     }
     社交轮询中 = true
@@ -4791,7 +4944,25 @@ export function apply(ctx) {
     if (event && event.type === 'turn/end') {
       const d = event.data || {}
       const 完成 = !!(d.reason && d.reason.kind === 'completed')
-      if (!完成 || 待.轮号 !== d.turn) return
+      if (!完成) {
+        // 失败的一轮可能连 assistant/message 都没有，不能靠轮号对表，否则会一直挂到超时。
+        社交待发.delete(sid)
+        if (d.reason && d.reason.kind === 'error') {
+          const 错 = d.reason.error || {}
+          const f = 记社交失败(待.目标.key, 待.目标.叫, 错.message, 错.code)
+          if (f.连续 >= 社交失败暂停次) 暂停社交(待.目标.叫, f)
+        }
+        return
+      }
+      // 这一轮能完整结束，说明会话本身是好的；哪怕她最后决定不说话。
+      清社交失败(待.目标.key)
+      if (待.轮号 !== d.turn) {
+        if (待.轮号 === -1) {
+          社交待发.delete(sid)
+          记账(`${待.目标.叫} 这一轮结束了，但没有可发的话`)
+        }
+        return
+      }
       const 文 = 待.文本
       社交待发.delete(sid)
       void 社交落地(待.目标, sid, 文, d.turn, 待.图片们, 待.对象们)
@@ -4934,9 +5105,23 @@ export function apply(ctx) {
     if (event && event.type === 'turn/end') {
       const d = event.data || {}
       const 完成 = !!(d.reason && d.reason.kind === 'completed')
-      if (完成 && 上一轮.轮号 === d.turn && 上一轮.文本 && !已发轮.has(d.turn)) {
-        已发轮.add(d.turn)
-        void 落地一发(配置, 上一轮.文本, 目标, d.turn)
+      const 主人号 = String(配置.私聊QQ || '').trim()
+      const 私聊key = 是主人QQ会话(目标) && 主人号 !== '' ? `private:${主人号}` : ''
+      if (完成) {
+        if (私聊key !== '') 清社交失败(私聊key)
+        if (上一轮.轮号 === d.turn && 上一轮.文本 && !已发轮.has(d.turn)) {
+          已发轮.add(d.turn)
+          void 落地一发(配置, 上一轮.文本, 目标, d.turn)
+        }
+      } else if (d.reason && d.reason.kind === 'error') {
+        const 错 = d.reason.error || {}
+        if (私聊key !== '') {
+          // 主人在 QQ 上说话时看不到 DSH 的报错，失败得记下来并主动提醒一次。
+          const f = 记社交失败(私聊key, '主人私聊', 错.message, 错.code)
+          if (f.连续 >= 社交失败暂停次) 提醒故障('主人私聊', f, false)
+        } else {
+          记账(`目标会话这一轮失败（${错.code || 'UNKNOWN'}）：${String(错.message || '').slice(0, 160)}`)
+        }
       }
       上一轮 = { 轮号: -1, 文本: '' }
     }
@@ -5204,12 +5389,26 @@ export function apply(ctx) {
   const 社交概况 = (配置) => {
     const 目标们 = 社交目标们(配置)
     const 现在 = Date.now()
+    const 主人号 = String(配置.私聊QQ || '').trim()
+    const 私聊key = 主人号 === '' ? '' : `private:${主人号}`
+    const 私聊id = 私聊key === '' ? '' : 会话idof(私聊key, 主人QQ会话id(主人号))
     return {
       启用: 配置.社交.启用,
       试运行: 配置.社交.试运行,
       模式: 配置.社交.模式,
       在静音: 在静音时段(配置.社交.静音),
       自己: 自己号缓存.号 === '' ? null : { 号: 自己号缓存.号, 昵称: 自己号缓存.昵称 },
+      私聊: 私聊key === ''
+        ? null
+        : {
+            key: 私聊key,
+            叫: '主人私聊',
+            号: 主人号,
+            会话id: 私聊id,
+            活着: !!ctx.agents.get(私聊id),
+            故障: 故障明细(私聊key),
+            重置: 重置明细(私聊key),
+          },
       今日已接: 社交总今日.日 === 今日() ? 社交总今日.数 : 0,
       人物: {
         认识: 人物.size,
@@ -5243,6 +5442,9 @@ export function apply(ctx) {
           待看: (社交待看.get(目标.key) || []).length,
           待发: 社交待发.has(目标.会话id),
           冷却: 冷却中(配置, 目标.key),
+          故障: 故障明细(目标.key),
+          暂停中: 在故障暂停(目标),
+          重置: 重置明细(目标.key),
           画像: {
             样本: 画像 ? 画像.样本 : 0,
             稳定词: 画像 ? 稳定词数(画像) : 0,
@@ -5392,6 +5594,72 @@ export function apply(ctx) {
     const 戳状态词 = 洗好.戳一戳.启用 ? `听 ${洗好.戳一戳.端口}` : '关'
     记账(`设置已保存：目标会话 ${洗好.目标会话 || '（没填）'}｜私聊 ${洗好.私聊QQ || '（没填）'}｜群 ${洗好.群号 || '（没填）'}｜${状态}${社交状态}${导入状态}｜戳一戳 ${戳状态词}`)
     回(res, { ...(await 概况()), 说: '保存好了' })
+  })
+
+  // 主人点「重置这个聊天」：换一间新会话，旧档原样留在磁盘上，不删不搬。
+  路线(`${路由前缀}/session-reset`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    const 配置 = 读配置()
+    const 给key = String((来 && 来.key) || '').trim()
+    const 给id = String((来 && 来.会话id) || '').trim()
+    const 主人号 = String(配置.私聊QQ || '').trim()
+    const 私聊key = 主人号 === '' ? '' : `private:${主人号}`
+    const 私聊id = 私聊key === '' ? '' : 会话idof(私聊key, 主人QQ会话id(主人号))
+    const 目标们 = 社交目标们(配置)
+    let 目标 = 给key === '' ? undefined : 目标们.find((t) => t.key === 给key)
+    let 是私聊 = !目标 && 私聊key !== '' && (给key === 私聊key || (给key === '' && 给id !== '' && 给id === 私聊id))
+    if (!目标 && !是私聊 && 给id !== '') {
+      目标 = 目标们.find((t) => String(t.会话id) === 给id)
+      if (!目标 && 私聊key !== '' && 给id === 私聊id) 是私聊 = true
+    }
+    if (!目标 && !是私聊) return 回(res, { ok: false, 说: '找不到这个聊天：刷新页面，或先保存群 / 好友清单再试' })
+    const key = 是私聊 ? 私聊key : 目标.key
+    const 叫 = 是私聊 ? '主人私聊' : 目标.叫
+    const 旧id = 是私聊 ? 私聊id : String(目标.会话id)
+    const 新id = `${旧id}-r${Date.now().toString(36)}`
+    // 先把新 id 落盘；写不进去就不动旧会话，免得重启后又忘掉。
+    会话重置.set(key, { 会话id: 新id, 旧会话id: 旧id, 重置At: Date.now() })
+    if (!存会话重置()) {
+      会话重置.delete(key)
+      return 回(res, { ok: false, 说: `换会话的记录写不进 ${会话重置文件}` })
+    }
+    const 句柄 = 是私聊 ? 主人句柄.get(旧id) : 社交句柄.get(旧id)
+    if (句柄 && typeof 句柄.dispose === 'function') {
+      try {
+        句柄.dispose()
+      } catch (error) {
+        记账(`重置时释放旧会话失败（${短id(旧id)}）：${String((error && error.message) || error)}`)
+      }
+    }
+    if (是私聊) {
+      主人句柄.delete(旧id)
+      上一轮 = { 轮号: -1, 文本: '' }
+      已发轮.clear()
+      主人agent失败At = 0
+      社交故障.delete(key)
+    } else {
+      社交句柄.delete(旧id)
+      社交待发.delete(旧id)
+      社交待看.delete(key)
+      社交缓冲.delete(key)
+      社交故障.delete(key)
+      社交判断At.delete(key)
+      社交丢记At.delete(key)
+      社交快记At.delete(key)
+    }
+    // 手选的「目标会话」正指着旧屋时跟着挪，别继续把新的话灌进坏档。
+    if (String(配置.目标会话 || '').trim() === 旧id) {
+      写配置(归一化({ ...配置, 目标会话: 新id }))
+    }
+    记账(`重置聊天（${叫}）：旧会话 ${旧id} 原样留在磁盘，新会话 ${新id}`)
+    回(res, {
+      ok: true,
+      说: '已经换了一间新屋：旧聊天还留在磁盘上，她从这里重新开始',
+      key,
+      会话id: 新id,
+      旧会话id: 旧id,
+    })
   })
 
   // 设置页的模型下拉：只列出当前配置可用的 provider/model。

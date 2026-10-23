@@ -7,6 +7,15 @@
 # 层序：dsh-base → dsh-web-app → 本层 → 用户 profile 的 cordis.patch.yml
 # 因此用户设置永远可以覆盖本层。
 
+# 上下文预算：她守着的群和好友会话会一直变长。按 1M 窗口声明的默认阈值
+# 要到约 67.8 万 token 才压缩，而长到 30 万上下的冷请求已经失败过；出厂把
+# 触发点压到窗口的 15%（约 15 万 token），保留最近 5% 原文，请求始终落在
+# 验证过能成功的尺寸内。用户 profile 可以再覆盖。
+- id: compaction-basic
+  config:
+    thresholdRatio: 0.15
+    retainRatio: 0.05
+
 # 默认性格和说话方式。用户可在设置里改；这里只决定第一次启动时的样子。
 # 名字、物种和外形不在这里：它们由 dsh-fish-mind 从 $DSH_HOME/fish-mind/identity.json
 # 读出来每轮注入，主人在「设置 → 大肥鱼」里改；改本文件覆盖不掉出生设定。

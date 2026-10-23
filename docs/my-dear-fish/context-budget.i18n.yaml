@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for context-budget.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/context-budget.md
+/context-budget-and-failure-recovery:
+  en: 4cbacea9c992c3b3
+  zh: e13c5f42a0ba6e0d
+/context-budget-and-failure-recovery/why-the-old-budget-never-compacted:
+  en: bd6a5690140cefa6
+  zh: c9ef5cac1c26ad8b
+/context-budget-and-failure-recovery/trigger-and-retention:
+  en: 6e7702c43d54e2b6
+  zh: 1d8ab1900e9db409
+/context-budget-and-failure-recovery/resetting-one-session:
+  en: 175c595025329735
+  zh: 2218b05a24b45452
+/context-budget-and-failure-recovery/failure-visibility:
+  en: 6d197ba299390b53
+  zh: a0508e2ee76c9851
+/context-budget-and-failure-recovery/operational-notes:
+  en: d3e8356c85482458
+  zh: b5b205663d604e43
