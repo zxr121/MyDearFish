@@ -102,11 +102,10 @@ export function buildDefaults(dshHome) {
         roomRows: 24,
         roomChars: 6000,
         maxRooms: 1,
-        maxPerHour: 6,
+        maxPerHour: 3,
       },
       nightly: {
-        hour: 3,
-        minute: 30,
+        afterLastActivityMinutes: 120,
         minNewExperiences: 6,
         catchUpDays: 2,
       },
@@ -115,14 +114,10 @@ export function buildDefaults(dshHome) {
         limit: 8,
       },
       weekly: {
-        weekday: 1,
-        hour: 4,
-        minute: 10,
+        intervalDays: 7,
       },
       monthly: {
-        day: 1,
-        hour: 4,
-        minute: 20,
+        intervalDays: 30,
       },
     },
     // 短期记忆：最近这半小时的原话直接进提示，放凉或攒多了就提炼成能查的事实转长期。
@@ -313,8 +308,12 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
       diag('config: cycle.micro 不是对象，使用默认值')
     }
     if (isPlainObject(c.nightly)) {
-      config.cycle.nightly.hour = pickNumber(c.nightly.hour, config.cycle.nightly.hour, 0, 23)
-      config.cycle.nightly.minute = pickNumber(c.nightly.minute, config.cycle.nightly.minute, 0, 59)
+      config.cycle.nightly.afterLastActivityMinutes = pickNumber(
+        c.nightly.afterLastActivityMinutes,
+        config.cycle.nightly.afterLastActivityMinutes,
+        30,
+        1440,
+      )
       config.cycle.nightly.minNewExperiences = pickNumber(
         c.nightly.minNewExperiences,
         config.cycle.nightly.minNewExperiences,
@@ -337,16 +336,12 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
       diag('config: cycle.review 不是对象，使用默认值')
     }
     if (isPlainObject(c.weekly)) {
-      config.cycle.weekly.weekday = pickNumber(c.weekly.weekday, config.cycle.weekly.weekday, 0, 6)
-      config.cycle.weekly.hour = pickNumber(c.weekly.hour, config.cycle.weekly.hour, 0, 23)
-      config.cycle.weekly.minute = pickNumber(c.weekly.minute, config.cycle.weekly.minute, 0, 59)
+      config.cycle.weekly.intervalDays = pickNumber(c.weekly.intervalDays, config.cycle.weekly.intervalDays, 1, 30)
     } else if (c.weekly !== undefined) {
       diag('config: cycle.weekly 不是对象，使用默认值')
     }
     if (isPlainObject(c.monthly)) {
-      config.cycle.monthly.day = pickNumber(c.monthly.day, config.cycle.monthly.day, 1, 28)
-      config.cycle.monthly.hour = pickNumber(c.monthly.hour, config.cycle.monthly.hour, 0, 23)
-      config.cycle.monthly.minute = pickNumber(c.monthly.minute, config.cycle.monthly.minute, 0, 59)
+      config.cycle.monthly.intervalDays = pickNumber(c.monthly.intervalDays, config.cycle.monthly.intervalDays, 7, 90)
     } else if (c.monthly !== undefined) {
       diag('config: cycle.monthly 不是对象，使用默认值')
     }

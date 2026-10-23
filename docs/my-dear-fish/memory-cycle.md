@@ -14,7 +14,7 @@ The funnel had three structural leaks. The working window was global, so an acti
 
 - Working memory lasts seconds to about half a minute. Here it is the per-room injection of recent verbatim turns, kept at 30 minutes and 12 rows.
 - Synaptic consolidation tags an experience within minutes to hours. Here it is a micro pass per room after 20 minutes of quiet or a full backlog.
-- Sleep consolidation replays the day. Slow-wave sleep favors declarative facts and gist; REM favors emotional and social integration. Here it is two bounded model calls after 03:30, with catch-up after downtime.
+- Sleep consolidation replays the day. Slow-wave sleep favors declarative facts and gist; REM favors emotional and social integration. Here it is two bounded model calls two hours after the last chat activity, with catch-up after downtime.
 - Systems consolidation spreads a memory over days to weeks. Here it is the 3, 7, 21, and 60 day review schedule.
 - Schema integration connects new material to what is already known. Here it is the weekly pass over day chapters, facts, relations, and the self model.
 - Reconsolidation rewrites a memory when it is recalled. Here it is a strength and confidence update when recall actually uses an episode or a fact.
@@ -36,7 +36,7 @@ Every fact is written with a scope and with the source experience ids. Owner-sco
 
 ## Nightly sleep
 
-At 03:30 local time the fish runs two stages for the day that ended. If the host was off, the next start catches up the missed day, up to two days, oldest first.
+Two hours after the last chat activity, the fish runs two stages for the day that ended. If the host was off, the next start catches up the missed day, up to two days, oldest first.
 
 The slow-wave stage reads the day's episodes, the facts learned that day, and up to eight due review items. It returns a day gist, corrected or merged facts, and a short list of what the day was about. The REM stage reads the day's emotionally salient and social episodes plus the current self model and people notes. It returns an affect reading, a self-model update, relationship notes, and at most two intentions.
 

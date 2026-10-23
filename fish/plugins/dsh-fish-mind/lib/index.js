@@ -33,17 +33,17 @@ import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
 import { extractionPrompt, factSentence, parseFacts, planConsolidation, shorttermText } from './working.js'
 import {
+  endOfLocalDay,
   formatFactDigest,
-  lastMonthlySlot,
-  lastWeeklySlot,
+  localDayKey,
   microPrompt,
   monthlyPrompt,
   nightlyRemPrompt,
   nightlySwsPrompt,
   parseCycleJson,
-  pendingNights,
   planRoomPass,
   roomScope,
+  startOfLocalDay,
   weeklyPrompt,
 } from './rhythm.js'
 import { isTrustedLocalRequest, readBodyLimited, readJsonLimited, sendBytes, sendJson } from './local-http.js'
@@ -1142,32 +1142,43 @@ export function apply(ctx) {
 
   /**
    * 夜间整理：慢波（事实、要旨、修正）+ REM（情绪、关系、自我）。
-   * 每个结束日只跑一次，失败不推进日期。
+   * 按活动触发：距离最后一次聊天超过 afterLastActivityMinutes 才跑，避免聊到一半就整理。
    */
   async function nightlyConsolidate() {
     if (nightlyRunning) return { ran: false, reason: 'in-flight' }
     if (!config.cycle.enabled) return { ran: false, reason: 'disabled' }
-    const nights = pendingNights({
-      now: Date.now(),
-      lastDay: cycleState.lastNightlyDay,
-      hour: config.cycle.nightly.hour,
-      minute: config.cycle.nightly.minute,
-      catchUpDays: config.cycle.nightly.catchUpDays,
-    })
-    if (nights.length === 0) return { ran: false, reason: 'no-pending-nights' }
+    const now = Date.now()
+    const afterMinutes = Math.max(30, Number(config.cycle.nightly.afterLastActivityMinutes) || 120)
+    const lastActivityAt = Math.max(store.lastEpisodeAt() || 0, metrics.lastEventAt || 0)
+    if (lastActivityAt === 0 || now - lastActivityAt < afterMinutes * 60_000) {
+      return { ran: false, reason: 'too-recent' }
+    }
     const minExperiences = Math.max(1, Number(config.cycle.nightly.minNewExperiences) || 6)
+    const catchUpDays = Math.max(1, Math.min(14, Number(config.cycle.nightly.catchUpDays) || 2))
+    const today = localDayKey(now)
+    const lastDay = cycleState.lastNightlyDay || ''
+    if (lastDay >= today) return { ran: false, reason: 'already-today' }
     nightlyRunning = true
     try {
-      for (const night of nights) {
-        const episodes = store.episodesBetween(night.start, night.end, 80)
-        const facts = store.factsBetween(night.start, night.end, 80)
+      const daysToProcess = []
+      for (let i = 0; i < catchUpDays; i += 1) {
+        const date = new Date(now)
+        date.setDate(date.getDate() - i - 1)
+        const dayKey = localDayKey(date.getTime())
+        if (dayKey <= lastDay) break
+        daysToProcess.push({ dayKey, start: startOfLocalDay(date.getTime()), end: endOfLocalDay(date.getTime()) })
+      }
+      if (daysToProcess.length === 0) return { ran: false, reason: 'no-pending-days' }
+      for (const day of daysToProcess.reverse()) {
+        const episodes = store.episodesBetween(day.start, day.end, 80)
+        const facts = store.factsBetween(day.start, day.end, 80)
         if (episodes.length < minExperiences && facts.length === 0) {
           store.recordRun({
-            startedAt: Date.now(),
+            startedAt: now,
             finishedAt: Date.now(),
             status: 'nightly-skip:few-experiences',
             tasks: [],
-            notes: `day=${night.dayKey} episodes=${episodes.length} facts=${facts.length}`,
+            notes: `day=${day.dayKey} episodes=${episodes.length} facts=${facts.length}`,
           })
           continue
         }
@@ -1176,9 +1187,9 @@ export function apply(ctx) {
         if (!llm || typeof llm.stream !== 'function' || target === null) {
           return { ran: false, reason: 'no-model' }
         }
-        const due = store.dueReviews(Date.now(), 8)
+        const due = store.dueReviews(now, 8)
         const swsPrompt = nightlySwsPrompt({
-          dayKey: night.dayKey,
+          dayKey: day.dayKey,
           episodes,
           facts,
           due,
@@ -1210,7 +1221,7 @@ export function apply(ctx) {
             object: fact.object,
             confidence: fact.confidence,
             source: 'nightly-sws',
-            at: night.end,
+            at: day.end,
             scope: 'owner',
           })
           if (result.action === 'added' || result.action === 'superseded') written += 1
@@ -1222,13 +1233,13 @@ export function apply(ctx) {
             object: correction.object,
             confidence: correction.confidence,
             source: 'nightly-correction',
-            at: night.end,
+            at: day.end,
             scope: 'owner',
           })
           if (result.action === 'added' || result.action === 'superseded') written += 1
         }
         const remPrompt = nightlyRemPrompt({
-          dayKey: night.dayKey,
+          dayKey: day.dayKey,
           episodes,
           selfModel: store.getSelfModel(8),
           people: store.listPeople(12),
@@ -1262,24 +1273,24 @@ export function apply(ctx) {
           store.saveIntentions(remResult.intentions, { merge: true })
         }
         if (remResult.affect) {
-          store.saveAffect(remResult.affect, { at: night.end })
+          store.saveAffect(remResult.affect, { at: day.end })
         }
         if (due.length > 0) {
-          store.markReviewed(due, { now: Date.now(), result: 'nightly-review' })
+          store.markReviewed(due, { now, result: 'nightly-review' })
         }
         cycleState.lastNightlyAt = Date.now()
-        cycleState.lastNightlyDay = night.dayKey
+        cycleState.lastNightlyDay = day.dayKey
         saveCycleState()
         store.recordRun({
-          startedAt: Date.now(),
+          startedAt: now,
           finishedAt: Date.now(),
           status: `nightly:${written > 0 ? 'ok' : 'skip'}`,
           tasks: [...swsResult.facts, ...swsResult.corrections].map((fact) => `${fact.subject}·${fact.predicate}·${fact.object}`),
-          notes: `day=${night.dayKey} episodes=${episodes.length} facts=${facts.length} written=${written} self=${remResult.self.length} relations=${remResult.relations.length}`,
+          notes: `day=${day.dayKey} episodes=${episodes.length} facts=${facts.length} written=${written} self=${remResult.self.length} relations=${remResult.relations.length}`,
         })
-        diag(`memory: 夜间整理 ${night.dayKey}：情景 ${episodes.length}，事实 ${facts.length}，新写 ${written}，自我 ${remResult.self.length}，关系 ${remResult.relations.length}`)
+        diag(`memory: 夜间整理 ${day.dayKey}：情景 ${episodes.length}，事实 ${facts.length}，新写 ${written}，自我 ${remResult.self.length}，关系 ${remResult.relations.length}`)
       }
-      return { ran: true, reason: 'nightly', nights: nights.length }
+      return { ran: true, reason: 'nightly', days: daysToProcess.length }
     } catch (error) {
       diag(`memory: 夜间整理失败（${String((error && error.message) || error)}）`)
       return { ran: false, reason: 'error' }
@@ -1292,19 +1303,19 @@ export function apply(ctx) {
 
   /**
    * 每周整理：把七天的目录接成一条连续的线，更新自我和关系。
+   * 按活动触发：距离上次整理超过 intervalDays 天才跑。
    */
   async function weeklyConsolidate() {
     if (weeklyRunning) return { ran: false, reason: 'in-flight' }
     if (!config.cycle.enabled) return { ran: false, reason: 'disabled' }
-    const slot = lastWeeklySlot(Date.now(), {
-      weekday: config.cycle.weekly.weekday,
-      hour: config.cycle.weekly.hour,
-      minute: config.cycle.weekly.minute,
-    })
-    if (slot <= cycleState.lastWeeklyAt) return { ran: false, reason: 'not-due' }
+    const now = Date.now()
+    const intervalDays = Math.max(1, Number(config.cycle.weekly.intervalDays) || 7)
+    const intervalMs = intervalDays * 24 * 60 * 60 * 1000
+    if (cycleState.lastWeeklyAt > 0 && now - cycleState.lastWeeklyAt < intervalMs) {
+      return { ran: false, reason: 'not-due' }
+    }
     weeklyRunning = true
     try {
-      const now = Date.now()
       const weekStart = now - 7 * 24 * 60 * 60 * 1000
       const chapters = store.listChapters({ since: weekStart, limit: 10 })
       const facts = store.listFacts(30)
@@ -1343,10 +1354,10 @@ export function apply(ctx) {
       if (result.intentions.length > 0) {
         store.saveIntentions(result.intentions, { merge: true })
       }
-      cycleState.lastWeeklyAt = slot
+      cycleState.lastWeeklyAt = now
       saveCycleState()
       store.recordRun({
-        startedAt: Date.now(),
+        startedAt: now,
         finishedAt: Date.now(),
         status: 'weekly:ok',
         tasks: [],
@@ -1366,19 +1377,19 @@ export function apply(ctx) {
 
   /**
    * 每月整理：看一个月的章节，更新自我模型和长期关系走向。
+   * 按活动触发：距离上次整理超过 intervalDays 天才跑。
    */
   async function monthlyConsolidate() {
     if (monthlyRunning) return { ran: false, reason: 'in-flight' }
     if (!config.cycle.enabled) return { ran: false, reason: 'disabled' }
-    const slot = lastMonthlySlot(Date.now(), {
-      day: config.cycle.monthly.day,
-      hour: config.cycle.monthly.hour,
-      minute: config.cycle.monthly.minute,
-    })
-    if (slot <= cycleState.lastMonthlyAt) return { ran: false, reason: 'not-due' }
+    const now = Date.now()
+    const intervalDays = Math.max(7, Number(config.cycle.monthly.intervalDays) || 30)
+    const intervalMs = intervalDays * 24 * 60 * 60 * 1000
+    if (cycleState.lastMonthlyAt > 0 && now - cycleState.lastMonthlyAt < intervalMs) {
+      return { ran: false, reason: 'not-due' }
+    }
     monthlyRunning = true
     try {
-      const now = Date.now()
       const monthStart = now - 30 * 24 * 60 * 60 * 1000
       const chapters = store.listChapters({ since: monthStart, limit: 12 })
       const selfModel = store.getSelfModel(8)
@@ -1413,10 +1424,10 @@ export function apply(ctx) {
       if (result.relations.length > 0) {
         store.savePeople(result.relations, { merge: true })
       }
-      cycleState.lastMonthlyAt = slot
+      cycleState.lastMonthlyAt = now
       saveCycleState()
       store.recordRun({
-        startedAt: Date.now(),
+        startedAt: now,
         finishedAt: Date.now(),
         status: 'monthly:ok',
         tasks: [],
