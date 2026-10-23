@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
-import { DEFAULT_PRICE, normalizePrice, normalizePriceEntry } from './budget.js'
+import { DEFAULT_BILI_SHARE, DEFAULT_PRICE, normalizePrice, normalizePriceEntry } from './budget.js'
 
 const MODES = new Set(['off', 'shadow', 'live'])
 
@@ -125,6 +125,8 @@ export function buildDefaults(dshHome) {
     budget: {
       enabled: true,
       inject: true,
+      // B 站巡检最多花当天出生额度的这个比例；0 = 不让她刷，1 = 不单独限制。
+      biliShare: DEFAULT_BILI_SHARE,
       prices: {},
       defaultPrice: { ...DEFAULT_PRICE },
       defaultMaxOutputTokens: 8192,
@@ -311,6 +313,7 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
       1,
       1440,
     )
+    config.budget.biliShare = pickFraction(b.biliShare, config.budget.biliShare, 0, 1)
     const defaultPrice = normalizePrice(b.defaultPrice)
     if (defaultPrice !== null) config.budget.defaultPrice = defaultPrice
     if (isPlainObject(b.prices)) {

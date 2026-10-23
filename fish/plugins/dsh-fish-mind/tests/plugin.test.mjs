@@ -310,6 +310,62 @@ test('每次模型调用都记账：说的、想的、判断的都算', async ()
   ctx.dispose()
 })
 
+test('B 站巡检的触发轮和子代理单独记账，普通聊天不占巡检额度', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  const ctx = fakeContext()
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+
+  const drain = async (sessionId) => {
+    const stream = await ctx.emit('llm/stream', {
+      provider: 'p',
+      model: 'm',
+      sessionId,
+      messages: [{ role: 'user', content: '你好' }],
+      maxTokens: 128,
+    }, async function* () {
+      yield { type: 'usage', usage: { inputTokens: 1000, outputTokens: 1000 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    })
+    for await (const _chunk of stream) { /* 只为结算 */ }
+  }
+
+  await ctx.emit('session/event', session(), messageEvent('user/message', '今天在家'))
+  await drain('session-1')
+  assert.equal(mind.budget().bili.spentTodayCny, 0)
+
+  const at = Date.now()
+  await ctx.emit('session/event', session(), messageEvent('user/message', '去 B 站刷一轮', {
+    seq: 2,
+    time: at,
+    source: { kind: 'bili-duty-scan' },
+  }))
+  await drain('session-1')
+  assert.equal(mind.budget().bili.callsToday, 1)
+  assert.equal(mind.budget().bili.spentTodayCny, 0.02)
+
+  await ctx.emit('session/event', session('child', {
+    id: 'child',
+    parentSession: 'session-1',
+    origin: 'subagent',
+    delegationDepth: 1,
+  }), {
+    type: 'subagent/descriptor',
+    seq: 0,
+    time: at + 1000,
+    data: { version: 3, mode: 'continuable', provider: 'spawn', label: '刷B站：深海' },
+  })
+  await drain('child')
+  assert.equal(mind.budget().bili.callsToday, 2)
+  assert.equal(mind.budget().bili.spentTodayCny, 0.04)
+
+  await ctx.emit('session/event', session(), messageEvent('user/message', '回到普通聊天', { seq: 3, time: at + 2000 }))
+  await drain('session-1')
+  assert.equal(mind.budget().bili.callsToday, 2)
+  assert.equal(mind.budget().callsToday, 4)
+  ctx.dispose()
+})
+
 test('零花钱用完：主人会话给本地回复，内部调用给不可重试错误', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()

@@ -100,6 +100,7 @@ test('预算默认开着，每天额度不在配置里，价格逐字段归一',
   assert.equal(defaults.budget.dailyGrantCny, undefined)
   assert.equal(defaults.budget.defaultMaxOutputTokens, 8192)
   assert.equal(defaults.budget.balanceRefreshMinutes, 15)
+  assert.equal(defaults.budget.biliShare, 0.25)
   assert.equal(defaults.budget.defaultPrice.input, 4)
 
   const config = normalizeConfig({
@@ -116,9 +117,18 @@ test('预算默认开着，每天额度不在配置里，价格逐字段归一',
   assert.equal(config.budget.inject, true)
   assert.equal(config.budget.defaultMaxOutputTokens, 64)
   assert.equal(config.budget.balanceRefreshMinutes, 1440)
+  assert.equal(config.budget.biliShare, 0.25)
   assert.deepEqual(config.budget.defaultPrice, { input: 0, cacheRead: 0, cacheWrite: 0, output: 20, reasoning: 0 })
   assert.deepEqual(config.budget.prices['p/m'], { input: 2, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 })
   assert.equal(config.budget.prices.bad, undefined)
+})
+
+test('B 站巡检占比超出 0–1 就夹住，坏值退回默认', () => {
+  const home = tempHome()
+  assert.equal(normalizeConfig({ budget: { biliShare: 2 } }, { dshHome: home }).budget.biliShare, 1)
+  assert.equal(normalizeConfig({ budget: { biliShare: -1 } }, { dshHome: home }).budget.biliShare, 0)
+  assert.equal(normalizeConfig({ budget: { biliShare: '四分之一' } }, { dshHome: home }).budget.biliShare, 0.25)
+  assert.equal(normalizeConfig({ budget: { biliShare: 0.4 } }, { dshHome: home }).budget.biliShare, 0.4)
 })
 
 test('预算价格条目保留峰谷日程，日程写坏就退回高峰价', () => {

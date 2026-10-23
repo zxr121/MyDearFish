@@ -33,6 +33,7 @@ function baseConfig(overrides = {}) {
     defaultPrice: { ...DEFAULT_PRICE },
     defaultMaxOutputTokens: 8192,
     balanceRefreshMinutes: 15,
+    biliShare: 0.25,
     ...overrides,
   }
 }
@@ -404,4 +405,87 @@ test('setConfig 只换价格和开关，不动已发的钱', () => {
   assert.equal(budget.status().walletCny, 10)
   budget.setConfig(baseConfig())
   assert.equal(budget.isEnabled(), true)
+})
+
+test('B 站巡检单独计量，普通聊天不占巡检额度', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+
+  const normal = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  budget.settle(normal, { inputTokens: 100_000, outputTokens: 100_000 })
+  assert.equal(budget.status().bili.spentTodayCny, 0)
+  assert.equal(budget.status().bili.callsToday, 0)
+
+  const bili = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }, 'bili').reservation
+  budget.settle(bili, { inputTokens: 100_000, outputTokens: 100_000 })
+  const status = budget.status()
+  assert.equal(status.spentTodayCny, 4)
+  assert.equal(status.callsToday, 2)
+  assert.equal(status.bili.spentTodayCny, 2)
+  assert.equal(status.bili.callsToday, 1)
+  assert.equal(status.bili.share, 0.25)
+  assert.equal(status.bili.capCny, 2.5)
+  assert.equal(status.bili.remainingCny, 0.5)
+})
+
+test('B 站巡检到额度的四分之一就拦，普通聊天照常', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+
+  const first = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }, 'bili').reservation
+  budget.settle(first, { outputTokens: 150_000 })
+  assert.equal(budget.status().bili.spentTodayCny, 2.4)
+
+  const blocked = budget.reserve({ provider: 'p', model: 'm' }, 'bili')
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.reason, 'bili-cap')
+  assert.equal(blocked.capCny, 2.5)
+  assert.equal(blocked.spentCny, 2.4)
+
+  const blockedEntry = readLedger(dir).at(-1)
+  assert.equal(blockedEntry.type, 'blocked')
+  assert.equal(blockedEntry.scope, 'bili')
+  assert.equal(blockedEntry.reason, 'bili-cap')
+
+  const normal = budget.reserve({ provider: 'p', model: 'm' })
+  assert.equal(normal.ok, true)
+})
+
+test('巡检占比可以调：0 = 完全不刷，1 = 不单独限制', () => {
+  const clock = clockAt()
+  const off = openBudget({ dir: tempDir(), config: baseConfig({ biliShare: 0 }), now: () => clock })
+  assert.equal(off.status().bili.capCny, 0)
+  assert.equal(off.reserve({ provider: 'p', model: 'm' }, 'bili').reason, 'bili-cap')
+  assert.equal(off.reserve({ provider: 'p', model: 'm' }).ok, true)
+
+  const open = openBudget({ dir: tempDir(), config: baseConfig({ biliShare: 1 }), now: () => clock })
+  assert.equal(open.status().bili.capCny, 10)
+  assert.equal(open.reserve({ provider: 'p', model: 'm' }, 'bili').ok, true)
+})
+
+test('B 站巡检额度按天重置，旧账本没有巡检字段就按 0 读', () => {
+  const dir = tempDir()
+  let clock = clockAt()
+  writeFileSync(join(dir, 'budget.json'), JSON.stringify({
+    version: 1,
+    createdAt: new Date(clock).toISOString(),
+    createdAtDay: localDay(clock),
+    dailyGrantCny: 10,
+    walletCny: 10,
+    lastGrantDay: localDay(clock),
+    days: { [localDay(clock)]: { spentCny: 2.4, calls: 3, unmetered: 0 } },
+  }) + '\n', 'utf8')
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  assert.equal(budget.status().bili.spentTodayCny, 0)
+  assert.equal(budget.status().bili.callsToday, 0)
+
+  const first = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }, 'bili').reservation
+  budget.settle(first, { outputTokens: 150_000 })
+  assert.equal(budget.status().bili.spentTodayCny, 2.4)
+
+  clock = clockAt(1)
+  assert.equal(budget.status().bili.spentTodayCny, 0)
+  assert.equal(budget.reserve({ provider: 'p', model: 'm' }, 'bili').ok, true)
 })

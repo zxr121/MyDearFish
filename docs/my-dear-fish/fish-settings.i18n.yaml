@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for fish-settings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/fish-settings.md
+/fish-settings-and-migration:
+  en: 8b6dd9137a988e77
+  zh: bd90b06192b4ab2a
+/fish-settings-and-migration/overview:
+  en: 685992e4925f2fd3
+  zh: 1b52c738f566da2c
+/fish-settings-and-migration/birth-identity:
+  en: 92b3eff62b3e5fd0
+  zh: 76a82a081c0fd212
+/fish-settings-and-migration/what-travels-and-what-does-not:
+  en: 81011e34518f46b5
+  zh: 198fc1e0428fcae0
+/fish-settings-and-migration/strict-import:
+  en: 811c638f96bdfe30
+  zh: 6512dc94841d3812
+/fish-settings-and-migration/failure-and-recovery:
+  en: 58f0699992c7c589
+  zh: b54ed04077cff1b7

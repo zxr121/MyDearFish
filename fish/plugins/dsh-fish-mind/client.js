@@ -299,6 +299,7 @@ window.__ModuleLoader__.load({
       const social = data.social || {}
       const channels = data.channels || {}
       const wallet = data.wallet || {}
+      const biliQuota = wallet.bili || {}
       const boundaries = data.boundaries || {}
       const permissions = boundaries.permissions || {}
       const privacy = boundaries.privacy || {}
@@ -515,6 +516,12 @@ window.__ModuleLoader__.load({
             ? h('div', {},
                 h(Row, { label: '今日', value: `${yen(wallet.dailyGrantCny)} 出生额度 · 已花 ${yen(wallet.spentTodayCny)} · 还余 ${yen(wallet.availableCny)}` }),
                 h(Row, { label: '调用', value: `${num(wallet.callsToday)} 次记账 · ${num(wallet.unmeteredToday)} 次未计价` }),
+                h(Row, {
+                  label: 'B 站巡检',
+                  value: biliQuota.capCny > 0
+                    ? `今天 ${yen(biliQuota.spentTodayCny)} / ${yen(biliQuota.capCny)}（每天额度的 ${num(biliQuota.share * 100)}%）`
+                    : '不占额度（占比为 0）',
+                }),
                 h(Row, { label: '模型账户', value: wallet.accountKnown ? `上次读到于 ${when(wallet.accountReadAt)}` : '还没读到' }))
             : h('div', { 'data-fishm-note': '' }, '账本还没启动。')),
 

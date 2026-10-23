@@ -1,6 +1,6 @@
 # Fish settings and migration
 
-[中文](fish-settings.zh.md) | English
+English | [中文](fish-settings.zh.md)
 
 The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, the current self prompt, memory, mood, relationships, channels, pocket money, and fixed boundaries all appear on one page; only birth identity is editable, everything else is read-only. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
 
@@ -16,7 +16,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | Mood | Current value, label, latest reason, tail of the timeline | No |
 | Relationships | Names, aliases, familiarity, times seen, and owner flag from the QQ people book; QQ numbers are not shown | No |
 | Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; addresses, tokens, and login state are not shown | No |
-| Pocket money | Daily grant, available balance, spent today, and call count | No |
+| Pocket money | Daily grant, available balance, spent today, and call count; Bilibili patrol spend today and its quarter-of-the-grant cap | No |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
 
 Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.

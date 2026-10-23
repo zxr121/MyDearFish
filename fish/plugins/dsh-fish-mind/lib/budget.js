@@ -13,6 +13,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { join } from 'node:path'
 
 export const BIRTH_DAILY_GRANT_CNY = 10
+// B 站巡检最多占当天出生额度的四分之一；这是软上限，普通聊天不受影响。
+export const DEFAULT_BILI_SHARE = 0.25
 export const DEFAULT_PRICE = Object.freeze({ input: 4, cacheRead: 1, cacheWrite: 4, output: 16, reasoning: 0 })
 
 const PRICE_KEYS = ['input', 'cacheRead', 'cacheWrite', 'output', 'reasoning']
@@ -269,6 +271,8 @@ function normalizeState(raw, today) {
         spentCny: round(Math.max(0, Number(value.spentCny) || 0), 6),
         calls: Math.max(0, Math.round(Number(value.calls) || 0)),
         unmetered: Math.max(0, Math.round(Number(value.unmetered) || 0)),
+        biliSpentCny: round(Math.max(0, Number(value.biliSpentCny) || 0), 6),
+        biliCalls: Math.max(0, Math.round(Number(value.biliCalls) || 0)),
       }
     }
   }
@@ -379,11 +383,22 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     return resolvePrice(currentConfig.prices, currentConfig.defaultPrice, provider, model, now())
   }
 
+  function biliShare() {
+    const value = Number(currentConfig.biliShare)
+    return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : DEFAULT_BILI_SHARE
+  }
+
+  function biliCapCny() {
+    return round(state.dailyGrantCny * biliShare(), 6)
+  }
+
   function status() {
     ensureGrant()
     const day = localDay(now())
-    const bucket = state.days[day] || { spentCny: 0, calls: 0, unmetered: 0 }
+    const bucket = state.days[day] || { spentCny: 0, calls: 0, unmetered: 0, biliSpentCny: 0, biliCalls: 0 }
     const balance = state.lastBalance
+    const biliSpent = round(Math.max(0, Number(bucket.biliSpentCny) || 0), 6)
+    const cap = biliCapCny()
     return {
       version: 1,
       enabled: isEnabled(),
@@ -394,6 +409,13 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       spentTodayCny: round(bucket.spentCny, 4),
       callsToday: bucket.calls,
       unmeteredToday: bucket.unmetered,
+      bili: {
+        share: round(biliShare(), 4),
+        capCny: round(cap, 4),
+        spentTodayCny: round(biliSpent, 4),
+        remainingCny: round(Math.max(0, cap - biliSpent), 4),
+        callsToday: Math.max(0, Math.round(Number(bucket.biliCalls) || 0)),
+      },
       lastGrantDay: state.lastGrantDay,
       account: balance === null
         ? null
@@ -409,15 +431,18 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
   }
 
   /**
-   * 调用前预留。余额不够就返回 `ok:false`，调用方不得再请求模型。
+   * 调用前预留。余额不够，或这次属于 B 站巡检且已到巡检上限，就返回 `ok:false`，
+   * 调用方不得再请求模型。
    * @param {object} options - `GenerateOptions`。
-   * @returns {{ok:boolean, reason?:string, walletCny?:number, neededCny?:number, reservation?:object, disabled?:boolean}}
+   * @param {'bili'|''} [scope] - 预算归属；`bili` 表示巡检触发及其子代理。
+   * @returns {{ok:boolean, reason?:string, walletCny?:number, neededCny?:number, capCny?:number, spentCny?:number, reservation?:object, disabled?:boolean}}
    */
-  function reserve(options) {
+  function reserve(options, scope = '') {
     if (!isEnabled()) return { ok: true, disabled: true }
     ensureGrant()
     const provider = String(options && options.provider ? options.provider : '')
     const model = String(options && options.model ? options.model : '')
+    const tag = scope === 'bili' ? 'bili' : ''
     const price = priceFor(provider, model)
     const defaultOutput = Math.max(1, Number(currentConfig.defaultMaxOutputTokens) || 8192)
     const estimatedCny = round(estimateRequestCost(options, price, defaultOutput), 6)
@@ -428,10 +453,40 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
         provider,
         model,
         purpose: options && options.purpose ? String(options.purpose) : '',
+        scope: tag || undefined,
         walletCny: round(state.walletCny, 6),
         neededCny: estimatedCny,
       })
       return { ok: false, reason: 'insufficient', walletCny: round(state.walletCny, 4), neededCny: round(estimatedCny, 4) }
+    }
+    if (tag === 'bili') {
+      const day = localDay(now())
+      const bucket = state.days[day] || { spentCny: 0, calls: 0, unmetered: 0, biliSpentCny: 0, biliCalls: 0 }
+      const cap = biliCapCny()
+      const spent = round(Math.max(0, Number(bucket.biliSpentCny) || 0), 6)
+      if (spent + estimatedCny > cap + 1e-9) {
+        ledger({
+          type: 'blocked',
+          at: now(),
+          provider,
+          model,
+          purpose: options && options.purpose ? String(options.purpose) : '',
+          scope: 'bili',
+          reason: 'bili-cap',
+          capCny: cap,
+          spentCny: spent,
+          walletCny: round(state.walletCny, 6),
+          neededCny: estimatedCny,
+        })
+        return {
+          ok: false,
+          reason: 'bili-cap',
+          walletCny: round(state.walletCny, 4),
+          neededCny: round(estimatedCny, 4),
+          capCny: round(cap, 4),
+          spentCny: round(spent, 4),
+        }
+      }
     }
     return {
       ok: true,
@@ -441,6 +496,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
         model,
         purpose: options && options.purpose ? String(options.purpose) : '',
         sessionId: options && options.sessionId ? String(options.sessionId) : '',
+        scope: tag || undefined,
         estimatedCny,
         price,
       },
@@ -456,6 +512,10 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     bucket.calls += 1
     if (usage === null || usage === undefined) bucket.unmetered += 1
     bucket.spentCny = round(bucket.spentCny + costCny, 6)
+    if (reservation.scope === 'bili') {
+      bucket.biliCalls = Math.max(0, Number(bucket.biliCalls) || 0) + 1
+      bucket.biliSpentCny = round(Math.max(0, Number(bucket.biliSpentCny) || 0) + costCny, 6)
+    }
     state.days[day] = bucket
     state.walletCny = round(state.walletCny - costCny, 6)
     persist()
@@ -467,6 +527,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       model: reservation.model,
       purpose: reservation.purpose,
       sessionId: reservation.sessionId,
+      scope: reservation.scope,
       estimatedCny: reservation.estimatedCny,
       costCny,
       walletAfterCny: state.walletCny,

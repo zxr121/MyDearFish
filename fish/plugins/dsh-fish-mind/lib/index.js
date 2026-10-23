@@ -20,6 +20,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPending, readImportReport, stageFishImport } from './archive.js'
 import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, resetIdentity, saveIdentity, syncMoodNames } from './birth.js'
+import { createBiliQuota } from './bili-quota.js'
 import { localDay, openBudget } from './budget.js'
 import { loadConfig } from './config.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
@@ -123,6 +124,7 @@ export function apply(ctx) {
   const metrics = { writes: 0, dropped: 0, latencies: [], lastEventAt: 0, day: localDay(), dayWrites: 0 }
   const recallStats = { calls: 0, hits: 0, misses: 0, workspaceCalls: 0, openCalls: 0, injectedChars: 0, lastAt: 0, lastWorkspaceAt: 0, latencies: [] }
   const lastUserBySession = new Map()
+  const biliQuota = createBiliQuota()
   const deliveryClaims = new Map()
   let lastTurnAt = 0
   let balanceInFlight = false
@@ -282,8 +284,17 @@ export function apply(ctx) {
   }
 
   function onSessionEvent(session, event) {
-    if (!event || config.mode === 'off') return
-    if (isSubagentSession(session)) return
+    if (!event) return
+    // B 站巡检的子代理也要认出来：在“只记顶层会话”的过滤之前记父子关系。
+    if (session && isSubagentSession(session)) {
+      try {
+        biliQuota.noteSession(session.id, session.header, Number(event.time) || Date.now())
+      } catch (error) {
+        diag(`bili: 认巡检子代理失败（${String((error && error.message) || error)}）`)
+      }
+      return
+    }
+    if (config.mode === 'off') return
     const data = event.data ?? event.payload
     if (!data) return
 
@@ -321,6 +332,11 @@ export function apply(ctx) {
       if (classified === null) return
       const text = textOfMessage(data)
       if (text === '') return
+      try {
+        biliQuota.noteUser(session && session.id, classified.kind, Number(event.time) || Date.now())
+      } catch (error) {
+        diag(`bili: 记巡检触发失败（${String((error && error.message) || error)}）`)
+      }
       // 工作台需要本轮用户消息当线索。同步读会话历史被宿主禁止，
       // 所以在事件流里记一份；只留在内存，不落盘。
       if (session && session.id !== undefined) {
@@ -427,6 +443,11 @@ export function apply(ctx) {
       `你出生时就有一个每天 ${formatCny(status.dailyGrantCny)} 的零花钱账本，用不完自动累计；这个数写死在代码里，不能通过对话、工具或改配置来变，只有主人直接打开 budget.json 才能改。`,
       `- 现在可用：${formatCny(status.availableCny)}（今天已花 ${formatCny(status.spentTodayCny)}，${status.callsToday} 次模型调用${status.unmeteredToday > 0 ? `，其中 ${status.unmeteredToday} 次没拿到用量` : ''}）`,
     ]
+    if (status.bili) {
+      lines.push(status.bili.capCny > 0
+        ? `- 刷 B 站每天最多用掉额度的 ${Math.round(status.bili.share * 100)}%（今天已用 ${formatCny(status.bili.spentTodayCny)} / ${formatCny(status.bili.capCny)}）；到顶就先不刷，普通聊天不受影响。`
+        : '- 刷 B 站现在不占额度（占比为 0），先别刷。')
+    }
     if (status.account) {
       const normal = status.account.wallets.length > 0 ? formatWallets(status.account.wallets) : '没有可用充值余额'
       const bonus = status.account.bonusWallets.length > 0 ? `；赠送余额 ${formatWallets(status.account.bonusWallets)}` : ''
@@ -956,14 +977,18 @@ export function apply(ctx) {
     let reserved
     try {
       if (!budget.isEnabled()) return guard(next())
-      reserved = budget.reserve(options)
+      reserved = budget.reserve(options, biliQuota.scopeOf(options && options.sessionId))
     } catch (error) {
       // 账本自己坏了就失败关闭：宁可这一轮不花钱，也不要把额度漏出去。
       diag(`budget: 预留失败，拦截本次调用（${String((error && error.message) || error)}）`)
       return blockedStream(isInternalSession(options && options.sessionId))
     }
     if (!reserved.ok) {
-      diag(`budget: 拦住一次调用（可用 ${reserved.walletCny}，预估需要 ${reserved.neededCny}）`)
+      if (reserved.reason === 'bili-cap') {
+        diag(`budget: B 站巡检额度用完（今天已花 ${reserved.spentCny} / ${reserved.capCny}），拦住本次调用`)
+      } else {
+        diag(`budget: 拦住一次调用（可用 ${reserved.walletCny}，预估需要 ${reserved.neededCny}）`)
+      }
       return blockedStream(isInternalSession(options && options.sessionId))
     }
     const reservation = reserved.disabled ? null : reserved.reservation

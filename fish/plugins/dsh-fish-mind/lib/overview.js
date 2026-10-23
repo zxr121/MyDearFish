@@ -190,6 +190,15 @@ function walletOverview(budget) {
     unmeteredToday: number(budget.unmeteredToday),
     accountReadAt: number(budget.account && budget.account.at),
     accountKnown: isPlainObject(budget.account),
+    bili: isPlainObject(budget.bili)
+      ? {
+          share: number(budget.bili.share),
+          capCny: number(budget.bili.capCny),
+          spentTodayCny: number(budget.bili.spentTodayCny),
+          remainingCny: number(budget.bili.remainingCny),
+          callsToday: number(budget.bili.callsToday),
+        }
+      : null,
   }
 }
 
