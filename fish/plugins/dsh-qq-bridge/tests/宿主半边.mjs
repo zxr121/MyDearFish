@@ -545,6 +545,21 @@ const 转发文 = 转进的.at(-1)?.content?.[0]?.text || ''
 报('轮询：转发拉不到也保留外层文字和占位', 转发文.includes('这个也看看') && 转发文.includes('[转发消息，没展开出来]'), JSON.stringify(转发文))
 私聊附加 = []
 
+// ⑯c 主人私聊：摸清打字节奏后，入站消息带一段内部贴合提示（不发给 QQ）
+const 之前风格转 = 转进的.length
+for (let i = 0; i < 7; i++) {
+  私聊消息文本 = ['好呀', '在呢', '我看看哦', '行啦', '晚安哦', '走呀', '好诶'][i]
+  私聊消息id = 9501 + i
+  私聊消息时间 = Math.floor(Date.now() / 1000) + 2000 + i
+  await 轮询回调()
+  await new Promise((r) => setTimeout(r, 5))
+}
+const 风格文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：摸清主人的打字节奏后，入站消息带内部贴合提示',
+  转进的.length === 之前风格转 + 7 && 风格文.includes('说话节奏') && 风格文.includes('内部提示') &&
+    风格文.includes('别复述') && 风格文.includes('别让对方看出来'),
+  JSON.stringify(风格文.slice(0, 240)))
+
 // ⑰ 历史导入：四个口都在，且没打开开关 / 没鱼脑 / 没令牌时一个字节都不取
 假鱼脑.observe = (输入) => { 观察到的.push(输入); return { ok: true, id: 观察到的.length, hash: 'h' + 观察到的.length } }
 const 导 = (路径, 方法 = 'POST') => {
