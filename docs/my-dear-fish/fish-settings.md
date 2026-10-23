@@ -19,6 +19,8 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | Pocket money | Daily grant, available balance, spent today, and call count | No |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
 
+Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.
+
 The overview exists only in the local settings UI. Its routes register on the DSH `webServer` and decide whether a request comes from the local UI by checking Host, `Sec-Fetch-Site`, and Origin. They establish no identity and cannot replace the owner's local file permissions.
 
 ## Birth identity
