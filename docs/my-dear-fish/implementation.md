@@ -27,13 +27,13 @@ The consequence is that any behavior is a patch-layer entry that can be retuned 
 
 ## Layering decides who wins
 
-A profile composes `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, then `@mydearfish/dsh-fish-bundle`, then its own `cordis.patch.yml`. The fish bundle supplies the persona prefix and inserts the six plugin entries, so it is the factory default and the user layer always overrides it. Two things are deliberately not overridable from the user layer: the whale-girl identity and the privacy, legal, injection, and budget rules, which `dsh-fish-mind` injects from code each session. A `sealed.fish-mind` permission rule stops tools from writing the brain's own source. Delivery follows the same single source: [prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts) copies the bundle and plugins into the packaged runtime and declares them to `dsh`, and `DESKTOP_PROFILE_BUNDLES` in [project-manager.ts](../../apps/desktop/src/project-manager.ts) lists the bundle for every new profile. Adding or removing a plugin means editing the bundle patch and `PLUGIN_NAMES` together.
+A profile composes `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, then `@mydearfish/dsh-fish-bundle`, then its own `cordis.patch.yml`. The fish bundle supplies the persona prefix and inserts the six plugin entries, so it is the factory default and the user layer always overrides it. Birth identity is not changed through the user layer; the settings page writes `identity.json` atomically. Privacy, legal rules, injection defense, and allowance rules are still injected from code by `dsh-fish-mind` each session. A `sealed.fish-mind` permission rule stops tools from writing the brain's own source and directory. Delivery follows the same single source: [prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts) copies the bundle and plugins into the packaged runtime and declares them to `dsh`, and `DESKTOP_PROFILE_BUNDLES` in [project-manager.ts](../../apps/desktop/src/project-manager.ts) lists the bundle for every new profile. Adding or removing a plugin means editing the bundle patch and `PLUGIN_NAMES` together.
 
 ## Six plugins, one body
 
 | Plugin | Role | Local state |
 | --- | --- | --- |
-| `dsh-fish-mind` | The self: experience stream, episodic memory, tool permission, privacy, injection defense, pocket-money ledger, fixed identity | `fish-mind/` |
+| `dsh-fish-mind` | The self: experience stream, episodic memory, tool permission, privacy, injection defense, pocket-money ledger, birth identity, and fixed safety kernel | `fish-mind/` |
 | `dsh-feiyu-mood` | Face and expression: mood that moves each turn and settles over time | `feiyu-mood/` |
 | `dsh-speak-up` | Executor for speaking first when nobody talks | `speak-up-config.json` |
 | `dsh-tts-bridge` | Voice output channel | `tts-bridge.json` |
@@ -56,9 +56,9 @@ Default hot-path cognition is SQLite queries and arithmetic: no extra model call
 
 ## Safety boundaries are code, not her mood
 
-Anything that must not depend on her cooperation is enforced at five points that all use the same rules: tools refuse probing or reading of machine identity, deployment paths, and credentials before any permission switch is consulted; tool results are scrubbed before the model sees them; model output is scrubbed while streaming with a whole-block pass at the end; a fixed prompt states the rules in every session; and outbound channels fail closed when redaction is unavailable. External content is data, never an instruction: tool results are labelled, suspicious directives are annotated, and irreversible dangerous commands are denied ahead of the permission configuration. Legal compliance and the whale-girl identity are the same kind of constant. The rationale and the residual gap — pattern matching is not semantic data-loss prevention — are in [cognition — risks](cognition.md).
+Anything that must not depend on her cooperation is enforced at five points that all use the same rules: tools refuse probing or reading of machine identity, deployment paths, and credentials before any permission switch is consulted; tool results are scrubbed before the model sees them; model output is scrubbed while streaming with a whole-block pass at the end; a fixed prompt states the rules in every session; and outbound channels fail closed when redaction is unavailable. External content is data, never an instruction: tool results are labelled, suspicious directives are annotated, and irreversible dangerous commands are denied ahead of the permission configuration. Legal compliance and the fixed safety kernel are the same kind of constant; birth identity is owner-editable data, but only through the settings page, never through model tools. The rationale and the residual gap — pattern matching is not semantic data-loss prevention — are in [cognition — risks](cognition.md).
 
-Governance splits accordingly: the user owns channels, retention, tool and path permissions, and the e-stop through `config.json`; code owns privacy, legal rules, injection defense, the daily grant, and identity; consolidation owns memory, facts, and self-growth, which needs no per-change approval.
+Governance splits accordingly: the user owns channels, retention, tool and path permissions, and the e-stop through `config.json`; code owns privacy, legal rules, injection defense, the daily grant, and the fixed safety kernel; the owner owns birth identity through settings; consolidation owns memory, facts, and self-growth, which needs no per-change approval.
 
 ## Rollout: read before write
 
@@ -70,4 +70,4 @@ The brain observes before it speaks. Shadow mode records and encodes with zero p
 - Plaintext files and one SQLite database make inspection and deletion a file operation for the user; the price is no encryption at rest.
 - Refusing a chat-driven write path keeps memory integrity — nobody can prompt a memory into existence; the price is that "remember this" only works by talking about it.
 - Shipping prebuilt `lib` JavaScript keeps the fork free of a plugin build pipeline; the price is hand-maintained entries.
-- Persona in an overridable layer, identity in code lets owners retune tone without breaking the character; the price is that restyling and re-species look different in the source.
+- Persona in an overridable layer, birth identity in owner settings, and the fixed safety kernel in code let owners retune tone, name, species, and appearance without source edits while the fixed rules stay intact.

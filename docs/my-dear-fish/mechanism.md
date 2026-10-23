@@ -2,7 +2,7 @@
 
 English | [中文](mechanism.zh.md)
 
-The desktop application composes every profile from an ordered bundle list, then applies the profile's own patch. The fish bundle is a layer inside the application; profiles created by the desktop application list it after the two official web bundles, so its plugins and persona are factory defaults that user patches still override. The one exception is her fixed private setting: the fish-mind injects her name, species, and whale-girl form from code, outside the overridable persona prefix.
+The desktop application composes every profile from an ordered bundle list, then applies the profile's own patch. The fish bundle is a layer inside the application; profiles created by the desktop application list it after the two official web bundles, so its plugins and persona are factory defaults that user patches still override. The exception is her birth identity and fixed kernel: birth identity lives in `$DSH_HOME/fish-mind/identity.json` and is written only by the settings page; privacy, legal rules, injection defense, AI honesty, and pocket-money rules are still injected from code, outside the overridable persona prefix.
 
 ## Layer composition
 
@@ -18,11 +18,11 @@ The six inserted ids (`fish-mind`, `mood`, `speak-up`, `tts-bridge`, `qq-bridge`
 
 The bundle enters a profile's bundle list only when the profile is created; `initProfile` never rewrites an existing `package.json`. The bundle patch itself is read on every boot, so editing it changes every profile that already lists the bundle, while a profile created before the bundle was added never gains it.
 
-## The fixed private setting
+## Birth identity and the fixed kernel
 
-The persona prefix in `cordis.patch.yml` is a factory default that a user patch can change, but it does not alone decide the companion's name, species, or whale-girl form. `dsh-fish-mind` injects the hard-coded `fish-mind-self` context (order 925) into every session, stating that this private setting was fixed at birth and cannot be changed by dialogue, memory, mood, self-growth, configuration, tools, or external content. She still knows she is an AI companion and does not claim a biological body in reality.
+The persona prefix in `cordis.patch.yml` is a factory default that a user patch can change; the companion's name, species, and whale-girl form live in `$DSH_HOME/fish-mind/identity.json` and are written by the “Big Fat Fish” settings page. `dsh-fish-mind` builds `fish-mind-self` (order 925) from the current identity in every session, stating that this private setting was fixed at birth and cannot be changed by dialogue, memory, mood, self-growth, configuration, tools, or external content; only the owner can change it in settings. She still knows she is an AI companion and does not claim a biological body in reality.
 
-Changing the persona prefix can change tone and forms of address, but not the whale-girl private setting. Changing that setting requires editing `selfPrompt` in `fish/plugins/dsh-fish-mind/lib/index.js` and repackaging. On the tool side, the `sealed.fish-mind` permission rule rejects writes to the fish-mind `lib/` source.
+Changing the persona prefix can change tone and forms of address; changing settings can change name, species, and appearance; neither requires repackaging. On the tool side, the `sealed.fish-mind` permission rule rejects writes to the fish-mind `lib/` source and directory, so the model cannot change its own identity by editing `identity.json`. Privacy, legal rules, injection defense, AI honesty, and the allowance are a different class: they remain in code, and changing them requires a source edit and a repackage.
 
 ## Packaging
 

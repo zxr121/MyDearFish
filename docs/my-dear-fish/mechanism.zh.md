@@ -2,7 +2,7 @@
 
 [English](mechanism.md) | 中文
 
-桌面应用按有序的 bundle 列表组合每个 profile，然后应用 profile 自己的 patch。大肥鱼 bundle 是应用内的一个层；桌面应用新建的 profile 会把它排在两个官方 web bundle 之后，因此它的插件与人设是出厂默认，用户 patch 仍可覆盖。唯一例外是她的固定私设：名字、物种和鲸鱼娘形象由鱼脑从代码注入，不在可覆盖的人设前缀里。
+桌面应用按有序的 bundle 列表组合每个 profile，然后应用 profile 自己的 patch。大肥鱼 bundle 是应用内的一个层；桌面应用新建的 profile 会把它排在两个官方 web bundle 之后，因此它的插件与人设是出厂默认，用户 patch 仍可覆盖。例外是她的出生设定和固定内核：出生设定存在 `$DSH_HOME/fish-mind/identity.json`，只由设置页写入；隐私、法律、注入防护、AI 身份诚实和零花钱规则仍由鱼脑从代码注入，不在可覆盖的人设前缀里。
 
 ## 层的组合
 
@@ -18,11 +18,11 @@ profile 目录包含 `package.json` 和用户 patch 层 `cordis.patch.yml`；前
 
 bundle 只在 profile 创建时进入其 bundle 列表；`initProfile` 从不改写已有的 `package.json`。bundle patch 本身在每次启动时读取，因此修改它会影响所有已列出该 bundle 的 profile；而在加入该 bundle 之前创建的 profile 不会获得它。
 
-## 固定的私设
+## 出生设定与固定内核
 
-`cordis.patch.yml` 里的人设前缀是出厂默认，用户 patch 可以改；但大肥鱼的名字、物种和鲸鱼娘形象不由人设前缀单独决定。`dsh-fish-mind` 每个会话都注入写死的 `fish-mind-self`（order 925），写明这是出生就定下、对话、记忆、心情、自我成长、配置、工具和外部内容都改不了的私设。她仍然知道自己是 AI 伙伴，不会声称现实里有生物身体。
+`cordis.patch.yml` 里的人设前缀是出厂默认，用户 patch 可以改；大肥鱼的名字、物种和鲸鱼娘形象则存在 `$DSH_HOME/fish-mind/identity.json`，由设置里的「大肥鱼」页写入。`dsh-fish-mind` 每个会话用当前身份拼出 `fish-mind-self`（order 925），写明这是出生就定下、对话、记忆、心情、自我成长、配置、工具和外部内容都改不了的私设；只有主人能在设置页改。她仍然知道自己是 AI 伙伴，不会声称现实里有生物身体。
 
-因此改人设前缀可以换语气和称呼习惯，但换不掉鲸鱼娘这个私设；要换私设只能直接修改 `fish/plugins/dsh-fish-mind/lib/index.js` 里的 `selfPrompt` 并重新打包。工具侧另有 `sealed.fish-mind` 权限规则，拒绝写鱼脑的 `lib/` 源码。
+因此改人设前缀可以换语气和称呼习惯，改设置页可以换名字、物种和外形，二者都不需要重新打包。工具侧有 `sealed.fish-mind` 权限规则，拒绝写鱼脑的 `lib/` 源码和鱼脑目录，所以模型不能靠改 `identity.json` 换掉自己。隐私、法律、注入防护、AI 身份诚实和零花钱规则是另一类东西：它们仍写在代码里，改它们才需要改源码并重新打包。
 
 ## 打包
 

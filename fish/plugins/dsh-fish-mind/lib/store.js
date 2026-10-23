@@ -1261,6 +1261,27 @@ export function openStore({ dir, config, diag = () => {} }) {
     }
   }
 
+  /**
+   * 导出用：当前生效的长期事实，上限比状态页高。
+   * @param {number} [limit] - 最多导出多少条。
+   * @returns {object[]} 事实列表。
+   */
+  function exportFacts(limit = 5000) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 5000), 20000)
+    try {
+      return factListStmt.all(max).map((row) => ({
+        subject: String(row.subject ?? ''),
+        predicate: String(row.predicate ?? ''),
+        object: String(row.object ?? ''),
+        confidence: Number(row.confidence) || 0,
+        validFrom: Number(row.validFrom) || 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
   /** 记一次转长期提炼的流水，方便事后看“她什么时候把什么变成了长期记忆”。 */
   function recordRun({ startedAt, finishedAt, status, tasks = [], notes = '' }) {
     if (db === null) return false
@@ -1456,6 +1477,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     recentWindow,
     upsertFact,
     listFacts,
+    exportFacts,
     recordRun,
     stats,
     countToday,

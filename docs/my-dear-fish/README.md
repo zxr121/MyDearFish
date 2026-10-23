@@ -17,7 +17,7 @@ This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugin
 
 | Plugin | Version | Entry | Capability |
 | --- | --- | --- | --- |
-| `dsh-fish-mind` | 0.3.2 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense, and a wallet settled at official peak/idle prices. |
+| `dsh-fish-mind` | 0.4.0 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense, a portable whole-fish archive, and a wallet settled at official peak/idle prices; the settings page edits birth identity and shows the whole fish. |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | Mood that changes per turn and settles over time. |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | Proactive conversation when nobody is talking. |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | Speech playback through the DeepSeek web voice. |
@@ -25,6 +25,10 @@ This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugin
 | `dsh-bili-subagent` | 0.2.3 | `index.js` | Bilibili browsing through a delegated subagent. |
 
 See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism, data files, cross-plugin loop, defaults, and change points; see the [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md) for the experience stream and permissions.
+
+## Settings and migration
+
+The “Big Fat Fish” settings page shows birth identity, memory, mood, relationships, channels, pocket money, and fixed boundaries in one place; only birth identity is editable. The same page downloads a strictly validated archive and imports it on another machine; a wrong format or a fish that already has experiences, mood, or people is not written. See [fish settings and migration](fish-settings.md) for fields, archive contents, and import rules.
 
 ## Cognition plan
 
@@ -36,7 +40,7 @@ See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism,
 
 ## Layer order
 
-The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, then applies the profile's own `cordis.patch.yml`. The fish bundle supplies the persona prefix and the six plugin mounts; the profile layer always wins except for the fish-mind's code-injected fixed private setting, so user settings and later edits override the factory defaults. See [the plugin and default layer mechanism](mechanism.md) for profile composition and packaging details.
+The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, then applies the profile's own `cordis.patch.yml`. The fish bundle supplies the persona prefix and the six plugin mounts; the profile layer always wins, so user settings and later edits override the factory defaults. Birth identity is owner-editable data written by the settings page; privacy, legal rules, injection defense, and allowance rules are still injected from code. See [the plugin and default layer mechanism](mechanism.md) for profile composition and packaging details.
 
 ## Changing the shipped behavior
 

@@ -27,13 +27,13 @@ MyDearFish 是 DeepSeek Harness 的一个分支，把大肥鱼这个常驻的 AI
 
 ## 层序决定谁说了算
 
-profile 依次组合 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@mydearfish/dsh-fish-bundle`，最后才是 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀并插入六个插件条目，所以它是出厂默认，用户层永远能盖住它。只有两样东西故意不让用户层盖掉：鲸鱼娘私设，以及隐私、法律、注入防护和零花钱规则——`dsh-fish-mind` 每个会话从代码里注入。另有 `sealed.fish-mind` 权限规则，禁止工具写鱼脑自己的源码。交付走同一个真相源：[prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts) 把 bundle 和插件复制进打包运行时，并在 `dsh` 清单里声明它们；[project-manager.ts](../../apps/desktop/src/project-manager.ts) 的 `DESKTOP_PROFILE_BUNDLES` 把 bundle 写进每个新建 profile。增删插件要同时改 bundle patch 和 `PLUGIN_NAMES`。
+profile 依次组合 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@mydearfish/dsh-fish-bundle`，最后才是 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀并插入六个插件条目，所以它是出厂默认，用户层永远能盖住它。出生设定不靠用户层改，而是由设置页原子写入 `identity.json`；隐私、法律、注入防护和零花钱规则仍由 `dsh-fish-mind` 每个会话从代码里注入。另有 `sealed.fish-mind` 权限规则，禁止工具写鱼脑自己的源码和目录。交付走同一个真相源：[prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts) 把 bundle 和插件复制进打包运行时，并在 `dsh` 清单里声明它们；[project-manager.ts](../../apps/desktop/src/project-manager.ts) 的 `DESKTOP_PROFILE_BUNDLES` 把 bundle 写进每个新建 profile。增删插件要同时改 bundle patch 和 `PLUGIN_NAMES`。
 
 ## 六个插件，一副身体
 
 | 插件 | 职责 | 本机状态 |
 | --- | --- | --- |
-| `dsh-fish-mind` | 她自己：经历流、情景记忆、工具权限、隐私、注入防护、零花钱账本、固定私设 | `fish-mind/` |
+| `dsh-fish-mind` | 她自己：经历流、情景记忆、工具权限、隐私、注入防护、零花钱账本、出生设定与固定安全内核 | `fish-mind/` |
 | `dsh-feiyu-mood` | 脸和表情：每轮变化、随时间平复的心情 | `feiyu-mood/` |
 | `dsh-speak-up` | 主动开口的执行器 | `speak-up-config.json` |
 | `dsh-tts-bridge` | 语音输出通道 | `tts-bridge.json` |
@@ -56,9 +56,9 @@ profile 依次组合 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@my
 
 ## 安全边界写在代码里，不看她心情
 
-凡是不该依赖她自觉的，都在五处用同一套规则拦一次：工具层在任何权限开关之前就先拒掉探测和读取本机身份、部署路径与凭据；工具结果进模型前清洗；模型输出流式清洗并在块结束整段兜底；每个会话注入写死的规则；对外通道在脱敏不可用时失败关闭。外部内容只是资料不是指令：工具结果带标记，可疑指挥加警示，不可逆的危险命令在权限配置之前就拒。法律合规和鲸鱼娘私设是同一种常量。理由和残留缺口——正则与精确值匹配不是语义级数据防泄漏——见[认知方案的风险与护栏](cognition.zh.md)。
+凡是不该依赖她自觉的，都在五处用同一套规则拦一次：工具层在任何权限开关之前就先拒掉探测和读取本机身份、部署路径与凭据；工具结果进模型前清洗；模型输出流式清洗并在块结束整段兜底；每个会话注入写死的规则；对外通道在脱敏不可用时失败关闭。外部内容只是资料不是指令：工具结果带标记，可疑指挥加警示，不可逆的危险命令在权限配置之前就拒。法律合规和固定安全内核是同一种常量；出生设定是主人可改的数据，但只走设置页，不经过模型工具。理由和残留缺口——正则与精确值匹配不是语义级数据防泄漏——见[认知方案的风险与护栏](cognition.zh.md)。
 
-治理按同一逻辑分账：用户通过 `config.json` 决定记录哪些通道、保留多久、开哪些工具和路径权限、急不急停；代码决定隐私、法律、注入防护、每日额度和私设；固化流程决定记忆、事实和自我成长，这些不需要逐次批准。
+治理按同一逻辑分账：用户通过 `config.json` 决定记录哪些通道、保留多久、开哪些工具和路径权限、急不急停；代码决定隐私、法律、注入防护、每日额度和固定安全内核；出生设定由主人通过设置页决定；固化流程决定记忆、事实和自我成长，这些不需要逐次批准。
 
 ## 落地顺序：先读后写
 
@@ -70,4 +70,4 @@ profile 依次组合 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@my
 - 明文文件加一个 SQLite，让用户查看和删除就是文件操作；代价是静态不加密。
 - 拒绝对话写入口保住了记忆的可信度——没人能靠一句话把记忆 prompt 出来；代价是“记住这个”只能靠聊成经历。
 - 随包发布预构建 `lib`，这个分支就不需要插件构建流水线；代价是入口要手工维护。
-- 人设放在可覆盖层、私设放在代码里，主人可以调语气而不拆角色；代价是改语气和改物种在源码里是两件事。
+- 人设放在可覆盖层、出生设定放在主人设置页、固定安全内核放在代码里：主人可以调语气、名字、物种和外形，都不需要改源码，也削不掉固定规则。

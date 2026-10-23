@@ -17,7 +17,7 @@
 
 | 插件 | 版本 | 入口 | 能力 |
 | --- | --- | --- | --- |
-| `dsh-fish-mind` | 0.3.2 | `lib/index.js` | 共享经历流、情景记忆与原文回查、工具权限判定、隐私与注入防护，以及按官方峰谷价结算的零花钱账本。 |
+| `dsh-fish-mind` | 0.4.0 | `lib/index.js` | 共享经历流、情景记忆与原文回查、工具权限判定、隐私与注入防护、可搬迁的整鱼压缩包，以及按官方峰谷价结算的零花钱账本；设置页可改出生设定并查看整条鱼。 |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | 每轮变化并随时间平复的心情。 |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | 无人说话时主动搭话。 |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | 通过 DeepSeek 网页语音朗读。 |
@@ -25,6 +25,10 @@
 | `dsh-bili-subagent` | 0.2.3 | `index.js` | 通过委派子代理浏览 B 站。 |
 
 六个插件的机制、数据文件、跨插件链路、默认状态和改造点见[插件养鱼机制](plugins.zh.md)；鱼脑的经历流与权限见 [dsh-fish-mind README](../../fish/plugins/dsh-fish-mind/README.md)。
+
+## 设置与搬迁
+
+设置里的「大肥鱼」页把出生设定、记忆、心情、关系、通道、零花钱和固定边界放在同一处；只有出生设定能改。同一页可以下载严格校验的压缩包，在另一台机器上导入整条鱼；格式不对或鱼已经有经历、心情和人物志时不会写入。字段、压缩包清单和导入规则见[大肥鱼设置与搬迁](fish-settings.zh.md)。
 
 ## 认知方案
 
@@ -36,7 +40,7 @@
 
 ## 层序
 
-桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；除鱼脑从代码注入的固定私设外，profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。profile 组合与打包细节见[插件与默认层机制](mechanism.zh.md)。
+桌面 profile 依次组合 `dsh-base`、`dsh-web-app` 和大肥鱼 bundle，然后应用 profile 自己的 `cordis.patch.yml`。大肥鱼 bundle 提供人设前缀和六个插件挂载；profile 层始终优先，因此用户设置与后续修改会覆盖出厂默认。出生设定存成主人可改的数据，由设置页写入；隐私、法律、注入防护和零花钱规则仍从代码注入。profile 组合与打包细节见[插件与默认层机制](mechanism.zh.md)。
 
 ## 修改出厂行为
 
