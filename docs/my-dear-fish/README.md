@@ -51,7 +51,7 @@ The desktop profile composes `dsh-base`, `dsh-web-app`, and the fish bundle, the
 
 ## Running after a pull
 
-A packaged desktop build already contains the plugins; pulling source does not change an installed build. For a source or local-profile run, pnpm installs the `file:` dependencies as materialized copies under the profile's `node_modules`, so `git pull` updates the checkout but not the running copy. After pulling, run once from the repository root:
+A packaged desktop build already contains the plugins; pulling source does not change an installed build, which updates through GitHub Releases as described in [building the Windows installer](build.md). For a source or local-profile run, pnpm installs the `file:` dependencies as materialized copies under the profile's `node_modules`, so `git pull` updates the checkout but not the running copy. After pulling, run once from the repository root:
 
 ```
 fish\sync-runtime.cmd

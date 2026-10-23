@@ -33,7 +33,7 @@ import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } fro
 import { readDeviceInfo } from './device-info.ts'
 import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
-import { desktopUpdateChannel } from './update-channel.ts'
+import { desktopUpdateChannel, desktopUpdateDownloadPage } from './update-channel.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
@@ -521,9 +521,24 @@ async function main(): Promise<void> {
     if (isMandatory()) { mandatoryUI?.sync(); return Promise.resolve() }
     let shown = updateErrors.get(state)
     if (shown === undefined) {
-      shown = ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
-        message: desktopUpdateErrorSummary(state, locale.messages),
-        technicalDetails: state.technicalDetails ?? state.message ?? '' }).then(() => {})
+      const downloadPage = state.failedOperation === 'check' ? updateDownloadPage : undefined
+      shown = (async () => {
+        const result = await ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
+          message: desktopUpdateErrorSummary(state, locale.messages),
+          ...(downloadPage === undefined ? {} : {
+            detail: locale.messages.updateManualDownloadDetail,
+            buttons: [locale.messages.updateManualDownload, locale.messages.later],
+            cancelId: 1,
+          }),
+          technicalDetails: state.technicalDetails ?? state.message ?? '' })
+        if (downloadPage === undefined || result.response !== 0) return
+        try {
+          await shell.openExternal(downloadPage)
+        } catch {
+          await ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
+            message: locale.messages.updateManualDownloadFailed, detail: downloadPage })
+        }
+      })()
       updateErrors.set(state, shown)
     }
     return shown
@@ -586,6 +601,7 @@ async function main(): Promise<void> {
 
   const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
   const updateChannel = desktopUpdateChannel(manifest)
+  const updateDownloadPage = desktopUpdateDownloadPage(manifest)
   const updates = new DesktopUpdateCoordinator(
     publishUpdate,
     async () => {

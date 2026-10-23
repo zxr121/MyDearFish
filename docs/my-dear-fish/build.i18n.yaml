@@ -3,17 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/build.md
 /building-the-windows-installer:
-  en: f95d5774884dad26
-  zh: 3266b798adde2248
+  en: c9fdf40c5716d020
+  zh: 74532b9dac17ac76
 /building-the-windows-installer/github-actions:
-  en: 254d73ffd76eb9c5
-  zh: 1c6eb1f3a95902b8
+  en: 336c5037395db28a
+  zh: 5c93b066726dd359
+/building-the-windows-installer/automatic-updates:
+  en: 9de405826321d85c
+  zh: 802fe86f688479b2
 /building-the-windows-installer/local-build:
-  en: cc064033f06ed6fa
-  zh: 92ac596abcdd6383
+  en: 1ada34f6d598bcae
+  zh: 8b8e2263bb8f1617
 /building-the-windows-installer/what-the-build-adds:
   en: 7d182f6c69f1e706
   zh: 2c7021a4b206f587
 /building-the-windows-installer/output:
-  en: 7ab89aa095200aa2
-  zh: 3aaabf847b7f96a5
+  en: b36bad534b592510
+  zh: 84e3fbb578bdb1c5

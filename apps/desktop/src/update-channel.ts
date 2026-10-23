@@ -15,3 +15,16 @@ export function desktopUpdateChannel(manifest: unknown): DesktopUpdateChannel {
   if (channel !== 'nightly' && channel !== 'latest') throw new Error('desktop update: invalid packaged channel')
   return channel
 }
+
+/**
+ * Read the packaged fallback download page offered when an update check fails.
+ * @param manifest Parsed application manifest.
+ * @returns HTTPS download page, or undefined when the build carries none.
+ */
+export function desktopUpdateDownloadPage(manifest: unknown): string | undefined {
+  if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop update: invalid application manifest')
+  if (!('dshDesktopUpdateDownloadPage' in manifest)) return undefined
+  const page = manifest.dshDesktopUpdateDownloadPage
+  if (typeof page !== 'string' || !page.startsWith('https://')) throw new Error('desktop update: invalid packaged download page')
+  return page
+}

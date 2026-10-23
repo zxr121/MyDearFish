@@ -158,6 +158,29 @@ describe('Desktop local packaging configuration', () => {
     }).not.toThrow()
   })
 
+  it('reads the unsigned Windows feed from its platform file instead of ambient settings', async () => {
+    await withDirectory(async (directory) => {
+      await writeFile(join(directory, '.env.windows'), 'DSH_DESKTOP_APP_ID=com.example.windows\nDSH_DESKTOP_UPDATE_FEED_URL=https://github.com/example/fish/releases/latest/download/\n')
+      const parent = { DSH_DESKTOP_APP_ID: 'com.stale.desktop', DSH_DESKTOP_UPDATE_FEED_URL: 'https://stale.example.com/' }
+      expect(loadDesktopPackageEnvironment('win32', parent, directory)).toMatchObject({
+        DSH_DESKTOP_APP_ID: 'com.example.windows',
+        DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download/',
+      })
+      expect(parent.DSH_DESKTOP_UPDATE_FEED_URL).toBe('https://stale.example.com/')
+    })
+  })
+
+  it('validates the generic feed embedded only in unsigned Windows builds', () => {
+    const feed = { DSH_DESKTOP_APP_ID: RELEASE.DSH_DESKTOP_APP_ID,
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download/',
+      DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE: 'https://github.com/example/fish/releases/latest' }
+    expect(() => { validateDesktopPackageEnvironment(feed, WINDOWS, { unsigned: true }) }).not.toThrow()
+    expect(() => { validateDesktopPackageEnvironment({ ...feed,
+      DSH_DESKTOP_UPDATE_FEED_URL: 'http://github.com/example/fish/download/' }, WINDOWS, { unsigned: true }) })
+      .toThrow(/DSH_DESKTOP_UPDATE_FEED_URL/u)
+    expect(() => { validateDesktopPackageEnvironment({ ...feed, ...POLICY }, WINDOWS) }).toThrow(/generic update feed/u)
+  })
+
   it('accepts unsigned macOS configuration without Apple or update policy settings while keeping release validation', () => {
     const local = localMacOSPackageEnvironment({})
     expect(() => { validateDesktopPackageEnvironment(local, MACOS, { unsigned: true }) }).not.toThrow()

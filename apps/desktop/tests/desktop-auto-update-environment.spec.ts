@@ -5,6 +5,7 @@ import {
   resolveDesktopAutoUpdateConfig,
   resolveDesktopAutoUpdateEnvironment,
   resolveDesktopAutoUpdateTarget,
+  resolveDesktopUnsignedUpdateFeed,
   resolveDesktopUploadConfig,
 } from '../scripts/desktop-auto-update-environment.mjs'
 
@@ -109,6 +110,43 @@ describe('desktop auto-update environment', () => {
     })).toThrow(/test.*production/u)
     expect(() => resolveDesktopAutoUpdateTarget('linux', 'x64')).toThrow(/unsupported target/u)
     expect(() => desktopBuildRecordFilename('linux-x64' as 'mac-arm64')).toThrow(/unsupported target/u)
+  })
+
+  it('resolves an unsigned generic feed only when one is configured', () => {
+    expect(resolveDesktopUnsignedUpdateFeed({})).toBeUndefined()
+    expect(resolveDesktopUnsignedUpdateFeed({ DSH_DESKTOP_UPDATE_CHANNEL: 'latest' })).toBeUndefined()
+    expect(resolveDesktopUnsignedUpdateFeed({
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download',
+      DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE: 'https://github.com/example/fish/releases/latest',
+    })).toEqual({
+      channel: 'nightly',
+      publicUrl: 'https://github.com/example/fish/releases/latest/download/',
+      downloadPage: 'https://github.com/example/fish/releases/latest',
+    })
+    expect(resolveDesktopUnsignedUpdateFeed({
+      DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download/',
+    })).toEqual({
+      channel: 'latest',
+      publicUrl: 'https://github.com/example/fish/releases/latest/download/',
+    })
+  })
+
+  it('rejects generic feed URLs that are not public HTTPS URLs', () => {
+    expect(() => resolveDesktopUnsignedUpdateFeed({ DSH_DESKTOP_UPDATE_FEED_URL: 'http://github.com/example/fish/download' }))
+      .toThrow(/HTTPS URL/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({ DSH_DESKTOP_UPDATE_FEED_URL: 'https://user:pass@github.com/example/fish/download' }))
+      .toThrow(/credentials/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({ DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/download?token=1' }))
+      .toThrow(/query/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/download/',
+      DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE: 'http://github.com/example/fish/releases/latest',
+    })).toThrow(/DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/download/',
+      DSH_DESKTOP_UPDATE_CHANNEL: 'beta',
+    })).toThrow(/channel/u)
   })
 
   it('uses Nightly metadata for stable and prerelease Desktop versions', () => {

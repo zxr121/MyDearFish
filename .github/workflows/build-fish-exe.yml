@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: fish-windows-release
+  cancel-in-progress: false
 
 jobs:
   package:
@@ -26,20 +30,47 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Resolve build version
+        id: version
+        shell: bash
+        env:
+          PACKAGE_VERSION_MODE: auto
+        run: |
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs'
+            import { desktopCiVersion } from './apps/desktop/scripts/desktop-ci-version.mjs'
+            const product = JSON.parse(readFileSync('apps/desktop/package.json', 'utf8')).version
+            process.stdout.write('version=' + desktopCiVersion(process.env, product) + '\n')
+          " >> "$GITHUB_OUTPUT"
+
       - name: Write local packaging settings
         shell: bash
         run: |
-          cat > apps/desktop/.env.windows <<'EOF'
+          cat > apps/desktop/.env.windows <<EOF
           DSH_DESKTOP_APP_ID=com.deepseek.harness
-          DSH_DESKTOP_AUTO_UPDATE_ENV=production
-          DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://api.deepseek.com
+          DSH_DESKTOP_UPDATE_FEED_URL=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/
+          DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE=https://github.com/${GITHUB_REPOSITORY}/releases/latest
           DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY=4
           EOF
 
       - name: Package Windows installer
-        run: pnpm run package:desktop:win:x64:unsigned
+        run: pnpm run package:desktop:win:x64:unsigned -- --build-version ${{ steps.version.outputs.version }}
 
-      - name: Upload installer
+      - name: Verify release artifacts
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          artifacts=apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts
+          installer="$artifacts/deepseek-harness-$VERSION-win-x64-unsigned.exe"
+          for file in "$installer" "$installer.blockmap" "$artifacts/nightly.yml" "$artifacts/win-unpacked/resources/app-update.yml"; do
+            test -f "$file" || { echo "missing release file: $file"; exit 1; }
+          done
+          grep -q 'provider: generic' "$artifacts/win-unpacked/resources/app-update.yml"
+          grep -q 'releases/latest/download/' "$artifacts/win-unpacked/resources/app-update.yml"
+          grep -q "$(basename "$installer")" "$artifacts/nightly.yml"
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: dsh-fish-windows-installer
@@ -47,3 +78,18 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish latest GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          artifacts=apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts
+          installer="$artifacts/deepseek-harness-$VERSION-win-x64-unsigned.exe"
+          gh release create "v$VERSION" \
+            "$installer" "$installer.blockmap" "$artifacts/nightly.yml" \
+            --target "$GITHUB_SHA" \
+            --title "大肥鱼 $VERSION" \
+            --notes "Windows 安装包，版本 $VERSION。安装程序会覆盖旧版本；已安装的用户可在应用内检查更新。" \
+            --latest

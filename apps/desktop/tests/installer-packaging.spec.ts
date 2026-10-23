@@ -77,6 +77,31 @@ describe('installer preparation preserves application dependencies', () => {
     expect(config.artifactName).toBe('deepseek-harness-${version}-${os}-${arch}-unsigned.${ext}')
   })
 
+  it('embeds a generic feed and download page in unsigned Windows builds only', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const base = {
+      DSH_DESKTOP_APP_ID: 'com.example.installer',
+      DSH_DESKTOP_TARGET_PLATFORM: 'win32',
+      DSH_DESKTOP_TARGET_ARCH: 'x64',
+      DSH_DESKTOP_UNSIGNED: '1',
+    }
+    const disabled = createElectronBuilderConfig(base, 'win32', 'x64')
+    expect(disabled.publish).toBeNull()
+    expect(disabled.extraMetadata).not.toHaveProperty('dshDesktopUpdateDownloadPage')
+    const config = createElectronBuilderConfig({
+      ...base,
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download/',
+      DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE: 'https://github.com/example/fish/releases/latest',
+    }, 'win32', 'x64')
+    expect(config.publish).toEqual([{
+      provider: 'generic', url: 'https://github.com/example/fish/releases/latest/download/', channel: 'nightly',
+    }])
+    expect(config.extraMetadata).toMatchObject({
+      dshDesktopUpdateChannel: 'nightly',
+      dshDesktopUpdateDownloadPage: 'https://github.com/example/fish/releases/latest',
+    })
+  })
+
   it('packages every preload entry point the shell loads', async () => {
     const { readdirSync, readFileSync } = await import('node:fs')
     const sourceDirectory = new URL('../src/', import.meta.url)

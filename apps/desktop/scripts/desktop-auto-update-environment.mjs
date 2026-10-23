@@ -5,6 +5,12 @@ import { valid } from 'semver'
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
+/** Environment variable that supplies the generic update feed embedded in unsigned builds. */
+export const DESKTOP_UPDATE_FEED_URL_ENV = 'DSH_DESKTOP_UPDATE_FEED_URL'
+
+/** Environment variable that supplies the public download page offered when a self-update fails. */
+export const DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV = 'DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE'
+
 /**
  * Resolve the channel embedded in the installer; omitted local settings retain nightly.
  * @param {NodeJS.ProcessEnv} env Packaging or upload settings.
@@ -130,6 +136,51 @@ function httpsOrigin(value, name) {
     throw new Error(`desktop auto-update: ${name} must be an absolute HTTPS origin without a path, credentials, query, or fragment`)
   }
   return parsed.origin
+}
+
+/**
+ * Normalize one public HTTPS URL that may carry a path.
+ * @param {string} value - Candidate URL.
+ * @param {string} name - Environment variable used in diagnostics.
+ * @param {boolean} directory - Whether the URL addresses a directory and needs a trailing slash.
+ * @returns {string} Normalized URL.
+ */
+function httpsPublicUrl(value, name, directory) {
+  let parsed
+  try {
+    parsed = new URL(value)
+  }
+  catch {
+    throw new Error(`desktop auto-update: ${name} must be an absolute HTTPS URL`)
+  }
+  if (parsed.protocol !== 'https:'
+    || parsed.username !== ''
+    || parsed.password !== ''
+    || parsed.search !== ''
+    || parsed.hash !== '') {
+    throw new Error(`desktop auto-update: ${name} must be an absolute HTTPS URL without credentials, query, or fragment`)
+  }
+  if (directory) return `${parsed.origin}${parsed.pathname.endsWith('/') ? parsed.pathname : `${parsed.pathname}/`}`
+  return `${parsed.origin}${parsed.pathname}`
+}
+
+/**
+ * Resolve the generic feed an unsigned build checks instead of the signed release deployment.
+ * @param {NodeJS.ProcessEnv} env - Packaging environment.
+ * @returns {{ channel: 'nightly' | 'latest', publicUrl: string, downloadPage?: string } | undefined} Feed settings, or undefined when no feed is configured.
+ * @throws {Error} When a configured feed or download page is not a public HTTPS URL.
+ */
+export function resolveDesktopUnsignedUpdateFeed(env) {
+  const feed = env[DESKTOP_UPDATE_FEED_URL_ENV]?.trim()
+  if (feed === undefined || feed === '') return undefined
+  const downloadPage = env[DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV]?.trim()
+  return {
+    channel: resolveDesktopUpdateChannel(env),
+    publicUrl: httpsPublicUrl(feed, DESKTOP_UPDATE_FEED_URL_ENV, true),
+    ...(downloadPage === undefined || downloadPage === '' ? {} : {
+      downloadPage: httpsPublicUrl(downloadPage, DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV, false),
+    }),
+  }
 }
 
 /**

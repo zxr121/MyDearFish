@@ -51,7 +51,7 @@
 
 ## 拉取后运行
 
-打包后的桌面版自带插件，拉取源码不会改变已安装的应用；从源码或本地 profile 运行时，profile 的 `node_modules` 里是 pnpm 装出的实体副本，`git pull` 也不会自动更新它。拉取后在仓库根目录运行一次：
+打包后的桌面版自带插件，拉取源码不会改变已安装的应用；安装版通过 GitHub Release 自更新，见[构建 Windows 安装包](build.zh.md)。从源码或本地 profile 运行时，profile 的 `node_modules` 里是 pnpm 装出的实体副本，`git pull` 也不会自动更新它。拉取后在仓库根目录运行一次：
 
 ```
 fish\sync-runtime.cmd

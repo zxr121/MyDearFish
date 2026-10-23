@@ -1,6 +1,12 @@
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV: 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
+/** Environment variable that supplies the generic update feed embedded in unsigned builds. */
+export const DESKTOP_UPDATE_FEED_URL_ENV: 'DSH_DESKTOP_UPDATE_FEED_URL'
+
+/** Environment variable that supplies the public download page offered when a self-update fails. */
+export const DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV: 'DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE'
+
 /** Supported Desktop update deployment. */
 export type DesktopAutoUpdateEnvironment = 'test' | 'production'
 
@@ -16,6 +22,13 @@ export interface DesktopAutoUpdateConfig {
   readonly publicUrl: string
   readonly keyPrefix: string
   readonly binaryKeyPrefix: string
+}
+
+/** Generic update feed embedded in an unsigned build. */
+export interface DesktopUnsignedUpdateFeed {
+  readonly channel: 'nightly' | 'latest'
+  readonly publicUrl: string
+  readonly downloadPage?: string
 }
 
 /** Public updater URL and private COS destination for one upload target. */
@@ -63,6 +76,16 @@ export function desktopUpdateMetadataFilename(
   platform: NodeJS.Platform,
   channel?: 'nightly' | 'latest',
 ): string
+
+/**
+ * Resolve the generic feed an unsigned build checks instead of the signed release deployment.
+ * @param env - Packaging environment.
+ * @returns Feed settings, or undefined when no feed is configured.
+ * @throws When a configured feed or download page is not a public HTTPS URL.
+ */
+export function resolveDesktopUnsignedUpdateFeed(
+  env: NodeJS.ProcessEnv,
+): DesktopUnsignedUpdateFeed | undefined
 
 /**
  * Resolve the public updater URL and object prefixes for one release target.
