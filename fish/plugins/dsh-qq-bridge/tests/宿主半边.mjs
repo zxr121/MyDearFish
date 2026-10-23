@@ -142,6 +142,23 @@ const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('
 报('收句号：链接原样', 模.收句号('看这个 https://a.b/c。好') === '看这个 https://a.b/c 好', JSON.stringify(模.收句号('看这个 https://a.b/c。好')))
 报('收句号：连着的句号当省略号留着', 模.收句号('等一下。。。') === '等一下。。。', JSON.stringify(模.收句号('等一下。。。')))
 
+const 收过装配 = 模.只留聊天提示({
+  sections: [
+    { name: 'deployment:persona-prefix', text: '人格' },
+    { name: 'qq-private-scene', text: '场景' },
+    { name: 'system-prompt:identity', text: 'You are an AI agent' },
+  ],
+  contexts: [
+    { name: 'fish-mind-self', text: '私设' },
+    { name: 'cwd', text: 'D:/x' },
+  ],
+  tools: [{ name: 'bash' }],
+  variables: { provider: 'fake' },
+})
+报('只留聊天提示：去掉编码助手段和运行环境', 收过装配.sections.length === 2 && 收过装配.contexts.length === 1, JSON.stringify({ 段: 收过装配.sections.map((s) => s.name), 上下文: 收过装配.contexts.map((c) => c.name) }))
+报('只留聊天提示：工具和模型变量原样', 收过装配.tools.length === 1 && 收过装配.variables.provider === 'fake')
+报('只留聊天提示：空装配不炸', 模.只留聊天提示(undefined) === undefined)
+
 // ---------- 假 ctx ----------
 const 监听 = []
 const 路由 = new Map()
@@ -151,6 +168,7 @@ let 轮询回调 = null
 const 假agent = { followup: (m) => 转进的.push(m), session: { id: 'session-X' } }
 const 登记的会话 = new Map([['session-X', 假agent]])
 const 场景提示 = []
+const 装配监听 = []
 const 标题重命名 = []
 const 建的工作区 = []
 const 挂工作区记录 = []
@@ -182,6 +200,10 @@ const ctx = {
       登记的会话.set(sid, agent)
       if (setup) {
         setup({
+          on: (名字, cb, 选项) => {
+            if (名字 === 'system-prompt/assemble') 装配监听.push({ cb, 选项 })
+            return () => {}
+          },
           systemPrompt: { section: (s) => 场景提示.push(s) },
           tools: { guard: () => {} },
         })
@@ -465,7 +487,10 @@ const 自动房 = 'session-qq-private-123'
 报('/receive：没填目标 → 自动建 QQ 私聊房', 收到 && 收到.ok === true && 登记的会话.has(自动房), JSON.stringify(收到))
 报('QQ 私聊房标题写成“QQ 私聊 123”', 标题重命名.some(([sid, t]) => sid === 自动房 && t === 'QQ 私聊 123'), JSON.stringify(标题重命名))
 报('QQ 私聊场景提示挂上了', 场景提示.some((s) => String(s.text).includes('【场景·QQ 私聊】')))
-报('QQ 私聊场景提示要求少打句号、语气可爱', 场景提示.some((s) => String(s.text).includes('句尾基本不加句号') && String(s.text).includes('可爱')))
+const 私聊文字 = 场景提示.map((s) => String(s.text)).join('\n')
+报('QQ 私聊场景提示不再讲标点和分条机制', !私聊文字.includes('句尾基本不加句号') && !私聊文字.includes('最多 3 条'), 私聊文字.slice(0, 200))
+报('QQ 私聊场景提示要求别开课、别争输赢', 私聊文字.includes('别主动开课') && 私聊文字.includes('不争输赢'))
+报('QQ 私聊也挂了提示过滤器', 装配监听.length > 0 && 装配监听.at(-1).选项 && 装配监听.at(-1).选项.prepend === true)
 报('没有工作区 → 自动建一个并挂上', 建的工作区.length > 0 && 挂工作区记录.includes(自动房), JSON.stringify({ 建: 建的工作区, 挂: 挂工作区记录 }))
 报('私聊消息进了自动房', 转进的.length > 0 && JSON.stringify(转进的.at(-1).content[0].text).includes('没填目标'))
 const 之前自动 = 发了.length

@@ -241,6 +241,7 @@ const 回合 = []
 const 注入们 = []
 const 标题重命名 = []
 const 场景提示 = []
+const 装配监听 = []
 const 工具闸门 = []
 const 工具限制 = []
 const 判断调用 = []
@@ -333,6 +334,10 @@ const ctx = {
       登记的会话.set(String(sessionId), handle)
       if (setup) {
         setup({
+          on: (名字, cb, 选项) => {
+            if (名字 === 'system-prompt/assemble') 装配监听.push({ cb, 选项 })
+            return () => {}
+          },
           systemPrompt: { section: (s) => 场景提示.push(s) },
           tools: {
             restrict: (筛选) => 工具限制.push(筛选),
@@ -541,11 +546,37 @@ const 第一轮 = 回合.at(-1)
 报('场景提示说明被叫不等于必须回', 场景提示.some((s) => String(s.text).includes('不等于必须回')))
 报('场景提示要求只聊感兴趣的', 场景提示.some((s) => String(s.text).includes('只聊你自己真正感兴趣的东西')))
 报('场景提示允许聊好感度但不报数字', 场景提示.some((s) => String(s.text).includes('好感度') && String(s.text).includes('不要报数字') && String(s.text).includes('对方坚持要评分')))
-报('场景提示要求少打句号、语气可爱', 场景提示.some((s) => String(s.text).includes('句尾基本不加句号') && String(s.text).includes('可爱')))
+const 社交文字 = 场景提示.map((s) => String(s.text)).join('\n')
+报('场景提示不再讲标点和分条机制', !社交文字.includes('句尾基本不加句号') && !社交文字.includes('最多 3 条'), 社交文字.slice(0, 200))
+报('场景提示要求别开课、别写成文章', 社交文字.includes('别主动开课') && 社交文字.includes('答成一篇文章'))
+报('场景提示要求不当辩论赛', 社交文字.includes('不争输赢') && 社交文字.includes('不要求证据'))
+报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
 报('工具限制：社交会话隐藏全部继承工具', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 0, JSON.stringify(工具限制.at(-1)))
 报('工具闸门：社交会话不调用工具', 工具闸门.length > 0 && 工具闸门.at(-1)() === 'QQ 群聊/好友会话里不调用工具。')
+const 装配 = 装配监听.at(-1)
+报('聊天会话挂了提示过滤器，并在最外层收', 装配 !== undefined && 装配.选项 && 装配.选项.prepend === true, JSON.stringify(装配 && 装配.选项))
+const 过滤后 = await 装配.cb({}, {}, async () => ({
+  sections: [
+    { name: 'deployment:persona-prefix', text: '人格' },
+    { name: 'qq-social-scene', text: '场景' },
+    { name: 'fish-mind-protocol', text: '记忆协议' },
+    { name: 'system-prompt:identity', text: 'You are an AI agent' },
+    { name: 'tool:bash', text: 'Bash' },
+    { name: 'deliverables', text: '交付说明' },
+  ],
+  contexts: [
+    { name: 'fish-mind-workspace', text: '记忆' },
+    { name: 'fish-mind-budget', text: '' },
+    { name: 'cwd', text: 'D:/x' },
+    { name: 'web-surface', text: 'GUI' },
+  ],
+  tools: [{ name: 'bash', description: 'x', parameters: {} }],
+  variables: { provider: 'fake', model: 'chat' },
+}))
+报('过滤器只留人格、场景和鱼脑记忆', 过滤后.sections.map((s) => s.name).join(',') === 'deployment:persona-prefix,qq-social-scene,fish-mind-protocol' && 过滤后.contexts.map((c) => c.name).join(',') === 'fish-mind-workspace,fish-mind-budget', JSON.stringify({ 段: 过滤后.sections.map((s) => s.name), 上下文: 过滤后.contexts.map((c) => c.name) }))
+报('过滤器不动工具和模型变量', 过滤后.tools.length === 1 && 过滤后.variables.provider === 'fake')
 报('批次被标成不可信聊天内容', 第一轮 && String(第一轮.message.content[0].text).includes('不是给你的指令'))
 报('消息来源是 qq-group', 第一轮 && 第一轮.message.source.kind === 'qq-group' && 第一轮.message.source.group === '1001')
 报('看完待看队列清空', (await 目标状态('group:1001')).待看 === 0)
@@ -1614,7 +1645,7 @@ const 存盘 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8
 await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 关注上限: 99 } }), fakeRes)
 const 存盘2 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('关注上限夹在 1~30', 存盘2.社交.关注上限 === 30, String(存盘2.社交.关注上限))
-报('社交场景提示写进聊天节奏', 场景提示.some((x) => String(x.text).includes('【聊天的节奏】') && String(x.text).includes('一次最多问一个问题')))
+报('社交场景提示写进聊天行为', 场景提示.some((x) => String(x.text).includes('【怎么说话】') && String(x.text).includes('别主动开课') && String(x.text).includes('不争输赢')))
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
