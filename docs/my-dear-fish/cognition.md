@@ -490,10 +490,10 @@ chargeSat = 1 - exp(-charge / 1.2)
 ownerGap  = 1 - 2^(-hours_since_owner_direct/10)
 novelty   = clamp01(new_experiences_last_48h / 3)
 satiety   = 2^(-hours_since_last_real_share/10)
-urge      = clamp01((0.60*chargeSat + 0.25*ownerGap + 0.15*(1-novelty)) * (1 - 0.70*satiety))
+urge      = clamp01((0.32 + 0.34*chargeSat + 0.30*ownerGap + 0.10*(1-novelty)) * (1 - 0.30*satiety))
 ```
 
-The output has only two fields: a strength in 0 to 1 and one concrete cue. The cue is chosen from recent affect experiences, new Bilibili experiences, and things the owner said; group chats, friend sessions, and her own replies are excluded. Once chosen it stays stable for several hours, and after she confides it is not repeated for 24 hours. Proactive speech treats it as a bonus, not a hard rule: at high strength the hit line gains at most 25 points and the cue replaces the fixed "nobody has talked to me" line; at low strength the original dice still decide. In the owner session it becomes a short private prompt block: bring it up naturally, it is fine not to mention it, and never report numbers or the term "urge to confide".
+The output has only two fields: a strength in 0 to 1 and one concrete cue. She always has something she wants to say, so calm periods keep a 0.32 floor, and a recent conversation only trims the urge by 30% instead of most of it. The cue is chosen from recent affect experiences, new Bilibili experiences, and things the owner said; group chats, friend sessions, and her own replies are excluded. Once chosen it stays stable for several hours, and after she confides it is not repeated for 24 hours. Proactive speech treats it as a bonus, not a hard rule: at high strength the hit line gains at most 50 points and the cue replaces the fixed "nobody has talked to me" line; at low strength the original dice still decide. In the owner session it becomes a short private prompt block that pushes her to bring up her own mood and experiences without waiting to be asked, while still never reporting numbers or the term "urge to confide".
 
 Explicit non-goals: no seven emotion switches or six visible progress bars; no negative emotion as a retention tactic; no claims of a biological body, hunger, pain, or death; no sexual content and no rewriting intimacy as sexual innuendo; no sending several messages, repeating across sessions, or bypassing quiet hours because she "wants to share"; no exposing owner-only cues in group or friend sessions. These are not style preferences; they are part of the safety kernel.
 
@@ -659,7 +659,7 @@ Privacy is a code-level hard boundary at the same level as the allowance, not so
 | Plugin | New role | Migration |
 | --- | --- | --- |
 | `dsh-feiyu-mood` | Interface and face layer | Map the seven dimensions from core affect; remove the free-form per-turn score and read fish-mind state |
-| `dsh-speak-up` | Executor of proactive behavior | Keep the hit line; the urge to confide adds at most 25 points and replaces the fixed line with a concrete cue |
+| `dsh-speak-up` | Executor of proactive behavior | Keep the hit line; the urge to confide adds at most 50 points and replaces the fixed line with a concrete cue |
 | `dsh-tts-bridge` | Output channel | Unchanged; the fish-mind knows "this is speech" at expression time and adjusts for spoken length |
 | `dsh-qq-bridge` | Input and output channel | Unchanged; QQ messages enter the experience stream with source trust 0.4 and are not treated as fact automatically |
 | `dsh-bili-subagent` | Observation source | Reports enter the experience stream marked as observed; watched content can be raised naturally |

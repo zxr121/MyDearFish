@@ -125,11 +125,25 @@ test('同一件由头十二小时内尽量不换，讲过二十四小时内不�
   assert.equal(selectCue(cues, { now: NOW, spoken: [{ id: 1, at: NOW - 25 * HOUR }] }).id, 1)
 })
 
-test('倾述欲在安静且刚聊过时很低，久没说话又有心事时变高', () => {
+test('倾述欲有稳定底子，安静时也不低，久没说话又有心事时更高', () => {
   const calm = computeInnerLife(calmSignals(), { now: NOW })
-  assert.ok(calm.strength < 0.05)
+  assert.ok(calm.strength >= 0.2)
   assert.equal(calm.cue, null)
-  assert.equal(innerPrompt(calm), '')
+  assert.match(innerPrompt(calm), /心里挺安静/)
+  assert.match(innerPrompt(calm), /主动/)
+
+  const quiet = computeInnerLife(
+    {
+      ...calmSignals(),
+      lastSocialAt: NOW - 12 * HOUR,
+      lastOwnerAt: NOW - 12 * HOUR,
+      lastOwnerReplyAt: NOW - 12 * HOUR,
+      biliRecent: 0,
+    },
+    { now: NOW },
+  )
+  assert.ok(quiet.strength > 0.45)
+  assert.ok(quiet.strength < 0.75)
 
   const lonely = computeInnerLife(
     {
@@ -148,6 +162,7 @@ test('倾述欲在安静且刚聊过时很低，久没说话又有心事时变�
   const prompt = innerPrompt(lonely)
   assert.match(prompt, /海边那件事/)
   assert.match(prompt, /不要.*说出来/)
+  assert.match(prompt, /不用等主人问/)
   assert.doesNotMatch(prompt, /\d/)
 })
 
@@ -188,7 +203,8 @@ test('开口提示用由头替换固定文案，也不报数值', () => {
   const text = confidePrompt(inner, { ownerName: '阿岚' })
   assert.match(text, /海边那件事/)
   assert.match(text, /阿岚/)
-  assert.match(text, /不想说也可以不说/)
+  assert.match(text, /想开口就直接/)
+  assert.match(text, /别等主人先问/)
   assert.doesNotMatch(text, /\d/)
 
   const fallback = confidePrompt({ affect: { phrase: '心里有点沉' }, urges: [{ phrase: '想跟主人单独待一会儿' }], cue: null })

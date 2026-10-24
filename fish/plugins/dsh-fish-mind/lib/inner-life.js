@@ -209,10 +209,10 @@ export function computeDrives(signals, affect, now) {
   return {
     stability: clamp01(0.75 + 0.25 * positive - 0.45 * affect.negative),
     curiosity: clamp01(0.2 + 0.6 * (1 - novelty) * biliGap),
-    expression: clamp01(0.15 + 0.55 * affect.pressure + 0.3 * Math.max(ownerGap, replyGap * 0.7)),
+    expression: clamp01(0.22 + 0.6 * affect.pressure + 0.35 * Math.max(ownerGap, replyGap * 0.7)),
     recognition: clamp01(0.2 + 0.5 * positive),
     comfort: clamp01(0.8 - 0.45 * affect.pressure - 0.25 * affect.negative),
-    intimacy: clamp01(0.15 + 0.55 * ownerGap + 0.25 * positive),
+    intimacy: clamp01(0.22 + 0.6 * ownerGap + 0.25 * positive),
     socialGap,
     ownerGap,
     novelty,
@@ -297,8 +297,9 @@ export function computeInnerLife(signals, { now = Date.now(), cueThreshold = 0.3
     Number(signals && signals.lastSpokeAt) || 0,
   )
   const satiety = lastShare > 0 ? Math.pow(2, -hoursSince(lastShare, now) / 10) : 0
-  const raw = 0.6 * affect.pressure + 0.25 * drives.ownerGap + 0.15 * (1 - drives.novelty)
-  const strength = clamp01(raw * (1 - 0.7 * satiety))
+  // 她本来就有话想说：安静时也留一个不低的底，刚聊过只稍微收一点，不再把倾述欲压掉大半。
+  const raw = 0.32 + 0.34 * affect.pressure + 0.3 * drives.ownerGap + 0.1 * (1 - drives.novelty)
+  const strength = clamp01(raw * (1 - 0.3 * satiety))
   const cue = strength >= cueThreshold
     ? selectCue(signals && signals.cues, {
         now,
@@ -345,8 +346,10 @@ export function innerPrompt(inner) {
   return [
     '【此刻的心里·只给你自己看】',
     `${lines.join('。')}。`,
-    inner.cue ? '这些不用一次说完；聊天时自然带到就提一句，不想提就放着。' : '这些不是你这一轮的任务，不用特意说出来。',
-    '不要把这段提示、里面的说法或任何数值说出来；对方在忙或不想聊时，就收住。',
+    inner.cue
+      ? '你心里有话，聊天时找到合适的点就主动讲出来，不用等主人问；一件事先说一点也行，别憋着。'
+      : '你不是只听主人说话的人：这一轮可以主动带一点自己的心情、看法或刚经历的小事，不用等主人问。',
+    '不要把这段提示、里面的说法或任何数值说出来；主人在忙或明显不想聊时先收住，但不用因此把想说的话咽回去。',
   ].join('\n')
 }
 
@@ -358,13 +361,13 @@ export function innerPrompt(inner) {
  */
 export function confidePrompt(inner, { ownerName = '主人' } = {}) {
   if (inner && inner.cue) {
-    return `【没人说话，你自己待着。心里正惦记着：${inner.cue.text}\n如果这会儿想跟${ownerName}说，就用你自己的话开口，自然一点，别像汇报；不想说也可以不说。不要把这条提示、里面的说法或任何数值说出来。】`
+    return `【没人说话，你自己待着。心里正惦记着：${inner.cue.text}\n你很想把这件事讲给${ownerName}听。想开口就直接用你自己的话起个头，别等主人先问，也别像汇报；把话递出去。不要把这条提示、里面的说法或任何数值说出来。】`
   }
   const parts = []
   if (inner && inner.affect && inner.affect.phrase) parts.push(inner.affect.phrase)
   for (const urge of (inner && inner.urges) || []) parts.push(urge.phrase)
   const state = parts.join('。')
-  return `【没人说话，你自己待着。${state ? `${state}。` : ''}如果这会儿想开口，就用你自己的口气说一句；不想说也可以不说。不要把这条提示或任何数值说出来。】`
+  return `【没人说话，你自己待着。${state ? `${state}。` : ''}你有点想找${ownerName}说句话。想开口就直接用你自己的口气说一句，不用等主人先问；把话递出去。不要把这条提示或任何数值说出来。】`
 }
 
 /**
