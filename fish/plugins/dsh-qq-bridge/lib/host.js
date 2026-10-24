@@ -5929,9 +5929,10 @@ export function apply(ctx) {
 
   /** 本机收报口：SnowLuma 的 HTTP 上报（httpClient）往这里 POST OneBot 事件。 */
   function 建戳服务() {
-    const c = 读配置().戳一戳
+    const 配置 = 读配置()
+    const c = 配置.戳一戳
     const 地址 = 戳地址(c.端口)
-    if (!c.启用) {
+    if (!配置.总开关 || !c.启用) {
       戳状态 = { ...戳状态, 在听: false, 端口: c.端口, 地址, 错: '' }
       return () => {}
     }
@@ -6146,8 +6147,9 @@ export function apply(ctx) {
     let 收摊 = () => {}
     let 当前 = ''
     const 同步 = () => {
-      const c = 读配置().戳一戳
-      const 键 = `${c.启用}|${c.端口}`
+      const 配置 = 读配置()
+      const c = 配置.戳一戳
+      const 键 = `${配置.总开关}|${c.启用}|${c.端口}`
       if (键 === 当前) return
       收摊()
       当前 = 键

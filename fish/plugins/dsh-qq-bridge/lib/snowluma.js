@@ -618,6 +618,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
 
   async function 自动启动() {
     const 配置 = 读配置()
+    if (!配置.总开关) return
     if (!(配置.SnowLuma && 配置.SnowLuma.同意协议 && 配置.SnowLuma.自动启动)) return
     const 目录 = 目标目录(配置)
     if (!是SnowLuma目录(目录)) return

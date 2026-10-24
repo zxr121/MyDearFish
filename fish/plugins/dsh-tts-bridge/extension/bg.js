@@ -3,8 +3,7 @@
 //   1. 替页面去问本机的 DSH 插件「有没有新的一句」（放后台是为了拿到 host_permissions，不受跨域限制）；
 //   2. **自己找到 DSH 在哪个端口**（原来写死 3080/43129，别人换端口就连不上）；
 //   3. 万一 DeepSeek 那个页面不在了、而队列里又有话要说，就自己把它叫回来（后台标签，不抢你视线）；
-//   4. 本机可能同时开着两个 DSH，所以**所有应声的窝都要问** ——
-//      谁手里有活儿就干谁的。只认一个的话，另一个窝里点朗读就永远没反应。
+//   4. 朗读桥只连工作区那一套（固定 3080），不认安装版桌面版的窝。
 //
 // ⚠ 找端口的逻辑在 find.js 里（那份不碰 chrome API，能拿真服务器直接测）
 
@@ -35,22 +34,9 @@ async function 刷新窝(强) {
   const 现在 = Date.now()
   if (!强 && 窝们.length && 现在 - 上次找 < 找一次管多久) return 窝们
 
-  // 记着的：用户手工填的优先，然后是上次成功的
-  const 记着的 = []
-  try {
-    const 存 = await chrome.storage.local.get(['ttsPortManual', 'ttsPort'])
-    if (存 && 存.ttsPortManual) 记着的.push(存.ttsPortManual)
-    if (存 && 存.ttsPort) 记着的.push(存.ttsPort)
-  } catch (e) {}
-
-  let 标签们 = []
-  try {
-    标签们 = await chrome.tabs.query({})
-  } catch (e) {}
-
   let 找到 = []
   try {
-    找到 = (await 找窝(标签们, 记着的)) || []
+    找到 = (await 找窝()) || []
   } catch (e) {
     找到 = []
   }
