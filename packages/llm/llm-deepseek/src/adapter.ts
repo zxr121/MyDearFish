@@ -14,7 +14,7 @@ import { imagePricing, inlineImages, prepareFileIds, prepareImages } from './ima
 import { serialize } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
-import { providerError, providerErrorDetail } from './transport.ts'
+import { providerBodyExcerpt, providerError, providerErrorDetail } from './transport.ts'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { resolveRequestImageTarget } from './request-pricing.ts'
 
@@ -156,7 +156,7 @@ export class DeepSeekAdapter<C extends Connection = Connection> extends LlmAdapt
           }
           const detail = providerErrorDetail(raw)
           if (await files.retry(detail)) continue
-          const failure = providerError(raw, response.status, response.headers)
+          const failure = providerError(raw, response.status, response.headers, providerBodyExcerpt(text))
           const message = files.errorMessage(response.status, failure.message, detail)
           throw new LlmError(message, failure.code, { ...failure.failure, cause: new Error(text) })
         }

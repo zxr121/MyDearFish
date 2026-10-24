@@ -2,6 +2,19 @@
 
 import { isContextWindowExceededError, isQuotaExceededError, LlmError, ProviderRequestId } from '@deepseek-ai/dsh-llm'
 
+/** Longest response-body text copied into a failure message that carries no provider message. */
+const ERROR_BODY_EXCERPT_LIMIT = 200
+
+/**
+ * Collapse one error response body into a single-line excerpt for a failure message.
+ * @param text - raw HTTP response body.
+ * @returns the normalized body, capped with an ellipsis; empty for blank input.
+ */
+export function providerBodyExcerpt(text: string): string {
+  const compact = text.replace(/\s+/gu, ' ').trim()
+  return compact.length <= ERROR_BODY_EXCERPT_LIMIT ? compact : `${compact.slice(0, ERROR_BODY_EXCERPT_LIMIT)}…`
+}
+
 /** Read only provider error fields used by bounded Files recovery.
  * @param raw - decoded HTTP error response.
  * @returns code, type, and message text, without unrelated response fields.
@@ -17,12 +30,15 @@ export function providerErrorDetail(raw: unknown): string {
  * @param raw - decoded response or in-band error event.
  * @param status - HTTP status when the error preceded streaming.
  * @param headers - response headers for retry delay and request identity.
+ * @param bodyExcerpt - normalized response text appended when the provider supplied no message.
  * @returns a stable error consumed by LlmRuntime and llm-retry.
  */
-export function providerError(raw: unknown, status: number | undefined, headers?: Headers): LlmError {
+export function providerError(raw: unknown, status: number | undefined, headers?: Headers, bodyExcerpt = ''): LlmError {
   const envelope = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {}
   const error = typeof envelope.error === 'object' && envelope.error !== null ? envelope.error as Record<string, unknown> : {}
-  const message = typeof error.message === 'string' ? error.message : `DeepSeek Messages request failed (${status ?? 'stream error'})`
+  const message = typeof error.message === 'string'
+    ? error.message
+    : `DeepSeek Messages request failed (${status ?? 'stream error'})${bodyExcerpt === '' ? '' : `: ${bodyExcerpt}`}`
   const type = typeof error.type === 'string' ? error.type : ''
   const detail = `${type} ${typeof error.code === 'string' ? error.code : ''} ${message}`
   let code: string

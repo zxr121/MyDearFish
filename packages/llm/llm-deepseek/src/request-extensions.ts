@@ -1,8 +1,48 @@
-/** Prepare plugin-contributed request fields and commit their delivery after HTTP acceptance. */
+/**
+ * Prepare plugin-contributed request fields and commit their delivery after HTTP acceptance.
+ * Serialized payloads replace unpaired surrogate escapes, so stored history that split a
+ * surrogate pair across stream chunks cannot make a strict provider JSON parser reject the request.
+ */
 
 import { errorChain, LlmError } from '@deepseek-ai/dsh-llm'
 import type { DeepSeekLlmApiExtensionRequest, PreparedDeepSeekLlmApiExtensions } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import type { DeepSeekAdapterOptions } from './types.ts'
+
+/**
+ * Replace unpaired surrogate escapes in serialized JSON with U+FFFD.
+ * `JSON.stringify` writes a valid pair as its two code units and an unpaired surrogate as a
+ * `\uXXXX` escape, so only the escaped form needs repair while escaped backslashes stay literal.
+ * @param json - serialized request payload.
+ * @returns the payload text with every unpaired surrogate escape replaced by `\ufffd`.
+ */
+function repairLoneSurrogates(json: string): string {
+  if (!json.includes('\\u')) return json
+  let out = ''
+  let copied = 0
+  for (let index = 0; index < json.length; index++) {
+    if (json.charCodeAt(index) !== 0x5c) continue
+    if (json[index + 1] !== 'u') {
+      index += 1
+      continue
+    }
+    const hex = json.slice(index + 2, index + 6)
+    if (!/^[0-9a-fA-F]{4}$/u.test(hex)) continue
+    const unit = Number.parseInt(hex, 16)
+    if (unit >= 0xd800 && unit <= 0xdfff) {
+      const pair = json.slice(index + 6, index + 12)
+      if (unit <= 0xdbff && /^\\u[dD][c-fC-F][0-9a-fA-F]{2}$/u.test(pair)) {
+        index += 11
+        continue
+      }
+      out += `${json.slice(copied, index)}\\ufffd`
+      copied = index + 6
+      index += 5
+      continue
+    }
+    index += 5
+  }
+  return copied === 0 ? json : out + json.slice(copied)
+}
 
 /**
  * Merge contributions without replacing Messages fields. A rejected preparation or
@@ -39,10 +79,10 @@ export async function prepareRequestExtensions(
   }
   let payload: string
   try {
-    payload = JSON.stringify({ ...body, ...extensions.fields })
+    payload = repairLoneSurrogates(JSON.stringify({ ...body, ...extensions.fields }))
   } catch (error) {
     // A base request that cannot serialize throws here, before any field is reported as omitted.
-    const base = JSON.stringify(body)
+    const base = repairLoneSurrogates(JSON.stringify(body))
     onOmitted(fields, error)
     return { payload: base, accept: () => Promise.resolve() }
   }

@@ -9,7 +9,7 @@ import DeepSeekLlmApiExtensionRegistry from '@deepseek-ai/dsh-deepseek-llm-api-e
 import type { DeepSeekLlmApiExtensionRequest } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as DeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
-import { adapter, assemble, options, sse, textEvents } from './helpers.ts'
+import { adapter, assemble, options, sse, textEvents, user } from './helpers.ts'
 
 declare module '@deepseek-ai/dsh-deepseek-llm-api-extensions' {
   interface DeepSeekLlmApiExtensionMap {
@@ -97,6 +97,33 @@ describe('Messages request extensions', () => {
     const body = fetch.mock.calls[0]?.[1]?.body
     if (typeof body !== 'string') throw new Error('Expected a serialized Messages request')
     expect(JSON.parse(body)).toMatchObject({ dsh_messages_test: { value: 'inventory' } })
+  })
+
+  it('repairs unpaired surrogate escapes in a serialized contribution', async () => {
+    const ctx = await boot()
+    ctx.deepseekLlmApiExtensions.register('dsh_messages_test', {
+      prepare: () => ({ value: { value: '前\ud835后\uddfc尾𝕼\\ud835' }, accept: () => {} }),
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(sse(textEvents)))
+    vi.stubGlobal('fetch', fetch)
+    const result = await assemble(ctx.llm.stream(options()))
+    expect(result.assembler.finish.kind).toBe('stop')
+    const body = fetch.mock.calls[0]?.[1]?.body
+    if (typeof body !== 'string') throw new Error('Expected a serialized Messages request')
+    const sent = JSON.parse(body) as { dsh_messages_test: { value: string } }
+    expect(sent.dsh_messages_test.value).toBe('前\uFFFD后\uFFFD尾𝕼\\ud835')
+  })
+
+  it('repairs unpaired surrogates in the base request body', async () => {
+    const ctx = await boot()
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(sse(textEvents)))
+    vi.stubGlobal('fetch', fetch)
+    const result = await assemble(ctx.llm.stream(options({ messages: [user('a\ud835b')] })))
+    expect(result.assembler.finish.kind).toBe('stop')
+    const body = fetch.mock.calls[0]?.[1]?.body
+    if (typeof body !== 'string') throw new Error('Expected a serialized Messages request')
+    const sent = JSON.parse(body) as { messages: { content: { text: string }[] }[] }
+    expect(sent.messages[0]?.content[0]?.text).toBe('a\uFFFDb')
   })
 
   it('sends the request without a field whose preparation throws', async () => {

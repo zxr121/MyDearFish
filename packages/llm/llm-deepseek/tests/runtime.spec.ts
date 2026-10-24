@@ -25,7 +25,7 @@ import type { PreparedDeepSeekLlmApiExtensions } from '@deepseek-ai/dsh-deepseek
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import { providerError } from '../src/transport.ts'
+import { providerBodyExcerpt, providerError } from '../src/transport.ts'
 import { resolveRequestImageTarget } from '../src/request-pricing.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -1522,7 +1522,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(result.finish.kind).toBe('error')
     if (result.finish.kind !== 'error') throw new Error('expected an error finish')
     expect(result.finish.failure.code).toBe('SERVER')
-    expect(result.finish.failure.message).toBe('DeepSeek Messages request failed (500)')
+    expect(result.finish.failure.message).toBe('DeepSeek Messages request failed (500): {"error":{"type":"x"}}')
   })
 
   it('includes the status for non-JSON error bodies', async () => {
@@ -1532,11 +1532,20 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(result.finish.kind).toBe('error')
     if (result.finish.kind !== 'error') throw new Error('expected an error finish')
     expect(result.finish.failure.code).toBe('SERVER')
-    expect(result.finish.failure.message).toBe('DeepSeek Messages request failed (502)')
+    expect(result.finish.failure.message).toBe('DeepSeek Messages request failed (502): Bad Gateway')
   })
 
   it('maps unusual statuses to HTTP_<status>', () => {
     expect(providerError({}, 418).code).toBe('HTTP_418')
+  })
+
+  it('appends a bounded body excerpt only when the provider supplies no message', () => {
+    expect(providerError({}, 400, undefined, providerBodyExcerpt('  lone\n surrogate  ')).message)
+      .toBe('DeepSeek Messages request failed (400): lone surrogate')
+    expect(providerError({ error: { message: 'provider detail' } }, 400, undefined, 'ignored').message)
+      .toBe('provider detail')
+    expect(providerError({}, 400, undefined, providerBodyExcerpt('x'.repeat(500))).message)
+      .toBe(`DeepSeek Messages request failed (400): ${'x'.repeat(200)}…`)
   })
 
   it('reports a failed endpoint connection as a transport failure', async () => {
