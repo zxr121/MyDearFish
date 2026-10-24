@@ -8,7 +8,7 @@
 //   6) 脱敏失败 → 不发；回复她发过的消息 → 认得出是在叫她
 //   7) /models 和 /save 的社交深层合并；旧字段「被叫直接回」被忽略
 //   8) 刷屏时被叫和主人的消息优先保留，不会被挤出待看或判断窗口
-//   9) 兴趣画像成熟前每条都判；成熟后快判挡掉无关消息、整批没兴趣时不调判断模型，
+//   9) 兴趣画像成熟前每条都判；成熟后快判只排序和限额，0 分也进慢判（超额靠探索补看），
 //      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判，直接开一轮
 // 跑法： node tests/社交半边.mjs
 
@@ -551,6 +551,9 @@ const 收到回复 = async (sid, 文本, 轮号 = 1) => {
 }
 
 const 日志文本 = async () => (await 宿主.概况()).日志.map((x) => x.文本).join('\n')
+const 思绪文本 = () => {
+  try { return readFileSync(join(家, 'qq-thoughts.jsonl'), 'utf8') } catch (error) { return '' }
+}
 const 目标状态 = async (key) => (await 宿主.概况()).社交.目标.find((t) => t.key === key)
 const 等到 = async (条件, 毫秒 = 2000) => {
   const 止 = Date.now() + 毫秒
@@ -577,11 +580,11 @@ const 第一轮 = 回合.at(-1)
 报('没挑中的消息不进她的会话', 第一轮 && String(第一轮.message.content[0].text).includes('你觉得呢') && !String(第一轮.message.content[0].text).includes('食堂好难吃'))
 报('判断提示里带上了消息 id 和被叫标记', String(判断调用[0]?.messages?.[0]?.content?.[0]?.text).includes('[#1102]') && String(判断调用[0]?.messages?.[0]?.content?.[0]?.text).includes('[被叫]'), String(判断调用[0]?.messages?.[0]?.content?.[0]?.text).slice(0, 160))
 报('回复提示标出这条在说她', String(第一轮?.message.content[0].text).includes('[说到你]'), String(第一轮?.message.content[0].text).slice(0, 300))
-报('判断提示说明没挑中就当没看见', String(判断调用[0]?.system).includes('没挑中的她会当没看见'))
+报('判断提示说明没挑中就当没看见', String(判断调用[0]?.system).includes('没挑中的她这一轮当没看见'))
 报('判断提示说明被叫必须回', String(判断调用[0]?.system).includes('必须至少回一句') && String(判断调用[0]?.system).includes('不能装没看见'))
-报('判断提示把兴趣和必回分开', String(判断调用[0]?.system).includes('兴趣只决定她会不会主动凑上去') && String(判断调用[0]?.system).includes('被 @、被叫名字、被回复、好友私聊、问到她本人、查好感度的消息必须放进 watch'))
+报('判断提示把兴趣和必回分开', String(判断调用[0]?.system).includes('兴趣只决定她会不会主动开新话题，不决定她能不能回') && String(判断调用[0]?.system).includes('兴趣不是门槛') && String(判断调用[0]?.system).includes('被 @、被叫名字、被回复、好友私聊、问到她本人、查好感度的消息必须放进 watch'))
 报('判断提示带上了兴趣词', String(判断调用[0]?.system).includes('她明确写下的兴趣：海、鲸鱼'))
-报('判断提示要求说明兴趣点', String(判断调用[0]?.system).includes('reason 必须写她具体对什么感兴趣'))
+报('判断提示要求说明为什么想接', String(判断调用[0]?.system).includes('reason 写她为什么想接这一句'))
 报('社交会话标题写成 QQ 群号', 标题重命名.some(([sid, t]) => sid === 'session-qq-social-group-1001' && t === 'QQ 群 1001'), JSON.stringify(标题重命名))
 报('场景提示挂上了', 场景提示.some((s) => String(s.text).includes('【场景·QQ 群（群号 1001）】')))
 报('场景提示说明被叫至少要回', 场景提示.some((s) => String(s.text).includes('至少要回一句') && String(s.text).includes('不能装没看见')))
@@ -595,8 +598,8 @@ const 社交文字 = 场景提示.map((s) => String(s.text)).join('\n')
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
-报('工具限制：社交会话隐藏全部继承工具', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 0, JSON.stringify(工具限制.at(-1)))
-报('工具闸门：社交会话不调用工具', 工具闸门.length > 0 && 工具闸门.at(-1)() === 'QQ 群聊/好友会话里不调用工具。')
+报('工具限制：社交会话只放开搜索', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 1 && 工具限制.at(-1).allow[0] === 'web_search', JSON.stringify(工具限制.at(-1)))
+报('工具闸门：只放搜索，其他工具仍拒绝', 工具闸门.length > 0 && 工具闸门.at(-1)({ name: 'web_search' }) === undefined && String(工具闸门.at(-1)({ name: 'bash' })).includes('只允许搜索查资料'))
 const 装配 = 装配监听.at(-1)
 报('聊天会话挂了提示过滤器，并在最外层收', 装配 !== undefined && 装配.选项 && 装配.选项.prepend === true, JSON.stringify(装配 && 装配.选项))
 const 过滤后 = await 装配.cb({}, {}, async () => ({
@@ -653,7 +656,7 @@ await 等()
 报('判不看 → 不开轮、不注入', 回合.length === 之前2 && 注入们.length === 注入之前2 && 判断调用.length === 判断之前2 + 1)
 报('有动静就先建社交房，哪怕判不看', 登记的会话.has('session-qq-social-group-1002'))
 报('不看也进日志', String(await 日志文本()).includes('都没看'))
-报('没写兴趣词时像小孩一样好奇', String(判断调用.at(-1)?.system).includes('对什么都好奇') && String(判断调用.at(-1)?.system).includes('不必有现成的兴趣理由'))
+报('没写兴趣词时像小孩一样好奇，没兴趣也能短接', String(判断调用.at(-1)?.system).includes('对什么都好奇') && String(判断调用.at(-1)?.system).includes('没兴趣但接得上的，也可以短应一声'))
 报('不看后待看清空', (await 目标状态('group:1002')).待看 === 0)
 
 // ---------- 3 只看不回：挑一条 inject，不唤醒回复模型 ----------
@@ -1174,23 +1177,24 @@ const 回合之前21 = 回合.length
 await 轮询社交()
 await 等()
 const 提示21 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
-报('快判只把有兴趣的消息送进判断窗口', 判断调用.length === 判断之前21 + 1 && 提示21.includes('[#3125]') && 提示21.includes('鲸鱼又浮上来了'))
+报('快判把有兴趣的消息排前面', 判断调用.length === 判断之前21 + 1 && 提示21.includes('[#3125]') && 提示21.includes('鲸鱼又浮上来了'))
 报('被叫的消息不因快判被挡', 提示21.includes('[#3123]') && 提示21.includes('[被叫]'))
-报('主人的消息也走同一套快判', !提示21.includes('[#3124]'))
-报('明显无关的群友消息被快判挡掉', !提示21.includes('[#3122]') && !提示21.includes('食堂还是'))
+报('没兴趣的群友消息也进判断窗口', 提示21.includes('[#3122]') && 提示21.includes('食堂还是'))
+报('主人的普通消息也在同一批里', 提示21.includes('[#3124]'))
 报('快判不替她决定回不回：被叫仍然必回', 回合.length === 回合之前21 + 1 && 注入们.length === 注入之前21)
 报('只看过的消息才算进画像', (await 目标状态('group:1019')).画像.样本 === 22, JSON.stringify((await 目标状态('group:1019')).画像))
-报('快判挡掉的条数进状态', (await 目标状态('group:1019')).画像.快判丢 >= 1)
+报('快判不再因为 0 分丢消息', (await 目标状态('group:1019')).画像.快判丢 === 0, JSON.stringify((await 目标状态('group:1019')).画像))
 报('进过视线的消息都记了“见过”', (await 目标状态('group:1019')).画像.见过词 >= 2, JSON.stringify((await 目标状态('group:1019')).画像))
-报('快判命中写进日志', String(await 日志文本()).includes('快判先挡了'))
+报('快判排序写进日志', 思绪文本().includes('快判：最高'))
 报('判断提示带上学到的兴趣词', 提示21.includes('鲸鱼'))
 await 收到回复('session-qq-social-group-1019', '在的呀')
 let 画像存 = ''
 try { 画像存 = readFileSync(join(家, 'qq-social-interests.json'), 'utf8') } catch (error) {}
 报('兴趣画像落盘，重启能接上', 画像存.includes('鲸鱼') && 画像存.includes('group:1019'), 画像存.slice(0, 120))
 
-// ---------- 21 画像成熟后整批没兴趣：一次判断都不花 ----------
+// ---------- 21 画像成熟后整批没兴趣：也能看、能接，不再直接跳过 ----------
 时间偏移 += 11_000
+写配置({ 群: ['1019'], 关注上限: 30, 判断冷却秒: 10, 冷却秒: 1 })
 群消息表.set(1019, [
   ...鲸鱼话题,
   一条群消息('今天食堂好难吃', { id: 3121 }),
@@ -1201,15 +1205,18 @@ try { 画像存 = readFileSync(join(家, 'qq-social-interests.json'), 'utf8') } 
   一条群消息('今晚食堂关门', { id: 3126, uid: 890 }),
   一条群消息('主人再说一句', { id: 3127, 是主人: true }),
 ])
+设判断(['3126'], true, 0.1, '不感兴趣，但接得上一句')
 const 判断之前21b = 判断调用.length
 const 注入之前21b = 注入们.length
 const 回合之前21b = 回合.length
 await 轮询社交()
 await 等()
-报('整批没兴趣 → 一次判断都不花', 判断调用.length === 判断之前21b && 回合.length === 回合之前21b)
-报('整批没兴趣时主人消息也不特殊', 注入们.length === 注入之前21b)
+const 提示21b = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
+报('整批没兴趣也交给判断模型', 判断调用.length === 判断之前21b + 1 && 提示21b.includes('[#3126]'), 提示21b.slice(0, 160))
+报('不感兴趣也能被挑中并接一句', 回合.length === 回合之前21b + 1 && 回合.at(-1)?.sid === 'session-qq-social-group-1019', JSON.stringify(回合.at(-1)))
+报('没兴趣接话时主人普通消息不单独开轮', 注入们.length === 注入之前21b)
 报('整批没兴趣 → 待看清空', (await 目标状态('group:1019')).待看 === 0)
-报('快判跳过批数进状态', (await 目标状态('group:1019')).画像.快判跳过 >= 1)
+await 收到回复('session-qq-social-group-1019', '食堂又关门啦')
 
 // ---------- 21b 关掉快判：成熟画像也全部交给判断模型 ----------
 时间偏移 += 11_000
@@ -1242,51 +1249,63 @@ await 等()
 const 提示21上限 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
 报('快判上限：分数够也只放设定条数', 判断调用.length === 判断之前21上限 + 1 && 提示21上限.includes('[#3142]') && 提示21上限.includes('[#3143]') && !提示21上限.includes('[#3141]'), 提示21上限.slice(0, 240))
 
-// ---------- 21d 探索额度：整批没兴趣时偶尔看一眼陌生话题 ----------
+// ---------- 21d 0 分也进窗口；超过名额时探索额度再捞一条更早的 ----------
 时间偏移 += 11_000
 写配置({ 群: ['1019'], 关注上限: 30, 判断冷却秒: 10, 快判: true, 快判最多: 2, 探索间隔秒: 600, 探索最低余额: 3 })
+const 探索基准 = Math.floor(Date.now() / 1000) + 100
 群消息表.set(1019, [
   ...鲸鱼话题,
-  一条群消息('今晚食堂关门', { id: 3150, uid: 890 }),
+  一条群消息('楼下在修路', { id: 3150, uid: 890, time: 探索基准 + 1 }),
+  一条群消息('外面下雨了', { id: 3151, uid: 891, time: 探索基准 + 2 }),
+  一条群消息('路上堵车了', { id: 3152, uid: 892, time: 探索基准 + 3 }),
 ])
 设判断([], false, 0.2, '没兴趣')
 const 判断之前21f = 判断调用.length
 await 轮询社交()
 await 等()
 const 提示21f = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
-报('整批没兴趣时，探索额度挑一条没见过的', 判断调用.length === 判断之前21f + 1 && 提示21f.includes('[#3150]'), 提示21f.slice(0, 160))
+报('0 分也进判断窗口，超额的部分靠探索补看', 判断调用.length === 判断之前21f + 1 && 提示21f.includes('[#3150]') && 提示21f.includes('[#3151]') && 提示21f.includes('[#3152]'), 提示21f.slice(0, 200))
 报('探索次数进状态', (await 目标状态('group:1019')).画像.探索 >= 1, JSON.stringify((await 目标状态('group:1019')).画像))
 
 时间偏移 += 11_000
 群消息表.set(1019, [
   ...鲸鱼话题,
-  一条群消息('外面下雨了', { id: 3151, uid: 890 }),
+  一条群消息('快递到了', { id: 3153, uid: 893, time: 探索基准 + 4 }),
+  一条群消息('外卖到了', { id: 3154, uid: 894, time: 探索基准 + 5 }),
+  一条群消息('手机没电了', { id: 3155, uid: 895, time: 探索基准 + 6 }),
 ])
 const 判断之前21g = 判断调用.length
 await 轮询社交()
 await 等()
-报('探索额度有间隔：十分钟内不再挑', 判断调用.length === 判断之前21g)
+const 提示21g = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
+报('探索额度有间隔：十分钟内只放名额内的两条', 判断调用.length === 判断之前21g + 1 && 提示21g.includes('[#3154]') && 提示21g.includes('[#3155]') && !提示21g.includes('[#3153]'), 提示21g.slice(0, 200))
 
 时间偏移 += 601_000
 群消息表.set(1019, [
   ...鲸鱼话题,
-  一条群消息('路上堵车了', { id: 3152, uid: 890 }),
+  一条群消息('钥匙找不到了', { id: 3156, uid: 896, time: 探索基准 + 7 }),
+  一条群消息('耳机丢了', { id: 3157, uid: 897, time: 探索基准 + 8 }),
+  一条群消息('水杯忘带了', { id: 3158, uid: 898, time: 探索基准 + 9 }),
 ])
 const 判断之前21h = 判断调用.length
 await 轮询社交()
 await 等()
-报('探索间隔到了再挑一条', 判断调用.length === 判断之前21h + 1 && String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text).includes('[#3152]'))
+const 提示21h = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
+报('探索间隔到了，再捞一条更早的', 判断调用.length === 判断之前21h + 1 && 提示21h.includes('[#3156]') && 提示21h.includes('[#3157]') && 提示21h.includes('[#3158]'), 提示21h.slice(0, 200))
 
 时间偏移 += 601_000
 鱼脑.availableCny = 2
 群消息表.set(1019, [
   ...鲸鱼话题,
-  一条群消息('快递到了', { id: 3153, uid: 890 }),
+  一条群消息('明天要早起', { id: 3159, uid: 899, time: 探索基准 + 10 }),
+  一条群消息('今晚早点睡', { id: 3161, uid: 900, time: 探索基准 + 11 }),
+  一条群消息('困得不行了', { id: 3162, uid: 901, time: 探索基准 + 12 }),
 ])
 const 判断之前21i = 判断调用.length
 await 轮询社交()
 await 等()
-报('余额低于探索线就不花钱看陌生话题', 判断调用.length === 判断之前21i)
+const 提示21i = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text)
+报('余额低于探索线就不捞名额外的', 判断调用.length === 判断之前21i + 1 && !提示21i.includes('[#3159]') && 提示21i.includes('[#3161]') && 提示21i.includes('[#3162]'), 提示21i.slice(0, 200))
 鱼脑.availableCny = 5
 
 // ---------- 21j 没 @ 也可能是在问她本人：自关系问句直接进慢判，并标成 [问你] ----------
