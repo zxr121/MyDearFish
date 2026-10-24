@@ -28,9 +28,23 @@ import { pipeline } from 'node:stream/promises'
 export const 后台端口 = 5099
 export const OneBot端口 = 3000
 const 发行接口 = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest'
+const 镜像前缀 = [
+  'https://gh-proxy.com/',
+  'https://ghproxy.net/',
+]
 const 探测缓存毫秒 = 2000
 const 事件客户端名 = 'dsh-event'
 const 默认启动文件 = '.dsh-launch.json'
+
+/** 发布查询直连优先；ghproxy.net 不代理 API，只让 gh-proxy 参与兜底。 */
+export function 发行地址候选() {
+  return [发行接口, `https://gh-proxy.com/${发行接口}`]
+}
+
+/** 发行包先走国内镜像，最后回 GitHub 直连；摘要仍以官方 API 的 digest 为准。 */
+export function 下载地址候选(地址) {
+  return [...镜像前缀.map((前缀) => `${前缀}${地址}`), 地址]
+}
 
 function 读JSON(文件, 兜 = null) {
   try {
@@ -384,57 +398,107 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     ])
   }
 
-  async function 下载并解压(目录) {
-    安装任务 = { 进行中: true, 阶段: '查询最新版', 错: '', 已下载: 0, 总: 0 }
-    const r = await fetch(发行接口, {
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-qq-bridge' },
-      signal: AbortSignal.timeout(20_000),
-    })
-    if (!r.ok) throw new Error(`查不到 SnowLuma 最新版（GitHub 返回 ${r.status}）`)
-    const 发布 = await r.json()
-    const 资产 = (Array.isArray(发布 && 发布.assets) ? 发布.assets : []).find((a) =>
-      /^SnowLuma-v[\d.]+-win-x64\.zip$/i.test(String((a && a.name) || '')),
-    )
-    if (!资产) throw new Error('SnowLuma 最新版里没有 Windows x64 发行包')
-    const 版本 = String(发布.tag_name || '').replace(/^v/, '') || String(资产.name)
+  async function 取发布() {
+    const 失败 = []
+    for (const 地址 of 发行地址候选()) {
+      const 名 = 地址 === 发行接口 ? 'GitHub 直连' : 'gh-proxy 镜像'
+      try {
+        const r = await fetch(地址, {
+          headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-qq-bridge' },
+          signal: AbortSignal.timeout(20_000),
+        })
+        if (!r.ok) {
+          失败.push(`${名} HTTP ${r.status}`)
+          continue
+        }
+        const 发布 = await r.json()
+        if (!发布 || !Array.isArray(发布.assets)) {
+          失败.push(`${名} 没返回 assets`)
+          continue
+        }
+        return 发布
+      } catch (错) {
+        失败.push(`${名} ${String(错?.name || 错?.message || 错).slice(0, 40)}`)
+      }
+    }
+    throw new Error(`查不到 SnowLuma 最新版（${失败.join('；')}）`)
+  }
 
-    安装任务 = { 进行中: true, 阶段: `下载 SnowLuma v${版本}`, 错: '', 已下载: 0, 总: Number(资产.size) || 0 }
-    const 下载 = await fetch(String(资产.browser_download_url), {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(30 * 60_000),
-    })
-    if (!下载.ok || !下载.body) throw new Error(`下载 SnowLuma 失败（HTTP ${下载.status}）`)
-    const 总 = Number(下载.headers.get('content-length')) || Number(资产.size) || 0
-    安装任务.总 = 总
-
-    const 压缩包 = `${目录}.download.zip`
-    mkdirSync(dirname(压缩包), { recursive: true })
-    const 哈希 = createHash('sha256')
-    let 已 = 0
+  async function 下载文件(地址, 文件, 进度) {
+    const 控 = new AbortController()
+    let 总时限 = setTimeout(() => 控.abort(new Error('下载超时')), 30 * 60_000)
+    let 停滞 = setTimeout(() => 控.abort(new Error('连接超时')), 30_000)
     try {
+      const 响应 = await fetch(地址, { redirect: 'follow', signal: 控.signal })
+      clearTimeout(停滞)
+      if (!响应.ok || !响应.body) throw new Error(`HTTP ${响应.status}`)
+      停滞 = setTimeout(() => 控.abort(new Error('下载停滞')), 30_000)
+      const 哈希 = createHash('sha256')
+      let 已 = 0
       await pipeline(
-        Readable.fromWeb(下载.body),
+        Readable.fromWeb(响应.body),
         async function* (源) {
           for await (const 块 of 源) {
             已 += 块.length
             哈希.update(块)
-            安装任务.已下载 = 已
+            进度(已)
+            clearTimeout(停滞)
+            停滞 = setTimeout(() => 控.abort(new Error('下载停滞')), 30_000)
             yield 块
           }
         },
-        createWriteStream(压缩包),
+        createWriteStream(文件),
       )
-    } catch (错) {
-      rmSync(压缩包, { force: true })
-      throw 错
+      return { 摘要: 哈希.digest('hex'), 已 }
+    } finally {
+      clearTimeout(总时限)
+      clearTimeout(停滞)
     }
-    const 摘要 = String(资产.digest || '')
-    if (摘要.startsWith('sha256:') && 摘要.slice(7).toLowerCase() !== 哈希.digest('hex')) {
-      rmSync(压缩包, { force: true })
-      throw new Error('SnowLuma 下载校验失败，请重试')
-    }
+  }
 
-    安装任务 = { ...安装任务, 阶段: '解压', 已下载: 已, 总: 总 || 已 }
+  async function 下载并解压(目录) {
+    安装任务 = { 进行中: true, 阶段: '查询最新版', 错: '', 已下载: 0, 总: 0 }
+    const 发布 = await 取发布()
+    const 资产 = (Array.isArray(发布.assets) ? 发布.assets : []).find((a) =>
+      /^SnowLuma-v[\d.]+-win-x64\.zip$/i.test(String((a && a.name) || '')),
+    )
+    if (!资产) throw new Error('SnowLuma 最新版里没有 Windows x64 发行包')
+    const 版本 = String(发布.tag_name || '').replace(/^v/, '') || String(资产.name)
+    const 期望摘要 = String(资产.digest || '').replace(/^sha256:/i, '').toLowerCase()
+    const 期望大小 = Number(资产.size) || 0
+    const 下载源 = 下载地址候选(String(资产.browser_download_url))
+    const 压缩包 = `${目录}.download.zip`
+    mkdirSync(dirname(压缩包), { recursive: true })
+
+    let 已 = 0
+    const 失败 = []
+    let 成功 = false
+    for (const [序号, 地址] of 下载源.entries()) {
+      const 标签 = 序号 === 下载源.length - 1 ? 'GitHub 直连' : `镜像 ${序号 + 1}`
+      安装任务 = {
+        进行中: true,
+        阶段: 序号 === 0 ? `下载 SnowLuma v${版本}（国内镜像）` : `换源重试（${标签}）`,
+        错: '',
+        已下载: 0,
+        总: 期望大小,
+      }
+      try {
+        const 结果 = await 下载文件(地址, 压缩包, (n) => { 安装任务.已下载 = n })
+        已 = 结果.已
+        if (期望摘要 && 结果.摘要 !== 期望摘要) throw new Error('SHA-256 校验失败')
+        if (期望大小 && 已 !== 期望大小) throw new Error(`大小不符（${已}/${期望大小}）`)
+        成功 = true
+        break
+      } catch (错) {
+        try {
+          rmSync(压缩包, { force: true })
+        } catch {}
+        失败.push(`${标签}：${String(错?.message || 错).slice(0, 80)}`)
+      }
+    }
+    if (!成功) throw new Error(`下载 SnowLuma 失败（已试 ${下载源.length} 个源）：${失败.join('；')}`)
+
+    安装任务 = { ...安装任务, 阶段: '解压', 已下载: 已, 总: 期望大小 || 已 }
     try {
       await 解压(压缩包, 目录)
     } finally {

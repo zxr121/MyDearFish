@@ -346,7 +346,7 @@ node tests/历史导入.mjs
 不用自己找安装包、改配置文件。打开 **DSH → 设置 → 通到 QQ**，最上面的「第一次接通 QQ」就是完整流程：
 
 1. **安装并配置 SnowLuma** —— 勾选同意它的 EULA / 隐私政策，点「一键安装并配置」。
-   插件会从官方 Releases 下最新 Windows 版、核对 SHA-256、解压到 `tools\snowluma`，
+   插件会从官方 Releases 下最新 Windows 版（国内网络自动换 gh-proxy / ghproxy.net 镜像）、核对 SHA-256、解压到 `tools\snowluma`，
    写好 OneBot HTTP（`127.0.0.1:3000`）、戳一戳上报和本机网页后台（`127.0.0.1:5099`），然后启动它。
    装过的话按钮会变成「配置并启动」/「重新配置并重启」，不会重复下载。
 2. **登录鱼 QQ，并在 SnowLuma 后台接上它** —— 点「打开 SnowLuma 后台」，用要接的 QQ 扫码登录，

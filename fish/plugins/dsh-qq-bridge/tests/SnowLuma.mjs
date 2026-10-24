@@ -17,6 +17,8 @@ import {
   写OneBot配置,
   写SnowLuma配置,
   创建SnowLuma,
+  发行地址候选,
+  下载地址候选,
 } from '../lib/snowluma.js'
 
 let 挂了 = 0
@@ -25,6 +27,17 @@ const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 
 const 家 = mkdtempSync(join(tmpdir(), 'snowluma-'))
 try {
   报('端口常量没跑偏', 后台端口 === 5099 && OneBot端口 === 3000, `${后台端口}/${OneBot端口}`)
+
+  // ---------- 下载源 ----------
+  const 发布源 = 发行地址候选()
+  报('发布查询直连在前、gh-proxy 兜底',
+    发布源.length === 2 && 发布源[0] === 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest' &&
+      发布源[1] === 'https://gh-proxy.com/' + 发布源[0], JSON.stringify(发布源))
+  const 发行包 = 'https://github.com/SnowLuma/SnowLuma/releases/download/v1.0.0/SnowLuma-v1.0.0-win-x64.zip'
+  const 下载源 = 下载地址候选(发行包)
+  报('发行包先走两个镜像、最后回直连',
+    下载源.length === 3 && 下载源[0] === 'https://gh-proxy.com/' + 发行包 &&
+      下载源[1] === 'https://ghproxy.net/' + 发行包 && 下载源[2] === 发行包, JSON.stringify(下载源))
 
   // ---------- 后台密码 ----------
   const 密码 = 生成后台密码()

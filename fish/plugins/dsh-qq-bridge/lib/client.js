@@ -514,7 +514,7 @@ window.__ModuleLoader__.load({
             h('div', { style: 雪连上 ? S.已同步 : S.未保存 }, 雪连上 ? '✓ 已接通' : '还没接通'),
           ),
           h('div', { style: S.dim },
-            '固定用 SnowLuma。点「一键安装并配置」会下载官方 Windows 版，并把 OneBot HTTP（127.0.0.1:3000）、事件上报和后台密码都写好；' +
+            '固定用 SnowLuma。点「一键安装并配置」会从官方 GitHub Releases 下载 Windows 版（国内网络自动换镜像），并把 OneBot HTTP（127.0.0.1:3000）、事件上报和后台密码都写好；' +
               '你只剩两步：登录鱼 QQ、在 SnowLuma 后台把它接上。',
           ),
 
