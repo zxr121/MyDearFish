@@ -101,13 +101,13 @@ window.__ModuleLoader__.load({
 [data-fishm-track]{flex:1;height:6px;border-radius:999px;background:rgba(127,127,127,.16);overflow:hidden;}
 [data-fishm-fill]{height:100%;border-radius:999px;background:rgba(80,150,255,.55);}
 [data-fishm-barval]{width:30px;text-align:right;opacity:.7;}
-[data-fishwd-mask]{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px;}
-[data-fishwd-card]{background:var(--bg-secondary,#1e1e1e);border:1px solid rgba(127,127,127,.2);border-radius:14px;max-width:540px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.35);}
+[data-fishwd-mask]{position:fixed;inset:0;z-index:9000;background:var(--dsw-alias-bg-mask-3,rgba(0,0,0,.45));backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px;}
+[data-fishwd-card]{background:var(--dsw-alias-bg-base,#1e1e1e);border:1px solid var(--dsw-alias-border-l3,rgba(127,127,127,.2));border-radius:14px;max-width:540px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:var(--dsw-elevation-prominent,0 12px 40px rgba(0,0,0,.35));}
 [data-fishwd-head]{padding:20px 22px 14px;display:flex;align-items:center;justify-content:space-between;}
 [data-fishwd-title]{font-size:18px;font-weight:600;}
-[data-fishwd-body]{padding:0 22px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;}
-[data-fishwd-intro]{font-size:13px;line-height:1.7;opacity:.85;}
-[data-fishwd-sec]{border:1px solid rgba(127,127,127,.15);border-radius:9px;overflow:hidden;}
+[data-fishwd-body]{padding:0 22px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:0;}
+[data-fishwd-intro]{font-size:13px;line-height:1.7;opacity:.85;flex:none;}
+[data-fishwd-sec]{border:1px solid rgba(127,127,127,.15);border-radius:9px;overflow:hidden;flex:none;}
 [data-fishwd-secsum]{padding:10px 13px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;background:rgba(127,127,127,.05);user-select:none;}
 [data-fishwd-secsum]:hover{background:rgba(127,127,127,.1);}
 [data-fishwd-secarr]{font-size:10px;opacity:.5;transition:transform .15s;}
