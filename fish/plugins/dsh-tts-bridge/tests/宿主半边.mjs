@@ -5,7 +5,7 @@
 //   3) 自动朗读：一整轮说完的内容也先过脱敏
 // 跑法： node tests/宿主半边.mjs
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -89,6 +89,15 @@ const 调 = async (路, 体) => {
 }
 
 报('朗读接口挂上了', 路由.has('/dsh-tts-bridge/say') && 路由.has('/dsh-tts-bridge/next') && 路由.has('/dsh-tts-bridge/state'))
+
+// 扩展必须摊在 asar 外面，浏览器才能「加载已解压的扩展程序」
+const 扩展清单 = join(家, 'tts-bridge', 'extension', 'manifest.json')
+报('扩展已铺到家目录', existsSync(扩展清单), 扩展清单)
+if (existsSync(扩展清单)) {
+  报('铺出来的扩展清单可读', JSON.parse(readFileSync(扩展清单, 'utf8')).name === '朗读桥')
+}
+let 状态 = await 调('/state', {})
+报('/state 的 extDir 指向家目录', typeof 状态?.extDir === 'string' && 状态.extDir.startsWith(join(家, 'tts-bridge', 'extension')), JSON.stringify(状态?.extDir))
 
 // ① 鱼脑不可用 → 不念
 鱼脑状态.可用 = false

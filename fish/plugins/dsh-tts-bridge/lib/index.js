@@ -1,7 +1,7 @@
 // DSH 朗读桥 · 宿主半边
 // 盯住你选的会话 → 把「说完一整轮」的话排进队列 → 浏览器扩展取走，交给 DeepSeek 网页端朗读。
 // 另外：给 DSH 界面里那两个按钮（▶ 朗读 / ⏸ 停止）提供同源接口。
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,9 +11,9 @@ export const name = 'tts-bridge'
 export const inject = ['webServer', 'sessions', 'sessionTitle', 'workspaceRegistry', 'timer']
 
 const P = '/dsh-tts-bridge'
-// 浏览器扩展那个文件夹在这台电脑上的真实路径（卡片要告诉用户去哪儿找）
+// 浏览器扩展那个文件夹在这台电脑上的真实路径（卡片要告诉用户去哪儿找）。
+// 打包后插件住在 app.asar 里，浏览器进程解不开那个路径，所以启动时摊到家目录。
 let EXT_DIR = ''
-try { EXT_DIR = fileURLToPath(new URL('../extension/', import.meta.url)) } catch (error) {}
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -34,6 +34,35 @@ try {
 // 配置（听哪些会话）和收藏（她标记的「最爱」）都存在一个小 JSON 里，重启也在
 const CFG_DIR = process.env.DSH_HOME || join(homedir(), '.dsh')
 const CFG_PATH = join(CFG_DIR, 'tts-bridge.json')
+
+const copyDir = (from, to) => {
+  mkdirSync(to, { recursive: true })
+  for (const name of readdirSync(from)) {
+    const src = join(from, name)
+    const dst = join(to, name)
+    // readFileSync/writeFileSync 在 Electron 里都能穿透 asar；copyFileSync 不一定。
+    if (statSync(src).isDirectory()) copyDir(src, dst)
+    else writeFileSync(dst, readFileSync(src))
+  }
+}
+
+/** 把扩展摊到 asar 外面；铺不动就退回原路径（开发模式本来就能直接加载）。 */
+function seedExtension() {
+  const bundled = fileURLToPath(new URL('../extension/', import.meta.url))
+  const dest = join(CFG_DIR, 'tts-bridge', 'extension')
+  try {
+    copyDir(bundled, dest)
+    return dest
+  } catch (error) {
+    console.error('[朗读桥] 扩展目录铺到家目录失败：' + (error && error.message))
+    try {
+      readFileSync(join(dest, 'manifest.json'))
+      return dest
+    } catch (e2) {
+      return bundled
+    }
+  }
+}
 // 改名前的旧文件名：新文件读不到就从这儿搬，别丢了她攒的收藏
 const CFG_OLD = join(CFG_DIR, 'xiao-beike-tts.json')
 
@@ -85,6 +114,8 @@ export function apply(ctx) {
     const seen = new Map()
     const cfg = loadCfg()
     const say = (m) => console.log('[朗读桥] ' + m)
+    EXT_DIR = seedExtension()
+    say('浏览器扩展目录：' + EXT_DIR)
 
     const reply = (res, code, obj) => {
       res.writeHead(code, HEADERS)

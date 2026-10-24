@@ -547,6 +547,8 @@
         a.target = '_blank'
         a.rel = 'noreferrer'
         statusEl.appendChild(a)
+        const how = el('div', 'font-size:10px;color:#c9b18a;margin-top:2px;max-width:54vw', 'Edge 打开 edge://extensions → 开发人员模式 → 加载解压缩的扩展 → 选下面这个目录：')
+        statusEl.appendChild(how)
         if (st.extDir) {
           const p = el('div', 'font-size:10px;color:#9a9a9a;user-select:text;word-break:break-all;max-width:54vw;margin-top:2px;cursor:pointer', st.extDir)
           p.dataset.xbClick = '1'
