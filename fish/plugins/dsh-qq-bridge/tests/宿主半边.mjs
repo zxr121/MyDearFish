@@ -607,6 +607,7 @@ const 写导入配置 = (改动) => writeFileSync(join(家, 'qq-bridge-config.js
   NapCat: 'http://127.0.0.1:3000', 导入: 改动,
 }, null, 2), 'utf8')
 
+写导入配置({ 启用: false })
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' }), fakeRes)
 报('/state 带出导入进度', 存储[0] && 存储[0].导入 && 存储[0].导入.启用 === false && 存储[0].导入.运行中 === false, JSON.stringify(存储[0] && 存储[0].导入))

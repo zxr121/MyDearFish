@@ -51,10 +51,10 @@ None of the six plugins is a standalone application; each attaches to the DSH ag
 | --- | --- | --- |
 | `dsh-fish-mind` | `fish-mind/experience.jsonl`, `fish-mind/mind.sqlite`, `fish-mind/budget.json`, `fish-mind/budget-ledger.jsonl`, `audit.jsonl` | Full memory: records experiences, builds episodes and chapters, recalls, and injects the workspace; turn `inject` off or return to `shadow` to stop recall; the allowance ledger is active from birth |
 | `dsh-feiyu-mood` | `feiyu-mood/state.json`, `config.json`, `diag.log` | Mounted with automatic judging; an empty target means all sessions |
-| `dsh-speak-up` | `speak-up-config.json` | Master switch on, dry run on, target empty (picks the most recently active session) |
+| `dsh-speak-up` | `speak-up-config.json` | Master switch on, dry run off (a roll that hits sends for real), target empty (picks the most recently active session) |
 | `dsh-tts-bridge` | `tts-bridge.json` | Auto speech on; an empty watch list means all live sessions |
-| `dsh-qq-bridge` | `qq-bridge-config.json` | Master switch off, dry run on, target empty (follows the most recently active session); group interjection off with dry run on |
-| `dsh-bili-subagent` | Config, reports, logs, and credentials under `bili-duty/` | Automatic scans off; manual `bili_scan` works |
+| `dsh-qq-bridge` | `qq-bridge-config.json` | Master switch on, dry run off, target empty (follows the most recently active session); social bridge on with its dry run off; private QQ / group / friend lists still empty; history import on (buttons refuse while the token is missing) |
+| `dsh-bili-subagent` | Config, reports, logs, and credentials under `bili-duty/` | Automatic scans, auto comments, and auto replies all on; direct messages off; the @ name empty; manual `bili_scan` works |
 
 ## The fish brain: dsh-fish-mind
 
@@ -270,7 +270,7 @@ hit = min(100, base × factor + min(cap, misses × bonus))
 | Quiet start / quiet end | 1 / 8 | Do not speak from 01:00 to 08:00 |
 | Cooldown minutes | 20 | Wait at least 20 minutes after speaking first |
 
-The consecutive-miss count lives only in memory and resets on restart; a dry-run hit also resets it; the manual button neither rolls nor changes the counter. The master switch is on and the dry run is also on by default, so a fresh install only logs what it would have sent.
+The consecutive-miss count lives only in memory and resets on restart; a dry-run hit also resets it; the manual button neither rolls nor changes the counter. The master switch is on and the dry run is off by default, so a fresh install actually speaks when a roll hits; turn the dry run on to observe the rhythm first.
 
 ### Dry run and manual button
 
@@ -360,7 +360,7 @@ The receiver needs the backend to push events to it and nobody sends there by de
 
 ### Autonomous group interjection
 
-Social mode lets her choose which messages to watch and whether to join conversations in configured groups and friend chats, without competing with the owner's target session. Interest decides only whether she starts a new topic on her own; when someone @-s her, calls her name, replies to her, or sends a friend private message, she says at least one line, shorter if uninterested, and never pretends not to see it; when nobody addresses her, she may still answer briefly even without interest if she can pick up the thread. Her interest comes from the configured `interest words` and from what she has actively watched or discussed in that room; with no such basis she will not start a new topic, but a direct address still requires an answer. A question about herself, where she comes from, or her relationship with the owner counts as a direct approach and gets at least one line, short or deflecting if she likes, without disclosing the owner's private details. Defaults are **social switch off and dry run on**, so nothing is judged or sent until the owner enables it.
+Social mode lets her choose which messages to watch and whether to join conversations in configured groups and friend chats, without competing with the owner's target session. Interest decides only whether she starts a new topic on her own; when someone @-s her, calls her name, replies to her, or sends a friend private message, she says at least one line, shorter if uninterested, and never pretends not to see it; when nobody addresses her, she may still answer briefly even without interest if she can pick up the thread. Her interest comes from the configured `interest words` and from what she has actively watched or discussed in that room; with no such basis she will not start a new topic, but a direct address still requires an answer. A question about herself, where she comes from, or her relationship with the owner counts as a direct approach and gets at least one line, short or deflecting if she likes, without disclosing the owner's private details. Defaults are **social switch on and its dry run off**, so she really joins conversations once groups or friends are configured; turn the social dry run on to watch the logs first.
 
 1. It polls every 6000 milliseconds, taking the latest 30 group messages or 20 friend messages. Only allowlisted group and friend numbers are polled; the owner's group messages and everyone else's enter the pending queue, but only the owner's part also flows through the `QQ to DSH` bridge above. Turning `listen` off stops unattended guest messages from being collected at all.
 2. Her own messages, including replies she just sent, are filtered by `message_id`; an @, a reply to her, or a configured name all mean someone is addressing her, so she must say at least one line, shorter if uninterested. Friend private messages likewise require at least one line; ads, spam, privacy probing, and boundary-crossing requests are the exception. Each message is processed once.
@@ -393,16 +393,16 @@ These rules map to human research: impressions form mainly along warmth and comp
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Master switch | Off | Must be turned on manually |
-| Dry run | On | Logs only; does not actually send to QQ |
+| Master switch | On | On by default; with no private QQ / group filled nothing is sent to a concrete target |
+| Dry run | Off | Off by default, so a passing judgement really sends; turn it on to log only |
 | Target session | Empty | Empty follows the most recently active session; fill it to pin the bridge to one session |
 | Private QQ | Empty | The owner's QQ number and the only allowlist for QQ to DSH |
 | Forward private | On | Takes effect only when a private QQ number is set |
 | Forward group | Off | Requires a group number when enabled |
 | NapCat address | `http://127.0.0.1:3000` | The OneBot 11 HTTP backend |
 | Poke / port | On / 19388 | Local event receiver; point the backend's HTTP report at `http://127.0.0.1:19388/dsh-qq/event` |
-| Social switch | Off | Master switch for autonomous group/friend interjection; default is observation only |
-| Social dry run | On | Logs only; does not judge or send |
+| Social switch | On | Master switch for autonomous group/friend interjection; with groups/friends filled she really joins |
+| Social dry run | Off | Off by default, so she really judges and replies; turn it on to log only |
 | Group / friend allowlists | Empty | Only listed group and friend numbers are polled |
 | Social mode | `auto` | `auto` also lets the judge pick unattended group messages; `mention` hands only addressed messages to the judge; interest decides only whether she starts a new topic, not whether she can reply |
 | Watch limit | 12 | Maximum messages the judge may put into her attention per decision (1–30), interesting ones first |
@@ -467,7 +467,7 @@ The Bilibili plugin lets Da Feiyu browse videos, read subtitles, and skim commen
 ### Quota, windows, and target session
 
 - The quota counts automatic scan rounds, not videos; the default is 5 rounds per day, with at least 3 hours between rounds.
-- The windows are Beijing time 12:00–14:00 and 18:00–09:00; the peak/off-peak master switch is off by default, so a fresh install does not scan automatically.
+- The windows are Beijing time 12:00–14:00 and 18:00–09:00; the peak/off-peak master switch is on by default, so a fresh install scans automatically inside a window while quota remains.
 - An empty target session makes the plugin choose the most recently used non-empty, non-archived session; if none exists it creates a temporary session and releases it afterwards. The temporary session is marked as an autonomous background session and runs under the default-deny permission rule.
 - The manual “run one round now” action does not consume the automatic quota but uses the same subagent and report path.
 
@@ -481,7 +481,7 @@ The Bilibili plugin lets Da Feiyu browse videos, read subtitles, and skim commen
 - `bili_reply` clears the pending-comment state whether it succeeds or fails, so the session cannot be locked permanently.
 - Public actions beyond the configured rules require human approval: `force` past the automatic-comment or automatic-reply gate, `force` after this round's comment or reply quota is used up, `force` while private messages are off, or, with private messages enabled, a recipient other than the configured `dmUid`; with no approval channel the request is denied.
 - `bili_config` changes to `autoComment`, `autoReply`, `dmMode`, `dmUid`, `mentionName`, `commentPerRound`, or `replyPerRound` also require the owner's approval, so the model cannot open its own gates.
-- Automatic comments and automatic replies are off by default and must be enabled by the owner; this speaks publicly with the owner's account, and both documentation and code choose the most conservative default.
+- Automatic comments and automatic replies ship on; with an empty @ name she comments without mentioning anyone. Direct-message delivery stays off, and changing it (or the public-speaking settings) requires the owner's approval.
 
 ### Settings routes
 
@@ -498,7 +498,7 @@ The Bilibili plugin lets Da Feiyu browse videos, read subtitles, and skim commen
 ### Known limits
 
 - Videos without subtitles are skipped; the plugin does not guess content from titles or summaries.
-- Automatic comments, automatic replies, and private messages use the owner's Bilibili account and carry moderation and social risk, so every default is conservative.
+- Automatic comments, automatic replies, and private messages use the owner's Bilibili account and carry moderation and social risk; comments and replies ship on, direct messages ship off, and any of them can be turned off again.
 - The report becomes an activity experience in the fish brain, but whether and how much the main session relays to the owner is still decided by the model on the spot; there is no hard “must report” constraint.
 - The subagent provider and model follow the current session by default; the settings page can point them elsewhere, and an unknown provider or model is logged and ignored instead of being passed through.
 
@@ -521,12 +521,12 @@ Read together, the loop is: the owner speaks → the fish brain records the turn
 | --- | --- | --- | --- | --- |
 | Fish brain | On (full memory, `live` + `inject: true`) | Recording and encoding call no model; every model call (chat, mood, Bilibili) enters the ledger, ¥10 per day with rollover | None | Recall accuracy and source honesty need watching; turning `inject` off or returning to `shadow` disables recall; an empty wallet leaves only local replies; prices are estimates |
 | Mood | On, all non-subagent sessions by default | One short call per turn | None | A failed judgement keeps the previous mood; subagent sessions are skipped |
-| Speak-up | On, but dry run on | One turn only after a hit | None | Silent by default; does not wake anything when no session is live |
+| Speak-up | On, dry run off (a hit speaks for real) | One turn only after a hit | None | A scheduled hit really speaks; does not wake anything when no session is live |
 | Speech | Auto speech on | No model call; consumes DeepSeek web speech quota | Chromium extension, DeepSeek login | No sound when the page is closed or the quota is exhausted |
-| QQ | Master switch off, dry run on; social switch off, dry run on | The owner bridge makes no extra model call; during social learning every message takes one short judge call, and once the profile matures the fast pass moves unrelated traffic behind the cap; person facts piggyback on that same judge call with no extra request; each reply is a normal call, all metered by the allowance ledger | NapCat/SnowLuma, QQ login | Requires a local backend; text only; social judgement can reply when it should not or stay silent when it should |
-| Bilibili | Automatic scans off | One subagent per round; search and subtitles cost tokens | Bilibili login, Python venv | Automatic comments, replies, and private messages carry account risk |
+| QQ | Master switch on, dry run off; social switch on, social dry run off; history import on | The owner bridge makes no extra model call; during social learning every message takes one short judge call, and once the profile matures the fast pass moves unrelated traffic behind the cap; person facts piggyback on that same judge call with no extra request; each reply is a normal call, all metered by the allowance ledger | NapCat/SnowLuma, QQ login, Tulpa (import only) | Requires a local backend; text only; social judgement can reply when it should not or stay silent when it should; with no groups/friends filled she never actually joins chat, and with no private QQ/group filled nothing is sent to a concrete target |
+| Bilibili | Automatic scans, auto comments, and auto replies all on; direct messages off; @ name empty | One subagent per round; search and subtitles cost tokens | Bilibili login, Python venv | Automatic comments, replies, and private messages carry account risk |
 
-No plugin runs at full speed out of the box: the fish brain records, encodes, organizes chapters, recalls, and injects the workspace by default; speak-up, QQ, and Bilibili need the owner to enable a switch, and QQ group interjection has an additional social switch and dry run; speech needs the extension installed. These conservative defaults are intentional, not a malfunction. Session targets mostly no longer need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own.
+The feature switches ship enabled: the fish brain records, encodes, organizes chapters, recalls, and injects the workspace; speak-up speaks for real after a hit; QQ's master switch, social bridge, and history import are on; Bilibili's automatic scan, comment, and reply are on. What remains blank is **configuration tied to accounts and targets**: QQ private QQ / group / social groups and friends, Bilibili's “@ who”, the Tulpa token, and the SnowLuma agreement that only the owner can accept; Bilibili direct messages and local transcription stay off. Session targets mostly do not need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own.
 
 ## Cross-plugin coupling and gaps
 
@@ -547,13 +547,13 @@ No plugin runs at full speed out of the box: the fish brain records, encodes, or
 | Whether the fish brain records or recalls | `mode`, `inject`, and the `episodes` / `recall` / `chapters` settings in `dsh-fish-mind` | Shadow mode changes do not affect conversation; only `live` + `inject` injects the workspace |
 | Daily allowance, rollover, and prices | `BIRTH_DAILY_GRANT_CNY` in `lib/budget.js`; prices under `budget.prices` in `config.json`, with `offPeak` / `peakHours` / `peakDays` for peak scheduling | Changing the code amount affects all later grants; changing prices only affects estimates and never back-charges past spend |
 | Mood dimensions, judging frequency, judge model | Mood settings and the dimension table and judge chain in `lib/index.js` | Changing dimensions changes the injected line and face tiers |
-| Speak-up frequency and hours | Hit lines, interval, and quiet hours in speak-up settings | Turn off dry run to actually speak; changing hit lines is safer than changing code |
+| Speak-up frequency and hours | Hit lines, interval, and quiet hours in speak-up settings | Dry run controls whether a hit speaks for real or only logs (off by default = real); changing hit lines is safer than changing code |
 | What speech reads | Watch list and auto-speech switch in speech settings | Empty listens to all sessions; clicking one narrows it; requires the extension and a DeepSeek page |
 | QQ two-way bridge | Target session, QQ number, group number, dry run in QQ settings | An empty target follows the most recently active session; requires a local OneBot backend |
-| Whether she joins group chat | Social switch, allowlists, mode, interest words, fast pass, watch limit, and judge threshold in QQ settings | Off with dry run by default; interest words decide what she is more likely to raise on her own, the fast pass decides how much judge money matures into savings, and every added group or friend adds judge and reply costs |
+| Whether she joins group chat | Social switch, allowlists, mode, interest words, fast pass, watch limit, and judge threshold in QQ settings | On with social dry run off by default (turn the dry run on to observe); interest words decide what she is more likely to raise on her own, the fast pass decides how much judge money matures into savings, and every added group or friend adds judge and reply costs |
 | What Bilibili scans | `keywords`, `scanPrompt`, and `perScan` in Bilibili settings | Changes the subagent prompt and how many items it picks |
-| Whether Bilibili speaks publicly | `autoComment`, `autoReply`, `mentionName`, `commentPerRound`, `replyPerRound`, `dmMode`, `dmUid` | All off by default; enabling speaks with the owner's account |
-| Automatic scan windows and quota | `peakValley`, `noon`, `night`, `perDay`, `gapHours` | Automatic scans are off by default and run by window once enabled |
+| Whether Bilibili speaks publicly | `autoComment`, `autoReply`, `mentionName`, `commentPerRound`, `replyPerRound`, `dmMode`, `dmUid` | Comments and replies on by default, direct messages off; an empty `mentionName` comments without @-ing anyone |
+| Automatic scan windows and quota | `peakValley`, `noon`, `night`, `perDay`, `gapHours` | Automatic scans are on by default and run by window while quota remains |
 | Plugin defaults themselves | `fish/bundle/cordis.patch.yml` and each plugin's defaults | Changes the shipped behavior of a new install and requires repackaging |
 
 Configuration covers most ways of raising the fish; only code changes alter the mechanism itself. In descending order of impact, decide the persona and default switches first, then the fish brain and mood conventions, and only then the outward-facing paths such as Bilibili and QQ.
@@ -579,6 +579,6 @@ Every plugin writes diagnostics to its own home rather than relying on the main 
 
 ## Conclusion: what to decide first
 
-This mechanism description maps to three decisions. First, whether the goal is a companion that remembers, feels, and reaches out, or a tool that answers on demand and never interrupts; the former needs the fish brain to keep accumulating and mood and speak-up enabled, while the latter keeps the conservative defaults. Second, how much model cost is acceptable; one short call per turn for mood and one subagent per Bilibili round are the main expenses, and both now sit behind the ¥10-per-day allowance ledger, which stops when the wallet is empty. Third, whether the plugins may speak outwardly with the owner's account; Bilibili comments, replies, and QQ forwarding all belong here, and their defaults are already off or in dry run.
+This mechanism description maps to three decisions. First, whether the goal is a companion that remembers, feels, and reaches out, or a tool that answers on demand and never interrupts; the former needs the fish brain to keep accumulating and mood and speak-up enabled, while the latter turns the proactive and outward-facing switches back off. Second, how much model cost is acceptable; one short call per turn for mood and one subagent per Bilibili round are the main expenses, and both now sit behind the ¥10-per-day allowance ledger, which stops when the wallet is empty. Third, whether the plugins may speak outwardly with the owner's account; Bilibili comments, replies, and QQ forwarding all belong here, and those defaults now ship on, with only Bilibili direct messages still off—turn the relevant switch off if public speech is unwanted.
 
-The mechanism itself does not have to change. What needs deciding is which switches ship enabled and which stay for the owner to turn on. Once those three points are settled, changing code under `fish/plugins/` or defaults in `fish/bundle/cordis.patch.yml` will not turn “keeping the fish” into “losing the tank”.
+The mechanism itself does not have to change. What needs deciding is which switches stay on out of the box and which get turned back off. Once those three points are settled, changing code under `fish/plugins/` or defaults in `fish/bundle/cordis.patch.yml` will not turn “keeping the fish” into “losing the tank”.

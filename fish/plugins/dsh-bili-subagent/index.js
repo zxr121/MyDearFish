@@ -62,15 +62,15 @@ export const Config = !z ? undefined : z.object({
   perDay: z.natural().default(5).extra('volatile', true),
   /** ⭐ 两轮自动刷之间至少隔几小时（谷时窗口里按这个节奏轮转，直到额度用完） */
   gapHours: z.natural().default(3).extra('volatile', true),
-  /** 峰谷自动刷（总开关） */
-  peakValley: z.boolean().default(false).extra('volatile', true),
+  /** 峰谷自动刷（总开关）—— 出厂默认开 */
+  peakValley: z.boolean().default(true).extra('volatile', true),
   /** 峰谷子开关：中午 / 晚上 */
   noon: z.boolean().default(true).extra('volatile', true),
   night: z.boolean().default(true).extra('volatile', true),
-  /** 自动在挑中的视频下发评论（默认关 —— 会拿用户的号公开说话，必须他自己开） */
-  autoComment: z.boolean().default(false).extra('volatile', true),
-  /** ⭐ 自动回复「收到的回复」（只回冲她来的评论；默认关） */
-  autoReply: z.boolean().default(false).extra('volatile', true),
+  /** 自动在挑中的视频下发评论（出厂默认开；会拿用户的号公开说话，不想让它说自己关） */
+  autoComment: z.boolean().default(true).extra('volatile', true),
+  /** ⭐ 自动回复「收到的回复」（只回冲她来的评论；出厂默认开） */
+  autoReply: z.boolean().default(true).extra('volatile', true),
   /** ⭐ 私信投递：off=只发评论（现状）· only=只私信（完全不公开评论）· both=评论 + 私信 */
   dmMode: z.string().default('off').extra('volatile', true),
   /** ⭐ 私信发给谁的 UID（数字）。要在 dmMode 不是 off 时填 */
@@ -292,8 +292,8 @@ export function apply(ctx, config) {
    *     ② **定时器回调里绝不让异常外冒**（见 tick）—— 未捕获异常会杀掉整个宿主进程。
    */
   const DEFAULTS = {
-    perDay: 5, gapHours: 3, peakValley: false, noon: true, night: true, autoComment: false,
-    autoReply: false,
+    perDay: 5, gapHours: 3, peakValley: true, noon: true, night: true, autoComment: true,
+    autoReply: true,
     dmMode: 'off', dmUid: 0,
     keywords: [], commentPerRound: 1, replyPerRound: 1, mentionName: '', pythonPath: 'python', reportLevel: 'full',
     subProvider: '', subModel: '',

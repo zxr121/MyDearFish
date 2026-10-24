@@ -95,7 +95,7 @@ Tulpa（`github.com/fumingyang2004/Tulpa`，MIT）是 Windows 桌面程序，依
 
 **旧记录只留在私聊里。** 导入的历史在主人的会话里可召回，群里够不着它：导入的条目住在各自的 `session-qq-import-*` 房间，社交会话只按精确的 sessionId 召回、还要求可信度落在 0.2 到 0.85 之间（`lib/index.js:586`），`excludeSources`（`lib/store.js:917`）更能把这一整类直接丢掉。这既对得上现成的亲疏分层，也免得一份 QQ 导出变成一次泄露。
 
-**导入只加内容，记忆本来就在。** `mode: 'live'`、`inject: true`（`fish/plugins/dsh-fish-mind/lib/config.js:68-69`）是出厂默认，所以导入之前召回和注入就已经在工作。导入开关本身默认关着（`fish/plugins/dsh-qq-bridge/lib/host.js:91`），打开后导入的记录进同一条经历流，不需要再改一次配置就能被召回。
+**导入只加内容，记忆本来就在。** `mode: 'live'`、`inject: true`（`fish/plugins/dsh-fish-mind/lib/config.js:68-69`）是出厂默认，所以导入之前召回和注入就已经在工作。导入开关出厂默认开着（`fish/plugins/dsh-qq-bridge/lib/host.js:240`），差的是 Tulpa 地址对应的令牌；填好或设好 `TULPA_MCP_TOKEN` 后，导入的记录进同一条经历流，不需要再改一次配置就能被召回。
 
 | 文件 | 改什么 |
 | --- | --- |
