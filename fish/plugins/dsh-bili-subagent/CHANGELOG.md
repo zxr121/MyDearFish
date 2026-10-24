@@ -3,7 +3,8 @@
 **修桌面安装包里的装依赖失败**
 
 - 🐛 发布版从 `app.asar` 里加载插件，`requirements.txt` 的 asar 内部路径交给外部 uv / pip 时打不开（`File not found`）。
-  现在首次运行把 `requirements.txt` 一并铺到 `$DSH_HOME/bili-duty/`，装依赖用家目录那份，和 `mcp_server.py` 保持一致。
+  现在首次运行把 `requirements.txt` 一并铺到 `$DSH_HOME/bili-duty/`，装依赖用家目录那份，和 `mcp_server.py` 保持一致；
+  安装前发现家里缺了会自动补铺，两处都拿不到就给出明确报错，不再让三个镜像白撞。
 
 ## 0.3.1 — 2026-10-24
 

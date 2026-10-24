@@ -75,6 +75,26 @@ export function ensureHomeFiles(pluginDir, stateDir, log = () => {}) {
 }
 
 /**
+ * 装依赖时要交给 uv / pip 的文件路径。
+ * ⚠️ 不能直接用插件包里的路径：桌面版从 app.asar 加载，asar 内部路径只有 Electron 自己能读，
+ *    外部的 uv.exe / python.exe 会报 File not found。所以优先用家里那份，缺了就当场补铺。
+ */
+export function requirementsFile(pluginDir, stateDir, log = () => {}) {
+  const home = join(stateDir, 'requirements.txt')
+  if (existsSync(home)) return home
+  const shipped = join(pluginDir, 'vendor', 'bilibili-mcp', 'requirements.txt')
+  try {
+    if (!existsSync(shipped)) { log(`缺文件：${shipped}`); return '' }
+    copyFileSync(shipped, home)
+    log(`已补铺：${home}`)
+    return home
+  } catch (e) {
+    log(`铺 ${home} 失败：${e?.message ?? e}`)
+    return ''
+  }
+}
+
+/**
  * 值班章程（prompts/duty.md）放在哪一份 —— 家里那份优先，没有才用插件里那份。
  * （家里那份由下面的 ensureCharter 保证铺好）
  */

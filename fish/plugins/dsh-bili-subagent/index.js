@@ -30,7 +30,7 @@ import { randomUUID } from 'node:crypto'
 import { McpClient } from './lib/mcp.mjs'
 import { verifyRecent, appendVerifyToReport, parseSeen } from './lib/verify.mjs'
 import { normalizeReceivedReplies } from './lib/replies.mjs'
-import { WINDOWS, stateDirOf, readJson, writeJson, ensureHomeFiles, inWindow, dayKey } from './lib/state.mjs'
+import { WINDOWS, stateDirOf, readJson, writeJson, ensureHomeFiles, requirementsFile, inWindow, dayKey } from './lib/state.mjs'
 import { loginStart, loginPoll, saveCredential, renderQrPng } from './lib/login.mjs'
 import { ensureUv } from './lib/uvfetch.mjs'
 import { isTrustedLocalRequest } from './lib/http-trust.mjs'
@@ -1376,7 +1376,12 @@ export function apply(ctx, config) {
     appendInstall(`\n=== ${new Date().toISOString()} 开始装依赖 ===\n`)
     ;(async () => {
       try {
-        const reqFile = join(stateDir, 'requirements.txt')
+        const reqFile = requirementsFile(pluginDir, stateDir, appendInstall)
+        if (!reqFile) {
+          const msg = '没有可用的 requirements.txt（插件包不完整，或家目录写不进去）—— 装不了依赖。'
+            + `请检查插件安装是否完整，以及 ${stateDir} 是否可写。`
+          appendInstall(msg + '\n'); log(msg); installing = false; return
+        }
         const mirror = process.env.BILI_DUTY_PIP_MIRROR || 'https://pypi.tuna.tsinghua.edu.cn/simple'
         const venvPy = venvPython()
         const py = String(cfg.pythonPath || 'python')
