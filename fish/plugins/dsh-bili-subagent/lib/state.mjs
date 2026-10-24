@@ -60,6 +60,7 @@ export function writeJson(file, value) {
 export function ensureHomeFiles(pluginDir, stateDir, log = () => {}) {
   const copies = [
     [join(pluginDir, 'vendor', 'bilibili-mcp', 'mcp_server.py'), join(stateDir, 'mcp_server.py'), true],
+    [join(pluginDir, 'vendor', 'bilibili-mcp', 'requirements.txt'), join(stateDir, 'requirements.txt'), true],
     [join(pluginDir, 'lib', 'asr.py'), join(stateDir, 'asr.py'), true],
   ]
   for (const [from, to, overwrite] of copies) {

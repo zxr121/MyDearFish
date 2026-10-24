@@ -1376,7 +1376,7 @@ export function apply(ctx, config) {
     appendInstall(`\n=== ${new Date().toISOString()} 开始装依赖 ===\n`)
     ;(async () => {
       try {
-        const reqFile = join(pluginDir, 'vendor', 'bilibili-mcp', 'requirements.txt')
+        const reqFile = join(stateDir, 'requirements.txt')
         const mirror = process.env.BILI_DUTY_PIP_MIRROR || 'https://pypi.tuna.tsinghua.edu.cn/simple'
         const venvPy = venvPython()
         const py = String(cfg.pythonPath || 'python')
