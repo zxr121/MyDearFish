@@ -49,7 +49,7 @@ None of the six plugins is a standalone application; each attaches to the DSH ag
 
 | Plugin | Data location | Shipped default |
 | --- | --- | --- |
-| `dsh-fish-mind` | `fish-mind/experience.jsonl`, `fish-mind/mind.sqlite`, `fish-mind/budget.json`, `fish-mind/budget-ledger.jsonl`, `audit.jsonl` | Shadow mode: records experiences, builds episodes and chapters, with no recall or injection; the allowance ledger is active from birth |
+| `dsh-fish-mind` | `fish-mind/experience.jsonl`, `fish-mind/mind.sqlite`, `fish-mind/budget.json`, `fish-mind/budget-ledger.jsonl`, `audit.jsonl` | Full memory: records experiences, builds episodes and chapters, recalls, and injects the workspace; turn `inject` off or return to `shadow` to stop recall; the allowance ledger is active from birth |
 | `dsh-feiyu-mood` | `feiyu-mood/state.json`, `config.json`, `diag.log` | Mounted with automatic judging; an empty target means all sessions |
 | `dsh-speak-up` | `speak-up-config.json` | Master switch on, dry run on, target empty (picks the most recently active session) |
 | `dsh-tts-bridge` | `tts-bridge.json` | Auto speech on; an empty watch list means all live sessions |
@@ -58,7 +58,7 @@ None of the six plugins is a standalone application; each attaches to the DSH ag
 
 ## The fish brain: dsh-fish-mind
 
-The fish brain is the only “self” among the six plugins: every session and every workspace share one stream of experiences and one growth state. It has no conversational interface for “remember this sentence”; it appends what happened to an experience stream, and internal encoding decides what stays and what fades. Phase 1 code now implements episode segmentation, chapter trees, relation edges, five-route recall, the workspace, a read-only `recall` tool, `open_chapter` for expanding a chapter directory, and `open_episode`, which reopens the original messages behind a recalled episode. The shipped default is still `mode: shadow` with `inject: false`: recording and encoding run, while recall and the workspace stay invisible. Set `live` + `true` to enable them. The fixed privacy, legal, injection-defense, and allowance prompts are always injected. It also owns a birth-locked allowance ledger: every model call is metered, the grant is ¥10 per day and rolls over, and neither conversation, tools, nor configuration can change it.
+The fish brain is the only “self” among the six plugins: every session and every workspace share one stream of experiences and one growth state. It has no conversational interface for “remember this sentence”; it appends what happened to an experience stream, and internal encoding decides what stays and what fades. Phase 1 code now implements episode segmentation, chapter trees, relation edges, five-route recall, the workspace, a read-only `recall` tool, `open_chapter` for expanding a chapter directory, and `open_episode`, which reopens the original messages behind a recalled episode. The shipped default is `mode: live` with `inject: true`: recording, encoding, recall, and the workspace all work out of the box. To observe without injecting, set `inject: false`; to stop recall as well, return `mode` to `shadow`. The fixed privacy, legal, injection-defense, and allowance prompts are always injected. It also owns a birth-locked allowance ledger: every model call is metered, the grant is ¥10 per day and rolls over, and neither conversation, tools, nor configuration can change it.
 
 Birth identity lives in `$DSH_HOME/fish-mind/identity.json`; the “Big Fat Fish” settings page edits her name, species, appearance, how she addresses the owner, origin, and speaking habits, and every session builds `fish-mind-self` (order 925) from the current identity. Dialogue, memory, mood, self-growth, configuration, tools, and external content cannot change it because tools cannot write the fish-mind directory; only the settings page can. She knows she is an AI companion and does not claim a biological body in reality. The same page is the full-fish overview and exports or imports a strictly validated memory archive; see [fish settings and migration](fish-settings.md).
 
@@ -80,7 +80,7 @@ Birth identity lives in `$DSH_HOME/fish-mind/identity.json`; the “Big Fat Fish
 - **Relation edges**: facts extracted by consolidation become subject–predicate–object edges; when a value is superseded, the old edge gets an end time and a new edge starts. The relation route expands only one hop from existing candidates and never walks the whole graph.
 - **Verbatim source**: raw messages already live in `experience.jsonl` and SQLite, so reopening an episode does not copy chat transcripts into the project directory. Full text archives up to `archiveChars` (200000 by default), while the index, entities, salience and recall cues read only the first `maxTextChars` (4000 by default); an experience containing credentials has no body and cannot be reopened.
 - **Compaction summary**: when the context exceeds its budget, the harness compacts it, and that summary is written as an experience labelled “上下文压缩摘要” (compaction summary). Compaction therefore cannot erase her own condensation from long-term memory; the original messages were already captured before it.
-- **Defaults**: `mode: shadow`, `inject: false`. Phase 1 acceptance needs a replay over real corpora first, so the code lands with the switch off; enabling it takes a config change or `reload()`, not a repackage.
+- **Defaults**: `mode: live`, `inject: true`. Memory works as soon as the plugin is installed. To observe without injecting, turn `inject` off or return to `shadow`; either takes a config change or `reload()`, not a repackage.
 
 ### Social session isolation
 
@@ -182,7 +182,7 @@ This is prompt rules plus regex scanning, not semantic protection: rewritten inj
 - The index reads only the prefix of each body: a term that appears after `maxTextChars` cannot be found by keyword and needs `open_episode` paging from the episode id. The compaction summary depends on the harness emitting `compaction/summary`; without that event, long-term memory keeps the raw messages around the compaction but not the summary itself.
 - The allowance ledger is independent of the memory switch: since Phase 0 it meters every model call and hard-blocks when the wallet is empty. It is a financial safety layer, not a memory feature.
 - The old `dsh-fish-memory` is deleted; old `fish-memory/*.json` files remain in the home directory, are not rewritten, and do not enter the fish brain automatically.
-- Defaults remain off: `mode: shadow`, `inject: false`. If the enabled behavior disappoints, turn `inject` off or return to `shadow`; existing data is not modified.
+- Defaults are on: `mode: live`, `inject: true`. If the enabled behavior disappoints, turn `inject` off or return to `shadow`; existing data is not modified.
 
 ## Mood: dsh-feiyu-mood
 
@@ -512,24 +512,24 @@ The Bilibili plugin lets Da Feiyu browse videos, read subtitles, and skim commen
 | After 18:00 | The Bilibili window reopens; speak-up uses the higher off-peak line | Bilibili, speak-up |
 | End of any turn | The fish brain records the turn; mood updates; speech or QQ delivers it | Fish brain, mood, speech, QQ |
 
-Read together, the loop is: the owner speaks → the fish brain records the turn as an experience (shadow mode records and encodes without recall; once enabled, the workspace joins the prompt) → mood sets the tone for this turn → the model replies → mood updates from the turn and writes back to the fish brain → speech or QQ claims the turn and delivers it → the fish brain keeps accumulating. Speak-up and Bilibili are the two entrances that can start a turn without owner input; they write into the same experience stream with different `source.kind` values, and mood interprets them differently.
+Read together, the loop is: the owner speaks → the fish brain records the turn as an experience (the workspace joins the prompt; if memory is turned off, shadow mode still records and encodes without recall) → mood sets the tone for this turn → the model replies → mood updates from the turn and writes back to the fish brain → speech or QQ claims the turn and delivers it → the fish brain keeps accumulating. Speak-up and Bilibili are the two entrances that can start a turn without owner input; they write into the same experience stream with different `source.kind` values, and mood interprets them differently.
 
 ## Defaults, cost, and risk
 
 | Plugin | Shipped default | Model cost | External dependency | Main risk |
 | --- | --- | --- | --- | --- |
-| Fish brain | On (shadow mode; switchable to live) | Recording and encoding call no model; every model call (chat, mood, Bilibili) enters the ledger, ¥10 per day with rollover | None | Off by default, so it looks like “no memory”; after enabling, recall accuracy and source honesty need watching; an empty wallet leaves only local replies; prices are estimates |
+| Fish brain | On (full memory, `live` + `inject: true`) | Recording and encoding call no model; every model call (chat, mood, Bilibili) enters the ledger, ¥10 per day with rollover | None | Recall accuracy and source honesty need watching; turning `inject` off or returning to `shadow` disables recall; an empty wallet leaves only local replies; prices are estimates |
 | Mood | On, all non-subagent sessions by default | One short call per turn | None | A failed judgement keeps the previous mood; subagent sessions are skipped |
 | Speak-up | On, but dry run on | One turn only after a hit | None | Silent by default; does not wake anything when no session is live |
 | Speech | Auto speech on | No model call; consumes DeepSeek web speech quota | Chromium extension, DeepSeek login | No sound when the page is closed or the quota is exhausted |
 | QQ | Master switch off, dry run on; social switch off, dry run on | The owner bridge makes no extra model call; during social learning every message takes one short judge call, and once the profile matures the fast pass removes most unrelated traffic; person facts piggyback on that same judge call with no extra request; each reply is a normal call, all metered by the allowance ledger | NapCat/SnowLuma, QQ login | Requires a local backend; text only; social judgement can reply when it should not or stay silent when it should |
 | Bilibili | Automatic scans off | One subagent per round; search and subtitles cost tokens | Bilibili login, Python venv | Automatic comments, replies, and private messages carry account risk |
 
-No plugin runs at full speed out of the box: the fish brain records, encodes, and organizes chapters without recall; speak-up, QQ, and Bilibili need the owner to enable a switch, and QQ group interjection has an additional social switch and dry run; speech needs the extension installed. These conservative defaults are intentional, not a malfunction. Session targets mostly no longer need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own.
+No plugin runs at full speed out of the box: the fish brain records, encodes, organizes chapters, recalls, and injects the workspace by default; speak-up, QQ, and Bilibili need the owner to enable a switch, and QQ group interjection has an additional social switch and dry run; speech needs the extension installed. These conservative defaults are intentional, not a malfunction. Session targets mostly no longer need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own.
 
 ## Cross-plugin coupling and gaps
 
-- The fish brain is still in shadow mode by default, so experiences go in but do not come out; episodes, chapters, and recall are implemented, but until `live` + `inject` is enabled the conversation does not feel them.
+- The fish brain is fully enabled by default: experiences are recorded, encoded, recalled, and injected into the workspace. If recall feels noisy or inaccurate, turn `inject` off or return to `shadow` to make experiences go in without coming out.
 - The allowance ledger meters every model call and is a hard global constraint; but it only governs money, not content, and does not judge whether a call is worth making.
 - Speech and QQ use the same delivery claim, first come first served; but the claim lives only in the process, so a DSH restart does not remember that a turn was already delivered.
 - The Bilibili report enters the fish brain, but whether and how much the main session relays is still decided by the model; there is no hard “must report” constraint and no guarantee that the report appears in the chat.
@@ -561,7 +561,7 @@ Configuration covers most ways of raising the fish; only code changes alter the 
 
 | Symptom | Where to look first |
 | --- | --- |
-| The fish brain seems to remember nothing | It may be in shadow mode or have `inject: false`; check whether `fish-mind/experience.jsonl` gains experiences, whether `mind.sqlite` gains episodes and chapters, and whether `fish-mind/diag.log` shows write or recall failures |
+| The fish brain seems to remember nothing | It may have been switched to shadow mode or `inject: false`; check whether `fish-mind/experience.jsonl` gains experiences, whether `mind.sqlite` gains episodes and chapters, and whether `fish-mind/diag.log` shows write or recall failures |
 | She suddenly only says “I cannot move today” | The allowance may be exhausted: check `walletCny` in `fish-mind/budget.json`, recent `blocked` entries in `fish-mind/budget-ledger.jsonl`, and budget blocks in `diag.log` |
 | Mood never changes | Whether the mood target was narrowed to another session; whether `feiyu-mood/diag.log` shows a failed judgement |
 | Never speaks first | Master switch, dry run, quiet hours; with no target it picks the most recently active session; recent log on the `speak-up` settings page |

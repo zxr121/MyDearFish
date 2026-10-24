@@ -95,7 +95,7 @@ Route B is what this project needs: the goal is a companion who remembers, not a
 
 **Old records stay in the private room.** Imported history is recallable in the owner's conversation. It is unreachable from a group: imported rows live in their own `session-qq-import-*` rooms, a social session recalls only its exact session id with trust inside 0.2 to 0.85 (`lib/index.js:586`), and `excludeSources` (`lib/store.js:917`) can drop the class outright. This matches the existing closeness tiers, and it keeps a QQ export from becoming a leak.
 
-**Switch memory on with the import, not before.** `mode: 'shadow'` and `inject: false` (`fish/plugins/dsh-fish-mind/lib/config.js:68-69`) are the shipped defaults and stay the shipped defaults; the profile that runs the import turns them on in its own layer, and the import switch itself defaults to off (`fish/plugins/dsh-qq-bridge/lib/host.js:91`), so the first recallable content and the first injection arrive together.
+**Import only adds content; memory is already on.** `mode: 'live'` and `inject: true` (`fish/plugins/dsh-fish-mind/lib/config.js:68-69`) are the shipped defaults, so recall and injection work before any import. The import switch itself defaults to off (`fish/plugins/dsh-qq-bridge/lib/host.js:91`), and once it is turned on the imported rows enter the same experience stream and become recallable without a second configuration change.
 
 | File | Change |
 | --- | --- |

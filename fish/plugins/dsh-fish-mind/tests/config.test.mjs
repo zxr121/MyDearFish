@@ -9,11 +9,11 @@ function tempHome() {
   return mkdtempSync(join(tmpdir(), 'fish-mind-config-'))
 }
 
-test('默认配置是影子模式，权限开着，后台自主关着', () => {
+test('默认配置是完整功能，权限开着，后台自主关着', () => {
   const home = tempHome()
   const config = buildDefaults(home)
-  assert.equal(config.mode, 'shadow')
-  assert.equal(config.inject, false)
+  assert.equal(config.mode, 'live')
+  assert.equal(config.inject, true)
   assert.equal(config.permissions.enabled, true)
   assert.equal(config.permissions.emergencyStop, false)
   assert.equal(config.permissions.autonomous.enabled, false)
@@ -30,7 +30,8 @@ test('坏 JSON 退回默认值，而且不覆盖原文件', () => {
   writeFileSync(path, '{ 这不是 JSON', 'utf8')
   const lines = []
   const config = loadConfig({ dshHome: home, diag: (line) => lines.push(line) })
-  assert.equal(config.mode, 'shadow')
+  assert.equal(config.mode, 'live')
+  assert.equal(config.inject, true)
   assert.equal(readFileSync(path, 'utf8'), '{ 这不是 JSON')
   assert.ok(lines.some((line) => line.includes('默认值')))
 })
@@ -39,7 +40,8 @@ test('第一次启动会写出一份默认配置', () => {
   const home = tempHome()
   loadConfig({ dshHome: home })
   const written = JSON.parse(readFileSync(join(home, 'fish-mind', 'config.json'), 'utf8'))
-  assert.equal(written.mode, 'shadow')
+  assert.equal(written.mode, 'live')
+  assert.equal(written.inject, true)
   assert.equal(written.permissions.enabled, true)
 })
 
@@ -58,8 +60,8 @@ test('不合法的字段逐个退回，不影响其它字段', () => {
       autonomous: { enabled: true, allowTools: ['recall', 42], allowPaths: [] },
     },
   }, { dshHome: home })
-  assert.equal(config.mode, 'shadow')
-  assert.equal(config.inject, false)
+  assert.equal(config.mode, 'live')
+  assert.equal(config.inject, true)
   assert.equal(config.retentionDays, 1)
   assert.equal(config.maxTextChars, 200)
   assert.equal(config.archiveChars, 200)

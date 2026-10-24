@@ -65,8 +65,8 @@ const DEFAULT_PROTECTED_READ_PATHS = [
  */
 export function buildDefaults(dshHome) {
   return {
-    mode: 'shadow',
-    inject: false,
+    mode: 'live',
+    inject: true,
     retentionDays: 90,
     maxTextChars: 4000,
     archiveChars: 200000,

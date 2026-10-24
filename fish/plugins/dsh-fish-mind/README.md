@@ -82,7 +82,7 @@
 
 ## 情景记忆
 
-对话热路径只做 SQLite 查询和规则计算，不调模型；只有后台的短期转长期提炼会调模型，而且由计时器驱动、不在任何一轮回复的关键路径上。默认 `mode: shadow`、`inject: false`，代码虽然在，但提示和工作台都不出现；要启用就显式改成 `"mode": "live"` 和 `"inject": true`。
+对话热路径只做 SQLite 查询和规则计算，不调模型；只有后台的短期转长期提炼会调模型，而且由计时器驱动、不在任何一轮回复的关键路径上。默认 `mode: live`、`inject: true`，装好就是完整功能：经历照常记录，召回、工作台和记忆提示都会出现。只想观察不注入就显式改成 `"inject": false`，想连召回也停掉就把 `"mode"` 退回 `"shadow"`。
 
 ### 切段与编码
 
@@ -260,8 +260,8 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 
 ```json
 {
-  "mode": "shadow",
-  "inject": false,
+  "mode": "live",
+  "inject": true,
   "retentionDays": 90,
   "maxTextChars": 4000,
   "archiveChars": 200000,

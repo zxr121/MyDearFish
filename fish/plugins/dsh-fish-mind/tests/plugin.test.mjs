@@ -121,7 +121,7 @@ function exec(name, args, sessionId = 'session-1') {
   }
 }
 
-test('插件挂着就能写经历，影子模式不召回', async () => {
+test('插件挂着就能写经历，默认就是完整功能', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()
   apply(ctx)
@@ -143,11 +143,11 @@ test('插件挂着就能写经历，影子模式不召回', async () => {
   await ctx.emit('session/event', session(), { type: 'turn/end', seq: 7, time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
 
   const state = mind.state()
-  assert.equal(state.mode, 'shadow')
+  assert.equal(state.mode, 'live')
   assert.equal(state.storage.total, 3)
   assert.equal(state.storage.dropped, 0)
-  assert.equal(state.inject, false)
-  assert.equal(mind.recall().enabled, false)
+  assert.equal(state.inject, true)
+  assert.equal(mind.recall().enabled, true)
 
   assert.deepEqual(mind.sessions().map((item) => item.id), ['session-1'])
   assert.equal(mind.sessions()[0].events, 3)
@@ -607,7 +607,9 @@ test('私密账本、隐私、法律和注入规则都进本地上下文，账�
 })
 
 test('影子模式不注入记忆协议和工作台，recall 明确说未启用', async () => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'shadow', inject: false })
   const ctx = fakeContext()
   const harness = memoryHarness(ctx)
   apply(ctx)
