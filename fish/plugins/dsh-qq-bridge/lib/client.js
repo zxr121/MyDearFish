@@ -154,6 +154,12 @@ window.__ModuleLoader__.load({
       const [导忙, 设导忙] = React.useState(false)
       const [导说, 设导说] = React.useState('')
       const [白名单文本, 设白名单文本] = React.useState('')
+      const [同意雪, 设同意雪] = React.useState(false)
+      const [雪密码, 设雪密码] = React.useState('')
+      const [雪目录, 设雪目录] = React.useState('')
+      const [雪说, 设雪说] = React.useState('')
+      const [雪忙, 设雪忙] = React.useState(false)
+      const 雪初化 = React.useRef(false)
       const [人物态, 设人物态] = React.useState(null)
       const [人物载, 设人物载] = React.useState(false)
       const [人物错, 设人物错] = React.useState('')
@@ -197,6 +203,39 @@ window.__ModuleLoader__.load({
           设人物错((s && s.说) || '读不到人物志')
         }
       }
+      // 只刷 SnowLuma 这一块，别用 /state 把没保存的表单值冲掉。
+      function 吃雪(s) {
+        if (!s || !s.ok) return
+        设态((旧) => {
+          if (!旧) return 旧
+          const 雪 = { ...(旧.SnowLuma || {}), ...s }
+          const 连上 = !!雪.已连QQ
+          return {
+            ...旧,
+            SnowLuma: 雪,
+            NapCat状态: 连上
+              ? { 用户: 雪.用户, 昵称: 雪.昵称 }
+              : { 错: 雪.错 || (雪.运行中 ? 'SnowLuma 在跑，但还没接上 QQ' : 'SnowLuma 没在跑') },
+          }
+        })
+      }
+      const 拉雪 = async () => {
+        const s = await get('/snowluma')
+        吃雪(s)
+      }
+      React.useEffect(() => {
+        if (!态 || 雪初化.current) return
+        雪初化.current = true
+        const 雪 = (态.配置 && 态.配置.SnowLuma) || {}
+        设同意雪(!!雪.同意协议)
+        设雪目录(String(雪.目录 || ''))
+      }, [态])
+      const 雪装中 = !!(态 && 态.SnowLuma && 态.SnowLuma.安装 && 态.SnowLuma.安装.进行中)
+      React.useEffect(() => {
+        if (!雪装中) return undefined
+        const 表 = setInterval(() => { void 拉雪() }, 1500)
+        return () => clearInterval(表)
+      }, [雪装中])
       const 改 = (k, v) => {
         设态((旧) => (旧 ? { ...旧, 配置: { ...(旧.配置 || {}), [k]: v } } : 旧))
         设脏(true)
@@ -339,12 +378,17 @@ window.__ModuleLoader__.load({
 
       const 配置 = 态.配置 || {}
       const 目标们 = Array.isArray(态.活着的会话) ? 态.活着的会话 : []
-      const NapCat = 态.NapCat状态 || null
+      const 雪 = 态.SnowLuma || {}
+      const 雪装好 = !!雪.已安装
+      const 雪在跑 = !!雪.运行中
+      const 雪连上 = !!雪.已连QQ
+      const 雪安装 = 雪.安装 || {}
+      const 雪后台 = 雪.后台 || {}
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
       const 社态 = 态.社交 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
-      const 自己 = 社态.自己 || (NapCat && !NapCat.错 ? { 昵称: NapCat.昵称, 号: NapCat.用户 } : null)
+      const 自己 = 社态.自己 || (雪连上 ? { 昵称: 雪.昵称, 号: 雪.用户 } : null)
       const 导入 = 配置.导入 || {}
       const 导态 = 态.导入 || {}
       const 戳 = 配置.戳一戳 || {}
@@ -375,19 +419,196 @@ window.__ModuleLoader__.load({
         ? 人物态.账号数
         : 人物页.reduce((n, p) => n + (Number(p.账号数) || 0), 0)
 
+      const 兆 = (n) => (Number(n) || 0) >= 1048576
+        ? (Number(n) / 1048576).toFixed(1) + ' MB'
+        : Math.max(0, Math.round((Number(n) || 0) / 1024)) + ' KB'
+
+      const 装雪 = async () => {
+        if (!同意雪) {
+          设雪说('先把下面的协议勾上：安装前需要你明确同意 SnowLuma 的 EULA 和隐私政策')
+          return
+        }
+        设雪忙(true)
+        设雪说('')
+        const s = await post('/snowluma/setup', {
+          目录: 雪目录.trim(),
+          密码: 雪密码.trim(),
+          同意协议: true,
+          自动启动: true,
+        })
+        设雪忙(false)
+        设雪说((s && s.说) || '没反应')
+        if (s && s.状态) 吃雪(s.状态)
+        if (s && s.ok) 设雪密码('')
+        await 拉雪()
+      }
+
+      const 雪动作 = async (名) => {
+        设雪忙(true)
+        const s = await post('/snowluma/' + 名, {})
+        设雪忙(false)
+        设雪说((s && s.说) || '没反应')
+        if (s && s.状态) 吃雪(s.状态)
+        await 拉雪()
+      }
+
+      const 打开雪后台 = () => {
+        const 址 = String(雪后台.地址 || 'http://127.0.0.1:5099/')
+        if (typeof window !== 'undefined') window.open(址, '_blank', 'noopener,noreferrer')
+      }
+
+      const 复制 = async (文) => {
+        const 要复制的 = String(文 || '')
+        if (要复制的 === '') return
+        try {
+          await navigator.clipboard.writeText(要复制的)
+          设雪说('已复制：' + 要复制的)
+        } catch (error) {
+          设雪说('复制不了，手动选中这串：' + 要复制的)
+        }
+      }
+
+      const 步骤头 = (号, 完成) =>
+        h('div', {
+          style: {
+            flex: '0 0 22px',
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 12,
+            fontWeight: 700,
+            marginTop: 1,
+            background: 完成 ? 'var(--dsw-alias-state-business-primary)' : 'transparent',
+            color: 完成 ? '#fff' : 'inherit',
+            border: 完成 ? '1px solid var(--dsw-alias-state-business-primary)' : '1px solid var(--dsw-alias-border-l2)',
+          },
+        }, 完成 ? '✓' : String(号))
+
+      const 步骤 = (号, 完成, 标题, 内容) =>
+        h('div', { style: { display: 'flex', gap: 10, marginTop: 12 } },
+          步骤头(号, 完成),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('div', { style: { fontWeight: 600, fontSize: 12.5, marginBottom: 4 } }, 标题),
+            内容,
+          ),
+        )
+
       return h(
         'div',
         { style: S.wrap },
 
         h('div', { style: S.h }, '通到 QQ'),
         h('div', { style: S.dim },
-          '它在 DSH 里说完一整轮，就把那句原文发到 QQ；你在 QQ 里说的话也会转进来。' +
+          '固定用 SnowLuma 把 QQ 接到这里：它在 DSH 里说完一整轮，就把那句原文发到 QQ；你在 QQ 里说的话也会转进来。' +
             '下面的社交模式里，它只会挑自己感兴趣的消息看，再决定要不要接；能回答、被 @、群里热闹都不是理由。' +
             '版本 ' + String(态.版本 || '?') + '｜配置文件：' + String(态.配置文件 || ''),
         ),
-        NapCat && !NapCat.错
-          ? h('div', { style: S.已同步 }, '✓ 连着的 QQ：' + NapCat.昵称 + '（' + NapCat.用户 + '）')
-          : h('div', { style: S.未保存 }, '⚠ 连不上 NapCat' + (NapCat && NapCat.错 ? '：' + NapCat.错 : '')),
+
+        // —— 第一次接通 QQ：装、配、接、检测 ——
+        h('div', { style: S.card },
+          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+            h('div', { style: { ...S.h, margin: 0 } }, '第一次接通 QQ'),
+            h('div', { style: 雪连上 ? S.已同步 : S.未保存 }, 雪连上 ? '✓ 已接通' : '还没接通'),
+          ),
+          h('div', { style: S.dim },
+            '固定用 SnowLuma。点「一键安装并配置」会下载官方 Windows 版，并把 OneBot HTTP（127.0.0.1:3000）、事件上报和后台密码都写好；' +
+              '你只剩两步：登录鱼 QQ、在 SnowLuma 后台把它接上。',
+          ),
+
+          步骤(1, 雪装好 && 雪在跑, '安装并配置 SnowLuma',
+            h('div', null,
+              h('div', { style: S.dim },
+                雪装中
+                  ? '正在装：' + String(雪安装.阶段 || '') + (雪安装.总 ? '（' + 兆(雪安装.已下载) + ' / ' + 兆(雪安装.总) + '）' : '')
+                  : 雪装好
+                    ? '已安装 v' + String(雪.版本 || '?') + '：' + String(雪.目录 || '')
+                    : '还没装。点击下载安装（约 40–60 MB），装好会自动配置并启动。',
+              ),
+              h('label', { style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, marginTop: 6 } },
+                h('input', { type: 'checkbox', checked: 同意雪, onChange: (e) => 设同意雪(e.target.checked) }),
+                h('span', null,
+                  '我已阅读并同意 SnowLuma 的 ',
+                  h('a', {
+                    href: 'https://github.com/SnowLuma/SnowLuma',
+                    target: '_blank',
+                    rel: 'noreferrer',
+                    style: { color: 'var(--dsw-alias-state-business-primary)' },
+                  }, 'EULA 与隐私政策'),
+                  '（安装包内附 EULA.md / PRIVACY.md）',
+                ),
+              ),
+              h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                按钮(雪装中 ? '正在安装…' : (雪装好 ? (雪在跑 ? '重新配置并重启' : '配置并启动') : '一键安装并配置'),
+                  装雪, true, 雪忙 || 雪装中 || !同意雪),
+                雪装好 ? 按钮('打开后台', 打开雪后台, false, 雪忙) : null,
+                雪装好 && 雪后台.密码 ? 按钮('复制后台密码', () => 复制(雪后台.密码), false, false) : null,
+              ),
+              h('details', { style: { marginTop: 8 } },
+                h('summary', { style: { cursor: 'pointer', fontSize: 12, opacity: 0.72 } }, '高级：安装目录 / 后台密码'),
+                h('div', { style: { marginTop: 6 } },
+                  行('安装目录', h('input', {
+                    type: 'text',
+                    style: S.input,
+                    value: 雪目录,
+                    placeholder: '留空 = 自动找，找不到就装到 <DSH_HOME>/snowluma',
+                    onChange: (e) => 设雪目录(e.target.value),
+                  }), '已有安装会自动认出来；一般不用填。'),
+                  行('后台密码', h('input', {
+                    type: 'text',
+                    style: S.input,
+                    value: 雪密码,
+                    placeholder: '留空 = 自动生成一个并记在本机',
+                    onChange: (e) => 设雪密码(e.target.value),
+                  }), '这是 SnowLuma 后台的登录密码；只存在本机配置文件里。'),
+                ),
+              ),
+              雪安装.错
+                ? h('div', { style: { ...S.未保存, marginTop: 6 } }, '⚠ 上次安装/启动失败：' + 雪安装.错)
+                : null,
+              h('div', { style: { ...S.dim, marginTop: 6 } },
+                '后台：' + String(雪后台.地址 || 'http://127.0.0.1:5099/') +
+                  '｜密码：' + String(雪后台.密码 || '（装好后自动生成）'),
+              ),
+            ),
+          ),
+
+          步骤(2, 雪连上, '登录鱼 QQ，并在 SnowLuma 后台接上它',
+            h('div', null,
+              h('div', { style: S.dim },
+                'SnowLuma 不会替你登录 QQ：先在这台电脑登录「鱼的 QQ」，再打开后台，在「进程」里选中这个 QQ 并接上' +
+                  '（不同版本可能叫接入 / 注入 / 启用）。',
+              ),
+              h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                按钮('打开 SnowLuma 后台', 打开雪后台, true, !雪装好),
+                雪装好 && !雪在跑 ? 按钮('启动 SnowLuma', () => 雪动作('start'), false, 雪忙) : null,
+                按钮('重置后台密码', () => 雪动作('password'), false, 雪忙 || !雪装好),
+                按钮('停止 SnowLuma', () => 雪动作('stop'), false, 雪忙 || !雪.是我们启动的),
+              ),
+            ),
+          ),
+
+          步骤(3, 雪连上, '回来检测这条线',
+            h('div', null,
+              h('div', { style: 雪连上 ? S.已同步 : S.未保存 },
+                雪连上
+                  ? '✓ 已经连上：' + String(雪.昵称 || '') + '（' + String(雪.用户 || '') + '）'
+                  : '还没连上' + (雪.错 ? '：' + 雪.错 : '（SnowLuma 没在跑，或后台还没接上 QQ）'),
+              ),
+              h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                按钮('重新检测', 拉雪, true, 雪忙),
+              ),
+              h('div', { style: { ...S.dim, marginTop: 4 } },
+                '检测走的是 OneBot HTTP 127.0.0.1:3000；一直失败就看最下面的记录和 SnowLuma 的 logs。',
+              ),
+            ),
+          ),
+
+          雪说 ? h('div', { style: { ...S.ok, marginTop: 8 } }, 雪说) : null,
+        ),
+
         h('div', { style: 脏 ? S.未保存 : S.已同步 },
           脏 ? '⚠ 上面有改动还没保存 —— 改完点「保存设置」（有改动时底下还会浮一条出来）' : '设置已同步 ✓',
         ),
@@ -430,7 +651,7 @@ window.__ModuleLoader__.load({
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '戳一戳'),
           h('div', { style: S.dim },
             'QQ 的戳一戳是通知事件，不在聊天记录里；只靠轮询永远看不到。' +
-              '在 SnowLuma 的「HTTP 上报 / httpClient」里填下面这个地址，她被戳时才会收到。',
+              '一键安装时会自动写进 SnowLuma 的 HTTP 上报；改过端口才需要再到 SnowLuma 后台同步一次。',
           ),
           行('收戳一戳', 勾(戳.启用, (v) => 改戳一戳('启用', v)), '关掉 = 不监听；改端口后保存会自动重开。'),
           行('监听端口', 数框(戳.端口, (v) => 改戳一戳('端口', v), 1, 1024, 65535), '只在本机 127.0.0.1 上监听，不暴露到局域网。'),
@@ -442,7 +663,7 @@ window.__ModuleLoader__.load({
               value: String(戳态.地址 || ('http://127.0.0.1:' + String(戳.端口 || 19388) + '/dsh-qq/event')),
               onFocus: (e) => e.target.select(),
             }),
-            '复制到 SnowLuma 的 HTTP 上报地址（不要填 access token）。',
+            '一键安装时已经自动填好；只有换过端口才需要重新同步到 SnowLuma 的 httpClient（不要填 access token）。',
           ),
           h('div', { style: 戳态.在听 ? S.已同步 : S.未保存 },
             戳态.在听

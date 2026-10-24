@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
 import { isTrustedLocalRequest } from './http-trust.js'
 import { 创建历史导入 } from './import.js'
+import { 创建SnowLuma } from './snowluma.js'
 
 export const name = 'qq-bridge'
 
@@ -176,7 +177,13 @@ const 默认配置 = {
   群号: '', // 发到哪个群（可空）
   转私聊: true,
   转群: false,
-  NapCat: 'http://127.0.0.1:3000', // OneBot HTTP 接口（无 token）
+  NapCat: 'http://127.0.0.1:3000', // OneBot HTTP 接口（无 token，固定由 SnowLuma 提供）
+  SnowLuma: {
+    目录: '', // 留空 = 自动找已有安装，找不到就装到 <DSH_HOME>/snowluma
+    后台密码: '', // SnowLuma 后台登录密码；只落本机配置，不进仓库
+    同意协议: false, // 必须由设置页明确勾选，不替用户接受
+    自动启动: true, // DSH 启动时如果 SnowLuma 没在跑就拉起来
+  },
   戳一戳: {
     启用: true, // 只在本机开一个收报口；SnowLuma 的 HTTP 上报填这个地址
     端口: 19388,
@@ -355,6 +362,18 @@ function 归一化导入(原始) {
   }
 }
 
+function 归一化SnowLuma(原始) {
+  const 混 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始) ? 原始 : {}
+  const 兜 = 默认配置.SnowLuma
+  const 裁 = (值, 限) => (typeof 值 === 'string' ? 值.trim().slice(0, 限) : '')
+  return {
+    目录: 裁(混.目录, 260),
+    后台密码: 裁(混.后台密码, 64),
+    同意协议: 布(混.同意协议, 兜.同意协议),
+    自动启动: 布(混.自动启动, 兜.自动启动),
+  }
+}
+
 function 归一化(原始) {
   const 是对象 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始)
   const 混 = 是对象 ? { ...默认配置, ...原始 } : { ...默认配置 }
@@ -368,6 +387,7 @@ function 归一化(原始) {
     转私聊: 布(混.转私聊, 默认配置.转私聊),
     转群: 布(混.转群, 默认配置.转群),
     NapCat: 字(混.NapCat) || 默认配置.NapCat,
+    SnowLuma: 归一化SnowLuma(混.SnowLuma),
     戳一戳: 归一化戳一戳(混.戳一戳),
     社交: 归一化社交(混.社交),
     导入: 归一化导入(混.导入),
@@ -2851,6 +2871,15 @@ export function apply(ctx) {
     },
     状态文件: join(目录, 'qq-import-state.json'),
     日志: 记账,
+  })
+
+  // ---------- SnowLuma（固定后端：一键装、配 OneBot / 事件上报 / 后台密码、随 DSH 拉起） ----------
+  const snowluma = 创建SnowLuma({
+    家目录: 目录,
+    读配置,
+    存配置: 写配置,
+    记账,
+    事件地址: () => `http://127.0.0.1:${读配置().戳一戳.端口}${戳收报路径}`,
   })
 
   // 目标会话留空时，自动绑定最近聊过的那个会话；绑定 30 秒内复用，避免每轮都扫盘。
@@ -5492,19 +5521,16 @@ export function apply(ctx) {
     const 配置 = 读配置()
     const 清单 = 会话清单()
     const 目标 = 解析目标(配置)
-    let NapCat状态 = null
-    try {
-      const r = await fetch(`${配置.NapCat}/get_login_info`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-      const j = await r.json()
-      if (j && j.status === 'ok') NapCat状态 = { 用户: j.data.user_id, 昵称: j.data.nickname }
-    } catch (error) {
-      NapCat状态 = { 错: String((error && error.message) || error) }
-    }
+    const snow状态 = await snowluma.状态()
+    const NapCat状态 = snow状态.已连QQ
+      ? { 用户: /^\d+$/.test(String(snow状态.用户)) ? Number(snow状态.用户) : snow状态.用户, 昵称: snow状态.昵称 }
+      : { 错: snow状态.错 || (snow状态.运行中 ? 'SnowLuma 在跑，但还没接上 QQ' : 'SnowLuma 没在跑') }
     return {
       ok: true,
       版本,
       配置: 遮令牌(配置),
       配置文件,
+      SnowLuma: snow状态,
       NapCat状态,
       戳一戳: 戳一戳概况(配置),
       活着的会话: 清单,
@@ -5547,6 +5573,47 @@ export function apply(ctx) {
     回(res, await 概况())
   })
 
+  路线(`${路由前缀}/snowluma`, async (req, res) => {
+    if (!要方法(req, 'GET', res)) return
+    await 读体(req)
+    回(res, await snowluma.状态())
+  })
+
+  // 一键装：下载官方发行包 → 写 OneBot / 事件上报 / 后台密码 → 启动。
+  // 必须带 同意协议: true；不替用户默认接受。
+  路线(`${路由前缀}/snowluma/setup`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    const 出 = snowluma.设置({
+      目录: 来 && 来.目录,
+      密码: 来 && 来.密码,
+      同意协议: !!(来 && 来.同意协议),
+      自动启动: !(来 && 来.自动启动 === false),
+    })
+    回(res, { ...出, 状态: snowluma.快照() })
+  })
+
+  路线(`${路由前缀}/snowluma/start`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    await 读体(req)
+    const 出 = snowluma.启动()
+    回(res, { ...出, 状态: snowluma.快照() })
+  })
+
+  路线(`${路由前缀}/snowluma/stop`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    await 读体(req)
+    const 出 = snowluma.停止()
+    回(res, { ...出, 状态: snowluma.快照() })
+  })
+
+  路线(`${路由前缀}/snowluma/password`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    await 读体(req)
+    const 出 = snowluma.重置密码()
+    回(res, { ...出, 状态: snowluma.快照() })
+  })
+
   路线(`${路由前缀}/people`, async (req, res) => {
     if (!要方法(req, 'GET', res)) return
     await 读体(req)
@@ -5574,6 +5641,7 @@ export function apply(ctx) {
     // 社交配置是嵌套的：浅合并会把没提交的字段冲掉
     if (改.社交 && typeof 改.社交 === 'object') 新.社交 = { ...现在.社交, ...改.社交 }
     if (改.戳一戳 && typeof 改.戳一戳 === 'object') 新.戳一戳 = { ...现在.戳一戳, ...改.戳一戳 }
+    if (改.SnowLuma && typeof 改.SnowLuma === 'object') 新.SnowLuma = { ...现在.SnowLuma, ...改.SnowLuma }
     if (改.导入 && typeof 改.导入 === 'object') {
       新.导入 = { ...现在.导入, ...改.导入 }
       // 页面只拿回掩码：原样发回来表示「令牌不改」，不能让掩码把真令牌顶掉。
@@ -6063,6 +6131,16 @@ export function apply(ctx) {
 
   // ---------- 挂监听 ----------
 
+  // SnowLuma 跟着 DSH 起来：同意过协议、勾了自动启动、而且它没在跑时才拉。
+  ctx.effect(() => {
+    const 表 = setTimeout(() => {
+      void snowluma.自动启动().catch((error) => {
+        try { ctx.logger?.info(`qq-bridge: SnowLuma 自动启动出错：${String((error && error.message) || error)}`) } catch (e2) {}
+      })
+    }, 2500)
+    return () => clearTimeout(表)
+  }, 'qq-bridge: 自动拉起 SnowLuma')
+
   // 戳一戳收报口跟着配置走：开关 / 端口一改，保存后立刻重开。
   ctx.effect(() => {
     let 收摊 = () => {}
@@ -6157,7 +6235,7 @@ export function apply(ctx) {
   }, 'qq-bridge: 释放 QQ 会话')
 
   const 装好时配置 = 读配置()
-  记账(`已装好 v${版本}：DSH↔QQ 两半 + Tulpa 旧记录导入都在｜总开关 ${装好时配置.总开关 ? '开' : '关'}｜试运行 ${装好时配置.试运行 ? '开（只记账）' : '关（真发）'}｜导入 ${装好时配置.导入.启用 ? '开（只读）' : '关'}｜戳一戳 ${装好时配置.戳一戳.启用 ? `听 ${装好时配置.戳一戳.端口}` : '关'}｜收消息 4 秒轮询一次`)
+  记账(`已装好 v${版本}：DSH↔QQ 两半 + Tulpa 旧记录导入都在｜总开关 ${装好时配置.总开关 ? '开' : '关'}｜试运行 ${装好时配置.试运行 ? '开（只记账）' : '关（真发）'}｜导入 ${装好时配置.导入.启用 ? '开（只读）' : '关'}｜SnowLuma ${装好时配置.SnowLuma.同意协议 ? (装好时配置.SnowLuma.自动启动 ? '自动启动' : '手动启动') : '待安装'}｜戳一戳 ${装好时配置.戳一戳.启用 ? `听 ${装好时配置.戳一戳.端口}` : '关'}｜收消息 4 秒轮询一次`)
 
   return { 记账, 概况, 落地一发, 发到QQ, 收到事件, 日志 }
 }

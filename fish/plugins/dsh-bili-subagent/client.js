@@ -168,6 +168,8 @@ window.__ModuleLoader__.load({
       const [report, setReport] = React.useState(null)        // 非 null = 报告已展开   // 顶部那行状态（跑一轮/装依赖的反馈原来在最底下，看不见）
       const [loginState, setLoginState] = React.useState('')
       const [loginTone, setLoginTone] = React.useState('')
+      const [waitQr, setWaitQr] = React.useState(false)     // 一键装：等 venv 就绪后自动出码
+      const waitQrAt = React.useRef(0)
       /* ⚠️ 扫码轮询的 timer 必须能停：切走设置页后还在跑的话会在已卸载的组件上 setState，
        *    重复点「扫码登录」还会叠出第二个 timer。（2026-10-16 审查修） */
       const loginTimer = React.useRef(null)
@@ -364,11 +366,72 @@ window.__ModuleLoader__.load({
         finally { setBusy('') }
       }
 
+      // 一键接通：环境没装就先装，装好自动出二维码；已经装好就直接出码。
+      const onConnectBili = async () => {
+        setBusy('connect')
+        say('')
+        try {
+          let s = null
+          try { s = await jget('/status') } catch (e) {}
+          if (s?.ok) setSt(s)
+          if (s?.venvReady) {
+            await onLoginStart()
+            return
+          }
+          await jpost('/install', {})
+          const 后 = await jget('/status').catch(() => null)
+          if (后?.ok) setSt(后)
+          waitQrAt.current = Date.now()
+          setWaitQr(true)
+          say('开始装运行环境（第一次会久一点）；装完会自动出二维码，不用盯着。', '')
+        } catch (e) {
+          setWaitQr(false)
+          say(String(e?.message ?? e), 'warn')
+        } finally { setBusy('') }
+      }
+
+      React.useEffect(() => {
+        if (!waitQr || !st) return
+        if (st.installing) return
+        if (st.venvReady) {
+          setWaitQr(false)
+          if (!st.loggedIn) void onLoginStart()
+          return
+        }
+        if (st.installFailed) {
+          setWaitQr(false)
+          say('运行环境没装成：看下面的主依赖日志，再点一次「一键装好并出码」重试。', 'warn')
+          return
+        }
+        if (Date.now() - waitQrAt.current > 20 * 60_000) {
+          setWaitQr(false)
+          say('等太久了还没装完：看下面的主依赖日志，或者先点「测一下」。', 'warn')
+        }
+      }, [waitQr, st?.installing, st?.venvReady, st?.installFailed])
+
       if (!cfg) {
         return h('div', { 'data-bd-page': '' }, h('div', { 'data-bd-note': '' }, '读设置中…'))
       }
 
       const sw = (k) => Boolean(cfg[k])
+
+      const 步 = (号, 完成, 标题, 内容) =>
+        h('div', { style: { display: 'flex', gap: 10, marginTop: 12 } },
+          h('div', {
+            style: {
+              flex: '0 0 22px', width: 22, height: 22, borderRadius: 11,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700, marginTop: 1,
+              background: 完成 ? '#3b82f6' : 'transparent',
+              color: 完成 ? '#fff' : 'inherit',
+              border: '1px solid ' + (完成 ? '#3b82f6' : 'var(--dsw-alias-border-l2, rgba(128,128,128,.3))'),
+            },
+          }, 完成 ? '✓' : String(号)),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('div', { style: { fontSize: 13, fontWeight: 600 } }, 标题),
+            内容,
+          ),
+        )
 
       return h('div', { 'data-bd-page': '' },
 
@@ -382,6 +445,71 @@ window.__ModuleLoader__.load({
           h('button', { 'data-bd-btn': '', disabled: busy === 'run', onClick: onRun }, '现在跑一轮')),
           runNote ? h('div', { 'data-bd-msg': '', 'data-good': runNote.tone === 'good' ? '' : undefined,
             'data-warn': runNote.tone === 'warn' ? '' : undefined }, runNote.t) : null,
+
+        /* ── 第一次接通 B站 ── */
+        h('div', {
+          'data-bd-sec': '',
+          style: {
+            border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3))',
+            borderRadius: 12,
+            padding: '12px 14px',
+            gap: 0,
+          },
+        },
+          h('div', { 'data-bd-row': '' },
+            h('div', { 'data-bd-grow': '' },
+              h('div', { style: { fontSize: 14, fontWeight: 600 } }, '第一次接通 B站'),
+              h('div', { 'data-bd-note': '' }, '装一次运行环境、扫一次码，之后她自己刷；下面的开关才会真的生效。'),
+            ),
+            h('span', { 'data-bd-badge': '' }, st.loggedIn ? '✓ 已接通' : '还没接通'),
+          ),
+          步(1, !!st.venvReady, '装好运行环境（venv）',
+            h('div', { 'data-bd-note': '' },
+              st.venvReady
+                ? '已就绪。'
+                : st.installing
+                  ? '正在装：看下面「主依赖的日志」里的进度。'
+                  : st.installFailed
+                    ? '上次没装成 —— 看下面日志；再点一次「一键装好并出码」会重装。'
+                    : '第一次要建 Python venv 并装依赖，几十 MB，通常几分钟。')),
+          步(2, !!st.loggedIn, '扫码登录 B站',
+            h('div', null,
+              h('div', { 'data-bd-note': '' },
+                st.loggedIn
+                  ? '已登录，凭证存在插件自己的家目录。'
+                  : '点上面的按钮出二维码 → 手机 B站 → 我的 → 扫一扫；确认时选「记住我 / 长期」那张。'),
+              loginState ? h('div', {
+                'data-bd-msg': '',
+                'data-good': loginTone === 'good' ? '' : undefined,
+                'data-warn': loginTone === 'warn' ? '' : undefined,
+              }, loginState) : null,
+              login?.qr ? h('div', { 'data-bd-qr': '', style: { marginTop: 8 } },
+                h('img', { src: login.qr, alt: 'B站登录二维码' }),
+                h('div', { 'data-bd-note': '' },
+                  '手机 B站 → 我的 → 扫一扫。',
+                  h('br'),
+                  '确认时选「记住我 / 长期」那张 —— 选 24 小时的话，明天就得重扫。')) : null,
+            )),
+          步(3, !!(st.venvReady && st.loggedIn), '测一下，然后交给它',
+            h('div', { 'data-bd-row': '' },
+              h('button', { 'data-bd-btn': '', disabled: busy === 'check' || !st.venvReady, onClick: onCheck }, '测一下整条路'),
+              h('div', { 'data-bd-note': '' },
+                st.venvReady && st.loggedIn
+                  ? '会实际验证搜索、字幕、评论能不能用。'
+                  : '环境装好、B站登录后再测。'))),
+          h('div', { 'data-bd-row': '', style: { marginTop: 12, flexWrap: 'wrap' } },
+            h('button', {
+              'data-bd-btn': '',
+              'data-primary': st.loggedIn ? undefined : '',
+              disabled: Boolean(busy) || waitQr,
+              onClick: onConnectBili,
+            }, waitQr ? '装好会自动出码…' : (st.loggedIn ? '重新扫码登录' : (st.venvReady ? '生成登录二维码' : '一键装好并出码'))),
+            st.venvReady && !st.loggedIn
+              ? h('button', { 'data-bd-btn': '', disabled: busy === 'login', onClick: onLoginStart }, '只出二维码')
+              : null,
+            h('div', { 'data-bd-note': '' }, '装完不用再点一次 —— 会自动接着出码。'),
+          ),
+        ),
 
         /* ── 定时 ── */
         h('div', { 'data-bd-sec': '' },
@@ -606,18 +734,11 @@ window.__ModuleLoader__.load({
             h('button', { 'data-bd-btn': '', disabled: busy === 'check', onClick: onCheck }, '测一下'),
             h('button', { 'data-bd-btn': '', disabled: busy === 'login', onClick: onLoginStart }, '扫码登录'),
             h('div', { 'data-bd-note': '' },
-              !st.venvReady ? (st.installFailed ? '上次没装成 → 看下面日志' : '还没装 → 先点「装主依赖」')
-                : (st.loggedIn ? '装好了 → 下一步「扫码登录」' : '环境好了 → 点「扫码登录」'))),
-          loginState ? h('div', { 'data-bd-msg': '', 'data-good': loginTone === 'good' ? '' : undefined, 'data-warn': loginTone === 'warn' ? '' : undefined }, loginState) : null,
+              !st.venvReady ? (st.installFailed ? '上次没装成 → 看下面日志' : '还没装 → 用上面的「一键装好并出码」')
+                : (st.loggedIn ? '装好了 → 要换账号就「重新扫码登录」' : '环境好了 → 点「生成登录二维码」'))),
           st.installTail ? h('div', null,
             h('div', { 'data-bd-note': '' }, st.installing ? '正在装主依赖（进度）：' : '主依赖的日志（B站 搜索 / 字幕 / 评论 用得到，末尾）：'),
-            h('pre', { 'data-bd-pre': '' }, st.installTail)) : null,
-          login?.qr ? h('div', { 'data-bd-qr': '' },
-            h('img', { src: login.qr, alt: 'B站登录二维码' }),
-            h('div', { 'data-bd-note': '' },
-              '手机 B站 → 我的 → 扫一扫。',
-              h('br'),
-              '确认时选「记住我 / 长期」那张 —— 选 24 小时的话，明天就得重扫。')) : null),
+            h('pre', { 'data-bd-pre': '' }, st.installTail)) : null),
 
         /* ── 它是怎么干活的（给他看的） ── */
         h('div', { 'data-bd-sec': '' },

@@ -104,13 +104,17 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent
 
 ⚠️ 装完**必须重启一次 dsh**（插件在 bundle 层组装，不重启不生效）。然后进 **设置 → 刷B站**。
 
-## 首次使用（两步）
+## 首次使用（设置页三步）
 
-1. **装主依赖** —— 设置页点「装主依赖」：在插件自己的家目录建独立 venv，装
-   `bilibili-api-python` / `aiohttp` / `mcp<2` / `qrcode`。走国内镜像，通常几十秒（进度写 `install.log`）。
-2. **扫码登录** —— 点「扫码登录」，用手机 B站 扫。
+设置 → 刷B站 最上面就是「第一次接通 B站」向导，跟着三步走：
+
+1. **一键装好并出码** —— 没环境时点它：在插件自己的家目录建独立 venv，装
+   `bilibili-api-python` / `aiohttp` / `mcp<2` / `qrcode`（走国内镜像，通常几十秒，进度写 `install.log`）。
+   装完会**自动拉登录二维码**，不用再找按钮。
+2. **扫码登录** —— 用手机 B站 扫卡片里的码。
    ⚠️ 确认时选「**记住我 / 长期**」，选 24 小时的话明天就得重扫。
    凭证只落在本机：`<DSH_HOME>/bili-duty/bili_credential.json`，不上传任何地方。
+3. **测一下** —— 点「测一下」确认整条路通；以后要换账号点「重新扫码登录」。
 
 ## 设置页里有什么
 
@@ -222,7 +226,8 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent
 1. 先确认机器上有 `Python 3.10+` 或 `uv`（`python --version` / `uv --version`）；都没有就先装 `uv`。
 2. 装插件：`dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent`。
 3. ⚠️ **提醒用户重启一次 dsh**，不重启插件不生效。
-4. 重启后进 **设置 → 刷B站**：先「装主依赖」，再「扫码登录」（确认时选「记住我 / 长期」）。
+4. 重启后进 **设置 → 刷B站**：在「第一次接通 B站」里点「一键装好并出码」，装完自动出二维码；
+   用手机扫码（确认时选「记住我 / 长期」），最后点「测一下」。
 5. **不要**替用户开「自动评论并 @ 你」——那是拿用户的号公开说话。要用也得用户自己填「要 @ 谁」。
 
 ## 依赖与致谢
