@@ -552,6 +552,14 @@ const 收到回复 = async (sid, 文本, 轮号 = 1) => {
 
 const 日志文本 = async () => (await 宿主.概况()).日志.map((x) => x.文本).join('\n')
 const 目标状态 = async (key) => (await 宿主.概况()).社交.目标.find((t) => t.key === key)
+const 等到 = async (条件, 毫秒 = 2000) => {
+  const 止 = Date.now() + 毫秒
+  while (Date.now() < 止) {
+    if (await 条件()) return true
+    await 等(20)
+  }
+  return false
+}
 
 // ---------- 1 群里被 @：也先判断；只把她挑中的消息放进社交会话 ----------
 写配置({ 群: ['1001'], 兴趣词: ['海', '鲸鱼'] })
@@ -1880,6 +1888,52 @@ await 路由.get('/dsh-qq-bridge/receive')(造请求({ text: '还在吗' }), fak
 报('重置后主人下一句进新会话', 存储.at(-1).ok === true && 登记的会话.has(私聊重置.会话id) && !登记的会话.has('session-qq-private-123'), JSON.stringify(存储.at(-1)))
 私聊态 = (await 宿主.概况()).社交.私聊
 报('私聊状态换成新 id、故障清空', 私聊态.会话id === 私聊重置.会话id && 私聊态.故障 === null, JSON.stringify(私聊态))
+
+// ---------- 25 主屋正在回话：新消息开分线并排回 ----------
+写配置({ 群: ['1085'], 冷却秒: 10, 判断冷却秒: 0 })
+群消息表.set(1085, [一条群消息('你们看过鲸鱼吗', { id: 8801 })])
+设判断(['8801'], true, 0.9, '想聊鲸鱼')
+const 并行前回合 = 回合.length
+const 并行前发 = 发的.length
+await 轮询社交()
+await 等到(async () => 回合.length === 并行前回合 + 1)
+报('主屋先开一轮', 回合.length === 并行前回合 + 1 && 回合.at(-1).sid === 'session-qq-social-group-1085', JSON.stringify(回合.at(-1) && 回合.at(-1).sid))
+报('主屋在答时状态显示待发', (await 目标状态('group:1085')).待发 === true)
+
+时间偏移 += 11_000
+群消息表.set(1085, [...群消息表.get(1085), 一条群消息('我刚在海边看到一条', { id: 8802, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['8802'], true, 0.9, '接着聊海')
+await 轮询社交()
+await 等到(async () => 回合.length === 并行前回合 + 2)
+报('忙时新消息开分线，不排队等', 回合.length === 并行前回合 + 2 && 回合.at(-1).sid === 'session-qq-social-group-1085-p2', JSON.stringify(回合.slice(-2).map((x) => x.sid)))
+报('分线也带上了最近聊过的上下文', String(回合.at(-1)?.message.content[0].text).includes('看过鲸鱼吗'), String(回合.at(-1)?.message.content[0].text).slice(0, 300))
+const 并行态 = await 目标状态('group:1085')
+报('状态里显示 1 条分线在同时回', 并行态.待发 === true && 并行态.分线 === 1, JSON.stringify(并行态))
+await 收到回复('session-qq-social-group-1085', '看过呀', 1)
+await 收到回复('session-qq-social-group-1085-p2', '海边哪一段', 1)
+await 等到(async () => 发的.slice(并行前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1085).length >= 2)
+报('主屋和分线的回复都发回群里', 发的.slice(并行前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1085).map((x) => x.体.message[0].data.text).join('|') === '看过呀|海边哪一段', JSON.stringify(发的.slice(并行前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
+报('两间屋都落地后没有残留待发', (await 目标状态('group:1085')).待发 === false && (await 目标状态('group:1085')).分线 === 0)
+
+// ---------- 26 关掉并行：同一间屋子排多轮也不覆盖 ----------
+写配置({ 群: ['1086'], 冷却秒: 10, 判断冷却秒: 0, 并行: false })
+群消息表.set(1086, [一条群消息('今晚开黑吗', { id: 8811 })])
+设判断(['8811'], true, 0.9, '想玩')
+const 串前回合 = 回合.length
+const 串前发 = 发的.length
+await 轮询社交()
+await 等到(async () => 回合.length === 串前回合 + 1)
+时间偏移 += 11_000
+群消息表.set(1086, [...群消息表.get(1086), 一条群消息('缺一个人', { id: 8812, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['8812'], true, 0.9, '想凑人')
+await 轮询社交()
+await 等到(async () => 回合.length === 串前回合 + 2)
+报('关掉并行后两轮都排在主屋', 回合.length === 串前回合 + 2 && 回合.slice(-2).every((x) => x.sid === 'session-qq-social-group-1086'), JSON.stringify(回合.slice(-2).map((x) => x.sid)))
+await 收到回复('session-qq-social-group-1086', '来啊', 1)
+await 收到回复('session-qq-social-group-1086', '我补位', 2)
+await 等到(async () => 发的.slice(串前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1086).length >= 2)
+报('同屋两轮回复按回合发出去、不互相覆盖', 发的.slice(串前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1086).map((x) => x.体.message[0].data.text).join('|') === '来啊|我补位', JSON.stringify(发的.slice(串前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
+报('两轮都落地后没有残留待发', (await 目标状态('group:1086')).待发 === false)
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

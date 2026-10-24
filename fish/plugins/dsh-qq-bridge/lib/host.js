@@ -230,6 +230,8 @@ const 默认配置 = {
     判断阈值: 0.4, // 小模型想接时的把握低于这个数就不接（只看不回不受影响）
     判断冷却秒: 0, // 同一目标两次判断的最小间隔；0 = 每轮轮询都判，判断费靠零花钱和快判兜底
     聚拢秒: 15, // 同一个人连续几秒内的话合成一条再判断；0 = 收到就判
+    并行: true, // 主屋正在回话时，新消息开分线会话同时回；关掉 = 按顺序回
+    并行上限: 2, // 每个群/好友最多同时开几条分线（不含主屋）；0 = 不并行
     回复模型: '', // 社交会话用哪个模型；空 = 跟随默认
   },
   导入: {
@@ -352,6 +354,8 @@ function 归一化社交(原始) {
     判断阈值: 数(混.判断阈值, 兜.判断阈值, 0.1, 1),
     判断冷却秒: Math.round(数(混.判断冷却秒, 兜.判断冷却秒, 0, 3600)),
     聚拢秒: Math.round(数(混.聚拢秒, 兜.聚拢秒, 0, 60)),
+    并行: 布(混.并行, 兜.并行),
+    并行上限: Math.round(数(混.并行上限, 兜.并行上限, 0, 6)),
     回复模型: 洗模型(混.回复模型),
   }
 }
@@ -3072,12 +3076,12 @@ export function apply(ctx) {
 
   const 社交待看 = new Map() // 'group:123' → 还没判断的新消息；判断冷却里先攒着
   const 待续叫 = new Map() // 'group:123:uid' → { 目标, 消息, at }：只 @ 了一下、正文还没发的消息先扣住
-  const 社交待发 = new Map() // sessionId → { 目标, 文本, 轮号, 发起At }
+  const 社交待发 = new Map() // sessionId → 待收回的回合数组（同一间屋可能排着多轮）
   const 社交计数 = new Map() // 'group:123' → { 本小时: number[], 日: 'YYYY-MM-DD', 今日: number }
   const 社交判断At = new Map() // 'group:123' → 上次问小模型的时间（判断也要省着花）
   const 社交丢记At = new Map() // 'group:123' → 上次因硬闸丢掉消息的记账时间（免得每 6 秒刷一条日志）
   const 社交快记At = new Map() // 'group:123' → 上次快判全挡的记账时间（快判会经常命中，别刷屏）
-  const 社交队列 = new Map() // 'group:123' → Promise（同一间屋子串行开回合）
+  const 社交队列 = new Map() // 'group:123' → Promise（同一路串行提交回合；真正回答可以在主屋和分线同时进行）
   const 社交故障 = new Map() // 'group:123' / 'private:456' → { 连续, 最后At, 最后说, 最后码, 暂停到, 通知At }
   const 会话重置 = new Map() // 'group:123' / 'private:456' → { 会话id, 旧会话id, 重置At }
   const 社交句柄 = new Map() // sessionId → AgentHandle（插件收摊时释放）
@@ -4446,15 +4450,16 @@ export function apply(ctx) {
     }
   }
 
-  /** 拿社交会话：先恢复旧档，确实没有才新建；每个群/好友一间，互不串。 */
-  async function 拿社交agent(目标) {
-    // 排队的回合可能带着重置前的旧 id：每次按当前记录重新取一次。
-    const 当前id = 会话idof(目标.key, 目标.会话id)
-    if (当前id !== 目标.会话id) 目标 = { ...目标, 会话id: 当前id }
-    const 现有 = ctx.agents.get(目标.会话id)
+  /** 拿社交会话：先恢复旧档，确实没有才新建；每个群/好友一间主屋，忙时再开分线。 */
+  async function 拿社交agent(目标, 分线号 = 0) {
+    const 基础id = 会话idof(目标.key, 目标.会话id)
+    // 排队的回合可能带着重置前的旧 id：每次按当前记录重新取一次。分线跟着主屋的新 id 走。
+    const 当前id = 分线号 > 0 ? `${基础id}-p${分线号}` : 基础id
+    if (分线号 === 0 && 当前id !== 目标.会话id) 目标 = { ...目标, 会话id: 当前id }
+    const 现有 = ctx.agents.get(当前id)
     if (现有) {
       const 旧cwd = (现有.session && 现有.session.header && 现有.session.header.cwd) || ''
-      await 挂工作区(await 取工作区(旧cwd), 目标.会话id)
+      await 挂工作区(await 取工作区(旧cwd), 当前id)
       return 现有
     }
     const 配置 = 读配置()
@@ -4487,38 +4492,38 @@ export function apply(ctx) {
     const cwd = (区 && 区.path) || process.cwd()
     let handle = null
     try {
-      handle = await ctx.agents.resume({ resumeSessionId: 目标.会话id, agentOptions: 选项, setup })
+      handle = await ctx.agents.resume({ resumeSessionId: 当前id, agentOptions: 选项, setup })
     } catch (error) {
       const 没档 = error && (
         error.name === 'SessionPersistenceNotFoundError'
         || /not found|no such|no session|不存在|没找到/i.test(String((error && error.message) || error))
       )
       if (!没档) {
-        记账(`社交会话恢复失败（${目标.叫}）：${String((error && error.message) || error)}`)
+        记账(`社交会话恢复失败（${目标.叫}${分线号 > 0 ? `·分线${分线号}` : ''}）：${String((error && error.message) || error)}`)
         return null
       }
       if (!选项) {
-        记账(`社交会话新建失败（${目标.叫}）：没有可用的默认模型，先在 DSH 里选一个`)
+        记账(`社交会话新建失败（${目标.叫}${分线号 > 0 ? `·分线${分线号}` : ''}）：没有可用的默认模型，先在 DSH 里选一个`)
         return null
       }
       try {
         handle = await ctx.agents.create({
-          sessionId: 目标.会话id,
+          sessionId: 当前id,
           meta: { cwd },
           agentOptions: 选项,
           setup,
         })
-        记账(`新建社交会话（${目标.叫}）：${目标.会话id}`)
+        记账(`新建社交会话（${目标.叫}${分线号 > 0 ? `·分线${分线号}` : ''}）：${当前id}`)
       } catch (错) {
-        记账(`社交会话新建失败（${目标.叫}）：${String((错 && 错.message) || 错)}`)
+        记账(`社交会话新建失败（${目标.叫}${分线号 > 0 ? `·分线${分线号}` : ''}）：${String((错 && 错.message) || 错)}`)
         return null
       }
     }
     const agent = handle && handle.agent
     if (!agent) return null
-    社交句柄.set(目标.会话id, handle)
+    社交句柄.set(当前id, handle)
     try {
-      const 标题 = `QQ ${目标.类型 === 'group' ? '群' : '好友'} ${目标.号}`
+      const 标题 = `QQ ${目标.类型 === 'group' ? '群' : '好友'} ${目标.号}${分线号 > 0 ? ` · 分线 ${分线号}` : ''}`
       const 现有标题 = ctx.sessionTitle && typeof ctx.sessionTitle.get === 'function'
         ? ctx.sessionTitle.get(agent.session)
         : null
@@ -4527,7 +4532,7 @@ export function apply(ctx) {
       }
     } catch (error) {}
     const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || cwd
-    await 挂工作区(await 取工作区(实际cwd), 目标.会话id)
+    await 挂工作区(await 取工作区(实际cwd), 当前id)
     return agent
   }
 
@@ -4717,7 +4722,57 @@ export function apply(ctx) {
     }
   }
 
-  /** 同一间屋子的回合串行，避免上一轮还没说完又开一轮。 */
+  /** 同一间会话可能排着多轮；按提交顺序收回，避免新回合把旧回合的待发覆盖。 */
+  function 待发列(sid) {
+    const 列 = 社交待发.get(String(sid))
+    return Array.isArray(列) ? 列 : []
+  }
+
+  function 有在答(sid) {
+    return 待发列(sid).length > 0
+  }
+
+  function agent在跑(agent) {
+    try {
+      return String(agent && agent.status) === 'running'
+    } catch (error) {
+      return false
+    }
+  }
+
+  function 会话在答(sid, agent = ctx.agents.get(String(sid))) {
+    return 有在答(sid) || agent在跑(agent)
+  }
+
+  function 加待发(sid, 待) {
+    const 列 = 待发列(sid).slice()
+    列.push(待)
+    社交待发.set(String(sid), 列)
+  }
+
+  function 移待发(sid, 待) {
+    const 列 = 待发列(sid).filter((x) => x !== 待)
+    if (列.length > 0) 社交待发.set(String(sid), 列)
+    else 社交待发.delete(String(sid))
+  }
+
+  /** 主屋空着就用主屋；主屋正在回话就挑一条空着的分线，都满了才回主屋排队。 */
+  async function 挑社交会话(配置, 目标) {
+    const 主 = await 拿社交agent(目标)
+    if (!主) return null
+    const 主id = String((主.session && 主.session.id) || 目标.会话id)
+    if (!会话在答(主id, 主)) return { agent: 主, 分线号: 0 }
+    const 上限 = 配置.社交.并行 ? Math.max(0, Math.round(Number(配置.社交.并行上限) || 0)) : 0
+    for (let i = 2; i <= 上限 + 1; i++) {
+      const 候选 = await 拿社交agent(目标, i)
+      if (!候选) continue
+      const sid = String((候选.session && 候选.session.id) || '')
+      if (!会话在答(sid, 候选)) return { agent: 候选, 分线号: i }
+    }
+    return { agent: 主, 分线号: 0 }
+  }
+
+  /** 同一路串行提交回合，避免两次轮询同时抢同一间空屋。 */
   function 排进社交队列(key, 任务) {
     const 前 = 社交队列.get(key) || Promise.resolve()
     const 本次 = 前.catch(() => {}).then(任务)
@@ -4732,25 +4787,28 @@ export function apply(ctx) {
   /** 真的开一轮：社交会话里说完，由 session/event 收回结果发回原处。 */
   async function 开社交一轮(配置, 目标, 批, 理由, 节奏 = '') {
     if (在故障暂停(目标)) return
-    const agent = await 拿社交agent(目标)
-    if (!agent) return
+    const 选的 = await 挑社交会话(配置, 目标)
+    if (!选的) return
+    const agent = 选的.agent
     const sid = String((agent.session && agent.session.id) || 目标.会话id)
     const 拼好 = 拼一批(目标, 批, false, 节奏, 配置)
     const 对象们 = [...new Set(批
       .filter((m) => m && !m.自己 && !m.上下文)
       .map((m) => String(m.uid || ''))
       .filter((号) => /^\d{3,20}$/.test(号)))]
-    社交待发.set(sid, { 目标, 文本: '', 轮号: -1, 发起At: Date.now(), 图片们: 拼好.图片们, 对象们 })
-    记账(`准备接话（${目标.叫}）：${理由}；看了 ${批.length} 条`)
-    记思绪('判断', `决定开口叫她这一轮：${理由}`, { 她看到的: 批样(批), 分寸: 节奏 }, 目标.叫)
+    const 待 = { 目标, 文本: '', 轮号: -1, 发起At: Date.now(), 图片们: 拼好.图片们, 对象们 }
+    加待发(sid, 待)
+    const 线 = 选的.分线号 > 0 ? `·分线${选的.分线号}` : ''
+    记账(`准备接话（${目标.叫}${线}）：${理由}；看了 ${批.length} 条`)
+    记思绪('判断', `决定开口叫她这一轮${线}：${理由}`, { 她看到的: 批样(批), 分寸: 节奏 }, 目标.叫)
     try {
       agent.followup(手搓社交消息(目标, 拼好, 批.some((m) => m.主人), 批[批.length - 1]?.说话人))
       await 冲刷会话(agent)
       const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || ''
       await 挂工作区(await 取工作区(实际cwd), sid)
     } catch (error) {
-      社交待发.delete(sid)
-      记账(`社交回合发不进去（${目标.叫}）：${String((error && error.message) || error)}`)
+      移待发(sid, 待)
+      记账(`社交回合发不进去（${目标.叫}${线}）：${String((error && error.message) || error)}`)
     }
   }
 
@@ -5109,12 +5167,18 @@ export function apply(ctx) {
     const 目标们 = 社交目标们(配置)
     if (目标们.length === 0) return
     // 超时没等到回合结束的，清掉，别一直挂着一轮“待发”
-    for (const [sid, 待] of 社交待发) {
-      if (Date.now() - 待.发起At > 180_000) {
-        社交待发.delete(sid)
-        const f = 记社交失败(待.目标.key, 待.目标.叫, '等了 180 秒还没结束，这轮没有发出去', 'TIMEOUT')
-        if (f.连续 >= 社交失败暂停次) 暂停社交(待.目标.叫, f)
+    for (const [sid, 列] of [...社交待发]) {
+      const 留 = []
+      for (const 待 of 列) {
+        if (Date.now() - 待.发起At > 180_000) {
+          const f = 记社交失败(待.目标.key, 待.目标.叫, '等了 180 秒还没结束，这轮没有发出去', 'TIMEOUT')
+          if (f.连续 >= 社交失败暂停次) 暂停社交(待.目标.叫, f)
+        } else {
+          留.push(待)
+        }
       }
+      if (留.length > 0) 社交待发.set(sid, 留)
+      else 社交待发.delete(sid)
     }
     社交轮询中 = true
     try {
@@ -5246,22 +5310,27 @@ export function apply(ctx) {
     if (真发出 && 配置.社交.记人) 记一次她开口(目标, 对象们)
   }
 
-  /** 社交会话的事件：收最后一句；一整轮 completed 才发。 */
+  /** 社交会话的事件：按回合收回最后一句；一整轮 completed 才发。 */
   function 收到社交事件(session, event) {
     const sid = String(session && session.id)
-    const 待 = 社交待发.get(sid)
-    if (!待) return
+    const 列 = 待发列(sid)
+    if (列.length === 0) return
+    // 刚提交的回合先认领事件里的 turn 号；同一间屋排着多轮时按提交顺序对上。
+    const 认领 = (turn) => 列.find((x) => x.轮号 === turn) || 列.find((x) => x.轮号 === -1)
     if (event && event.type === 'assistant/message') {
       const d = event.data || {}
+      const 待 = 认领(d.turn)
+      if (!待) return
       if (d.interrupted) {
         待.文本 = ''
+        待.轮号 = d.turn
         return
       }
       const 首条 = 待.轮号 !== d.turn
+      待.轮号 = d.turn
       const 文 = 提取正文(d.message)
       if (文) {
         待.文本 = 文
-        待.轮号 = d.turn
       }
       const 思路 = 提取思考(d.message, d.stream)
       if (思路) {
@@ -5274,27 +5343,31 @@ export function apply(ctx) {
     if (event && event.type === 'turn/end') {
       const d = event.data || {}
       const 完成 = !!(d.reason && d.reason.kind === 'completed')
+      const 待 = 认领(d.turn)
       if (!完成) {
         // 失败的一轮可能连 assistant/message 都没有，不能靠轮号对表，否则会一直挂到超时。
-        社交待发.delete(sid)
+        if (待) 移待发(sid, 待)
         if (d.reason && d.reason.kind === 'error') {
           const 错 = d.reason.error || {}
-          const f = 记社交失败(待.目标.key, 待.目标.叫, 错.message, 错.code)
-          if (f.连续 >= 社交失败暂停次) 暂停社交(待.目标.叫, f)
+          const 目标 = (待 && 待.目标) || { key: '', 叫: 'QQ 社交' }
+          if (目标.key !== '') {
+            const f = 记社交失败(目标.key, 目标.叫, 错.message, 错.code)
+            if (f.连续 >= 社交失败暂停次) 暂停社交(目标.叫, f)
+          }
         }
         return
       }
       // 这一轮能完整结束，说明会话本身是好的；哪怕她最后决定不说话。
-      清社交失败(待.目标.key)
+      if (待) 清社交失败(待.目标.key)
+      if (!待) return
       if (待.轮号 !== d.turn) {
-        if (待.轮号 === -1) {
-          社交待发.delete(sid)
-          记账(`${待.目标.叫} 这一轮结束了，但没有可发的话`)
-        }
+        // 结束时还没认领过（模型一个字没出）：按提交顺序丢掉最早的一轮，别一直挂着。
+        移待发(sid, 待)
+        记账(`${待.目标.叫} 这一轮结束了，但没有可发的话`)
         return
       }
       const 文 = 待.文本
-      社交待发.delete(sid)
+      移待发(sid, 待)
       void 社交落地(待.目标, sid, 文, d.turn, 待.图片们, 待.对象们)
       void 冲刷会话(session)
     }
@@ -5766,6 +5839,11 @@ export function apply(ctx) {
         const c = 计数of(目标.key)
         const agent = ctx.agents.get(目标.会话id)
         const 画像 = 社交画像.get(目标.key)
+        const 基id = String(目标.会话id)
+        const 分线们 = [...社交待发.keys()]
+          .map(String)
+          .filter((sid) => sid.startsWith(基id + '-p'))
+        const 在答 = 会话在答(基id, agent) || 分线们.some((sid) => 会话在答(sid))
         return {
           key: 目标.key,
           类型: 目标.类型,
@@ -5776,7 +5854,8 @@ export function apply(ctx) {
           本小时: c.本小时.filter((t) => 现在 - t < 3_600_000).length,
           今日: c.今日,
           待看: (社交待看.get(目标.key) || []).length,
-          待发: 社交待发.has(目标.会话id),
+          待发: 在答,
+          分线: 分线们.filter((sid) => 会话在答(sid)).length,
           冷却: 冷却中(配置, 目标.key),
           故障: 故障明细(目标.key),
           暂停中: 在故障暂停(目标),
@@ -6041,6 +6120,20 @@ export function apply(ctx) {
     } else {
       社交句柄.delete(旧id)
       社交待发.delete(旧id)
+      // 分线也一起放掉；旧档留在磁盘上，下一次忙起来会按新 id 重新开分线。
+      for (const sid of [...社交句柄.keys()]) {
+        if (!String(sid).startsWith(旧id + '-p')) continue
+        const 句柄 = 社交句柄.get(sid)
+        if (句柄 && typeof 句柄.dispose === 'function') {
+          try {
+            句柄.dispose()
+          } catch (error) {
+            记账(`重置时释放分线会话失败（${短id(sid)}）：${String((error && error.message) || error)}`)
+          }
+        }
+        社交句柄.delete(sid)
+        社交待发.delete(sid)
+      }
       社交待看.delete(key)
       社交缓冲.delete(key)
       社交故障.delete(key)
