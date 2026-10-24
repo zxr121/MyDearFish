@@ -826,6 +826,20 @@ describe('desktop main startup', () => {
     }
   })
 
+  it('restarts from product IPC without the tray confirmation and rejects foreign callers', async () => {
+    const host = await readyWorkspace()
+    const sender = harness.windows[0]!.webContents
+    const handler = harness.handlers.get(DESKTOP_IPC.restart)!
+    expect(() => handler({ senderFrame: { url: 'dsh-app://app/index.html' } })).toThrow('unowned renderer')
+    harness.dialog.showMessageBox.mockClear()
+    handler({ sender, senderFrame: sender.mainFrame })
+    expect(harness.app.relaunch).toHaveBeenCalledOnce()
+    expect(harness.dialog.showMessageBox).not.toHaveBeenCalled()
+    await host.stopping.promise
+    host.exited.resolve()
+    await harness.quitCompleted.promise
+  })
+
   it.each(['darwin', 'win32', 'linux'] as const)('limits native titlebar styling to macOS on %s', async (platform) => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
     await import('../src/main.ts')

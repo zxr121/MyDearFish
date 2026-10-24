@@ -201,12 +201,26 @@ window.__ModuleLoader__.load({
       const [msgKind, setMsgKind] = React.useState('')
       const [grantDraft, setGrantDraft] = React.useState(null)
       const [grantBusy, setGrantBusy] = React.useState(false)
+      const [restartPrompt, setRestartPrompt] = React.useState(null)
       const fileRef = React.useRef(null)
+      const canRestart = typeof window !== 'undefined' && !!window.dshDesktop
+        && typeof window.dshDesktop.restart === 'function'
 
       const flash = (text, kind) => {
         setMsg(text)
         setMsgKind(kind || '')
         if (kind !== 'error') setTimeout(() => setMsg(''), 4000)
+      }
+
+      const restartNow = async () => {
+        if (!canRestart || busy === 'restart') return
+        setBusy('restart')
+        try {
+          await window.dshDesktop.restart()
+        } catch (error) {
+          setBusy('')
+          flash('没重启成功：' + String((error && error.message) || error), 'error')
+        }
       }
 
       const load = React.useCallback(async () => {
@@ -342,9 +356,8 @@ window.__ModuleLoader__.load({
           if (!res.ok) throw new Error(await readError(res))
           const result = await res.json()
           const counts = result && result.counts ? result.counts : null
-          flash(counts
-            ? `导入包已收下：经历 ${counts.experiences} 条、事实 ${counts.facts} 条、心情 ${counts.moodPoints} 条、人物 ${counts.people} 位。重启 DSH 后生效。`
-            : '导入包已收下，重启 DSH 后生效。')
+          flash('导入包已收下。')
+          setRestartPrompt({ counts })
           await load()
         } catch (error) {
           flash('没导入：' + String((error && error.message) || error), 'error')
@@ -647,7 +660,15 @@ window.__ModuleLoader__.load({
           note: '导出的 zip 只含出生设定、记忆、长期事实、心情、人物志和短期水位；不含账号、凭据、配置路径或聊天记录之外的系统数据。',
         },
           pending
-            ? h('div', { 'data-fishm-banner': '' }, '有一个导入包已经收下，等重启 DSH 生效。重启前不要再次导入。')
+            ? h('div', { 'data-fishm-banner': '', 'data-fishm-pending': '' },
+                h('span', {}, '有一个导入包已经收下，等重启 DSH 生效。重启前不要再次导入。'),
+                canRestart
+                  ? h('button', {
+                      'data-fishm-btn': '',
+                      disabled: busy !== '',
+                      onClick: restartNow,
+                    }, busy === 'restart' ? '正在重启…' : '立即重启')
+                  : null)
             : null,
           report
             ? h('div', { 'data-fishm-item': '' },
@@ -680,7 +701,43 @@ window.__ModuleLoader__.load({
               ? '只收大肥鱼自己的记忆包；格式、版本、校验和文件清单有一项不对就不会导入。导入只用于空鱼，导入后需要重启。'
               : '这条鱼已经有记忆、心情或人物志，不能再导入。导入只用于刚出生、还空着的那条鱼。')),
 
-        msg ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null)
+        msg ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null,
+
+        restartPrompt
+          ? h('div', {
+              'data-fishwd-mask': '',
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-label': '记忆包已收下，需要重启',
+            },
+              h('div', { 'data-fishwd-card': '' },
+                h('div', { 'data-fishwd-head': '' },
+                  h('div', { 'data-fishwd-title': '' }, '记忆包已收下')),
+                h('div', { 'data-fishwd-body': '' },
+                  h('div', { 'data-fishwd-intro': '' },
+                    restartPrompt.counts
+                      ? `经历 ${num(restartPrompt.counts.experiences)} 条 · 事实 ${num(restartPrompt.counts.facts)} 条 · 心情 ${num(restartPrompt.counts.moodPoints)} 条 · 人物 ${num(restartPrompt.counts.people)} 位`
+                      : '包已经验过并暂存好了。'),
+                  h('div', { 'data-fishm-note': '' },
+                    '这些内容现在只是暂存，重启 DSH 后才会真正装进她脑子里。选「暂缓」的话，下次重启前都不会生效。')),
+                h('div', { 'data-fishwd-foot': '' },
+                  h('span', { 'data-fishm-note': '' }, canRestart
+                    ? '重启会关掉当前窗口，再自动打开。'
+                    : '网页版不能自动重启，请手动退出并重新打开 DSH。'),
+                  h('div', { 'data-fishm-actions': '' },
+                    canRestart
+                      ? h('button', {
+                          'data-fishm-btn': '',
+                          disabled: busy !== '',
+                          onClick: () => setRestartPrompt(null),
+                        }, '暂缓')
+                      : null,
+                    h('button', {
+                      'data-fishwd-ok': '',
+                      disabled: busy !== '',
+                      onClick: canRestart ? restartNow : () => setRestartPrompt(null),
+                    }, canRestart ? (busy === 'restart' ? '正在重启…' : '立即重启') : '知道了')))))
+          : null)
     }
 
     const FISH_INTRO = [

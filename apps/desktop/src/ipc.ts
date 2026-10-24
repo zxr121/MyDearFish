@@ -31,6 +31,7 @@ export const DESKTOP_IPC = {
   windowFullscreen: 'dsh-desktop:window-fullscreen',
   windowsAppearance: 'dsh-desktop:windows-appearance',
   windowsMenu: 'dsh-desktop:windows-menu',
+  restart: 'dsh-desktop:restart',
 } as const
 
 /** Desktop release update state rendered by desktop-owned UI. */
@@ -79,6 +80,8 @@ export interface DshDesktopProductApi {
    * @returns `name=value` fields separated by `; `, with no hostname, user name, or serial number.
    */
   deviceInfo(): Promise<string>
+  /** Relaunch Desktop and its bundled Host, skipping the close-to-tray confirmation. */
+  restart(): Promise<void>
   readonly updates: {
     status(): Promise<DesktopUpdatePresentation>
     open(): Promise<void>

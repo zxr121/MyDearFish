@@ -812,6 +812,12 @@ async function main(): Promise<void> {
     assertProductSender(event)
     await openUpdatePrompt()
   })
+  ipcMain.handle(DESKTOP_IPC.restart, (event) => {
+    assertProductSender(event)
+    if (quitting) return
+    app.relaunch()
+    quitWithoutConfirmation()
+  })
 
   let promptOperation: Promise<void> | undefined
   let policyAuthenticationQueued = false
