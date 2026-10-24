@@ -39,6 +39,8 @@ const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
 /** 大肥鱼出厂层：随运行时一起打包，负责挂载六个插件与初始默认。 */
 const FISH_BUNDLE = '@mydearfish/dsh-fish-bundle'
 const DESKTOP_PROFILE_BUNDLES = [...WEB_PROFILE.bundles, FISH_BUNDLE] as const
+/** One-shot marker: after a profile is sanitized back to stock bundles for recovery, startup must not re-add fish. */
+const FISH_BUNDLE_MIGRATION_MARKER = '.fish-bundle-migrated'
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
@@ -189,20 +191,26 @@ export function createPluginProfile(projectDir: string): void {
  * Add the fish bundle to a profile created by an earlier dsh installation.
  * initProfile leaves existing manifests untouched, so without this an upgrade
  * from stock dsh keeps the original bundle list and never shows the fish UI.
+ * Runs once per profile: the recovery path sanitizes bundles back to stock, and
+ * re-adding fish on every launch would silently undo that escape hatch.
  */
 function ensureFishBundle(projectDir: string): void {
+  const markerPath = join(projectDir, FISH_BUNDLE_MIGRATION_MARKER)
+  if (existsSync(markerPath)) return
   const manifest = readProfileManifest('dsh desktop', projectDir)
   const bundles = manifest.dsh?.profile?.bundles
-  if (bundles?.includes(FISH_BUNDLE)) return
-  const nextBundles = bundles === undefined ? [...DESKTOP_PROFILE_BUNDLES] : [...bundles, FISH_BUNDLE]
-  writeProfileManifest(projectDir, {
-    ...manifest,
-    dsh: {
-      ...manifest.dsh,
-      profile: {
-        ...manifest.dsh?.profile,
-        bundles: nextBundles,
+  if (!bundles?.includes(FISH_BUNDLE)) {
+    const nextBundles = bundles === undefined ? [...DESKTOP_PROFILE_BUNDLES] : [...bundles, FISH_BUNDLE]
+    writeProfileManifest(projectDir, {
+      ...manifest,
+      dsh: {
+        ...manifest.dsh,
+        profile: {
+          ...manifest.dsh?.profile,
+          bundles: nextBundles,
+        },
       },
-    },
-  })
+    })
+  }
+  writeFileSync(markerPath, `${new Date().toISOString()}\n`)
 }

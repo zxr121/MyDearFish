@@ -3,13 +3,15 @@
 import { Menu, nativeImage, Tray } from 'electron'
 import type { DesktopLocale } from './locale.ts'
 
-/** Main-process actions the tray triggers; both run the same paths as the window and application menu. */
+/** Main-process actions the tray triggers; each runs the same paths as the window and application menu. */
 export interface DesktopTrayOptions {
   /** Multi-size ICO rendered by `scripts/render-tray-icon.ts`; Windows picks the bitmap for the display scale. */
   readonly iconPath: string
   readonly locale: () => DesktopLocale
   /** Show and focus the primary window. */
   readonly open: () => void
+  /** Run the manual update check, including its feedback dialog. */
+  readonly checkUpdates: () => void
   /** Request quit through the same confirmation as every other quit entry. */
   readonly quit: () => void
 }
@@ -34,6 +36,7 @@ export class DesktopTray {
     tray.setToolTip(messages.aboutProduct)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: messages.openApplication, click: () => { this.options.open() } },
+      { label: messages.checkUpdatesMenu, click: () => { this.options.checkUpdates() } },
       { type: 'separator' },
       { label: messages.quitApplication, click: () => { this.options.quit() } },
     ]))
