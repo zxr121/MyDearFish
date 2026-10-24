@@ -147,12 +147,31 @@ Function InstallerPreflight
         ${EndIf}
         ${GetParent} $2 $2
     ${Loop}
-    System::Call 'kernel32::GetTempFileNameW(w r2, w "HIL", i 0, w .r3) i.r0'
-    ${If} $0 == 0
-        StrCpy $InstallerError "$(INSTALLER_PATH_WRITABLE)"
-        Return
+    ${If} $2 == $INSTDIR
+        System::Call 'kernel32::GetTempFileNameW(w r2, w "HIL", i 0, w .r3) i.r0'
+        ${If} $0 == 0
+            StrCpy $InstallerError "$(INSTALLER_PATH_WRITABLE)"
+            Return
+        ${EndIf}
+        System::Call 'kernel32::DeleteFileW(w r3)'
+    ${Else}
+        ; A standard user may create a directory but not a file at a drive root,
+        ; so a missing target is probed with a directory in the nearest existing parent.
+        System::Call 'kernel32::GetCurrentProcessId() i.r0'
+        System::Call 'kernel32::GetTickCount() i.r1'
+        StrCpy $R2 "$2" 1 -1
+        ${If} $R2 == "\"
+            StrCpy $R2 "$2.dsh-install-probe-$0-$1"
+        ${Else}
+            StrCpy $R2 "$2\.dsh-install-probe-$0-$1"
+        ${EndIf}
+        System::Call 'kernel32::CreateDirectoryW(w "$R2", p 0) i.r0'
+        ${If} $0 == 0
+            StrCpy $InstallerError "$(INSTALLER_PATH_WRITABLE)"
+            Return
+        ${EndIf}
+        System::Call 'kernel32::RemoveDirectoryW(w "$R2") i.r0'
     ${EndIf}
-    System::Call 'kernel32::DeleteFileW(w r3)'
     System::Call 'kernel32::GetDiskFreeSpaceExW(w r2, *l .r0, p 0, p 0) i.r1'
     ${If} $1 == 0
         StrCpy $InstallerError "$(INSTALLER_PATH_WRITABLE)"
