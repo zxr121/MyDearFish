@@ -1320,10 +1320,10 @@ export function apply(ctx, config) {
     } catch { resolve(false) }
   })
 
-  const spawnLogged = (cmd, args) => new Promise((resolve) => {
+  const spawnLogged = (cmd, args, extraEnv = {}) => new Promise((resolve) => {
     appendInstall(`\n$ ${cmd} ${args.join(' ')}\n`)
     let c
-    try { c = spawn(cmd, args, { cwd: stateDir, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: pyEnv() }) }
+    try { c = spawn(cmd, args, { cwd: stateDir, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: pyEnv(extraEnv) }) }
     catch (e) { appendInstall(`起不来：${e?.message ?? e}\n`); return resolve(1) }
     const w = (b) => appendInstall(String(b))
     c.stdout?.on('data', w)
@@ -1408,7 +1408,23 @@ export function apply(ctx, config) {
           }
           // ⭐ 2026-10-17（issue #8③）：ASR 那个环境带了 --seed，主环境却漏了 ⇒ uv 建的 venv 默认不含 pip，
           //    一旦镜像失败、回退 `python -m pip` 就是 `No module named pip` ⇒ 连补救的路都没有 ✗
-          if (uvCmd) await spawnLogged(uvCmd, ['venv', '--seed', '--python', VENV_PYTHON, venvDir])
+          if (uvCmd) {
+            let code = await spawnLogged(uvCmd, ['venv', '--seed', '--python', VENV_PYTHON, venvDir])
+            if (code !== 0 && !existsSync(venvPy)) {
+              // ⭐ uv 默认从 GitHub 下 Python 3.13；国内直连常被重置，换 uv 官方支持的镜像变量再试
+              const pyMirrors = [
+                'https://gh-proxy.com/https://github.com/astral-sh/python-build-standalone/releases/download',
+                'https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download',
+              ]
+              for (const src of pyMirrors) {
+                appendInstall(`\n--- Python 直连下载失败，换镜像再试：${src} ---\n`)
+                try { rmSync(venvDir, { recursive: true, force: true }) } catch { /* 删不掉就交给 uv 覆盖 */ }
+                code = await spawnLogged(uvCmd, ['venv', '--seed', '--python', VENV_PYTHON, venvDir],
+                  { UV_PYTHON_INSTALL_MIRROR: src })
+                if (code === 0 || existsSync(venvPy)) break
+              }
+            }
+          }
           if (!existsSync(venvPy) && !uvCmd) await spawnLogged(py, ['-m', 'venv', venvDir])
         }
         let code = 1
