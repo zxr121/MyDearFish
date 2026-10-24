@@ -119,6 +119,32 @@ window.__ModuleLoader__.load({
         cursor: 'pointer',
       },
       日志行: { fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11.5, whiteSpace: 'pre-wrap' },
+      绪行: {
+        cursor: 'pointer',
+        padding: '3px 0',
+        borderTop: '1px solid var(--dsw-alias-border-l2)',
+      },
+      绪标: {
+        display: 'inline-block',
+        minWidth: 36,
+        textAlign: 'center',
+        marginRight: 6,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        borderRadius: 4,
+        padding: '0 4px',
+        fontSize: 11,
+        opacity: 0.85,
+      },
+      绪详: {
+        fontFamily: 'ui-monospace, Consolas, monospace',
+        fontSize: 11.5,
+        whiteSpace: 'pre-wrap',
+        margin: '2px 0 6px',
+        padding: '4px 8px',
+        borderRadius: 6,
+        border: '1px dashed var(--dsw-alias-border-l2)',
+        opacity: 0.9,
+      },
     }
 
     const 提示 = (文本) => h('div', { style: S.hint }, 文本)
@@ -168,6 +194,18 @@ window.__ModuleLoader__.load({
       const [展开人, 设展开人] = React.useState('')
       const [全部人, 设全部人] = React.useState(false)
       const [全部关系, 设全部关系] = React.useState(false)
+      // —— 思想活动：从 /thoughts 增量拉，绝不碰 /state（不然会冲掉没保存的表单值）——
+      const [绪流, 设绪流] = React.useState([])
+      const [绪摘, 设绪摘] = React.useState(null)
+      const [绪类, 设绪类] = React.useState('')
+      const [绪停, 设绪停] = React.useState(false)
+      const [绪错, 设绪错] = React.useState('')
+      const [展绪, 设展绪] = React.useState(0)
+      const 绪游标 = React.useRef(0)
+      const 绪停Ref = React.useRef(false)
+      const 绪底 = React.useRef(null)
+      const 贴底 = React.useRef(true)
+      绪停Ref.current = 绪停
 
       React.useEffect(() => {
         拉()
@@ -203,6 +241,41 @@ window.__ModuleLoader__.load({
           设人物错((s && s.说) || '读不到人物志')
         }
       }
+      // 思想活动只走 /thoughts：带上本地游标做增量，宿主不重发旧的；宿主重启过（序号回退）就整段重来。
+      const 拉绪 = async () => {
+        const 从 = 绪游标.current
+        const 出 = await get('/thoughts' + (从 > 0 ? '?since=' + 从 : ''))
+        if (!出 || !出.ok) {
+          设绪错((出 && 出.说) || '读不到思路流')
+          return
+        }
+        设绪错('')
+        const 来 = Array.isArray(出.思绪) ? 出.思绪 : []
+        if (出.重发) {
+          设绪流(来.slice(-400))
+        } else if (来.length > 0) {
+          设绪流((旧) => {
+            const 有 = new Set(旧.map((x) => x.序号))
+            return 旧.concat(来.filter((x) => !有.has(x.序号))).slice(-400)
+          })
+        }
+        if (Number(出.序号) > 0) 绪游标.current = Number(出.序号)
+        设绪摘({ 心情: 出.心情, 预算: 出.预算, 落盘: 出.落盘, 外源话: 出.外源话, 类别: 出.类别 })
+      }
+      React.useEffect(() => {
+        void 拉绪()
+        const 表 = setInterval(() => {
+          if (typeof document !== 'undefined' && document.hidden) return
+          if (绪停Ref.current) return
+          void 拉绪()
+        }, 3000)
+        return () => clearInterval(表)
+      }, [])
+      // 新的思绪在最下面；只有本来就贴着底才自动跟下去，用户往回翻时不打扰。
+      React.useEffect(() => {
+        const 栏 = 绪底.current
+        if (栏 && 贴底.current) 栏.scrollTop = 栏.scrollHeight
+      }, [绪流, 绪类])
       // 只刷 SnowLuma 这一块，别用 /state 把没保存的表单值冲掉。
       function 吃雪(s) {
         if (!s || !s.ok) return
@@ -486,6 +559,37 @@ window.__ModuleLoader__.load({
             border: 完成 ? '1px solid var(--dsw-alias-state-business-primary)' : '1px solid var(--dsw-alias-border-l2)',
           },
         }, 完成 ? '✓' : String(号))
+
+      // 一条思绪：一行话，点开看原始详情（理由全文 / 她看到的消息 / 真正发出去的话）。
+      const 绪行 = (条) => {
+        const 开 = 展绪 === 条.序号
+        return h('div', { key: 条.序号, style: S.绪行, onClick: () => 设展绪(开 ? 0 : 条.序号) },
+          h('span', { style: S.绪标 }, String(条.类别 || '')),
+          h('span', { style: S.dim }, String(条.时间 || '') + (条.谁 ? '　' + String(条.谁) : '') + '　'),
+          h('span', null, String(条.文本 || '')),
+          开 && 条.详情 ? h('div', { style: S.绪详 }, JSON.stringify(条.详情, null, 2)) : null,
+        )
+      }
+
+      // 面板顶那条：她现在多少分、上一次想什么、今天鱼脑花了多少。
+      const 绪状态条 = () => {
+        const 心 = (绪摘 && 绪摘.心情) || {}
+        const 预 = (绪摘 && 绪摘.预算) || {}
+        const 段 = []
+        if (心.可用) 段.push('心情 ' + 心.心情 + ' 分' + (心.上次想法 ? '｜上一次想：' + 心.上次想法 : ''))
+        if (预.可用) 段.push('今天花了 ¥' + 预.今日花费 + '（' + 预.今日调用 + ' 次）｜余额 ¥' + 预.余额)
+        if (段.length === 0) {
+          return h('div', { style: S.dim },
+            '心情 / 鱼脑的账本还没读到：' + String((绪摘 && 绪摘.外源话) || '那两个插件还没跑起来'),
+          )
+        }
+        return h('div', { style: { ...S.日志行, marginBottom: 6 } }, 段.join('　'))
+      }
+
+      const 绪类别们 = Array.isArray(绪摘 && 绪摘.类别) && 绪摘.类别.length > 0
+        ? 绪摘.类别
+        : ['判断', '思考', '心情', '记忆', '开口']
+      const 显示绪 = 绪类 === '' ? 绪流 : 绪流.filter((x) => x.类别 === 绪类)
 
       const 步骤 = (号, 完成, 标题, 内容) =>
         h('div', { style: { display: 'flex', gap: 10, marginTop: 12 } },
@@ -1120,6 +1224,43 @@ window.__ModuleLoader__.load({
           ),
           h('div', { style: { ...S.dim, marginTop: 4 } }, '「测试一句」会真的发一句去 QQ（绕过试运行），用来确认整条路通没通。'),
           说 ? h('div', { style: { ...S.ok, marginTop: 6 } }, 说) : null,
+        ),
+
+        // —— 思想活动：她脑子里在跑什么（判断链 / 模型思路 / 心情 / 鱼脑）——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } },
+            '思想活动 · ' + 显示绪.length + ' 条' + (绪停 ? '（已暂停刷新）' : '（每 3 秒自己刷）'),
+          ),
+          绪状态条(),
+          h('div', { style: { marginBottom: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
+            [''].concat(绪类别们).map((k) =>
+              h('span', { key: k === '' ? '全部' : k }, 按钮(k === '' ? '全部' : k, () => 设绪类(k), 绪类 === k)),
+            ),
+            h('span', { style: { flex: '1 1 20px' } }),
+            按钮(绪停 ? '继续刷新' : '暂停刷新', () => 设绪停(!绪停), 绪停),
+            按钮('立刻刷一次', 拉绪, false),
+          ),
+          绪错 ? h('div', { style: { fontSize: 12, color: '#c0392b', fontWeight: 600 } }, 绪错) : null,
+          h('div', {
+            ref: 绪底,
+            onScroll: (e) => {
+              const 栏 = e.currentTarget
+              贴底.current = 栏.scrollHeight - 栏.scrollTop - 栏.clientHeight < 40
+            },
+            style: { maxHeight: 320, overflowY: 'auto' },
+          },
+            显示绪.length === 0
+              ? h('div', { style: S.dim },
+                  绪流.length === 0
+                    ? '还没有动静。她一判断、一想事、心情一动，这里就来一条。'
+                    : '这个类别下还没有。',
+                )
+              : 显示绪.map(绪行),
+          ),
+          h('div', { style: { ...S.dim, marginTop: 6 } },
+            '点一条能展开原始详情（判断理由全文、她当时看到的消息、真正发出去的话）。整条思路流也落在 ' +
+              String((绪摘 && 绪摘.落盘) || 'qq-thoughts.jsonl') + '，重启后还能回看最近 400 条。',
+          ),
         ),
 
         // —— 记录 ——

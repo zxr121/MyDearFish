@@ -133,9 +133,73 @@ const 要有 = [
   '翻旧记录（Tulpa → 她的过去）', '启用翻旧记录', '访问令牌', '继续导', '清游标重来', '刷新进度',
   '群聊一条都不取', '是翻到的聊天文字，不是她亲眼经历过的事', '令牌只落本机配置文件，不进日志、不进仓库',
   '写进 3 条', '本来就有的 1 条', '有进度的会话：2 间', '鱼脑：在', '令牌：有',
+  '思想活动 · 0 条', '暂停刷新', '立刻刷一次', '还没有动静', '心情 / 鱼脑的账本还没读到',
+  '判断', '思考', '心情', '记忆', '开口',
 ]
 const 缺 = 要有.filter((x) => !文.includes(x))
 报('关键元素都渲染出来（含连接状态 + 目标会话标题）', 缺.length === 0, 缺.length ? '缺：' + 缺.join('、') : 文.length + ' 字节')
+
+// ② 思想活动：自动刷新只拉 /thoughts 增量，绝不碰 /state（不然会冲掉没保存的表单值）
+const 拉过的 = []
+const 定时们 = []
+const 真setInterval = globalThis.setInterval
+globalThis.setInterval = (f, ms) => { 定时们.push({ f, ms }); return 定时们.length }
+globalThis.clearInterval = () => {}
+const 绪返回 = {
+  ok: true, 序号: 7, 类别: ['判断', '思考', '心情', '记忆', '开口'], 重发: true,
+  思绪: [{ 序号: 7, at: 1, 时间: '10-24 22:00:00', 类别: '判断', 谁: '群 1001', 文本: '快判：最高 3 分，挡掉 2 条', 详情: { 最高分: 3, 挡掉: 2 } }],
+  心情: { 可用: true, 心情: 72, 上次想法: '他提起鱼片，我心里痒痒的' },
+  预算: { 可用: true, 今日花费: 1.2, 今日调用: 30, 余额: 24.3 },
+  落盘: 'C:\\dsh\\qq-thoughts.jsonl', 外源话: '',
+}
+globalThis.fetch = async (url) => {
+  const u = String(url)
+  拉过的.push(u)
+  return { json: async () => (u.includes('/thoughts') ? 绪返回 : 初始态) }
+}
+const 效应 = []
+let 下标2 = 0
+let 槽2 = [初始态]
+const 造React2 = () => ({
+  createElement: (t, p, ...kids) => ({ t, p: p || {}, kids: kids.flat(9).filter((k) => k !== null && k !== undefined && k !== false) }),
+  useState: (init) => {
+    const i = 下标2++
+    if (!(i in 槽2)) 槽2[i] = init
+    return [槽2[i], (v) => { 槽2[i] = typeof v === 'function' ? v(槽2[i]) : v }]
+  },
+  useEffect: (f) => { 效应.push(f) },
+  useRef: (init) => ({ current: init }),
+  useCallback: (f) => f,
+})
+const exports2 = 捕获.factory((n) => {
+  if (n === 'react') return 造React2()
+  throw new Error('不该 require 这个：' + n)
+})
+下标2 = 0
+let 组件2 = null
+exports2.apply({
+  get: (n) => (n === 'slots' ? {
+    inject: (名字, cb) => cb(),
+    register: (d, c) => { 组件2 = c; return () => {} },
+  } : undefined),
+})
+组件2() // 第一次渲染：挂上 effect 并注册轮询定时器
+for (const f of 效应) f()
+await new Promise((r) => setTimeout(r, 30))
+const 轮询 = 定时们.find((x) => x.ms === 3000)
+报('思想活动挂了 3 秒自动刷新', !!轮询)
+拉过的.length = 0
+下标2 = 0
+组件2() // 第二次渲染：数据已经进了状态槽
+const 有拉过 = 拉过的.length
+await 轮询.f()
+await new Promise((r) => setTimeout(r, 30))
+报('自动刷新拉的是 /thoughts 增量，不碰 /state', 拉过的.length === 有拉过 + 1 && 拉过的.at(-1).includes('/thoughts?since=7'), JSON.stringify(拉过的))
+const 文2 = (() => { 下标2 = 0; return JSON.stringify(组件2()) })()
+报('面板顶部给出当前心情和今日花费', 文2.includes('心情 72 分') && 文2.includes('今天花了 ¥1.2（30 次）') && 文2.includes('余额 ¥24.3'), 文2.includes('心情 72 分') ? '' : '没渲染出摘要')
+报('一条思绪带类别标签、时间和正文', 文2.includes('快判：最高 3 分，挡掉 2 条') && 文2.includes('10-24 22:00:00') && 文2.includes('群 1001'), '')
+报('落盘路径写在提示里，能回看', 文2.includes('qq-thoughts.jsonl'), '')
+globalThis.setInterval = 真setInterval
 
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
 process.exitCode = 挂了 === 0 ? 0 : 1

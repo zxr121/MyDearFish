@@ -8,7 +8,7 @@
 //   6) 连发：文字按空行/句尾拆条，表情包 [发表情:#N] 按写下顺序排进队列、可连发多张、可和话混排
 // 跑法： node tests/宿主半边.mjs
 
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -121,6 +121,11 @@ const 块 = (type, text) => ({ type, text })
 const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('text', '第一条\n第二条'), 块('image', ''), 块('text', '第三条')] })
 报('提取正文：只收 text，reasoning/image 都不要', 正文 === '第一条\n第二条\n第三条', JSON.stringify(正文))
 报('提取正文：没有 text → 空串', 模.提取正文({ content: [块('reasoning', 'x')] }) === '')
+报('提取思考：消息块里的 reasoning 拿得到', 模.提取思考({ content: [块('reasoning', '先想想他这句什么意思'), 块('text', '正文不要')] }) === '先想想他这句什么意思')
+报('提取思考：没有 reasoning 块时退回 stream 里的 reasoning-chunks', 模.提取思考({ content: [块('text', '正文')] }, [
+  { type: 'reasoning-chunks', index: 0, dt: [1], texts: ['前半段', '后半段'] },
+]) === '前半段后半段')
+报('提取思考：都没开思考档 → 空串（不算错）', 模.提取思考({ content: [块('text', '就一句')] }, []) === '')
 报('按段拆：空行分段', JSON.stringify(模.按段拆('甲\n\n乙')) === '["甲","乙"]', JSON.stringify(模.按段拆('甲\n\n乙')))
 报('按段拆：没有空行时单换行也拆', JSON.stringify(模.按段拆('甲\n乙')) === '["甲","乙"]', JSON.stringify(模.按段拆('甲\n乙')))
 报('按段拆：单行不拆、空串为空', JSON.stringify(模.按段拆('就一句')) === '["就一句"]' && JSON.stringify(模.按段拆('')) === '[]')
@@ -408,6 +413,7 @@ const 造请求 = (body, 选项 = {}) => {
     ...(选项.origin === undefined ? {} : { origin: 选项.origin }),
     ...(选项.site === undefined ? {} : { 'sec-fetch-site': 选项.site }),
   }
+  if (选项.url !== undefined) 块s.url = 选项.url
   return 块s
 }
 await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' }), fakeRes)
@@ -641,6 +647,76 @@ const 落盘 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8
 报('/save：掩码回显不改真令牌', 落盘.导入.令牌 === 'tk-secret', JSON.stringify(落盘.导入))
 报('/save：嵌套导入不被浅合并冲掉（白名单、条数还在）', 落盘.导入.白名单[0] === 'p1' && 落盘.导入.每轮条数 === 50 && 落盘.导入.每轮页数 === 3, JSON.stringify(落盘.导入))
 报('/save：导入配置不进经历流', 观察到的.length === 0)
+
+// ⑨ 思想活动：她的思路流（判断链 + 模型思路 + 心情 + 鱼脑）记下来、能增量拉、落盘能回看
+const 取思绪 = async (查询 = '') => {
+  存储.length = 0
+  await 路由.get('/dsh-qq-bridge/thoughts')(造请求(undefined, { method: 'GET', url: `/dsh-qq-bridge/thoughts${查询}` }), fakeRes)
+  return 存储[0]
+}
+// 先验外源没装时如实说不可用（这个家目录里还没有心情/鱼脑）
+const 空绪 = await 取思绪()
+报('/thoughts：外源没装时如实说不可用', 空绪 && 空绪.ok === true && 空绪.心情.可用 === false && 空绪.预算.可用 === false, JSON.stringify(空绪 && { 心情: 空绪.心情, 预算: 空绪.预算 }))
+
+// 主人桥那一轮：assistant/message 里带 reasoning → 记成「思考」
+监听[0](会话, 助手消息(140, 1, [块('reasoning', '他刚提了鱼片，我先想想要不要接这一句'), 块('text', '鱼片没有，自己人不能切片。')], false))
+监听[0](会话, 转完(140))
+await new Promise((r) => setTimeout(r, 30))
+
+const 全部绪 = await 取思绪()
+报('/thoughts：回出思路流和序号', 全部绪 && 全部绪.ok === true && 全部绪.序号 > 0 && Array.isArray(全部绪.思绪), JSON.stringify(全部绪 && { 序号: 全部绪.序号, 条数: 全部绪.思绪.length }))
+报('/thoughts：类别清单给全了', JSON.stringify(全部绪.类别) === '["判断","思考","心情","记忆","开口"]', JSON.stringify(全部绪.类别))
+const 思考绪 = (全部绪.思绪 || []).filter((x) => x.类别 === '思考')
+报('/thoughts：模型的思路原文被记下来了', 思考绪.length >= 1 && 思考绪.some((x) => String((x.详情 && x.详情.思路) || x.文本).includes('要不要接')), JSON.stringify(思考绪.map((x) => x.文本)))
+报('/thoughts：一条思绪带得上时间、序号、谁', 全部绪.思绪.every((x) => typeof x.时间 === 'string' && x.时间.length > 0 && x.序号 > 0 && typeof x.谁 === 'string'), JSON.stringify(全部绪.思绪[0]))
+
+const 增量绪 = await 取思绪(`?since=${全部绪.序号}`)
+报('/thoughts：since 之后没新的就回空、不重发', 增量绪 && 增量绪.重发 === false && 增量绪.思绪.length === 0, JSON.stringify(增量绪 && { 重发: 增量绪.重发, 条数: 增量绪.思绪.length }))
+const 超前绪 = await 取思绪(`?since=${全部绪.序号 + 50}`)
+报('/thoughts：客户端序号超前（宿主重启过）→ 整段重发', 超前绪 && 超前绪.重发 === true && 超前绪.思绪.length === 全部绪.思绪.length, JSON.stringify(超前绪 && { 重发: 超前绪.重发, 条数: 超前绪.思绪.length }))
+const 筛选绪 = await 取思绪('?类别=思考')
+报('/thoughts：能按类别筛', 筛选绪 && 筛选绪.思绪.length > 0 && 筛选绪.思绪.every((x) => x.类别 === '思考'), JSON.stringify(筛选绪 && 筛选绪.思绪.length))
+const 落行 = readFileSync(join(家, 'qq-thoughts.jsonl'), 'utf8').trim().split('\n')
+报('/thoughts：落盘 jsonl 逐行能解析、带类别和正文', 落行.length > 0 && 落行.every((s) => {
+  try {
+    const 条 = JSON.parse(s)
+    return typeof 条.文本 === 'string' && 全部绪.类别.includes(条.类别)
+  } catch (error) {
+    return false
+  }
+}), '行数=' + 落行.length)
+
+// 心情：写一份 timeline（先定基线，再冒新条目）；鱼脑：先定基线，再追加一行
+mkdirSync(join(家, 'feiyu-mood'), { recursive: true })
+mkdirSync(join(家, 'fish-mind'), { recursive: true })
+const 写心情 = (线, 分 = 72, 上次 = '') => writeFileSync(
+  join(家, 'feiyu-mood', 'state.json'),
+  JSON.stringify({ mood: 分, lastReason: 上次, updatedAt: 线[线.length - 1].at, timeline: 线 }),
+  'utf8',
+)
+const 捞外源 = 轮询回调们.at(-1)
+报('外源捞取挂在定时器上', typeof 捞外源 === 'function')
+写心情([{ at: 1000, mood: 70, delta: 0, reason: '早先的一条（不该被倒出来）' }])
+捞外源()
+写心情([
+  { at: 1000, mood: 70, delta: 0, reason: '早先的一条（不该被倒出来）' },
+  { at: 2000, mood: 72, delta: 2, reason: '他提起鱼片，我心里痒痒的', dimsDelta: { happy: 1 } },
+], 72, '他提起鱼片，我心里痒痒的')
+捞外源()
+writeFileSync(join(家, 'fish-mind', 'diag.log'), 'memory: 启动，episodes=38\n', 'utf8')
+捞外源()
+writeFileSync(join(家, 'fish-mind', 'diag.log'), 'memory: 启动，episodes=38\nmemory: 短期转长期（tick，看 40 条，新记住 1 条）\n', 'utf8')
+writeFileSync(join(家, 'fish-mind', 'budget.json'), JSON.stringify({ dailyGrantCny: 10, walletCny: 24.3, days: { [new Date().toISOString().slice(0, 10)]: { spentCny: 7.01, calls: 400 } } }), 'utf8')
+捞外源()
+
+const 外源绪 = await 取思绪()
+const 心情绪 = (外源绪.思绪 || []).filter((x) => x.类别 === '心情')
+const 记忆绪 = (外源绪.思绪 || []).filter((x) => x.类别 === '记忆')
+报('/thoughts：心情新条目变成「心情」思绪，带原句', 心情绪.length === 1 && 心情绪[0].文本.includes('鱼片') && 心情绪[0].详情.心情 === 72 && 心情绪[0].详情.变化 === 2, JSON.stringify(心情绪.map((x) => ({ 文本: x.文本, 详情: x.详情 }))))
+报('/thoughts：心情历史不倒出来（只从基线往后捞）', 心情绪.length === 1 && !心情绪[0].文本.includes('早先'), JSON.stringify(心情绪.map((x) => x.文本)))
+报('/thoughts：鱼脑新增的诊断行变成「记忆」思绪', 记忆绪.length === 1 && 记忆绪[0].文本.includes('短期转长期'), JSON.stringify(记忆绪.map((x) => x.文本)))
+报('/thoughts：顶部摘要给出当前心情', 外源绪.心情 && 外源绪.心情.可用 === true && 外源绪.心情.心情 === 72 && 外源绪.心情.上次想法.includes('鱼片'), JSON.stringify(外源绪.心情))
+报('/thoughts：顶部摘要给出今日花费和余额', 外源绪.预算 && 外源绪.预算.可用 === true && 外源绪.预算.今日花费 === 7.01 && 外源绪.预算.今日调用 === 400 && 外源绪.预算.余额 === 24.3, JSON.stringify(外源绪.预算))
 
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
