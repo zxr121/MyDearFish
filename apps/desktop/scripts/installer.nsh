@@ -45,6 +45,17 @@ ManifestDPIAware true
   StrCpy $hasPerMachineInstallation 0
   StrCpy $hasPerUserInstallation 1
   StrCpy $InstallerPath $INSTDIR
+  ; MyDearFish builds default a fresh install into the workspace when it is present.
+  ${If} ${FileExists} "G:\MyDearFish\.dsh\*.*"
+    ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${If} $0 == ""
+      !insertmacro GetDParameter $R0
+      ${If} $R0 == ""
+        StrCpy $INSTDIR "G:\MyDearFish\apps\DeepSeek Harness"
+        StrCpy $InstallerPath "$INSTDIR"
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
   StrCpy $InstallerTheme "auto"
   ${GetParameters} $0
   ${GetOptions} $0 "/THEME=" $1
