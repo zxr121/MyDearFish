@@ -110,7 +110,7 @@ test('日期倒退不发钱', () => {
   assert.ok(lines.some((line) => line.includes('退到')))
 })
 
-test('每天额度改不了：配置里写多少都不影响出生额度', () => {
+test('配置里的 dailyGrantCny 不覆盖账本额度', () => {
   const dir = tempDir()
   let clock = clockAt()
   const budget = openBudget({
@@ -121,6 +121,69 @@ test('每天额度改不了：配置里写多少都不影响出生额度', () =>
   assert.equal(budget.dailyGrantCny(), 10)
   clock = clockAt(1)
   assert.equal(budget.status().walletCny, 20)
+})
+
+test('主人调高每日额度：差额当场补进余额，隔天按新额度累计', () => {
+  const dir = tempDir()
+  let clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  assert.equal(budget.status().dailyGrantMaxCny, 10000)
+
+  const result = budget.setDailyGrantCny(20)
+  assert.equal(result.changed, true)
+  assert.equal(result.previousCny, 10)
+  assert.equal(result.dailyGrantCny, 20)
+  assert.equal(result.adjustedCny, 10)
+  assert.equal(budget.status().dailyGrantCny, 20)
+  assert.equal(budget.status().walletCny, 20)
+
+  const entry = readLedger(dir).at(-1)
+  assert.equal(entry.type, 'grant-change')
+  assert.equal(entry.fromCny, 10)
+  assert.equal(entry.toCny, 20)
+  assert.equal(entry.adjustedCny, 10)
+
+  clock = clockAt(1)
+  assert.equal(budget.status().walletCny, 40)
+})
+
+test('调低每日额度只扣没花的余额，不追回已经花掉的', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  const reservation = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  budget.settle(reservation, { inputTokens: 100_000, outputTokens: 100_000 })
+  assert.equal(budget.status().walletCny, 8)
+
+  const lowered = budget.setDailyGrantCny(5)
+  assert.equal(lowered.adjustedCny, -5)
+  assert.equal(budget.status().walletCny, 3)
+  assert.equal(budget.status().spentTodayCny, 2)
+
+  const zero = budget.setDailyGrantCny(0)
+  assert.equal(zero.adjustedCny, -3)
+  assert.equal(budget.status().walletCny, 0)
+  assert.equal(budget.status().spentTodayCny, 2)
+})
+
+test('每日额度必须是 0 到 10000 元之间的数字，并且落盘后重开还在', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  for (const bad of [-1, 10001, 'abc', '', null, undefined]) {
+    assert.throws(() => budget.setDailyGrantCny(bad), /0 到 10000/)
+  }
+  assert.equal(budget.dailyGrantCny(), 10)
+
+  const same = budget.setDailyGrantCny(10)
+  assert.equal(same.changed, false)
+  assert.equal(same.adjustedCny, 0)
+
+  budget.setDailyGrantCny('25.5')
+  assert.equal(budget.status().walletCny, 25.5)
+  const reopened = openBudget({ dir, config: baseConfig(), now: () => clock })
+  assert.equal(reopened.dailyGrantCny(), 25.5)
+  assert.equal(reopened.status().walletCny, 25.5)
 })
 
 test('budget.json 坏了按重新出生处理，发 ¥10 而不是继承坏档', () => {

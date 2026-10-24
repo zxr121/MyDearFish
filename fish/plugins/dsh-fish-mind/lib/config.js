@@ -128,7 +128,7 @@ export function buildDefaults(dshHome) {
     humor: {
       inject: true,
     },
-    // 每天 ¥10 写死在 budget.js 的出生额度里，这里不提供修改项。
+    // 每日额度默认 ¥10，存在 budget.json，由设置页「大肥鱼 → 零花钱」写入；这里不提供修改项。
     budget: {
       enabled: true,
       inject: true,

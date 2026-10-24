@@ -184,6 +184,7 @@ function walletOverview(budget) {
     available: true,
     enabled: budget.enabled === true,
     dailyGrantCny: number(budget.dailyGrantCny),
+    dailyGrantMaxCny: number(budget.dailyGrantMaxCny),
     availableCny: number(budget.availableCny),
     spentTodayCny: number(budget.spentTodayCny),
     callsToday: number(budget.callsToday),

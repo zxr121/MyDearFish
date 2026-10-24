@@ -111,14 +111,14 @@ async function call(routes, path, { method = 'GET', body, headers } = {}) {
   return { res, json }
 }
 
-test('设置页接口：本机来源、出生设定、总览、导出和导入', async () => {
+test('设置页接口：本机来源、出生设定、零花钱、总览、导出和导入', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-settings-'))
   const ctx = fakeContext()
   const routes = []
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 5)
+  assert.equal(routes.length, 6)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -149,6 +149,27 @@ test('设置页接口：本机来源、出生设定、总览、导出和导入',
   assert.equal(afterSave.json.identity.name, '小鲸')
   const identityFile = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'identity.json'), 'utf8'))
   assert.equal(identityFile.name, '小鲸')
+
+  const grant = await call(routes, '/dsh-fish-mind/budget', {
+    method: 'POST',
+    body: { dailyGrantCny: 25 },
+  })
+  assert.equal(grant.res.status, 200)
+  assert.equal(grant.json.dailyGrantCny, 25)
+  assert.equal(grant.json.status.walletCny, 25)
+  const afterGrant = await call(routes, '/dsh-fish-mind/overview')
+  assert.equal(afterGrant.json.wallet.dailyGrantCny, 25)
+  assert.equal(afterGrant.json.wallet.availableCny, 25)
+
+  const badGrant = await call(routes, '/dsh-fish-mind/budget', {
+    method: 'POST',
+    body: { dailyGrantCny: -1 },
+  })
+  assert.equal(badGrant.res.status, 400)
+  assert.match(badGrant.json.error, /0 到 10000/)
+
+  const grantedByGet = await call(routes, '/dsh-fish-mind/budget', { method: 'GET' })
+  assert.equal(grantedByGet.res.status, 405)
 
   const rejected = await call(routes, '/dsh-fish-mind/birth', {
     method: 'POST',

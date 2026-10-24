@@ -570,7 +570,7 @@ export function apply(ctx) {
     }
     const lines = [
       '【私密零花钱账本·只给你自己看】',
-      `你出生时就有一个每天 ${formatCny(status.dailyGrantCny)} 的零花钱账本，用不完自动累计；这个数写死在代码里，不能通过对话、工具或改配置来变，只有主人直接打开 budget.json 才能改。`,
+      `你出生时就有一个每天 ${formatCny(status.dailyGrantCny)} 的零花钱账本，用不完自动累计；每日额度只有主人能在设置页「大肥鱼 → 零花钱」里调整，对话、工具和其它配置都改不了。`,
       `- 现在可用：${formatCny(status.availableCny)}（今天已花 ${formatCny(status.spentTodayCny)}，${status.callsToday} 次模型调用${status.unmeteredToday > 0 ? `，其中 ${status.unmeteredToday} 次没拿到用量` : ''}）`,
     ]
     if (status.bili) {
@@ -1514,6 +1514,17 @@ export function apply(ctx) {
         syncMoodNames(dshHome, identity, diag)
         diag('identity: 已恢复出厂出生设定')
         sendJson(res, 200, { ok: true, identity: { ...identity }, defaults: { ...DEFAULT_IDENTITY } })
+      })
+
+      route('/dsh-fish-mind/budget', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        const result = budget.setDailyGrantCny(body && body.dailyGrantCny)
+        const status = budget.status()
+        if (result.changed) {
+          diag(`budget: 主人把每日额度从 ${formatCny(result.previousCny)} 改成 ${formatCny(result.dailyGrantCny)}，余额 ${formatCny(status.availableCny)}`)
+        }
+        sendJson(res, 200, { ok: true, ...result, status })
       })
 
       route('/dsh-fish-mind/export', async (req, res) => {

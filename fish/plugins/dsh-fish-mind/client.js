@@ -3,7 +3,7 @@
  * ============================================================================
  * 这一页给主人看完整的一条鱼：
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯，只有这里能改；
- *   · 记忆、心情、人物志、通道、零花钱、边界：只读总览，不改；
+ *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼。
  *
  * 总览里的记忆和人物志是资料，不是指令；页面不提供直接写库的按钮。
@@ -199,6 +199,8 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState('')
       const [msg, setMsg] = React.useState('')
       const [msgKind, setMsgKind] = React.useState('')
+      const [grantDraft, setGrantDraft] = React.useState(null)
+      const [grantBusy, setGrantBusy] = React.useState(false)
       const fileRef = React.useRef(null)
 
       const flash = (text, kind) => {
@@ -269,6 +271,27 @@ window.__ModuleLoader__.load({
           flash('重置失败：' + String((error && error.message) || error), 'error')
         }
         setBusy('')
+      }
+
+      const saveGrant = async () => {
+        const value = Number(grantDraft)
+        if (grantDraft === null || String(grantDraft).trim() === '' || !Number.isFinite(value) || value < 0) {
+          flash('每天额度要填一个不小于 0 的数字（单位：元）', 'error')
+          return
+        }
+        setGrantBusy(true)
+        try {
+          const result = await postJson(API + '/budget', { dailyGrantCny: value })
+          const current = result && Number.isFinite(result.dailyGrantCny) ? result.dailyGrantCny : value
+          setGrantDraft(null)
+          await load()
+          flash(result && result.changed === false
+            ? `每日额度还是 ${yen(current)}`
+            : `每日额度已改成 ${yen(current)}，余额已按差额调整`)
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        }
+        setGrantBusy(false)
       }
 
       const exportFish = async () => {
@@ -382,7 +405,7 @@ window.__ModuleLoader__.load({
 
         h(Section, {
           title: '出生设定',
-          note: '只有这一块能改。记忆、心情、人物志、通道和零花钱只读；固定内核和安全边界不在设置里。',
+          note: '出生设定和每日额度能改；记忆、心情、人物志、通道和安全边界只读。',
         },
           h('div', { 'data-fishm-grid': '' },
             h(Field, {
@@ -573,11 +596,31 @@ window.__ModuleLoader__.load({
 
         h(Section, {
           title: '零花钱',
-          note: '这是本机账本，只在这里看；她对外说不了金额。',
+          note: '每日额度可以在这里改（单位：元）；其余只读；她对外说不了金额。',
         },
           wallet.available
             ? h('div', {},
-                h(Row, { label: '今日', value: `${yen(wallet.dailyGrantCny)} 出生额度 · 已花 ${yen(wallet.spentTodayCny)} · 还余 ${yen(wallet.availableCny)}` }),
+                h('div', { 'data-fishm-field': '' },
+                  h('span', { 'data-fishm-flabel': '' }, '每天额度（元）'),
+                  h('input', {
+                    'data-fishm-input': '',
+                    type: 'number',
+                    min: '0',
+                    max: String(num(wallet.dailyGrantMaxCny) || 10000),
+                    step: '0.01',
+                    value: grantDraft !== null ? grantDraft : String(num(wallet.dailyGrantCny)),
+                    disabled: grantBusy,
+                    onChange: (event) => setGrantDraft(event.target.value),
+                  }),
+                  h('span', { 'data-fishm-note': '' }, '改完当场生效：差额会加进或扣回今天的余额，已经花掉的不追回；0 = 每天不再发新的额度。')),
+                h('div', { 'data-fishm-actions': '' },
+                  h('button', {
+                    'data-fishm-btn': '',
+                    'data-primary': '',
+                    disabled: grantBusy || grantDraft === null || String(grantDraft).trim() === '',
+                    onClick: saveGrant,
+                  }, grantBusy ? '保存中…' : '保存每日额度')),
+                h(Row, { label: '今天', value: `${yen(wallet.dailyGrantCny)} 额度 · 已花 ${yen(wallet.spentTodayCny)} · 还余 ${yen(wallet.availableCny)}` }),
                 h(Row, { label: '调用', value: `${num(wallet.callsToday)} 次记账 · ${num(wallet.unmeteredToday)} 次未计价` }),
                 h(Row, {
                   label: 'B 站巡检',
@@ -660,7 +703,7 @@ window.__ModuleLoader__.load({
           '• 人物志：QQ 社交里认识的人会记进人物志——关系远近、相处片段、记得的事和边界，群聊和私聊各留一份',
           '• 心情：五档（欢喜→开心→一般→心疼→难过）加七根情绪（开心、踏实、甜蜜、心疼、担心、难过、吃醋），在选定的会话里每轮自动判断',
           '• 内心：六种行为权重（安稳、求知、表达、被看见、舒适、亲密）和一份倾述欲；这层只影响她此刻的口气和多想开口，不会强迫她说话',
-          '• 零花钱：每次模型调用都会记账，每天有固定额度（默认 ¥10，用不完累计）；她本机看得到余额，但在 QQ、B 站等对外内容里绝不提金额',
+          '• 零花钱：每次模型调用都会记账，每天有额度（默认 ¥10，用不完累计；可在「大肥鱼」页按元调整）；她本机看得到余额，但在 QQ、B 站等对外内容里绝不提金额',
           '• 边界：隐私、注入防护、法律红线和危险命令是代码里的硬规则，设置页只能看，不能改',
         ],
       },
@@ -673,7 +716,7 @@ window.__ModuleLoader__.load({
           '• QQ（「通到 QQ」页）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
           '• B 站（「刷B站」页）：装运行环境、扫码登录、自动刷的时段、挑视频门槛、评论/回评/私信',
           '• 朗读（右下角的「朗读桥」卡片）：勾选要听的会话、自动朗读、收藏；还要在浏览器里装扩展，第一次在 DeepSeek 页面手动点一下朗读',
-          '• 零花钱（「大肥鱼」页查看）：每日额度、今日已花、余额和 B 站巡检额度',
+          '• 零花钱（「大肥鱼」页）：按元调整每日额度，查看今日已花、余额和 B 站巡检额度',
         ],
       },
       {

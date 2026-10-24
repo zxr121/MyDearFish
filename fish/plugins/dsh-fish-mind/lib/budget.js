@@ -1,7 +1,7 @@
 // 大肥鱼的私密零花钱账本。
 //
-// 规矩是主人定的，出生就写死：
-//   · 每天 ¥10，用不完自动累计；额度不通过对话、工具或配置变更，只有直接改 budget.json 才会变。
+// 规矩是主人定的：
+//   · 每天 ¥10 起步，用不完自动累计；主人在设置页「零花钱」里改每日额度，对话、工具和配置热加载都改不了。
 //   · 每一次模型调用都算花钱：说话、思考、判断心情、刷 B 站、压缩上下文，全部经过 llm/stream 结算。
 //   · 账户余额只给她自己看；对外通道（QQ、B 站评论/私信）在代码层再做一道脱敏。
 //
@@ -13,7 +13,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { join } from 'node:path'
 
 export const BIRTH_DAILY_GRANT_CNY = 10
-// B 站巡检最多占当天出生额度的四分之一；这是软上限，普通聊天不受影响。
+export const MAX_DAILY_GRANT_CNY = 10000
+// B 站巡检最多占当天每日额度的四分之一；这是软上限，普通聊天不受影响。
 export const DEFAULT_BILI_SHARE = 0.25
 export const DEFAULT_PRICE = Object.freeze({ input: 4, cacheRead: 1, cacheWrite: 4, output: 16, reasoning: 0 })
 
@@ -392,6 +393,42 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     return round(state.dailyGrantCny * biliShare(), 6)
   }
 
+  /**
+   * 主人改每日额度。当天已发过的额度按差额补进或扣回余额，余额不会因此变成负数；
+   * 已经花掉的部分不追回。
+   * @param {number|string} value - 新额度（元）。
+   * @returns {{changed:boolean, dailyGrantCny:number, previousCny:number, adjustedCny:number}}
+   */
+  function setDailyGrantCny(value) {
+    const raw = typeof value === 'number' ? value : typeof value === 'string' ? value.trim() : NaN
+    const amount = raw === '' ? NaN : Number(raw)
+    if (!Number.isFinite(amount) || amount < 0 || amount > MAX_DAILY_GRANT_CNY) {
+      const error = new Error(`每天额度必须是 0 到 ${MAX_DAILY_GRANT_CNY} 元之间的数字`)
+      error.statusCode = 400
+      throw error
+    }
+    const next = round(amount, 2)
+    ensureGrant()
+    const previous = state.dailyGrantCny
+    if (next === previous) {
+      return { changed: false, dailyGrantCny: next, previousCny: previous, adjustedCny: 0 }
+    }
+    const before = state.walletCny
+    state.dailyGrantCny = next
+    state.walletCny = round(Math.max(0, state.walletCny + next - previous), 6)
+    persist()
+    const adjustedCny = round(state.walletCny - before, 6)
+    ledger({
+      type: 'grant-change',
+      at: now(),
+      fromCny: previous,
+      toCny: next,
+      adjustedCny,
+      walletAfterCny: state.walletCny,
+    })
+    return { changed: true, dailyGrantCny: next, previousCny: previous, adjustedCny }
+  }
+
   function status() {
     ensureGrant()
     const day = localDay(now())
@@ -404,6 +441,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       enabled: isEnabled(),
       createdAtDay: state.createdAtDay,
       dailyGrantCny: round(state.dailyGrantCny, 4),
+      dailyGrantMaxCny: MAX_DAILY_GRANT_CNY,
       walletCny: round(state.walletCny, 4),
       availableCny: round(Math.max(0, state.walletCny), 4),
       spentTodayCny: round(bucket.spentCny, 4),
@@ -669,6 +707,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     recordBalanceError,
     redactOutbound,
     setConfig,
+    setDailyGrantCny,
     dailyGrantCny: () => state.dailyGrantCny,
     isEnabled,
   }
