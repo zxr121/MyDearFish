@@ -23,7 +23,13 @@ import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import {
-  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile, type ProfileTemplate,
+  initProfile,
+  PROFILE_TEMPLATES,
+  readProfileManifest,
+  removeLinkProjections,
+  sanitizeProfile,
+  writeProfileManifest,
+  type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
@@ -176,4 +182,27 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
 /** Create the first external plugin profile without running a package manager. */
 export function createPluginProfile(projectDir: string): void {
   initProfile(projectDir, DESKTOP_PROFILE_BUNDLES)
+  ensureFishBundle(projectDir)
+}
+
+/**
+ * Add the fish bundle to a profile created by an earlier dsh installation.
+ * initProfile leaves existing manifests untouched, so without this an upgrade
+ * from stock dsh keeps the original bundle list and never shows the fish UI.
+ */
+function ensureFishBundle(projectDir: string): void {
+  const manifest = readProfileManifest('dsh desktop', projectDir)
+  const bundles = manifest.dsh?.profile?.bundles
+  if (bundles?.includes(FISH_BUNDLE)) return
+  const nextBundles = bundles === undefined ? [...DESKTOP_PROFILE_BUNDLES] : [...bundles, FISH_BUNDLE]
+  writeProfileManifest(projectDir, {
+    ...manifest,
+    dsh: {
+      ...manifest.dsh,
+      profile: {
+        ...manifest.dsh?.profile,
+        bundles: nextBundles,
+      },
+    },
+  })
 }

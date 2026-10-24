@@ -47,7 +47,7 @@ pnpm run package:desktop:win:x64:unsigned
 
 打包会调用 [prepare-fish-plugins.ts](../../apps/desktop/scripts/prepare-fish-plugins.ts)，把 `@mydearfish/dsh-fish-bundle` 和七个插件包复制进已准备运行时的 `node_modules`，并在 `@deepseek-ai/dsh` 的依赖中声明它们。包名或入口文件缺失会使构建失败。
 
-运行时，[project-manager.ts](../../apps/desktop/src/project-manager.ts) 把该 bundle 追加到 `DESKTOP_PROFILE_BUNDLES`，因此每个新建桌面 profile 都会组合 `dsh-base`、`dsh-web-app`、大肥鱼 bundle 和 profile 自己的 patch。
+运行时，[project-manager.ts](../../apps/desktop/src/project-manager.ts) 把该 bundle 追加到 `DESKTOP_PROFILE_BUNDLES`，并给旧版 dsh 建好的桌面 profile 补上该 bundle；因此每个桌面 profile 都会组合 `dsh-base`、`dsh-web-app`、大肥鱼 bundle 和 profile 自己的 patch。
 
 ## 产物
 
