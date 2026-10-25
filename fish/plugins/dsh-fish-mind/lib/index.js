@@ -1105,7 +1105,11 @@ export function apply(ctx) {
     }
   }
 
-  function blockedStream(internal) {
+  function isSocialSession(sessionId) {
+    return typeof sessionId === 'string' && /^session-qq-social-/.test(sessionId)
+  }
+
+  function blockedStream(internal, quiet) {
     if (internal) {
       return (async function* () {
         yield {
@@ -1115,6 +1119,15 @@ export function apply(ctx) {
             failure: { message: '今日零花钱已用完，模型调用被账本拦住。', code: 'FISH_BUDGET_EXHAUSTED' },
           },
         }
+      })()
+    }
+    // 社交通道被拦住时闭嘴：群里不该替她转述额度，也别把同一句兜底话复读出去。
+    if (quiet) {
+      return (async function* () {
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: '[不接话]' }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: '[不接话]' } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
       })()
     }
     // 面向主人的对话给一句本地回复，不发起模型请求，也不提钱。
@@ -1160,7 +1173,10 @@ export function apply(ctx) {
     } catch (error) {
       // 账本自己坏了就失败关闭：宁可这一轮不花钱，也不要把额度漏出去。
       diag(`budget: 预留失败，拦截本次调用（${String((error && error.message) || error)}）`)
-      return blockedStream(isInternalSession(options && options.sessionId))
+      return blockedStream(
+        isInternalSession(options && options.sessionId),
+        isSocialSession(options && options.sessionId),
+      )
     }
     if (!reserved.ok) {
       if (reserved.reason === 'bili-cap') {
@@ -1168,7 +1184,10 @@ export function apply(ctx) {
       } else {
         diag(`budget: 拦住一次调用（可用 ${reserved.walletCny}，预估需要 ${reserved.neededCny}）`)
       }
-      return blockedStream(isInternalSession(options && options.sessionId))
+      return blockedStream(
+        isInternalSession(options && options.sessionId),
+        isSocialSession(options && options.sessionId),
+      )
     }
     const reservation = reserved.disabled ? null : reserved.reservation
     let source
@@ -2360,7 +2379,7 @@ export function apply(ctx) {
   }, 'fish-mind: 健康检查')
 
   ctx.effect(() => {
-    diag(`start: mode=${config.mode} inject=${config.inject} dir=${dir} sqlite=${store.degraded ? '降级' : '可用'} episodes=${store.stats().episodes}`)
+    diag(`start: version=${PLUGIN_VERSION} mode=${config.mode} inject=${config.inject} dir=${dir} sqlite=${store.degraded ? '降级' : '可用'} episodes=${store.stats().episodes}`)
     return () => {
       try {
         maybeDailySummary(true)

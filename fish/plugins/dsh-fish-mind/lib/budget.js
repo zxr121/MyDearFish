@@ -483,7 +483,13 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     const tag = scope === 'bili' ? 'bili' : ''
     const price = priceFor(provider, model)
     const defaultOutput = Math.max(1, Number(currentConfig.defaultMaxOutputTokens) || 8192)
-    const estimatedCny = round(estimateRequestCost(options, price, defaultOutput), 6)
+    // 模型目录把 maxTokens 报到 25.6 万，按整段输出预留会把一次群聊估成四块多，
+    // 实际只花一毛。预留只按默认上限封顶输出，结算仍按真实 usage。
+    const requestedOutput = Number(options && options.maxTokens)
+    const reserveOptions = Number.isFinite(requestedOutput) && requestedOutput > defaultOutput
+      ? { ...options, maxTokens: defaultOutput }
+      : options
+    const estimatedCny = round(estimateRequestCost(reserveOptions, price, defaultOutput), 6)
     if (state.walletCny < estimatedCny) {
       ledger({
         type: 'blocked',

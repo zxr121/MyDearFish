@@ -390,6 +390,17 @@ test('零花钱用完：主人会话给本地回复，内部调用给不可重�
   assert.ok(ownerChunks.some((chunk) => chunk.type === 'text-delta' && chunk.text.includes('明天')))
   assert.deepEqual(ownerChunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
 
+  let socialCalls = 0
+  const social = await ctx.emit('llm/stream', { sessionId: 'session-qq-social-group-1', messages: [] }, async function* () {
+    socialCalls += 1
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })
+  const socialChunks = []
+  for await (const chunk of social) socialChunks.push(chunk)
+  assert.equal(socialCalls, 0)
+  assert.ok(socialChunks.some((chunk) => chunk.type === 'text-delta' && chunk.text === '[不接话]'))
+  assert.deepEqual(socialChunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+
   let internalCalls = 0
   const internal = await ctx.emit('llm/stream', { messages: [] }, async function* () {
     internalCalls += 1

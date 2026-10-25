@@ -239,6 +239,19 @@ test('余额不够就不发预留，并记一条 blocked', () => {
   assert.equal(readLedger(dir).at(-1).type, 'blocked')
 })
 
+test('预留按默认输出上限封顶，不按模型目录的 25.6 万整段预留', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  const first = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  budget.settle(first, { inputTokens: 1_500_000 })
+  assert.equal(budget.status().walletCny, 4)
+
+  const reserved = budget.reserve({ provider: 'p', model: 'm', maxTokens: 256_000 })
+  assert.equal(reserved.ok, true)
+  assert.ok(reserved.reservation.estimatedCny < 0.2)
+})
+
 test('价格按 provider/model → model → provider → 默认价找', () => {
   const fallback = { input: 9, cacheRead: 9, cacheWrite: 9, output: 9, reasoning: 9 }
   assert.deepEqual(
