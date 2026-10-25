@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { importIsPending, readImportReport } from './archive.js'
-import { buildSelfPrompt } from './birth.js'
+import { buildSelfPrompt, IDENTITY_LIMITS } from './birth.js'
 
 const DIM_LABELS = {
   happy: '开心',
@@ -334,6 +334,15 @@ export function buildOverview({
       ownerAddress: text(identity && identity.ownerAddress, 40),
       origin: text(identity && identity.origin, 240),
       style: text(identity && identity.style, 600),
+      relations: Array.isArray(identity && identity.relations)
+        ? identity.relations
+            .slice(0, IDENTITY_LIMITS.relations)
+            .map((item) => ({
+              name: text(item && item.name, IDENTITY_LIMITS.relationName),
+              relation: text(item && item.relation, IDENTITY_LIMITS.relationText),
+            }))
+            .filter((item) => item.name !== '' && item.relation !== '')
+        : [],
       updatedAt: number(identity && identity.updatedAt),
       defaults: isPlainObject(defaults) ? { ...defaults } : {},
       limits: isPlainObject(limits) ? { ...limits } : {},

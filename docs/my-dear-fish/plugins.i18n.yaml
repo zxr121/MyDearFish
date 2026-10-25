@@ -12,17 +12,17 @@
   en: 0a97b360086301ea
   zh: 00cf4e7b945fb849
 /how-the-plugins-keep-the-fish/the-shared-substrate/message-sources-and-mutual-recognition:
-  en: 53a2ac4351b2068a
-  zh: f4ecb99f6ffa551c
+  en: 7e44bcbdff532b6e
+  zh: 02f946ffe3a3702b
 /how-the-plugins-keep-the-fish/the-shared-substrate/prompt-injection:
   en: 4b79b8c6afd0b293
   zh: dde9bc1c32d11042
 /how-the-plugins-keep-the-fish/the-shared-substrate/data-and-switch-locations:
-  en: d8486d76d16f7741
-  zh: 97115f2e4d18a8a0
+  en: 8ebf2ff9b81343b9
+  zh: 4f48e89868c4e10a
 /how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind:
-  en: 2ec77fb164222211
-  zh: 66715ef01d9f1028
+  en: 425d2afa67542031
+  zh: cfcdabb1ac65ea69
 /how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/experience-stream-and-index:
   en: 5b31366569e8236b
   zh: e972dee3690d574c
@@ -30,8 +30,8 @@
   en: 0abdbe101e99446b
   zh: 7db908b072cf430c
 /how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/social-session-isolation:
-  en: 1a57a5cc32f0cb97
-  zh: 4421c00f04513397
+  en: 4535e7c784e7eee7
+  zh: 2b866c65709191f2
 /how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/shared-service:
   en: 4974ec54093c3376
   zh: f5f6ab37f901a1d1
@@ -81,8 +81,8 @@
   en: e947600e70480caa
   zh: e24105a41b5b8d68
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/hit-line:
-  en: 32d4d477f6ef7c96
-  zh: 49c3a98210443f86
+  en: a32fb8234ca309ff
+  zh: 39f20789197b1b5e
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/dry-run-and-manual-button:
   en: 19d9b0a9723d05ab
   zh: bd0bbdd5d4cc0acb
@@ -117,8 +117,8 @@
   en: e4e8143e319b7f8c
   zh: e29ab45b32b056e1
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection:
-  en: 8816eeab0c7f1c88
-  zh: e6162c9737d46f17
+  en: 779d1b3993a9c10e
+  zh: dcdb47068673de66
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection/person-memory-recognizing-remembering-and-handling-relationships:
   en: 2b53e4870ad3d495
   zh: d6edbe45ba3c2231
@@ -126,11 +126,11 @@
   en: 305f0456404dbbd2
   zh: 1eaf9a0456f5059b
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/prerequisites-and-defaults:
-  en: bad53e0cded39d0c
-  zh: e51705cda5a2d0bb
+  en: 66cc4d0b90e7c554
+  zh: 4139016486cfa755
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/known-limits:
-  en: 00406ac5f50a5b8f
-  zh: 8c60b1c48ad59bbb
+  en: 2830ad10c070744d
+  zh: cf76b844a6b8a9b7
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent:
   en: 6f60effec265387c
   zh: d595f71e3147273e
@@ -141,11 +141,11 @@
   en: 1bb384c1878c34c7
   zh: b80943e4046f04ae
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/quota-windows-and-target-session:
-  en: 5e61a2d10bf0ae49
-  zh: 700db5a366a57d55
+  en: 687727779f3e76f2
+  zh: 74dceed27426daba
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/delivery-gates:
-  en: 699b60b8dc762516
-  zh: 275b2a732c7380bb
+  en: 48741d8571d6a933
+  zh: ca4191dda6123886
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/settings-routes:
   en: fb95b00fdcb108bf
   zh: 2a2c0c4344e6c940
@@ -153,23 +153,23 @@
   en: c6edcfe7af993b87
   zh: 54be690499ecb1d8
 /how-the-plugins-keep-the-fish/bilibili-dsh-bili-subagent/known-limits:
-  en: 9a90763bb346a6ba
-  zh: 18134079bb1d09ff
+  en: 4c97c7b70f927eb4
+  zh: 714882a58e21b742
 /how-the-plugins-keep-the-fish/how-the-six-form-a-day:
   en: 4cab2dc3bb198f32
   zh: 0ee9328fa855fe81
 /how-the-plugins-keep-the-fish/defaults-cost-and-risk:
-  en: a92405223b2d6d4e
-  zh: a1309a47e9105805
+  en: 3651e352e15b05a6
+  zh: 31e8b3aa72fea96b
 /how-the-plugins-keep-the-fish/cross-plugin-coupling-and-gaps:
-  en: 98a7779806368143
-  zh: ab3bf97d59ac144e
+  en: 925ab4bb8b7d0af9
+  zh: 55de1510f2fcfc11
 /how-the-plugins-keep-the-fish/change-map:
-  en: 8c67866e4165bb77
-  zh: f7b093a65b5a41a7
+  en: 26386d121e93b3af
+  zh: 7c09e7b93bd74405
 /how-the-plugins-keep-the-fish/observing-and-troubleshooting:
-  en: 3ec54d8733aeb143
-  zh: a7e682bb0bd59538
+  en: 777f6db5930cf900
+  zh: 2d40d74c3e5d8fe0
 /how-the-plugins-keep-the-fish/conclusion-what-to-decide-first:
-  en: e1f3a4c62661380f
-  zh: b5336df7f28214c4
+  en: 59633d6cdf8bb031
+  zh: dba31fe474dc27b5

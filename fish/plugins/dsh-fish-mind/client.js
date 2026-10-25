@@ -2,7 +2,8 @@
  * dsh-fish-mind —— 浏览器半端（设置里的一页「大肥鱼」）
  * ============================================================================
  * 这一页给主人看完整的一条鱼：
- *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯，只有这里能改；
+ *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
+ *   · 性格人设：整段人设前缀，保存后热应用；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼。
  *
@@ -17,6 +18,8 @@ window.__ModuleLoader__.load({
 
     const API = '/dsh-fish-mind'
     const IMPORT_LIMIT = 64 * 1024 * 1024
+    const RELATION_FALLBACK = { count: 12, name: 24, text: 24 }
+    const RELATION_KEYS = ['name', 'relation']
 
     const getJson = async (url) => {
       const res = await fetch(url, { headers: { accept: 'application/json' } })
@@ -73,6 +76,11 @@ window.__ModuleLoader__.load({
 [data-fishm-flabel]{font-size:12px;opacity:.72;}
 [data-fishm-input]{padding:6px 9px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;width:100%;box-sizing:border-box;}
 [data-fishm-area]{min-height:58px;resize:vertical;font-family:inherit;line-height:1.5;}
+[data-fishm-persona]{min-height:320px;resize:vertical;font-family:inherit;line-height:1.7;white-space:pre-wrap;}
+[data-fishm-relrow]{display:flex;gap:8px;align-items:center;}
+[data-fishm-relrow]>[data-fishm-input]{flex:1;min-width:0;}
+[data-fishm-relrow]>[data-fishm-input]:first-child{max-width:180px;}
+[data-fishm-relrow]>[data-fishm-btn]{flex:0 0 auto;}
 [data-fishm-actions]{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 [data-fishm-btn]{padding:6px 12px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;cursor:pointer;}
 [data-fishm-btn]:hover{background:rgba(127,127,127,.12);}
@@ -196,6 +204,7 @@ window.__ModuleLoader__.load({
     function Panel() {
       const [data, setData] = React.useState(null)
       const [form, setForm] = React.useState(null)
+      const [persona, setPersona] = React.useState(null)
       const [busy, setBusy] = React.useState('')
       const [msg, setMsg] = React.useState('')
       const [msgKind, setMsgKind] = React.useState('')
@@ -235,6 +244,10 @@ window.__ModuleLoader__.load({
                 ownerAddress: next.identity.ownerAddress,
                 origin: next.identity.origin,
                 style: next.identity.style,
+                relations: list(next.identity.relations).map((item) => ({
+                  name: (item && item.name) || '',
+                  relation: (item && item.relation) || '',
+                })),
               }
             : current))
         } catch (error) {
@@ -242,18 +255,62 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      const loadPersona = React.useCallback(async () => {
+        try {
+          const next = await getJson(API + '/persona')
+          setPersona({ ...next, available: true })
+        } catch (error) {
+          setPersona({ available: false, error: String((error && error.message) || error) })
+        }
+      }, [])
+
       React.useEffect(() => {
         load()
+        loadPersona()
         const timer = setInterval(() => { void load() }, 30000)
         return () => clearInterval(timer)
-      }, [load])
+      }, [load, loadPersona])
 
       const patch = (key, value) => setForm((current) => ({ ...(current || {}), [key]: value }))
 
+      const patchRelation = (index, key, value) => setForm((current) => {
+        const rows = list(current && current.relations)
+        if (!RELATION_KEYS.includes(key)) return current
+        return {
+          ...(current || {}),
+          relations: rows.map((row, i) => (i === index ? { ...row, [key]: value } : row)),
+        }
+      })
+
+      const addRelation = () => setForm((current) => {
+        const rows = list(current && current.relations)
+        const max = Number(data && data.identity && data.identity.limits && data.identity.limits.relations) || RELATION_FALLBACK.count
+        if (rows.length >= max) return current
+        return { ...(current || {}), relations: [...rows, { name: '', relation: '' }] }
+      })
+
+      const removeRelation = (index) => setForm((current) => ({
+        ...(current || {}),
+        relations: list(current && current.relations).filter((_, i) => i !== index),
+      }))
+
       const saveBirth = async () => {
         setBusy('birth')
+        const relations = list(form && form.relations)
+          .map((row) => ({
+            name: String((row && row.name) || '').trim(),
+            relation: String((row && row.relation) || '').trim(),
+          }))
+        if (relations.some((row) => (row.name === '') !== (row.relation === ''))) {
+          flash('群友关系每一行都要填名字和关系；没填完就先删掉那一行', 'error')
+          setBusy('')
+          return
+        }
         try {
-          const result = await postJson(API + '/birth', form)
+          const result = await postJson(API + '/birth', {
+            ...form,
+            relations: relations.filter((row) => row.name !== ''),
+          })
           if (result && result.identity) {
             const identity = result.identity
             setForm({
@@ -263,6 +320,10 @@ window.__ModuleLoader__.load({
               ownerAddress: identity.ownerAddress,
               origin: identity.origin,
               style: identity.style,
+              relations: list(identity.relations).map((item) => ({
+                name: (item && item.name) || '',
+                relation: (item && item.relation) || '',
+              })),
             })
           }
           await load()
@@ -281,6 +342,32 @@ window.__ModuleLoader__.load({
           setForm(null)
           await load()
           flash('已恢复出厂出生设定')
+        } catch (error) {
+          flash('重置失败：' + String((error && error.message) || error), 'error')
+        }
+        setBusy('')
+      }
+
+      const savePersona = async () => {
+        if (!persona || persona.available !== true) return
+        setBusy('persona')
+        try {
+          const result = await postJson(API + '/persona', { persona: persona.persona })
+          setPersona({ ...result, available: true })
+          flash('性格人设已保存，下一轮就会按新的人设说话')
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        }
+        setBusy('')
+      }
+
+      const resetPersona = async () => {
+        if (!window.confirm('把性格人设恢复成出厂版本？名字、外形和其他出生设定不受影响。')) return
+        setBusy('persona-reset')
+        try {
+          const result = await postJson(API + '/persona/reset', {})
+          setPersona({ ...result, available: true })
+          flash('已恢复出厂人设')
         } catch (error) {
           flash('重置失败：' + String((error && error.message) || error), 'error')
         }
@@ -372,6 +459,9 @@ window.__ModuleLoader__.load({
 
       const identity = data.identity || {}
       const limits = identity.limits || {}
+      const relationLimit = Number(limits.relations) || RELATION_FALLBACK.count
+      const relationNameLimit = Number(limits.relationName) || RELATION_FALLBACK.name
+      const relationTextLimit = Number(limits.relationText) || RELATION_FALLBACK.text
       const memory = data.memory || {}
       const mood = data.mood || {}
       const inner = data.inner || {}
@@ -418,7 +508,7 @@ window.__ModuleLoader__.load({
 
         h(Section, {
           title: '出生设定',
-          note: '出生设定和每日额度能改；记忆、心情、人物志、通道和安全边界只读。',
+          note: '出生设定、性格人设和每日额度能改；记忆、心情、人物志、通道和安全边界只读。',
         },
           h('div', { 'data-fishm-grid': '' },
             h(Field, {
@@ -463,6 +553,47 @@ window.__ModuleLoader__.load({
             area: true,
             onChange: (value) => patch('style', value),
           }),
+          h('div', { 'data-fishm-field': '' },
+            h('span', { 'data-fishm-flabel': '' }, '群友关系'),
+            h('span', { 'data-fishm-note': '' },
+              `可以留空。自由写她怎么认人，比如「时光：妈妈」；她会按这些关系称呼和对待对方，QQ 群聊里也算。最多 ${relationLimit} 条。`),
+            list(form.relations).map((row, index) => h('div', {
+              'data-fishm-relrow': '',
+              key: index,
+            },
+              h('input', {
+                'data-fishm-input': '',
+                type: 'text',
+                value: (row && row.name) || '',
+                maxLength: relationNameLimit,
+                placeholder: '名字或称呼',
+                'aria-label': '名字或称呼',
+                onChange: (event) => patchRelation(index, 'name', event.target.value),
+              }),
+              h('input', {
+                'data-fishm-input': '',
+                type: 'text',
+                value: (row && row.relation) || '',
+                maxLength: relationTextLimit,
+                placeholder: '关系，比如妈妈',
+                'aria-label': '关系',
+                onChange: (event) => patchRelation(index, 'relation', event.target.value),
+              }),
+              h('button', {
+                'data-fishm-btn': '',
+                type: 'button',
+                disabled: busy !== '',
+                onClick: () => removeRelation(index),
+              }, '删除'))),
+            h('div', { 'data-fishm-actions': '' },
+              h('button', {
+                'data-fishm-btn': '',
+                type: 'button',
+                disabled: busy !== '' || list(form.relations).length >= relationLimit,
+                onClick: addRelation,
+              }, '+ 添加一条'),
+              h('span', { 'data-fishm-note': '' },
+                `${list(form.relations).length} / ${relationLimit} 条`))),
           h('div', { 'data-fishm-actions': '' },
             h('button', {
               'data-fishm-btn': '',
@@ -475,6 +606,47 @@ window.__ModuleLoader__.load({
               disabled: busy !== '',
               onClick: resetBirth,
             }, busy === 'reset' ? '恢复中…' : '恢复出厂'))),
+
+        h(Section, {
+          title: '性格人设',
+          note: '整段替换部署层的出厂人设，保存后下一轮生效。名字、外形和记忆不在这里；安全、隐私、额度和权限规则仍由代码固定。',
+        },
+          persona === null
+            ? h('div', { 'data-fishm-note': '' }, '正在读人设…')
+            : persona.available !== true
+              ? h('div', { 'data-fishm-banner': '' }, `现在改不了人设：${persona.error || '宿主没有配置编辑服务'}`)
+              : h('div', { 'data-fishm-field': '' },
+                  h('div', { 'data-fishm-actions': '' },
+                    h('span', { 'data-fishm-chip': persona.overridden ? 'warn' : 'on' },
+                      persona.overridden ? '自定义' : '出厂'),
+                    h('span', { 'data-fishm-note': '' },
+                      `${(persona.persona || '').length} / ${persona.maxLength || 12000} 字`)),
+                  h('textarea', {
+                    'data-fishm-input': '',
+                    'data-fishm-area': '',
+                    'data-fishm-persona': '',
+                    rows: 18,
+                    value: persona.persona || '',
+                    maxLength: persona.maxLength || 12000,
+                    onChange: (event) => setPersona((current) => ({
+                      ...(current || {}),
+                      persona: event.target.value,
+                    })),
+                  }),
+                  h('div', { 'data-fishm-note': '' },
+                    '这是整段人设前缀，会替换出厂那份。不要写 {{变量}}；她要遵守的安全、隐私、额度和权限规则不在人设里，改不掉。'),
+                  h('div', { 'data-fishm-actions': '' },
+                    h('button', {
+                      'data-fishm-btn': '',
+                      'data-primary': '',
+                      disabled: busy !== '',
+                      onClick: savePersona,
+                    }, busy === 'persona' ? '保存中…' : '保存人设'),
+                    h('button', {
+                      'data-fishm-btn': '',
+                      disabled: busy !== '',
+                      onClick: resetPersona,
+                    }, busy === 'persona-reset' ? '恢复中…' : '恢复出厂人设')))),
 
         h(Section, {
           title: '记忆',
@@ -767,7 +939,7 @@ window.__ModuleLoader__.load({
       {
         title: '你可以设置什么',
         body: [
-          '• 出生设定（「大肥鱼」页）：名字、物种、外形、怎么称呼你、来历、说话习惯',
+          '• 出生设定（「大肥鱼」页）：名字、物种、外形、怎么称呼你、来历、说话习惯，以及可以自由增删的群友关系',
           '• 心情（「鱼的心情」页）：称呼和昵称、生效会话、判断模型、是否每轮判断、是否注入、基线、下限',
           '• 主动搭话（「主动搭话」页）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
           '• QQ（「通到 QQ」页）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
@@ -780,7 +952,7 @@ window.__ModuleLoader__.load({
         title: '小贴士',
         body: [
           '1. 记忆存在本机，换窗口、重启都还在；含密码、密钥等凭据的整条经历只留时间和来源，超长正文会截断。日/周/月章节会在后台自动整理',
-          '2. 在「大肥鱼」设置里可以随时改她的身份和说话风格',
+          '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系和说话风格',
           '3. 主动搭话要先勾目标会话（出厂试运行关着，掷中就真发；想先只看记录就打开试运行）；到点掷骰子，安静时段不掷，刚聊过更难开口',
           '4. 隐私、法律红线和危险命令的硬规则改不了，改出生设定也改不了',
           '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志和短期水位；QQ、朗读、B 站配置、凭据和零花钱账本不在包里，要重配。导入只进空鱼，重启后生效',

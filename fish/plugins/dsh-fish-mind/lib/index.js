@@ -26,6 +26,7 @@ import { loadConfig } from './config.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
 import { humorPrompt } from './humor.js'
 import { buildOverview } from './overview.js'
+import { createPersonaEditor } from './persona.js'
 import { createBroker } from './permissions.js'
 import { createPrivacyGuard } from './privacy.js'
 import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
@@ -114,6 +115,10 @@ export function apply(ctx) {
   // 没有暂存包时这里什么都不做；应用失败只写报告，现有数据照常打开。
   applyPendingImport({ dir, dshHome, diag })
   let identity = loadIdentity(dir, diag)
+  const personaEditor = createPersonaEditor({
+    getConfigEditor: () => (typeof ctx.get === 'function' ? ctx.get('configEditor') : undefined),
+    diag,
+  })
   let config = loadConfig({ dshHome, diag })
   const store = openStore({ dir, config, diag })
   applyImportedFacts({ dir, store, diag })
@@ -1514,6 +1519,23 @@ export function apply(ctx) {
         syncMoodNames(dshHome, identity, diag)
         diag('identity: 已恢复出厂出生设定')
         sendJson(res, 200, { ok: true, identity: { ...identity }, defaults: { ...DEFAULT_IDENTITY } })
+      })
+
+      route('/dsh-fish-mind/persona', async (req, res) => {
+        if (req.method === 'GET') {
+          sendJson(res, 200, { ok: true, ...personaEditor.read() })
+          return
+        }
+        if (req.method !== 'POST') return methodNotAllowed(res, 'GET 或 POST')
+        const body = await readJsonLimited(req, 256 * 1024)
+        const saved = await personaEditor.save(body && body.persona)
+        sendJson(res, 200, { ok: true, ...saved })
+      })
+
+      route('/dsh-fish-mind/persona/reset', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const reset = await personaEditor.reset()
+        sendJson(res, 200, { ok: true, ...reset })
       })
 
       route('/dsh-fish-mind/budget', async (req, res) => {

@@ -118,12 +118,20 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 6)
+  assert.equal(routes.length, 8)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
   })
   assert.equal(blocked.res.status, 403)
+
+  const personaUnavailable = await call(routes, '/dsh-fish-mind/persona')
+  assert.equal(personaUnavailable.res.status, 501)
+  const personaSaveUnavailable = await call(routes, '/dsh-fish-mind/persona', {
+    method: 'POST',
+    body: { persona: '你是小鲸。' },
+  })
+  assert.equal(personaSaveUnavailable.res.status, 501)
 
   const initial = await call(routes, '/dsh-fish-mind/overview')
   assert.equal(initial.res.status, 200)
@@ -140,15 +148,20 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
       ownerAddress: '船长',
       origin: '从一片海图里醒来。',
       style: '句子短一点。',
+      relations: [{ name: '时光', relation: '妈妈' }],
     },
   })
   assert.equal(saved.res.status, 200)
   assert.equal(saved.json.identity.name, '小鲸')
+  assert.deepEqual(saved.json.identity.relations, [{ name: '时光', relation: '妈妈' }])
 
   const afterSave = await call(routes, '/dsh-fish-mind/overview')
   assert.equal(afterSave.json.identity.name, '小鲸')
+  assert.deepEqual(afterSave.json.identity.relations, [{ name: '时光', relation: '妈妈' }])
+  assert.ok(afterSave.json.selfPrompt.includes('时光：妈妈'))
   const identityFile = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'identity.json'), 'utf8'))
   assert.equal(identityFile.name, '小鲸')
+  assert.deepEqual(identityFile.relations, [{ name: '时光', relation: '妈妈' }])
 
   const grant = await call(routes, '/dsh-fish-mind/budget', {
     method: 'POST',
@@ -188,6 +201,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.match(exported.res.headers['content-disposition'], /filename="mydearfish-\d{4}-\d{2}-\d{2}\.zip"/)
   const bundle = parseFishArchive(exported.res.body)
   assert.equal(bundle.identity.name, '小鲸')
+  assert.deepEqual(bundle.identity.relations, [{ name: '时光', relation: '妈妈' }])
   assert.equal(bundle.experience.length, 0)
 
   const imported = await call(routes, '/dsh-fish-mind/import', {

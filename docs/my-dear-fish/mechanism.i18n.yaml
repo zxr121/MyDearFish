@@ -3,17 +3,17 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/mechanism.md
 /plugin-and-default-layer-mechanism:
-  en: 3961d39229ce86fc
-  zh: c7bddf99bae25cfb
+  en: 6c54556f75b2fe71
+  zh: bc620bfb5d2cab97
 /plugin-and-default-layer-mechanism/layer-composition:
   en: 681d207909e97630
   zh: 73625653039ee2bb
 /plugin-and-default-layer-mechanism/bundle-patch:
   en: b881d7358ab473e4
   zh: abfd1c80bbf0e152
-/plugin-and-default-layer-mechanism/the-fixed-private-setting:
-  en: d485bc547598366c
-  zh: 122bcd4f3da9cc1c
+/plugin-and-default-layer-mechanism/birth-identity-and-the-fixed-kernel:
+  en: 05f1822a80435886
+  zh: 308e5869f9029436
 /plugin-and-default-layer-mechanism/packaging:
   en: 5a025eda60ba70ff
   zh: 1b006a7878a55aaa
