@@ -707,7 +707,12 @@ const 捞外源 = 轮询回调们.at(-1)
 writeFileSync(join(家, 'fish-mind', 'diag.log'), 'memory: 启动，episodes=38\n', 'utf8')
 捞外源()
 writeFileSync(join(家, 'fish-mind', 'diag.log'), 'memory: 启动，episodes=38\nmemory: 短期转长期（tick，看 40 条，新记住 1 条）\n', 'utf8')
-writeFileSync(join(家, 'fish-mind', 'budget.json'), JSON.stringify({ dailyGrantCny: 10, walletCny: 24.3, days: { [new Date().toISOString().slice(0, 10)]: { spentCny: 7.01, calls: 400 } } }), 'utf8')
+const 本地今天 = (() => {
+  const 今 = new Date()
+  const 补 = (n) => String(n).padStart(2, '0')
+  return `${今.getFullYear()}-${补(今.getMonth() + 1)}-${补(今.getDate())}`
+})()
+writeFileSync(join(家, 'fish-mind', 'budget.json'), JSON.stringify({ dailyGrantCny: 10, walletCny: 24.3, days: { [本地今天]: { spentCny: 7.01, calls: 400 } } }), 'utf8')
 捞外源()
 
 const 外源绪 = await 取思绪()
