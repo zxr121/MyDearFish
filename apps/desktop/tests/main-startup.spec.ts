@@ -1654,6 +1654,28 @@ describe('desktop main startup', () => {
       message: en.updateDownloadFailed, technicalDetails: 'desktop update: download confirmation is stale' }))
   })
 
+  it('offers the packaged download page when a download fails', async () => {
+    harness.embeddedDownloadPage = 'https://github.com/example/fish/releases/latest'
+    await readyForUpdate()
+    harness.updateCheck.mockResolvedValueOnce({ phase: 'available', version: '1.0.1-nightly.1' })
+    harness.updateDownload.mockRejectedValueOnce(new Error('feed connection reset'))
+    harness.dialog.showMessageBox.mockResolvedValue({ response: 0 })
+    await invoke(DESKTOP_IPC.updatesOpen, 'app')
+    expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'error',
+      detail: en.updateManualDownloadDetail, buttons: [en.updateManualDownload, en.later], cancelId: 1 }))
+    expect(harness.openExternal).toHaveBeenCalledWith('https://github.com/example/fish/releases/latest')
+  })
+
+  it('rechecks the feed before retrying a failed download', async () => {
+    await readyForUpdate()
+    harness.updateState = { phase: 'error', failedOperation: 'download', version: '1.0.1-nightly.1', message: 'feed connection reset' }
+    harness.updateCheck.mockResolvedValueOnce({ phase: 'available', version: '1.0.2-nightly.1' })
+    harness.updateDownload.mockResolvedValueOnce({ phase: 'ready', version: '1.0.2-nightly.1' })
+    await invoke(DESKTOP_IPC.updatesOpen, 'app')
+    expect(harness.updateCheck).toHaveBeenLastCalledWith(true)
+    expect(harness.updateDownload).toHaveBeenCalledWith('1.0.2-nightly.1')
+  })
+
   it('keeps policy failures silent while an ordinary update proceeds', async () => {
     harness.embeddedPolicy = { origin: 'https://policy.example.com',
       allowedPageOrigins: ['https://downloads.example.com'] }

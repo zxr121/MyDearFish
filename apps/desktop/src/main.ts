@@ -529,7 +529,9 @@ async function main(): Promise<void> {
     if (isMandatory()) { mandatoryUI?.sync(); return Promise.resolve() }
     let shown = updateErrors.get(state)
     if (shown === undefined) {
-      const downloadPage = state.failedOperation === 'check' ? updateDownloadPage : undefined
+      // Any failed fetch leaves the release page as the only remaining route to a working build.
+      const downloadPage = state.failedOperation === 'check' || state.failedOperation === 'download'
+        ? updateDownloadPage : undefined
       shown = (async () => {
         const result = await ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
           message: desktopUpdateErrorSummary(state, locale.messages),
@@ -847,7 +849,9 @@ async function main(): Promise<void> {
       let progress: Promise<unknown> | undefined
       try {
         let state = updates.state
-        if (manual || state.phase === 'idle' || (state.phase === 'error' && state.failedOperation === 'check')) {
+        // A failed download keeps its stale target; resolve the feed again before retrying that target.
+        if (manual || state.phase === 'idle'
+          || (state.phase === 'error' && (state.failedOperation === 'check' || state.failedOperation === 'download'))) {
           controller = new AbortController()
           ordinaryDialogs.add(controller)
           const parent = currentDialogWindow()
