@@ -88,7 +88,7 @@ const 调 = async (路, 体) => {
   return res.体
 }
 
-报('朗读接口挂上了', 路由.has('/dsh-tts-bridge/say') && 路由.has('/dsh-tts-bridge/next') && 路由.has('/dsh-tts-bridge/state'))
+报('朗读接口挂上了', 路由.has('/dsh-tts-bridge/say') && 路由.has('/dsh-tts-bridge/next') && 路由.has('/dsh-tts-bridge/state') && 路由.has('/dsh-tts-bridge/panel'))
 
 // 扩展必须摊在 asar 外面，浏览器才能「加载已解压的扩展程序」
 const 扩展清单 = join(家, 'tts-bridge', 'extension', 'manifest.json')
@@ -98,6 +98,20 @@ if (existsSync(扩展清单)) {
 }
 let 状态 = await 调('/state', {})
 报('/state 的 extDir 指向家目录', typeof 状态?.extDir === 'string' && 状态.extDir.startsWith(join(家, 'tts-bridge', 'extension')), JSON.stringify(状态?.extDir))
+报('卡片默认显示', 状态?.panel === true, JSON.stringify(状态?.panel))
+
+// 右下角卡片的关/开：存在配置里，重启和别的窗口都认这一份
+let 卡片 = await 调('/panel', { open: false })
+let 存盘 = null
+try {
+  存盘 = JSON.parse(readFileSync(join(家, 'tts-bridge.json'), 'utf8'))
+} catch (error) {}
+报('关掉卡片 → 写进配置', 卡片 && 卡片.ok === true && 卡片.panel === false && 存盘?.panel === false, JSON.stringify({ 回: 卡片, 存盘: 存盘 && 存盘.panel }))
+状态 = await 调('/state', {})
+报('关掉后 /state 说卡片关着', 状态?.panel === false, JSON.stringify(状态?.panel))
+卡片 = await 调('/panel', { open: true })
+状态 = await 调('/state', {})
+报('重新打开 → /state 说卡片开着', 卡片?.panel === true && 状态?.panel === true, JSON.stringify({ 回: 卡片, 状态: 状态?.panel }))
 
 // ① 鱼脑不可用 → 不念
 鱼脑状态.可用 = false

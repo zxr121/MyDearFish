@@ -161,6 +161,7 @@ function channelOverview(dshHome) {
     tts: isPlainObject(tts)
       ? {
           available: true,
+          panelOpen: tts.panel !== false,
           watchingAll: ttsWatch === 0,
           watching: ttsWatch,
           favorites: Array.isArray(tts.favorites) ? tts.favorites.length : 0,

@@ -86,7 +86,7 @@ function writeSource() {
     社交: { 启用: true, 试运行: true },
   }))
   writeFileSync(join(home, 'speak-up-config.json'), JSON.stringify({ 总开关: true, 试运行: true, 目标会话: ['session-1'] }))
-  writeFileSync(join(home, 'tts-bridge.json'), JSON.stringify({ watch: [], favorites: ['a', 'b'] }))
+  writeFileSync(join(home, 'tts-bridge.json'), JSON.stringify({ watch: [], favorites: ['a', 'b'], panel: false }))
   mkdirSync(join(home, 'bili-duty'), { recursive: true })
   writeFileSync(join(home, 'bili-duty', 'config.json'), JSON.stringify({
     perDay: 3,
@@ -279,6 +279,7 @@ test('设置页总览带完整画像，但不带 QQ 号、群号和本机路径'
   assert.deepEqual(overview.social.people[0].rooms, [{ kind: '群聊', familiar: 30, interactions: 12 }])
   assert.equal(overview.channels.qq.enabled, true)
   assert.equal(overview.channels.speakUp.targets, 1)
+  assert.equal(overview.channels.tts.panelOpen, false)
   assert.equal(overview.channels.bili.perDay, 3)
   assert.equal(overview.wallet.availableCny, 9.5)
   assert.equal(overview.boundaries.permissions.protectedReadPaths, 2)

@@ -37,13 +37,50 @@
     'position:fixed;right:14px;bottom:14px;z-index:2147483000;padding:7px 10px;border-radius:10px;' +
       'background:rgba(20,20,24,.82);box-shadow:0 4px 14px rgba(0,0,0,.3);max-width:64vw;' +
       'font:12px/1.6 "Microsoft YaHei",system-ui,sans-serif;color:#e8e8e8;cursor:grab;' +
-      'user-select:none;opacity:.74;transition:opacity .15s,outline-color .4s;touch-action:none',
+      'user-select:none;opacity:.74;transition:opacity .15s,outline-color .4s;touch-action:none;visibility:hidden',
   )
   root.addEventListener('mouseenter', () => (root.style.opacity = '1'))
   root.addEventListener('mouseleave', () => (root.style.opacity = '.74'))
 
-  const titleEl = el('div', 'font-size:11px;color:#8f8f8f', '🐳 朗读桥')
+  // 先不露脸，等 /state 说卡片没被关掉再显示 —— 关掉之后刷新页面也不会闪一下
+  function hidePanel() {
+    root.style.display = 'none'
+    if (openList) {
+      openList = ''
+      void renderList() // 收起清单，顺手把两个箭头的方向复位
+    }
+  }
+  function showPanel() {
+    root.style.display = ''
+    root.style.visibility = 'visible'
+  }
+
+  const titleEl = el('div', 'font-size:11px;color:#8f8f8f;flex:none', '🐳 朗读桥')
   titleEl.title = '按住卡片可以拖；右键回到右下角'
+  const closeBtn = el(
+    'div',
+    'flex:none;width:18px;height:18px;line-height:17px;text-align:center;border-radius:5px;' +
+      'color:#8f8f8f;font-size:12px;cursor:pointer',
+    '✕',
+  )
+  closeBtn.dataset.xbClick = '1'
+  closeBtn.title = '关掉这张卡片，不影响朗读开关（设置 → 大肥鱼 → 通道 → 朗读，可以再打开）'
+  closeBtn.addEventListener('mouseenter', () => {
+    closeBtn.style.background = 'rgba(255,255,255,.14)'
+    closeBtn.style.color = '#e8e8e8'
+  })
+  closeBtn.addEventListener('mouseleave', () => {
+    closeBtn.style.background = 'transparent'
+    closeBtn.style.color = '#8f8f8f'
+  })
+  closeBtn.addEventListener('click', async (ev) => {
+    ev.stopPropagation()
+    hidePanel()
+    await post('/panel', { open: false })
+  })
+  const headEl = el('div', 'display:flex;align-items:center;justify-content:space-between;gap:10px')
+  headEl.appendChild(titleEl)
+  headEl.appendChild(closeBtn)
   const recentEl = el(
     'div',
     'font-size:11px;color:#b9b9b9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis',
@@ -95,7 +132,7 @@
     return d
   }
 
-  root.appendChild(titleEl)
+  root.appendChild(headEl)
   root.appendChild(recentEl)
   root.appendChild(statusEl)
   root.appendChild(listEl)
@@ -532,6 +569,9 @@
       recentEl.textContent = '（插件可能没开着）'
       return
     }
+    // 卡片关不关是宿主的配置：关掉之后所有窗口都不显示，设置页里可以再打开
+    if (st.panel === false) hidePanel()
+    else showPanel()
     auto = st.auto !== false
     // 浏览器扩展有没有在联系我？15 秒没动静 = 没装或没开
     // 扩展的状态分三种：没装 / 装了但页面没开 / 正常。

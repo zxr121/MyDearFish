@@ -243,6 +243,7 @@ window.__ModuleLoader__.load({
       const [msgKind, setMsgKind] = React.useState('')
       const [grantDraft, setGrantDraft] = React.useState(null)
       const [grantBusy, setGrantBusy] = React.useState(false)
+      const [ttsPanelBusy, setTtsPanelBusy] = React.useState(false)
       const [restartPrompt, setRestartPrompt] = React.useState(null)
       const fileRef = React.useRef(null)
       const canRestart = typeof window !== 'undefined' && !!window.dshDesktop
@@ -296,6 +297,21 @@ window.__ModuleLoader__.load({
           setPersona({ available: false, error: String((error && error.message) || error) })
         }
       }, [])
+
+      // 右下角卡片被 ✕ 关掉以后，这里是它唯一的再显示入口
+      const showTtsPanel = async () => {
+        if (ttsPanelBusy) return
+        setTtsPanelBusy(true)
+        try {
+          await postJson('/dsh-tts-bridge/panel', { open: true })
+          await load()
+          flash('右下角卡片已重新显示')
+        } catch (error) {
+          flash('没打开成功：' + String((error && error.message) || error), 'error')
+        } finally {
+          setTtsPanelBusy(false)
+        }
+      }
 
       React.useEffect(() => {
         load()
@@ -802,10 +818,20 @@ window.__ModuleLoader__.load({
                 ? h('div', { 'data-fishm-note': '' }, `试运行 ${yesNo(channels.speakUp.trial)} · 目标 ${num(channels.speakUp.targets)} 个会话`)
                 : h('div', { 'data-fishm-note': '' }, '没有配置')),
             h('div', { 'data-fishm-card': '' },
-              h('div', { 'data-fishm-cardtitle': '' }, '朗读'),
+              h('div', { 'data-fishm-cardtitle': '' }, '朗读',
+                channels.tts && channels.tts.available
+                  ? h('span', { 'data-fishm-chip': channels.tts.panelOpen ? 'on' : 'off' }, channels.tts.panelOpen ? '卡片开' : '卡片关')
+                  : null),
               channels.tts && channels.tts.available
                 ? h('div', { 'data-fishm-note': '' }, channels.tts.watchingAll ? '收听全部会话' : `收听 ${num(channels.tts.watching)} 个会话 · 收藏 ${num(channels.tts.favorites)} 条`)
-                : h('div', { 'data-fishm-note': '' }, '没有配置')),
+                : h('div', { 'data-fishm-note': '' }, '没有配置'),
+              channels.tts && channels.tts.available && channels.tts.panelOpen === false
+                ? h('button', {
+                    'data-fishm-btn': '',
+                    disabled: ttsPanelBusy,
+                    onClick: showTtsPanel,
+                  }, ttsPanelBusy ? '正在打开…' : '重新显示右下角卡片')
+                : null),
             h('div', { 'data-fishm-card': '' },
               h('div', { 'data-fishm-cardtitle': '' }, 'B 站'),
               channels.bili && channels.bili.available
@@ -977,7 +1003,7 @@ window.__ModuleLoader__.load({
           '• 主动搭话（「主动搭话」页）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
           '• QQ（「通到 QQ」页）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
           '• B 站（「刷B站」页）：装运行环境、扫码登录、自动刷的时段、挑视频门槛、评论/回评/私信',
-          '• 朗读（右下角的「朗读桥」卡片）：勾选要听的会话、自动朗读、收藏；还要在浏览器里装扩展，第一次在 DeepSeek 页面手动点一下朗读',
+          '• 朗读（右下角的「朗读桥」卡片）：勾选要听的会话、自动朗读、收藏；点卡片上的 ✕ 可以关掉，想再显示就回这里（大肥鱼 → 通道 → 朗读）；还要在浏览器里装扩展，第一次在 DeepSeek 页面手动点一下朗读',
           '• 零花钱（「大肥鱼」页）：按元调整每日额度，查看今日已花、余额和 B 站巡检额度',
         ],
       },

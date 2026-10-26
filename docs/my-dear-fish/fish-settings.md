@@ -2,7 +2,7 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, the current self prompt, memory, mood, relationships, channels, pocket money, and fixed boundaries all appear on one page; birth identity and persona are editable, everything else is read-only. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
+The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, the current self prompt, memory, mood, relationships, channels, pocket money, and fixed boundaries all appear on one page; birth identity and persona are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
 
 ## Overview
 
@@ -16,7 +16,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | Memory | Experience, episode, fact, and today counts; recent facts and recent experiences | No |
 | Mood | Current value, label, latest reason, tail of the timeline | No |
 | People-book relationships | Names, aliases, familiarity, times seen, and owner flag from the QQ people book; QQ numbers are not shown | No |
-| Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; addresses, tokens, and login state are not shown | No |
+| Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; a closed voice card can be shown again here; addresses, tokens, and login state are not shown | Card visibility only |
 | Pocket money | Daily grant, available balance, spent today, and call count; Bilibili patrol spend today and its quarter-of-the-grant cap | No |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
 

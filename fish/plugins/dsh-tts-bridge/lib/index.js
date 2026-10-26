@@ -85,9 +85,17 @@ const loadCfg = () => {
       folders: folders,
       favorites: favorites,
       everSeen: !!raw.everSeen,
+      // 右下角卡片默认显示；主人点过 ✕ 才关。关掉是所有窗口一起关。
+      panel: raw.panel !== false,
     }
   } catch (error) {
-    return { watch: [], folders: [{ id: DEFAULT_FOLDER, name: '收藏' }], favorites: [], everSeen: false }
+    return {
+      watch: [],
+      folders: [{ id: DEFAULT_FOLDER, name: '收藏' }],
+      favorites: [],
+      everSeen: false,
+      panel: true,
+    }
   }
 }
 const saveCfg = (cfg) => {
@@ -531,6 +539,15 @@ export function apply(ctx) {
       reply(res, 200, { ok: true, auto: state.auto })
     })
 
+    // 右下角卡片：✕ 关掉，设置页再打开。存在配置里，换个窗口或刷新页面都一样。
+    route(P + '/panel', async (req, res) => {
+      const body = await readJson(req)
+      cfg.panel = body.open !== false
+      saveCfg(cfg)
+      say('右下角卡片 = ' + (cfg.panel ? '显示' : '关掉'))
+      reply(res, 200, { ok: true, panel: cfg.panel })
+    })
+
     route(P + '/say', async (req, res) => {
       const body = await readJson(req)
       const queued = enqueue(body.text, true, null)
@@ -567,6 +584,7 @@ export function apply(ctx) {
         lastNext: state.lastNext,
         lastHello: state.lastHello,
         everSeen: !!cfg.everSeen,
+        panel: cfg.panel !== false,
         extDir: EXT_DIR,
         live: ctx.sessions.list().map((s) => String(s.id)),
         favorites: cfg.favorites.length,
