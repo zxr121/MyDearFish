@@ -5,7 +5,7 @@
 //   3) 没点她的消息可以只看不回；被叫和好友私聊在冷却里也照回
 //   4) 好友私聊必须回一句，不感兴趣也回短的
 //   5) 静音、试运行、零花钱下限都在判断之前拦住；接话次数不设上限
-//   6) 脱敏失败 → 不发；回复她发过的消息 → 认得出是在叫她
+//   6) 脱敏失败 → 不发；回复她发过的消息 → 认得出是在叫她；被引用的消息回查原文后带进判断和回话，查不到只留正文
 //   7) /models 和 /save 的社交深层合并；旧字段「被叫直接回」被忽略
 //   8) 刷屏时被叫和主人的消息优先保留，不会被挤出待看或判断窗口
 //   9) 兴趣画像成熟前每条都判；成熟后快判只排序和限额，0 分也进慢判（超额靠探索补看），
@@ -481,6 +481,7 @@ const 轮询社交 = 轮询回调们[1]
 const 群消息表 = new Map()
 const 好友消息表 = new Map()
 const 转发表 = new Map()
+const 引用消息表 = new Map()
 globalThis.fetch = async (url, 选项) => {
   const u = String(url)
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -494,6 +495,11 @@ globalThis.fetch = async (url, 选项) => {
   if (u.includes('get_friend_msg_history')) {
     const list = 好友消息表.get(Number(体.user_id)) || []
     return { json: async () => ({ status: 'ok', retcode: 0, data: { messages: list } }) }
+  }
+  if (u.endsWith('/get_msg')) {
+    const 条 = 引用消息表.get(String(体.message_id))
+    if (!条) return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
+    return { json: async () => ({ status: 'ok', retcode: 0, data: 条 }) }
   }
   if (u.includes('get_forward_msg')) {
     const 内容 = 转发表.get(String(体.id))
@@ -1096,12 +1102,21 @@ await 收到回复('session-qq-social-group-1012', '吱')
   一条群消息('回复一下这条', { replyId: 4242, id: 2302 }),
   一条群消息('群里别人在聊别的', { id: 2303 }),
 ])
+引用消息表.set('4242', {
+  user_id: 999,
+  message_id: 4242,
+  sender: { card: '大肥鱼', nickname: '大肥鱼' },
+  message: [{ type: 'text', data: { text: '吱' } }],
+})
 设判断([], false, 0.1, '不想接')
 const 判断之前13 = 判断调用.length
 await 轮询社交()
 await 等()
 报('回复她的消息 → 判断不想接也必须回', 判断调用.length === 判断之前13 + 1 && 回合.length === 之前13 + 2, '回合=' + (回合.length - 之前13))
 报('回复她的消息带进了回话批次', String(回合.at(-1)?.message.content[0].text || '').includes('回复一下这条'))
+报('引用她会把被引用的原话带进判断和回话',
+  String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '').includes('[引用你：吱]') &&
+    String(回合.at(-1)?.message.content[0].text || '').includes('[引用你：吱]'))
 await 收到回复('session-qq-social-group-1012', '怎么啦')
 
 时间偏移 += 11_000
@@ -1131,6 +1146,31 @@ await 等()
 报('被 @ 判断不想接也必须回', 判断调用.length === 判断之前13c + 1 && 回合.length === 之前13 + 3, '回合=' + (回合.length - 之前13))
 报('被 @ 的消息带进了回话批次', String(回合.at(-1)?.message.content[0].text || '').includes('再说一句'))
 await 收到回复('session-qq-social-group-1012', '嗯嗯')
+
+// ---------- 13b 引用别人：带出被引用的原话；查不到就只留正文 ----------
+写配置({ 群: ['1044'], 冷却秒: 0, 判断冷却秒: 0, 旁听: true })
+引用消息表.set('4901', {
+  user_id: 777,
+  message_id: 4901,
+  sender: { card: '群友777', nickname: 'x' },
+  message: [{ type: 'text', data: { text: '周末去海边' } }],
+})
+群消息表.set(1044, [
+  一条群消息('好像不错', { uid: 888, id: 4902, replyId: 4901 }),
+  一条群消息('引用的消息太旧了', { uid: 888, id: 4903, replyId: 4999 }),
+])
+设判断(['4902'], true, 0.9, '可以接')
+const 判断之前13q = 判断调用.length
+const 回合之前13q = 回合.length
+await 轮询社交()
+await 等()
+const 判断资料13q = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('引用别人 → 判断带上被引用的原话',
+  判断调用.length === 判断之前13q + 1 && 判断资料13q.includes('[#4902][群友]群友888：[引用群友777：周末去海边] 好像不错'))
+报('引用别人不标成在叫她', 判断资料13q.includes('[#4902][群友]群友888：') && !判断资料13q.includes('[#4902][被叫]'))
+报('回话也带上被引用的原话', 回合.length === 回合之前13q + 1 && String(回合.at(-1)?.message.content[0].text || '').includes('[引用群友777：周末去海边]'))
+报('引用查不到 → 正文照常留下', 判断资料13q.includes('[#4903][群友]群友888：引用的消息太旧了'))
+await 收到回复('session-qq-social-group-1044', '听着不错')
 
 // ---------- 14 关注上限：挑太多也只收前几条 ----------
 写配置({ 群: ['1013'], 关注上限: 2 })

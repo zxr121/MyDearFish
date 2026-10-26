@@ -66,6 +66,12 @@ const 转发最多条 = 20
 const 转发单条最多字 = 160
 const 转发总共最多字 = 1200
 const 转发展开超时毫秒 = 6000
+// 被引用的消息要回查原文，但只带一句短摘要；同一条引用缓存起来，失败也短时间不再重试。
+const 引用单条最多字 = 160
+const 引用缓存上限 = 300
+const 引用回查超时毫秒 = 3000
+const 引用失败缓存毫秒 = 60_000
+const 引用失败记账毫秒 = 10 * 60_000
 // 转发里常常是图；真下下来她才能看见，但一次最多 4 张，别把附件和上下文撑爆。
 const 转发最多图 = 4
 // 判断冷却里攒着的消息也有上限：热闹的群不能把内存和下次判断的上下文一起撑大。
@@ -1947,6 +1953,8 @@ export function apply(ctx) {
   let 上一轮 = { 轮号: -1, 文本: '' }
   const 已发轮 = new Set()
   const 已转消息 = new Set() // 已经转发进 DSH 的 QQ 消息 id（防重复转）
+  const 引用缓存 = new Map() // 被引用消息 id → { 标记, 自己, 到期? }：同一条引用不反复回查
+  let 引用失败记At = 0 // 回查失败时别每条引用都刷一条日志
   let 上次私聊时间 = Math.floor(Date.now() / 1000) // 从这一刻起只认新消息，不补旧的
   let 上次群时间 = Math.floor(Date.now() / 1000)
 
@@ -3982,7 +3990,7 @@ export function apply(ctx) {
   /** 群聊里“像不像在叫她”：@她、回复她发过的消息、或者文字里出现称呼。只是标记，不自动回。 */
   function 是否被叫(配置, 段) {
     if (段.at我) return '有人 @ 你'
-    if (段.回复id !== '' && 她的消息id.has(段.回复id)) return '有人在回复你'
+    if (段.回复id !== '' && (段.引用自己 === true || 她的消息id.has(段.回复id))) return '有人在回复你'
     for (const 词 of 配置.社交.称呼) {
       if (词 !== '' && 段.文字.includes(词)) return `有人提到「${词}」`
     }
@@ -4576,6 +4584,83 @@ export function apply(ctx) {
       文字: [文字, ...块们].filter((块) => 块 !== '').join('\n'),
       图片们: 图片们.slice(0, 转发最多图),
     }
+  }
+
+  /**
+   * 把一条 reply 段指向的消息折成一行引用标记；查不到就返回 null。
+   * 被引用消息是登录号自己发的，标成“你”，调用方据此仍能认出“有人在回复你”。
+   * @param {object} 配置 - 当前配置。
+   * @param {string} id - reply 段里的消息 id。
+   * @param {string|number} 自己号 - 登录的 QQ 号；不知道就传空。
+   * @returns {Promise<{ 标记: string, 自己: boolean }|null>} 引用标记；失败或不支持时返回 null。
+   */
+  async function 回查引用(配置, id, 自己号 = '') {
+    if (id === '') return null
+    const 现有 = 引用缓存.get(id)
+    if (现有) {
+      if (现有.到期 === undefined || 现有.到期 > Date.now()) return 现有.标记 === '' ? null : 现有
+      引用缓存.delete(id)
+    }
+    const 现在 = Date.now()
+    const 存缓存 = (记) => {
+      if (引用缓存.size >= 引用缓存上限) 引用缓存.delete(引用缓存.keys().next().value)
+      引用缓存.set(id, 记)
+    }
+    const 失败 = (说) => {
+      存缓存({ 标记: '', 自己: false, 到期: 现在 + 引用失败缓存毫秒 })
+      if (现在 - 引用失败记At >= 引用失败记账毫秒) {
+        引用失败记At = 现在
+        记账(说)
+      }
+      return null
+    }
+    try {
+      const 号 = Number(id)
+      const r = await fetch(`${配置.NapCat}/get_msg`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message_id: Number.isFinite(号) ? 号 : id }),
+        signal: AbortSignal.timeout(引用回查超时毫秒),
+      })
+      const j = await r.json()
+      if (!j || j.status !== 'ok' || !j.data) return 失败('引用消息回查没拿到原文（消息太旧或后端不支持 get_msg），这条先不带引用')
+      const 条 = Array.isArray(j.data) ? j.data[0] : j.data
+      if (!条 || typeof 条 !== 'object') return 失败('引用消息回查返回了空内容，这条先不带引用')
+      const 段 = 解析消息段(条, 自己号)
+      const uid = String(
+        (条.user_id === undefined || 条.user_id === null ? '' : 条.user_id)
+        || (条.sender && 条.sender.user_id !== undefined && 条.sender.user_id !== null ? 条.sender.user_id : ''),
+      )
+      const 名字 = 取说话人名字(条.sender && 条.sender.card, 条.sender && 条.sender.nickname, uid)
+      const 自己 = 自己号 !== '' && uid !== '' && uid === String(自己号)
+      let 文 = 段.文字.replace(/\s+/g, ' ').trim()
+      if (文.length > 引用单条最多字) 文 = `${文.slice(0, 引用单条最多字)}…`
+      const 标记 = 文 === ''
+        ? (自己 ? '[引用你的一条消息]' : `[引用${名字}的一条消息]`)
+        : (自己 ? `[引用你：${文}]` : `[引用${名字}：${文}]`)
+      const 记 = { 标记, 自己 }
+      存缓存(记)
+      return 记
+    } catch (error) {
+      return 失败(`引用消息回查失败：${String((error && error.message) || error)}`)
+    }
+  }
+
+  /**
+   * 把被引用消息的原文放到正文前面；查不到就原样返回，不耽误这条消息。
+   * @param {object} 配置 - 当前配置。
+   * @param {{ 文字?: string, 回复id?: string }} 段 - 解析消息段的结果。
+   * @param {string|number} 自己号 - 登录/被转发的 QQ 号；不知道就传空。
+   * @returns {Promise<object>} 同一个段对象，正文前可能多一条引用标记。
+   */
+  async function 补上引用(配置, 段, 自己号 = '') {
+    const id = String((段 && 段.回复id) || '')
+    if (id === '') return 段
+    const 引 = await 回查引用(配置, id, 自己号)
+    if (!引) return 段
+    段.引用自己 = 引.自己
+    段.文字 = 段.文字 === '' ? 引.标记 : `${引.标记} ${段.文字}`
+    return 段
   }
 
   /** 下载并保存一组 QQ 图片，返回带 durable ref 的图片；坏图/超限跳过，不拦文字。 */
@@ -5701,6 +5786,7 @@ export function apply(ctx) {
       const 补 = await 补上转发(配置, 段.文字, 段.转发们, 主人号)
       段.文字 = 补.文字
       段.图片们.push(...补.图片们)
+      await 补上引用(配置, 段, 自己.号)
       if (段.文字 === '') continue
       // 群聊里主人和群友一视同仁：按同一套 @ / 叫名字 / 图片 / 兴趣规则。
       const 被叫原因 = 目标.类型 === 'friend' ? '私聊' : 是否被叫(配置, 段)
@@ -7090,10 +7176,13 @@ export function apply(ctx) {
     const 条转文字 = async (条) => {
       const 段 = 解析消息段(条, '')
       const 补 = await 补上转发(配置, 段.文字, 段.转发们, 配置.私聊QQ)
+      段.文字 = 补.文字
       段.图片们.push(...补.图片们)
-      const 文字 = 补.文字.length > 单条入站上限
-        ? `${补.文字.slice(0, 单条入站上限)}…（这条太长，后面省略）`
-        : 补.文字
+      // 主人桥里“你”指的不是被转发的账号，引用一律按发送人名字标，别把主人自己的话写成鱼说的。
+      await 补上引用(配置, 段, '')
+      const 文字 = 段.文字.length > 单条入站上限
+        ? `${段.文字.slice(0, 单条入站上限)}…（这条太长，后面省略）`
+        : 段.文字
       return { 文字, 图片们: 段.图片们 }
     }
 

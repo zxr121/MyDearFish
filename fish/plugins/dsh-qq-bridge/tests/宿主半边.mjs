@@ -42,6 +42,7 @@ let 私聊消息文本 = '宝宝'
 let 私聊消息时间 = 9999999999
 let 私聊消息id = 9000
 let 私聊附加 = []
+const 引用消息表 = new Map()
 globalThis.fetch = async (url, 选项) => {
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
   const u = String(url)
@@ -61,6 +62,11 @@ globalThis.fetch = async (url, 选项) => {
         },
       }),
     }
+  }
+  if (u.endsWith('/get_msg')) {
+    const 条 = 引用消息表.get(String(体.message_id))
+    if (!条) return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
+    return { json: async () => ({ status: 'ok', retcode: 0, data: 条 }) }
   }
   if (u.includes('get_forward_msg')) {
     if (体.id === 'res-ok') {
@@ -582,7 +588,29 @@ const 转发文 = 转进的.at(-1)?.content?.[0]?.text || ''
 报('轮询：转发拉不到也保留外层文字和占位', 转发文.includes('这个也看看') && 转发文.includes('[转发消息，没展开出来]'), JSON.stringify(转发文))
 私聊附加 = []
 
-// ⑯c 主人私聊：摸清打字节奏后，入站消息带一段内部贴合提示（不发给 QQ）
+// ⑯c 引用：被引用的原文带进 DSH；主人桥里按发送人名字标，不写成“你”
+私聊消息时间 = Math.floor(Date.now() / 1000) + 1700
+引用消息表.set('9601', {
+  user_id: 321, message_id: 9601, sender: { card: '群友甲', nickname: '群友甲' },
+  message: [{ type: 'text', data: { text: '上次说的电影' } }],
+})
+引用消息表.set('9602', {
+  user_id: 123, message_id: 9602, sender: { card: '主人', nickname: '主人' },
+  message: [{ type: 'text', data: { text: '周五去吧' } }],
+})
+私聊附加 = [
+  { user_id: 123, time: 私聊消息时间 + 1, message_id: 9603, message: [{ type: 'reply', data: { id: '9601' } }, { type: 'text', data: { text: '这部我也想看' } }] },
+  { user_id: 123, time: 私聊消息时间 + 2, message_id: 9604, message: [{ type: 'reply', data: { id: '9602' } }, { type: 'text', data: { text: '那就订票' } }] },
+]
+const 之前引用 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 引用文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('轮询：引用别人的消息带出原文', 转进的.length === 之前引用 + 1 && 引用文.includes('[引用群友甲：上次说的电影] 这部我也想看'), JSON.stringify(引用文))
+报('轮询：引用主人的消息按名字标，不误写成鱼说的', 引用文.includes('[引用主人：周五去吧] 那就订票'), JSON.stringify(引用文))
+私聊附加 = []
+
+// ⑯d 主人私聊：摸清打字节奏后，入站消息带一段内部贴合提示（不发给 QQ）
 const 之前风格转 = 转进的.length
 for (let i = 0; i < 7; i++) {
   私聊消息文本 = ['好呀', '在呢', '我看看哦', '行啦', '晚安哦', '走呀', '好诶'][i]
