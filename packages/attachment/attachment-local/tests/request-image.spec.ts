@@ -25,6 +25,24 @@ async function image(width: number, height: number): Promise<Uint8Array> {
   }).png().toBuffer())
 }
 
+async function animatedGif(
+  width: number,
+  height: number,
+  colours: ReadonlyArray<readonly [number, number, number]>,
+): Promise<Uint8Array> {
+  const pixels = new Uint8Array(width * height * colours.length * 3)
+  colours.forEach((colour, index) => {
+    for (let pixel = index * width * height; pixel < (index + 1) * width * height; pixel += 1) {
+      pixels[pixel * 3] = colour[0]
+      pixels[pixel * 3 + 1] = colour[1]
+      pixels[pixel * 3 + 2] = colour[2]
+    }
+  })
+  return new Uint8Array(await sharp(pixels, {
+    raw: { width, height: height * colours.length, channels: 3, pageHeight: height },
+  }).gif().toBuffer())
+}
+
 async function complexOpaqueAlphaImage(width: number, height: number): Promise<Uint8Array> {
   const pixels = new Uint8Array(width * height * 4)
   let state = 0x2545f491
@@ -400,4 +418,78 @@ describe('local request-image cache', () => {
     expect(calls).toBe(2)
   })
 
+  it('storyboards every sampled frame instead of keeping only the first frame', async () => {
+    const attachments = await store()
+    const attachment = await attachments.saveImage({
+      data: await animatedGif(4, 4, [[255, 0, 0], [0, 0, 255]]),
+      mediaType: 'image/gif',
+      name: 'motion.gif',
+    })
+    const policy = { width: 4, height: 8, maxBytes: 2 * 1024 * 1024 }
+    const request = await attachments.readImageRequest(attachment, policy)
+
+    expect(request).toMatchObject({ mediaType: 'image/jpeg', width: 4, height: 8, hasAlpha: false })
+    const metadata = await sharp(request.data).metadata()
+    expect(metadata).toMatchObject({ width: 4, height: 8 })
+    expect(metadata.pages).toBeUndefined()
+    const { data, info } = await sharp(request.data).toColourspace('srgb').raw().toBuffer({ resolveWithObject: true })
+    const pixel = (y: number): number[] => {
+      const offset = (y * info.width + 2) * info.channels
+      return [data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0]
+    }
+    const top = pixel(1)
+    const bottom = pixel(6)
+    expect((top[0] ?? 0) - (top[2] ?? 0)).toBeGreaterThan(80)
+    expect((bottom[2] ?? 0) - (bottom[0] ?? 0)).toBeGreaterThan(80)
+
+    await expect(attachments.readImageRequest(attachment, policy)).resolves.toEqual(request)
+  })
+
+  it('samples at most six frames into numbered tiles for a longer animation', async () => {
+    const attachments = await store()
+    const attachment = await attachments.saveImage({
+      data: await animatedGif(8, 8, [
+        [255, 0, 0], [255, 128, 0], [255, 255, 0], [0, 255, 0],
+        [0, 255, 255], [0, 0, 255], [128, 0, 255], [255, 0, 255],
+      ]),
+      mediaType: 'image/gif',
+      name: 'long.gif',
+    })
+    const request = await attachments.readImageRequest(attachment, {
+      width: 48, height: 48, maxBytes: 2 * 1024 * 1024,
+    })
+
+    expect(request).toMatchObject({ mediaType: 'image/jpeg', width: 48, height: 48 })
+    const metadata = await sharp(request.data).metadata()
+    expect(metadata).toMatchObject({ width: 48, height: 48 })
+    expect(metadata.pages).toBeUndefined()
+  })
+
+  it('caps storyboard frames to the request pixel budget', async () => {
+    const attachments = await store()
+    const attachment = await attachments.saveImage({
+      data: await animatedGif(2, 2, [[10, 20, 30], [40, 50, 60]]),
+      mediaType: 'image/gif',
+      name: 'tiny.gif',
+    })
+    const request = await attachments.readImageRequest(attachment, {
+      width: 1, height: 1, maxBytes: 2 * 1024 * 1024,
+    })
+
+    expect(request).toMatchObject({ mediaType: 'image/jpeg', width: 1, height: 1 })
+  })
+
+  it('falls back to the smallest storyboard encoding when every quality exceeds the byte budget', async () => {
+    const attachments = await store()
+    const attachment = await attachments.saveImage({
+      data: await animatedGif(8, 8, [[255, 0, 0], [0, 0, 255]]),
+      mediaType: 'image/gif',
+      name: 'large.gif',
+    })
+    const request = await attachments.readImageRequest(attachment, {
+      width: 16, height: 16, maxBytes: 1,
+    })
+
+    expect(request).toMatchObject({ mediaType: 'image/jpeg', width: 16, height: 16 })
+  })
 })

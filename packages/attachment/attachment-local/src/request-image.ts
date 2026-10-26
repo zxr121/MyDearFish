@@ -1,4 +1,4 @@
-/** Deterministic cached image versions for model requests. */
+/** Deterministic cached image versions for model requests, including animated frame storyboards. */
 
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -20,10 +20,12 @@ import {
   isExhaustedEncoding,
 } from './encoding.ts'
 import { detectImage, encodedAlphaIsCompatible, probeImage } from './image.ts'
+import type { DetectedImage } from './image.ts'
 import { requireSharp } from './sharp.ts'
+import { storyboardPipeline } from './storyboard.ts'
 
 /** Transform version included in every cache and upload-index identity. */
-export const REQUEST_IMAGE_TRANSFORM_VERSION = 'request-image-v6'
+export const REQUEST_IMAGE_TRANSFORM_VERSION = 'request-image-v7'
 
 interface EncodedRequestImage {
   data: Uint8Array
@@ -98,8 +100,15 @@ function sourcePipeline(attachment: StoredImageAttachment): Sharp {
 async function createRequestImage(
   attachment: StoredImageAttachment,
   target: ImageRequestTarget,
-  hasAlpha: boolean,
+  source: DetectedImage,
 ): Promise<EncodedRequestImage> {
+  if (source.animated) {
+    const encodedVersion = await encodeFirstWithinLimit(
+      encodingLadder(await storyboardPipeline(attachment.data, target), false),
+      target.maxBytes,
+    )
+    return isExhaustedEncoding(encodedVersion) ? encodedVersion.smallest : encodedVersion
+  }
   if (target.width >= attachment.ref.width
     && target.height >= attachment.ref.height
     && attachment.data.byteLength <= target.maxBytes) {
@@ -111,7 +120,7 @@ async function createRequestImage(
     }
   }
   const encodedVersion = await encodeFirstWithinLimit(
-    encodingLadder(pipeline(attachment, target), hasAlpha),
+    encodingLadder(pipeline(attachment, target), source.hasAlpha),
     target.maxBytes,
   )
   return isExhaustedEncoding(encodedVersion) ? encodedVersion.smallest : encodedVersion
@@ -170,6 +179,8 @@ async function writeCached(path: string, data: Uint8Array): Promise<void> {
 
 /**
  * Generate or reuse one request image below the local attachment cache root.
+ * Animated sources become one opaque storyboard of numbered sampled frames so a
+ * still-image model can judge motion instead of seeing only the first frame.
  * @param root - absolute attachment cache root; variants use its `request-images` child.
  * @param attachment - verified normalized attachment bytes and reference.
  * @param target - exact route-chosen dimensions and byte target; a target above the source keeps the source size.
@@ -185,14 +196,16 @@ export async function readRequestImageFile(
   signal?.throwIfAborted()
   validateTarget(target)
   const source = await probeImage(attachment.data)
+  // A storyboard is an opaque composition even when the animated source carries alpha.
+  const expectedAlpha = source.animated ? false : source.hasAlpha
   const variantId = requestImageVariantId(attachment.ref, target)
   const hash = String(variantId).slice('sha256:'.length)
   const path = cachePath(root, hash)
-  const cached = await readCached(path, target, source.hasAlpha, signal)
-  const created = cached ?? await createRequestImage(attachment, target, source.hasAlpha)
+  const cached = await readCached(path, target, expectedAlpha, signal)
+  const created = cached ?? await createRequestImage(attachment, target, source)
   const version = cached ?? (created.data === attachment.data
     ? { ...created, hasAlpha: source.hasAlpha }
-    : await verifyRequestImage(created, source.hasAlpha))
+    : await verifyRequestImage(created, expectedAlpha))
   signal?.throwIfAborted()
   if (cached === undefined && version.data !== attachment.data) await writeCached(path, version.data)
   return {

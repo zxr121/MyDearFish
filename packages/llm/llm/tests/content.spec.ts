@@ -168,6 +168,23 @@ describe('model-facing image access', () => {
     )
   })
 
+  it('tells the model that numbered GIF tiles are frames in reading order', () => {
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`),
+      mediaType: 'image/gif' as const,
+      bytes: 4_000,
+      width: 240,
+      height: 426,
+      name: 'motion.gif',
+    }
+    expect(requestImageHandleText(attachment, { width: 240, height: 426 })).toBe(
+      `Image "motion.gif" (${attachment.attachmentId}); request preview 240x426px.`
+      + ' GIF source: numbered tiles in the preview are frames sampled across the animation in playback order'
+      + ' (left to right, top to bottom); read them as a sequence to judge motion.'
+      + ' It may be resized or re-encoded; source dimensions, format, and byte size may differ.',
+    )
+  })
+
   it('bridges a provider host object only through the mounted filesystem mapping', () => {
     const attachment = image(1).attachment
     const attachments = {

@@ -82,7 +82,7 @@ export function textOnlyImageText(ref: ImageAttachmentRef): string {
  * Stable model-facing handle for one exact request image. Identity comes from
  * the occurrence's own durable reference: request versions are prepared per
  * attachment id, so one shared version may serve occurrences whose display
- * names differ.
+ * names differ. GIF sources also explain the numbered frame storyboard order.
  * @param ref - the occurrence's durable normalized attachment.
  * @param version - exact request-image dimensions shown beside the text.
  * @param access - optional path resolved for the current tool execution world.
@@ -93,7 +93,10 @@ export function requestImageHandleText(
   version: Pick<RequestImageAttachment, 'width' | 'height'>,
   access?: ImageAttachmentAccess,
 ): string {
-  const preview = `Image ${imageIdentity(ref)}; request preview ${version.width}x${version.height}px.`
+  const motion = ref.mediaType === 'image/gif'
+    ? ' GIF source: numbered tiles in the preview are frames sampled across the animation in playback order (left to right, top to bottom); read them as a sequence to judge motion.'
+    : ''
+  const preview = `Image ${imageIdentity(ref)}; request preview ${version.width}x${version.height}px.${motion}`
   return access === undefined
     ? `${preview} It may be resized or re-encoded; source dimensions, format, and byte size may differ.`
     : preview + normalizedAccessText(ref, access)
