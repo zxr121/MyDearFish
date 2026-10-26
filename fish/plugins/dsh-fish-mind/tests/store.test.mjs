@@ -473,6 +473,25 @@ test('短期窗口能只看某个会话，也能排除某个会话或来源', ()
   store.close()
 })
 
+test('短期窗口能按屋子取，分线和主线算同一间', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  store.insert(record('主线说的', { sessionId: 'session-qq-social-group-1001', seq: 1, at: now - 3_000 }))
+  store.insert(record('分线二说的', { sessionId: 'session-qq-social-group-1001-p2', seq: 1, at: now - 2_000 }))
+  store.insert(record('别的群说的', { sessionId: 'session-qq-social-group-2002', seq: 1, at: now - 1_000 }))
+
+  assert.deepEqual(
+    store.recentWindow({ onlySessionPrefix: 'session-qq-social-group-1001' }).map((row) => row.text),
+    ['主线说的', '分线二说的'],
+  )
+  assert.deepEqual(
+    store.recentWindow({ onlySessionPrefix: 'session-qq-social-group-1001-p2' }).map((row) => row.text),
+    ['分线二说的'],
+    '前缀本身也能精确取一条线',
+  )
+  store.close()
+})
+
 test('短期窗口只要最近几行，超出的旧行不再返回', () => {
   const { store } = tempStore()
   const now = Date.now()

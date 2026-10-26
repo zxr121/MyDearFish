@@ -40,6 +40,21 @@ test('单条原文只留一小截，短期层不放逐字稿', () => {
   assert.ok(text.length < 400)
 })
 
+test('社交短期窗口说清这是 QQ 上的话，我那一句带“我：”', () => {
+  const list = [
+    { at: BASE, role: 'user', text: '群友甲：今天食堂好难吃' },
+    { at: BASE + 1000, role: 'assistant', text: '确实，我也吃不下' },
+    { at: BASE + 2000, role: 'user', text: '主人：晚上去吃火锅吧' },
+  ]
+  const text = shorttermText(list, { chars: 1200, social: true })
+  assert.match(text, /【刚才在 QQ 上聊的·短期记忆】/)
+  assert.ok(text.includes('群友甲：今天食堂好难吃'))
+  assert.ok(text.includes('我：确实，我也吃不下'))
+  assert.ok(text.includes('主人：晚上去吃火锅吧'))
+  assert.ok(text.indexOf('群友甲') < text.indexOf('我：'), '仍按时间正序')
+  assert.ok(!text.includes('主人：群友甲'), '不再套“主人”标签')
+})
+
 test('提炼计划：不够条数不动，放凉和攒多都动', () => {
   const now = BASE + 60 * 60_000
   const idleMs = 20 * 60_000

@@ -7,7 +7,7 @@
 const ROLE_LABEL = { user: '主人', assistant: '我' }
 
 /** 一条短期原文最多带多少字：这是“刚聊过”，不是逐字稿。 */
-const ROW_CHARS = 160
+const ROW_CHARS = 240
 
 function shortWhen(at) {
   const date = new Date(Number(at))
@@ -20,12 +20,16 @@ function shortWhen(at) {
  * 拼出【刚才在聊的】那一段。
  * 空窗口返回空串——不留一段“什么都没有”的话占预算。
  * @param {{ at: number, role: string, text: string }[]} rows - 正序的短期窗口。
- * @param {{ chars?: number }} [options] - 整段字数上限，超出时从最旧的开始丢。
+ * @param {{ chars?: number, social?: boolean }} [options] - 整段字数上限，超出时从最旧的开始丢；
+ *   social 表示 QQ 群/好友会话，正文里已经带说话人，不再套“主人/我”的标签。
  * @returns {string}
  */
 export function shorttermText(rows, options = {}) {
   if (!Array.isArray(rows) || rows.length === 0) return ''
-  const header = '【刚才在聊的·短期记忆】\n下面是最近这些对话的原话，可能来自别的会话窗口：它们就是你刚从眼前的事，直接当成上下文用，不必向主人复述“我记得日志里写着”。'
+  const social = options.social === true
+  const header = social
+    ? '【刚才在 QQ 上聊的·短期记忆】\n下面是这间群/好友会话最近说过的话，都是你当时看到或听到的：直接当成上下文用，不必向对方复述“我记得”。'
+    : '【刚才在聊的·短期记忆】\n下面是最近这些对话的原话，可能来自别的会话窗口：它们就是你刚从眼前的事，直接当成上下文用，不必向主人复述“我记得日志里写着”。'
   const max = Math.max(60, Number(options.chars) || 1200) - header.length - 1
   const lines = []
   let used = 0
@@ -33,9 +37,13 @@ export function shorttermText(rows, options = {}) {
     const row = rows[index]
     const text = String((row && row.text) ?? '').replace(/\s+/g, ' ').trim()
     if (text === '') continue
-    const label = ROLE_LABEL[row && row.role] || '旁白'
+    const label = social
+      ? (row && row.role === 'assistant' ? '我：' : '')
+      : ROLE_LABEL[row && row.role] || '旁白'
     const clipped = text.length > ROW_CHARS ? `${text.slice(0, ROW_CHARS)}…` : text
-    const line = `${shortWhen(row && row.at)} ${label}：${clipped}`
+    const line = social
+      ? `${shortWhen(row && row.at)} ${label}${clipped}`
+      : `${shortWhen(row && row.at)} ${label}：${clipped}`
     if (used + line.length > max) break
     lines.unshift(line)
     used += line.length

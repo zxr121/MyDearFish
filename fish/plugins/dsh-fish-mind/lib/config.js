@@ -94,13 +94,13 @@ export function buildDefaults(dshHome) {
       summaryChars: 320,
       abstractive: true,
     },
-    // 短期记忆：最近这半小时的原话直接进提示，放凉或攒多了就提炼成能查的事实转长期。
+    // 短期记忆：最近一小时的原话直接进提示，放凉或攒多了就提炼成能查的事实转长期。
     working: {
       enabled: true,
       inject: true,
-      ttlMinutes: 30,
-      rows: 12,
-      chars: 1200,
+      ttlMinutes: 60,
+      rows: 30,
+      chars: 3000,
       idleMinutes: 20,
       maxRows: 40,
       minRows: 2,
@@ -287,6 +287,13 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     // 待提炼窗口最多只看 maxRows 行，门槛比它还高的话永远攒不够，提炼会静默死掉。
     if (config.working.minRows > config.working.maxRows) {
       config.working.minRows = config.working.maxRows
+    }
+    // 0.6.0 及以前的出厂值是 30 分钟 / 12 条 / 1200 字；三样都还是旧值的配置
+    // 抬到一小时窗口。用户改过其中任何一项就按用户的值来。
+    if (w.ttlMinutes === 30 && w.rows === 12 && w.chars === 1200) {
+      config.working.ttlMinutes = 60
+      config.working.rows = 30
+      config.working.chars = 3000
     }
   } else if (raw.working !== undefined) {
     diag('config: working 不是对象，使用默认值')

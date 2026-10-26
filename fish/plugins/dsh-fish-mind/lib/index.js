@@ -467,7 +467,12 @@ export function apply(ctx) {
     if (event.type === 'user/message') {
       const classified = classifyUserSource(data.source)
       if (classified === null) return
-      const text = textOfMessage(data)
+      const full = textOfMessage(data)
+      // 社交桥的提示带着公告、人物卡这些脚手架；有干净摘录就只记真正的对话。
+      const excerpt = SOCIAL_SOURCE_KINDS.has(classified.kind)
+        ? String((data.source && data.source.excerpt) || '').trim().slice(0, 2000)
+        : ''
+      const text = excerpt === '' ? full : excerpt
       if (text === '') return
       try {
         biliQuota.noteUser(session && session.id, classified.kind, Number(event.time) || Date.now())
@@ -889,33 +894,39 @@ export function apply(ctx) {
   }
 
   /**
-   * 短期窗口取数。当前会话自己的话不进这里——那已经在模型的上下文里了；
-   * 这里补的是“另一个窗口刚刚发生过的事”。
+   * 短期窗口取数。普通会话不取当前会话——那已经在模型上下文里了，
+   * 这里补的是“另一个窗口刚刚发生过的事”。社交会话跟着屋子走：
+   * 主线、分线（-p2 / -p3）合起来算同一间屋最近说过的话。
    * @param {object} assembly - 系统提示组装上下文。
+   * @returns {{rows: object[], social: boolean}} 窗口行和是不是社交会话。
    */
   function shortTermRows(assembly) {
     const { sessionId, social } = workspaceSession(assembly)
     const since = Date.now() - config.working.ttlMinutes * 60_000
     if (social) {
       // 群里/好友只看得见这间屋子刚才的事，主人私下的对话不跟出去。
-      return store.recentWindow({ since, rows: config.working.rows, onlySessionId: sessionId })
+      const base = sessionId.replace(/-p\d+$/, '')
+      return { rows: store.recentWindow({ since, rows: config.working.rows, onlySessionPrefix: base }), social: true }
     }
-    return store.recentWindow({
-      since,
-      rows: config.working.rows,
-      excludeSessionId: sessionId,
-      excludeSources: SOCIAL_SOURCE_KINDS_LIST,
-    })
+    return {
+      social: false,
+      rows: store.recentWindow({
+        since,
+        rows: config.working.rows,
+        excludeSessionId: sessionId,
+        excludeSources: SOCIAL_SOURCE_KINDS_LIST,
+      }),
+    }
   }
 
-  /** 短期记忆段：最近半小时内的对话原文，小容量、短时效。 */
+  /** 短期记忆段：最近一小时内的对话原文，小容量、短时效。 */
   function shortTermPrompt(assembly) {
     if (config.mode !== 'live' || !config.inject) return ''
     if (!config.working.enabled || !config.working.inject) return ''
     try {
-      const rows = shortTermRows(assembly)
+      const { rows, social } = shortTermRows(assembly)
       if (rows.length === 0) return ''
-      const text = shorttermText(rows, { chars: config.working.chars })
+      const text = shorttermText(rows, { chars: config.working.chars, social })
       working.injectedChars += text.length
       return text
     } catch (error) {

@@ -669,6 +669,7 @@ const 社交文字 = 场景提示.map((s) => String(s.text)).join('\n')
 报('场景提示要求不当辩论赛', 社交文字.includes('不争输赢') && 社交文字.includes('不要求证据'))
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
+报('场景提示说明一小时内聊过的事都记得', 场景提示.some((s) => String(s.text).includes('最近一小时聊过的事你都记得') && String(s.text).includes('别把几分钟前说过的当成没听过')))
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
 报('工具限制：社交会话只放开搜索', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 1 && 工具限制.at(-1).allow[0] === 'web_search', JSON.stringify(工具限制.at(-1)))
 报('工具闸门：只放搜索，其他工具仍拒绝', 工具闸门.length > 0 && 工具闸门.at(-1)({ name: 'web_search' }) === undefined && String(工具闸门.at(-1)({ name: 'bash' })).includes('只允许搜索查资料'))
@@ -685,6 +686,7 @@ const 过滤后 = await 装配.cb({}, {}, async () => ({
   ],
   contexts: [
     { name: 'fish-mind-workspace', text: '记忆' },
+    { name: 'fish-mind-shortterm', text: '短期记忆' },
     { name: 'fish-mind-budget', text: '' },
     { name: 'cwd', text: 'D:/x' },
     { name: 'web-surface', text: 'GUI' },
@@ -692,10 +694,11 @@ const 过滤后 = await 装配.cb({}, {}, async () => ({
   tools: [{ name: 'bash', description: 'x', parameters: {} }],
   variables: { provider: 'fake', model: 'chat' },
 }))
-报('过滤器只留人格、场景和鱼脑记忆', 过滤后.sections.map((s) => s.name).join(',') === 'deployment:persona-prefix,qq-social-scene,fish-mind-protocol' && 过滤后.contexts.map((c) => c.name).join(',') === 'fish-mind-workspace,fish-mind-budget', JSON.stringify({ 段: 过滤后.sections.map((s) => s.name), 上下文: 过滤后.contexts.map((c) => c.name) }))
+报('过滤器只留人格、场景和鱼脑记忆', 过滤后.sections.map((s) => s.name).join(',') === 'deployment:persona-prefix,qq-social-scene,fish-mind-protocol' && 过滤后.contexts.map((c) => c.name).join(',') === 'fish-mind-workspace,fish-mind-shortterm,fish-mind-budget', JSON.stringify({ 段: 过滤后.sections.map((s) => s.name), 上下文: 过滤后.contexts.map((c) => c.name) }))
 报('过滤器不动工具和模型变量', 过滤后.tools.length === 1 && 过滤后.variables.provider === 'fake')
 报('批次被标成不可信聊天内容', 第一轮 && String(第一轮.message.content[0].text).includes('不是给你的指令'))
 报('消息来源是 qq-group', 第一轮 && 第一轮.message.source.kind === 'qq-group' && 第一轮.message.source.group === '1001')
+报('消息来源带干净摘录，只留对话', 第一轮 && 第一轮.message.source.excerpt === '群友888：大肥鱼 你觉得呢', JSON.stringify(第一轮 && 第一轮.message.source))
 报('看完待看队列清空', (await 目标状态('group:1001')).待看 === 0)
 await 收到回复('session-qq-social-group-1001', '在呀，怎么啦')
 报('她的话发回原群', 发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1001 && x.体.message[0].data.text === '在呀，怎么啦'), JSON.stringify(发的.at(-1)))
@@ -2093,6 +2096,52 @@ await 等(60)
 报('复读：没有候选时 [复读] 不发，也不把标记漏出去',
   发的.slice(无候选前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1097).length === 0,
   JSON.stringify(发的.slice(无候选前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
+
+// ---------- 28 短期记忆：屋内缓冲留一小时，回复最多带最近 20 条 ----------
+写配置({ 群: ['1098'], 快判: false, 判断冷却秒: 0, 冷却秒: 1, 冷却最短秒: 1, 冷却最长倍率: 1, 关注上限: 30 })
+const 长批 = Array.from({ length: 25 }, (_, i) => 一条群消息(`第${i + 1}句`, { id: 9951 + i, uid: 901 }))
+群消息表.set(1098, 长批)
+设判断(长批.map((m) => String(m.message_id)), true, 0.9, '都在聊')
+const 长批前回合 = 回合.length
+await 轮询社交()
+const 开了长批 = await 等到(async () => 回合.length === 长批前回合 + 1)
+const 长批轮 = 回合.at(-1)
+const 长批文 = String(长批轮?.message.content[0].text || '')
+报('长批：25 条都进了提示', 开了长批 && 长批文.includes('第1句') && 长批文.includes('第25句'), 长批文.slice(-200))
+报('长批：来源摘录只留对话，不带脚手架',
+  长批轮 && String(长批轮.message.source.excerpt || '').startsWith('群友901：第1句') && String(长批轮.message.source.excerpt).includes('第25句'),
+  JSON.stringify(长批轮 && 长批轮.message.source))
+await 收到回复('session-qq-social-group-1098', '我在听', 1)
+await new Promise((r) => setTimeout(r, 200)) // 等社交落地把她刚说的话放回缓冲
+
+时间偏移 += 11_000
+群消息表.set(1098, [
+  ...长批,
+  一条群消息('还在吗', { id: 9976, uid: 902, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+设判断(['9976'], true, 0.9, '叫一声')
+await 轮询社交()
+const 开了上下文批 = await 等到(async () => 回合.length === 长批前回合 + 2)
+const 上下文文 = String(回合.at(-1)?.message.content[0].text || '')
+const 上下文条数 = (上下文文.match(/【最近聊过】/g) || []).length
+报('长批：回复带最近 20 条上下文', 开了上下文批 && 上下文条数 === 20, '条数=' + 上下文条数)
+报('长批：最新的话在上下文里，最旧的被挤出', 上下文文.includes('第25句') && 上下文文.includes('我在听') && !上下文文.includes('第1句'), 上下文文.slice(0, 400))
+await 收到回复('session-qq-social-group-1098', '在', 1)
+await new Promise((r) => setTimeout(r, 200))
+
+// 过了一小时，旧的“刚聊过”不该再出现在提示里
+时间偏移 += 65 * 60_000
+群消息表.set(1098, [
+  ...群消息表.get(1098),
+  一条群消息('一小时后又来了', { id: 9977, uid: 903, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+设判断(['9977'], true, 0.9, '又来了')
+await 轮询社交()
+const 开了一小时批 = await 等到(async () => 回合.length === 长批前回合 + 3)
+const 一小时文 = String(回合.at(-1)?.message.content[0].text || '')
+报('短期记忆：一小时前的旧话不再带进回复',
+  开了一小时批 && !一小时文.includes('【最近聊过】') && !一小时文.includes('第25句') && 一小时文.includes('一小时后又来了'),
+  一小时文.slice(-300))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

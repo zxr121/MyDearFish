@@ -216,7 +216,7 @@ test('情景或召回配置不是对象时退回默认值并记诊断', () => {
   })
   assert.equal(config.episodes.gapMinutes, 45)
   assert.equal(config.recall.workspaceChars, 900)
-  assert.equal(config.working.ttlMinutes, 30)
+  assert.equal(config.working.ttlMinutes, 60)
   assert.ok(lines.some((line) => line.includes('episodes 不是对象')))
   assert.ok(lines.some((line) => line.includes('recall 不是对象')))
   assert.ok(lines.some((line) => line.includes('working 不是对象')))
@@ -228,9 +228,9 @@ test('短期层默认开，取值被夹到能用范围内', () => {
   assert.deepEqual(defaults.working, {
     enabled: true,
     inject: true,
-    ttlMinutes: 30,
-    rows: 12,
-    chars: 1200,
+    ttlMinutes: 60,
+    rows: 30,
+    chars: 3000,
     idleMinutes: 20,
     maxRows: 40,
     minRows: 2,
@@ -271,6 +271,19 @@ test('短期层默认开，取值被夹到能用范围内', () => {
 
   const narrowed = normalizeConfig({ working: { maxRows: 2, minRows: 20 } }, { dshHome: home })
   assert.equal(narrowed.working.minRows, 2, '门槛不能高于窗口容量，否则永远攒不够')
+})
+
+test('旧出厂值的短期窗口自动抬到一小时，改过的按用户值', () => {
+  const home = tempHome()
+  const old = normalizeConfig({ working: { ttlMinutes: 30, rows: 12, chars: 1200 } }, { dshHome: home })
+  assert.equal(old.working.ttlMinutes, 60)
+  assert.equal(old.working.rows, 30)
+  assert.equal(old.working.chars, 3000)
+
+  const custom = normalizeConfig({ working: { ttlMinutes: 30, rows: 12, chars: 800 } }, { dshHome: home })
+  assert.equal(custom.working.ttlMinutes, 30, '用户动过字数就整套按用户的，不偷偷改')
+  assert.equal(custom.working.rows, 12)
+  assert.equal(custom.working.chars, 800)
 })
 
 test('~ 和 $DSH_HOME 会展开', () => {

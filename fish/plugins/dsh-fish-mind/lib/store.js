@@ -2062,7 +2062,7 @@ export function openStore({ dir, config, diag = () => {} }) {
   /**
    * 短期窗口：最近一段时间里还“当场想得起”的对话原文。
    * 只读 experiences，不写派生表——它是长期记忆的取景框，不是第二份存储。
-   * @param {{ since?: number, rows?: number, onlySessionId?: string, excludeSessionId?: string, excludeSources?: string[] }} [options]
+   * @param {{ since?: number, rows?: number, onlySessionId?: string, onlySessionPrefix?: string, excludeSessionId?: string, excludeSources?: string[] }} [options]
    * @returns {{ at: number, sessionId: string, role: string, actor: string, source: string, text: string }[]} 按时间正序
    */
   function recentWindow(options = {}) {
@@ -2070,6 +2070,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     const since = Number.isFinite(options.since) ? Number(options.since) : 0
     const want = Math.min(Math.max(1, Number(options.rows) || 12), 200)
     const only = typeof options.onlySessionId === 'string' ? options.onlySessionId : ''
+    const prefix = typeof options.onlySessionPrefix === 'string' ? options.onlySessionPrefix : ''
     const exclude = typeof options.excludeSessionId === 'string' ? options.excludeSessionId : ''
     const skip = new Set(Array.isArray(options.excludeSources) ? options.excludeSources : [])
     let raw
@@ -2084,6 +2085,11 @@ export function openStore({ dir, config, diag = () => {} }) {
       const sessionId = String(row.session_id ?? '')
       const source = String(row.source_kind ?? '')
       if (only !== '' && sessionId !== only) continue
+      // 同一间 QQ 房的分线是 -p2 / -p3；短期记忆跟着屋子走，不跟着某一条线走。
+      if (prefix !== '' && sessionId !== prefix) {
+        const suffix = sessionId.startsWith(prefix) ? sessionId.slice(prefix.length) : ''
+        if (!/^-p\d+$/.test(suffix)) continue
+      }
       if (exclude !== '' && sessionId === exclude) continue
       if (skip.has(source)) continue
       out.push({
