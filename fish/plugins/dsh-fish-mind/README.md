@@ -157,7 +157,7 @@ QQ 桥可以把 Tulpa 里已有的私聊历史**只读**导进经历流。这类
 
 工作台是“相关才想起”，短期层是“刚发生的不用想”。两者分开：
 
-- 取数只看 `experiences`：`role IN ('user','assistant')`、未丢弃、正文非空、`ts >= now - working.ttlMinutes`，最多 `working.rows` 条，按时间正序拼成【刚才在聊的·短期记忆】。整段连标题一起不超过 `working.chars` 字，装不下就从最旧的一条开始丢；空窗口返回空串，不留一段“什么都没有”占预算。
+- 取数只看 `experiences`：`role IN ('user','assistant')`、未丢弃、正文非空、`ts >= now - working.ttlMinutes`，最多 `working.rows` 条，按时间正序拼成【刚才在聊的·短期记忆】。整段连标题一起不超过 `working.chars` 字，装不下就从最旧的一条开始丢；空窗口返回空串，不留一段“什么都没有”占预算。群/好友会话的一段摘录里可能有好几个人的话：按行拆开、一人一行，谁的名字在行首就是谁说的，不把两个人的话揉成一句。
 - 当前会话自己的话不进这一段——那已经在模型上下文里了。这里补的是**另一个窗口刚刚发生过的事**：私下会话排除社交来源（`qq-group`、`qq-friend`），群聊/好友会话只看得到自己这一间屋子的最近原话，主人的私下对话不跟出去。群/好友会话按屋子取：`session-qq-social-group-1001` 和它的 `-p2` 分线算同一间，且只排除当前这一轮自己的话。
 - 社交桥的用户消息带 `source.excerpt` 时，只把这份干净对话记进经历流，不把群公告、人物卡和“最近聊过”这些脚手架当成她听过的话。
 - 注入段 `fish-mind-shortterm`（order 905）排在 `fish-mind-workspace`（order 910）之前，越靠近眼前的话越先给。两个开关都要开：`mode: live` + `inject: true`，再看 `working.enabled` 和 `working.inject`。

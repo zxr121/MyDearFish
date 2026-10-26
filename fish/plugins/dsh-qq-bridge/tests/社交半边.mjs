@@ -910,6 +910,7 @@ const 图轮 = 图轮s.at(-1)
 报('发图 → 走判断，选中后图片进会话', 图轮s.length === 群1016之前 + 1 && 附件们.length === 附件之前6c + 1, `回合=${图轮s.length} 附件=${附件们.length}`)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人'))
+报('图片编号跟着发送者那一行', 图轮 && String(图轮.message.content[0].text).split('\n').some((line) => line.includes('主人：[图片]') && line.includes('[图 1]')), String(图轮?.message?.content?.[0]?.text).slice(0, 400))
 
 // 看中的表情才收藏；收藏后聊天时能发出去
 await 收到回复('session-qq-social-group-1016', '[存表情:图1:测试表情] 这张好笑')
@@ -2278,6 +2279,35 @@ const 一小时文 = String(回合.at(-1)?.message.content[0].text || '')
 报('短期记忆：一小时前的旧话不再带进回复',
   开了一小时批 && !一小时文.includes('【最近聊过】') && !一小时文.includes('第25句') && 一小时文.includes('一小时后又来了'),
   一小时文.slice(-300))
+
+// ---------- 29 认人：名片重名也不能并成一个人；摘录不写死最后一个发送者 ----------
+时间偏移 = 0
+写配置({ 群: ['2002'], 快判: false, 判断冷却秒: 0, 冷却秒: 1, 冷却最短秒: 1, 冷却最长倍率: 1, 关注上限: 30, 聚拢秒: 15 })
+const 认人秒 = Math.floor(Date.now() / 1000)
+群消息表.set(2002, [
+  { ...一条群消息('我是甲', { uid: 971, id: 26001, time: 认人秒 + 5 }), sender: { card: '同名群友', nickname: 'x' } },
+  { ...一条群消息('我是乙', { uid: 972, id: 26002, time: 认人秒 + 6 }), sender: { card: '同名群友', nickname: 'x' } },
+])
+设判断(['26001', '26002'], true, 0.9, '两个人都在说')
+const 认人前回合 = 回合.length
+await 轮询社交()
+await 等()
+时间偏移 += 30_000 // 过掉 15 秒聚拢，让这批进判断
+await 轮询社交()
+const 开了认人 = await 等到(async () => 回合.length === 认人前回合 + 1)
+const 认人轮 = 回合.at(-1)
+const 认人文 = String(认人轮?.message.content[0].text || '')
+const 同名行 = 认人文.split('\n').filter((line) => line.includes('同名群友：'))
+报('认人：名片同名的两个人各占一行，不并成一条',
+  开了认人 && 同名行.length === 2 && 同名行.some((line) => line.includes('我是甲')) && 同名行.some((line) => line.includes('我是乙')),
+  认人文.slice(-360))
+const 认人摘录 = String(认人轮?.message.source?.excerpt || '')
+报('认人：摘录也保留两条，不把乙的话算到甲头上',
+  认人摘录.split('\n').filter((line) => line.startsWith('同名群友：')).length === 2,
+  JSON.stringify(认人摘录))
+报('认人：一批里有两个发送者时不写死最后一个 sender',
+  认人轮 && 认人轮.message.source && !('sender' in 认人轮.message.source),
+  JSON.stringify(认人轮 && 认人轮.message.source))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

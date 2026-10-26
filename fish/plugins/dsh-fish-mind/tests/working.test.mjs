@@ -55,6 +55,16 @@ test('社交短期窗口说清这是 QQ 上的话，我那一句带“我：”'
   assert.ok(!text.includes('主人：群友甲'), '不再套“主人”标签')
 })
 
+test('社交短期窗口里多个说话人各占一行，不把两个人的话揉成一句', () => {
+  const list = [{ at: BASE, role: 'user', text: '主人：[图片]\n？！区区！？：[图片]' }]
+  const text = shorttermText(list, { chars: 1200, social: true })
+  const lines = text.split('\n').filter((line) => line.includes('：[图片]'))
+  assert.equal(lines.length, 2)
+  assert.ok(lines.some((line) => line.includes('主人：[图片]')))
+  assert.ok(lines.some((line) => line.includes('？！区区！？：[图片]')))
+  assert.ok(lines.every((line) => !line.includes('主人：[图片] ？！区区！？')))
+})
+
 test('提炼计划：不够条数不动，放凉和攒多都动', () => {
   const now = BASE + 60 * 60_000
   const idleMs = 20 * 60_000

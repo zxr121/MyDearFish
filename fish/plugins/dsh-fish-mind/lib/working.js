@@ -28,25 +28,31 @@ export function shorttermText(rows, options = {}) {
   if (!Array.isArray(rows) || rows.length === 0) return ''
   const social = options.social === true
   const header = social
-    ? '【刚才在 QQ 上聊的·短期记忆】\n下面是这间群/好友会话最近说过的话，都是你当时看到或听到的：直接当成上下文用，不必向对方复述“我记得”。'
+    ? '【刚才在 QQ 上聊的·短期记忆】\n下面是这间群/好友会话最近说过的话，都是你当时看到或听到的：直接当成上下文用，不必向对方复述“我记得”。每行开头是谁的名字，就是谁说的。'
     : '【刚才在聊的·短期记忆】\n下面是最近这些对话的原话，可能来自别的会话窗口：它们就是你刚从眼前的事，直接当成上下文用，不必向主人复述“我记得日志里写着”。'
   const max = Math.max(60, Number(options.chars) || 1200) - header.length - 1
   const lines = []
   let used = 0
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]
-    const text = String((row && row.text) ?? '').replace(/\s+/g, ' ').trim()
+    const text = String((row && row.text) ?? '').trim()
     if (text === '') continue
     const label = social
       ? (row && row.role === 'assistant' ? '我：' : '')
       : ROLE_LABEL[row && row.role] || '旁白'
     const clipped = text.length > ROW_CHARS ? `${text.slice(0, ROW_CHARS)}…` : text
-    const line = social
-      ? `${shortWhen(row && row.at)} ${label}${clipped}`
-      : `${shortWhen(row && row.at)} ${label}：${clipped}`
-    if (used + line.length > max) break
-    lines.unshift(line)
-    used += line.length
+    // 群/好友的一行摘录里可能有好几个人的话；一人一行，别把谁说的揉成一句。
+    const 句们 = social
+      ? clipped.split(/\r?\n/).map((句) => 句.replace(/\s+/g, ' ').trim()).filter(Boolean)
+      : [clipped.replace(/\s+/g, ' ').trim()]
+    const rendered = 句们.map((句) => social
+      ? `${shortWhen(row && row.at)} ${label}${句}`
+      : `${shortWhen(row && row.at)} ${label}：${句}`)
+    if (rendered.length === 0) continue
+    const 增 = rendered.reduce((sum, line) => sum + line.length, 0)
+    if (used + 增 > max) break
+    lines.unshift(...rendered)
+    used += 增
   }
   if (lines.length === 0) return ''
   return `${header}\n${lines.join('\n')}`
