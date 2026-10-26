@@ -457,6 +457,7 @@ window.__ModuleLoader__.load({
       const 雪连上 = !!雪.已连QQ
       const 雪安装 = 雪.安装 || {}
       const 雪后台 = 雪.后台 || {}
+      const 雪OneBot = String(雪.OneBot || 配置.NapCat || 'http://127.0.0.1:3000')
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
       const 社态 = 态.社交 || {}
@@ -618,9 +619,13 @@ window.__ModuleLoader__.load({
             h('div', { style: 雪连上 ? S.已同步 : S.未保存 }, 雪连上 ? '✓ 已接通' : '还没接通'),
           ),
           h('div', { style: S.dim },
-            '固定用 SnowLuma。点「一键安装并配置」会从官方 GitHub Releases 下载 Windows 版（国内网络自动换镜像），并把 OneBot HTTP（127.0.0.1:3000）、事件上报和后台密码都写好；' +
+            '固定用 SnowLuma。点「一键安装并配置」会从官方 GitHub Releases 下载 Windows 版（国内网络自动换镜像），并把 OneBot HTTP（' + 雪OneBot + '）、事件上报和后台密码都写好；' +
               '你只剩两步：登录鱼 QQ、在 SnowLuma 后台把它接上。',
           ),
+          雪装好 && 雪.外部实例
+            ? h('div', { style: { ...S.dim, marginTop: 4 } },
+                '现在用的是已经在运行的 SnowLuma（不是这个安装目录启动的）；要切到这个目录的版本，先把旧实例停掉。')
+            : null,
 
           步骤(1, 雪装好 && 雪在跑, '安装并配置 SnowLuma',
             h('div', null,
@@ -705,7 +710,7 @@ window.__ModuleLoader__.load({
                 按钮('重新检测', 拉雪, true, 雪忙),
               ),
               h('div', { style: { ...S.dim, marginTop: 4 } },
-                '检测走的是 OneBot HTTP 127.0.0.1:3000；一直失败就看最下面的记录和 SnowLuma 的 logs。',
+                '检测走的是 OneBot HTTP ' + 雪OneBot + '；一直失败就看最下面的记录和 SnowLuma 的 logs。',
               ),
             ),
           ),

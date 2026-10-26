@@ -1,5 +1,5 @@
 // SnowLuma 安装/配置管理器的离线测试：不联网、不启动进程。
-// 验：OneBot 配置合并（固定 3000 + 事件 httpClient）、后台密码哈希、目录识别、候选目录、协议前置。
+// 验：OneBot 端口解析与配置合并（事件 httpClient）、后台密码哈希、目录识别、候选目录、协议前置。
 // 跑法： node tests/SnowLuma.mjs
 
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
@@ -9,7 +9,9 @@ import { scryptSync } from 'node:crypto'
 
 import {
   后台端口,
-  OneBot端口,
+  默认OneBot端口,
+  取端口,
+  规范OneBot地址,
   是SnowLuma目录,
   读SnowLuma版本,
   生成后台密码,
@@ -26,7 +28,10 @@ const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 
 
 const 家 = mkdtempSync(join(tmpdir(), 'snowluma-'))
 try {
-  报('端口常量没跑偏', 后台端口 === 5099 && OneBot端口 === 3000, `${后台端口}/${OneBot端口}`)
+  报('端口常量没跑偏', 后台端口 === 5099 && 默认OneBot端口 === 3000, `${后台端口}/${默认OneBot端口}`)
+  报('从 OneBot 地址取端口', 取端口('http://127.0.0.1:3002') === 3002 && 取端口('http://127.0.0.1') === 80, '3002/80')
+  报('地址去掉末尾斜杠', 规范OneBot地址(' http://127.0.0.1:3002/ ') === 'http://127.0.0.1:3002')
+  报('坏地址回退默认端口', 规范OneBot地址('不是地址') === `http://127.0.0.1:${默认OneBot端口}`)
 
   // ---------- 下载源 ----------
   const 发布源 = 发行地址候选()
@@ -61,11 +66,11 @@ try {
     },
     别的键: { 保留: true },
   }, null, 2), 'utf8')
-  写OneBot配置(单文件, 事件地址)
+  写OneBot配置(单文件, 事件地址, 3002)
   const 网 = JSON.parse(readFileSync(单文件, 'utf8'))
   const 服务 = 网.networks.httpServers.find((x) => x.name === 'http-default')
   const 客户端 = 网.networks.httpClients.find((x) => x.name === 'dsh-event')
-  报('OneBot HTTP 固定回环 3000', 服务 && 服务.host === '127.0.0.1' && 服务.port === OneBot端口 && 服务.enableWebSocket === false && 服务.messageFormat === 'array',
+  报('OneBot HTTP 写到指定端口、只收回环', 服务 && 服务.host === '127.0.0.1' && 服务.port === 3002 && 服务.enableWebSocket === false && 服务.messageFormat === 'array',
     JSON.stringify(服务))
   报('事件 httpClient 指向 DSH 收报口', 客户端 && 客户端.url === 事件地址 && 客户端.enabled === true, JSON.stringify(客户端))
   报('不留下旧的 accessToken', 服务 && !('accessToken' in 服务) && !('accessToken' in 客户端))
@@ -77,11 +82,13 @@ try {
     networks: { httpServers: [{ name: 'http-default', port: 3000, host: '127.0.0.1', path: '/', enableWebSocket: false, messageFormat: 'array', reportSelfMessage: false }], httpClients: [] },
   }, null, 2), 'utf8')
   writeFileSync(join(安装目录, 'config', 'runtime.json'), JSON.stringify({ webuiPort: 6099, hookAutoLoad: false }, null, 2), 'utf8')
-  const 写了 = 写SnowLuma配置(安装目录, 事件地址)
+  const 写了 = 写SnowLuma配置(安装目录, 事件地址, 3002)
   const 运行 = JSON.parse(readFileSync(join(安装目录, 'config', 'runtime.json'), 'utf8'))
   const 账号 = JSON.parse(readFileSync(join(安装目录, 'config', 'onebot_2514029319.json'), 'utf8'))
   报('后台端口和监听固定回环', 运行.webuiPort === 后台端口 && 运行.webuiHost === '127.0.0.1' && 运行.hookAutoLoad === false, JSON.stringify(运行))
-  报('per-UIN 快照也加了事件上报', 账号.mode === 'snapshot' && (账号.networks.httpClients || []).some((x) => x.name === 'dsh-event' && x.url === 事件地址))
+  报('per-UIN 快照也写同一端口并加事件上报',
+    账号.mode === 'snapshot' && 账号.networks.httpServers.some((x) => x.name === 'http-default' && x.port === 3002) &&
+      (账号.networks.httpClients || []).some((x) => x.name === 'dsh-event' && x.url === 事件地址))
   报('配置写到了这些文件', 写了.length >= 3 && 写了.every((x) => existsSync(x)), JSON.stringify(写了.map((x) => x.split(/[\\/]/).pop())))
 
   // ---------- 目录识别 / 候选 ----------

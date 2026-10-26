@@ -24,9 +24,12 @@ import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { createServer } from 'node:net'
 
 export const 后台端口 = 5099
-export const OneBot端口 = 3000
+export const 默认OneBot端口 = 3000
+/** 认已有实例时先看这两个常见端口；3000 可能被 Grafana 之类的程序占着。 */
+const 认得的OneBot端口 = [3002, 3000]
 const 发行接口 = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest'
 const 镜像前缀 = [
   'https://gh-proxy.com/',
@@ -59,6 +62,37 @@ function 写JSON(文件, 值) {
   const 临时 = `${文件}.tmp.${process.pid}`
   writeFileSync(临时, JSON.stringify(值, null, 2), 'utf8')
   renameSync(临时, 文件)
+}
+
+/** 从 OneBot HTTP 地址里取端口；地址不合法时回退默认端口。 */
+export function 取端口(地址) {
+  try {
+    const u = new URL(String(地址 || ''))
+    const 端口 = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+    return Number.isInteger(端口) && 端口 > 0 ? 端口 : 默认OneBot端口
+  } catch (error) {
+    return 默认OneBot端口
+  }
+}
+
+/** 去掉末尾斜杠；空值或非 http(s) 地址回退到本机默认端口。 */
+export function 规范OneBot地址(值) {
+  const 文本 = String(值 || '').trim().replace(/\/+$/, '')
+  try {
+    const u = new URL(文本)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('协议不对')
+    return 文本
+  } catch (error) {
+    return `http://127.0.0.1:${默认OneBot端口}`
+  }
+}
+
+function 端口空着(端口) {
+  return new Promise((resolve) => {
+    const 服 = createServer()
+    服.once('error', () => resolve(false))
+    服.listen(端口, '127.0.0.1', () => 服.close(() => resolve(true)))
+  })
 }
 
 export function 是SnowLuma目录(目录) {
@@ -98,8 +132,8 @@ export function 写后台密码(目录, 密码) {
   return 文件
 }
 
-/** 把 OneBot HTTP 服务固定到本机 3000，并加一个把事件推给 DSH 的 httpClient。 */
-export function 写OneBot配置(文件, 事件地址) {
+/** 把 OneBot HTTP 服务收到本机指定端口，并加一个把事件推给 DSH 的 httpClient。 */
+export function 写OneBot配置(文件, 事件地址, 端口 = 默认OneBot端口) {
   const 原 = 读JSON(文件, {})
   const 源 = 原 && typeof 原 === 'object' && !Array.isArray(原) ? 原 : {}
   const 网 = 源.networks && typeof 源.networks === 'object' && !Array.isArray(源.networks) ? 源.networks : {}
@@ -111,7 +145,7 @@ export function 写OneBot配置(文件, 事件地址) {
     name: 'http-default',
     enabled: true,
     host: '127.0.0.1',
-    port: OneBot端口,
+    port: 端口,
     path: '/',
     enableWebSocket: false,
     messageFormat: 'array',
@@ -143,7 +177,7 @@ export function 写OneBot配置(文件, 事件地址) {
 }
 
 /** 写运行端口、全局 OneBot，以及所有已经在用的 per-UIN 快照。 */
-export function 写SnowLuma配置(目录, 事件地址) {
+export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端口) {
   const 配置目录 = join(目录, 'config')
   mkdirSync(配置目录, { recursive: true })
 
@@ -156,7 +190,7 @@ export function 写SnowLuma配置(目录, 事件地址) {
   })
 
   const 写了 = [运行文件]
-  写了.push(写OneBot配置(join(配置目录, 'onebot.json'), 事件地址))
+  写了.push(写OneBot配置(join(配置目录, 'onebot.json'), 事件地址, 端口))
 
   let 账号文件 = []
   try {
@@ -164,7 +198,7 @@ export function 写SnowLuma配置(目录, 事件地址) {
   } catch (error) {}
   for (const 名 of 账号文件) {
     try {
-      写了.push(写OneBot配置(join(配置目录, 名), 事件地址))
+      写了.push(写OneBot配置(join(配置目录, 名), 事件地址, 端口))
     } catch (error) {}
   }
   return 写了
@@ -226,29 +260,72 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
 
   const 改配置 = (改) => {
     const 现在 = 读配置()
+    const { NapCat, ...雪 } = 改
     存配置({
       ...现在,
-      NapCat: `http://127.0.0.1:${OneBot端口}`,
-      SnowLuma: { ...(现在.SnowLuma || {}), ...改 },
+      ...(NapCat ? { NapCat } : {}),
+      SnowLuma: { ...(现在.SnowLuma || {}), ...雪 },
     })
+    刷新探测()
   }
 
-  async function 探OneBot() {
+  async function 探OneBot(地址) {
+    const 基 = 规范OneBot地址(地址)
+    let 谁 = 基
     try {
-      const r = await fetch(`http://127.0.0.1:${OneBot端口}/get_login_info`, {
+      谁 = new URL(基).host
+    } catch (error) {}
+    try {
+      const r = await fetch(`${基}/get_login_info`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
         signal: AbortSignal.timeout(2500),
       })
-      const j = await r.json().catch(() => null)
+      const 文本 = await r.text().catch(() => '')
+      let j = null
+      try {
+        j = JSON.parse(文本)
+      } catch (error) {}
       if (j && j.status === 'ok' && j.data) {
-        return { ok: true, 用户: String(j.data.user_id || ''), 昵称: String(j.data.nickname || '') }
+        return { ok: true, 地址: 基, 用户: String(j.data.user_id || ''), 昵称: String(j.data.nickname || '') }
       }
-      return { ok: false, 错: 'OneBot 有回应，但还没登录 QQ' }
+      if (j && (typeof j.retcode === 'number' || typeof j.status === 'string')) {
+        return { ok: false, 是OneBot: true, 地址: 基, 错: `${谁} 上是 OneBot，但还没登录 QQ` }
+      }
+      return { ok: false, 地址: 基, 错: `${谁} 上响应的不是 OneBot（端口被别的程序占用了）` }
     } catch (error) {
-      return { ok: false, 错: `127.0.0.1:${OneBot端口} 没有回应（SnowLuma 没启动，或 HTTP 服务没开）` }
+      return { ok: false, 地址: 基, 错: `${谁} 没有回应（SnowLuma 没启动，或 HTTP 服务没开）` }
     }
+  }
+
+  /**
+   * 配置里的地址先问；没登录也算认得这个 OneBot。
+   * 都没人应答时才挑空闲端口，避免再撞上 3000 这种被别的程序占着的口。
+   */
+  async function 选OneBot地址(配置) {
+    const 先看 = [规范OneBot地址(配置 && 配置.NapCat)]
+    for (const 端口 of 认得的OneBot端口) {
+      const 地址 = `http://127.0.0.1:${端口}`
+      if (!先看.includes(地址)) 先看.push(地址)
+    }
+    let 没登录 = null
+    for (const 地址 of 先看) {
+      const 探 = await 探OneBot(地址)
+      if (探.ok) return { 地址, 探, 沿用: true }
+      if (探.是OneBot && !没登录) 没登录 = { 地址, 探, 沿用: true }
+    }
+    if (没登录) return 没登录
+
+    const 想用 = 取端口(规范OneBot地址(配置 && 配置.NapCat))
+    const 候选 = [想用, ...认得的OneBot端口.filter((x) => x !== 想用)]
+    for (let 端口 = 3000; 端口 <= 3099; 端口++) {
+      if (端口 !== 3001 && !候选.includes(端口)) 候选.push(端口)
+    }
+    for (const 端口 of 候选) {
+      if (await 端口空着(端口)) return { 地址: `http://127.0.0.1:${端口}`, 探: null, 沿用: false }
+    }
+    throw new Error('本机找不到空闲的 OneBot HTTP 端口（3000–3099 都被占了）')
   }
 
   async function 探后台() {
@@ -266,8 +343,9 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     if (探测缓存.进行中) return 探测缓存.进行中
     探测缓存.进行中 = (async () => {
       try {
-        const [OneBot, 后台] = await Promise.all([探OneBot(), 探后台()])
-        const 值 = { 运行中: OneBot.ok || 后台, 后台在跑: 后台, ...OneBot }
+        const 地址 = 规范OneBot地址(读配置().NapCat)
+        const [OneBot, 后台] = await Promise.all([探OneBot(地址), 探后台()])
+        const 值 = { 运行中: OneBot.ok || OneBot.是OneBot || 后台, 后台在跑: 后台, OneBot地址: 地址, ...OneBot }
         探测缓存 = { at: Date.now(), 值, 进行中: null }
         return 值
       } catch (error) {
@@ -309,7 +387,9 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       ...快照(),
       运行中: 探.运行中,
       后台在跑: 探.后台在跑,
+      OneBot: 探.OneBot地址,
       已连QQ: 探.ok === true,
+      外部实例: !进程在(读PID(目录)) && 探.后台在跑,
       昵称: 探.昵称 || '',
       用户: 探.用户 || '',
       错: 探.ok ? '' : String(探.错 || ''),
@@ -527,28 +607,39 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
         写后台密码(目录, 新密码)
       }
 
-      写SnowLuma配置(目录, 事件地址())
+      const 选定 = await 选OneBot地址(配置)
+      写SnowLuma配置(目录, 事件地址(), 取端口(选定.地址))
       改配置({
         目录,
         后台密码: 新密码,
         同意协议: true,
         自动启动: 自动启动 !== false,
+        NapCat: 选定.地址,
       })
 
       安装任务 = { ...安装任务, 阶段: '启动 SnowLuma' }
+      刷新探测()
       const 探 = await 探测()
+      let 沿用 = false
       if (探.运行中) {
         if (进程在(读PID(目录))) {
           停止(目录)
           await new Promise((r) => setTimeout(r, 800))
-          启动(目录, true)
+          const pid = 启动(目录, true)
+          await 等就绪()
+          if (!进程在(pid)) throw new Error(`SnowLuma 重启失败：127.0.0.1:${后台端口} 可能被别的程序占用了`)
+        } else if (探.ok) {
+          沿用 = true
+        } else {
+          throw new Error(`127.0.0.1:${后台端口} 已经有另一个 SnowLuma 在运行，但 OneBot 用不了：${探.错 || '还没登录 QQ'}。先停掉它，或在高级里把安装目录指向它`)
         }
       } else {
-        启动(目录, true)
+        const pid = 启动(目录, true)
+        await 等就绪()
+        if (!进程在(pid)) throw new Error(`SnowLuma 没起来：127.0.0.1:${后台端口} 可能被别的程序占用了`)
       }
-      await 等就绪()
       安装任务 = { 进行中: false, 阶段: '完成', 错: '', 已下载: 安装任务.已下载, 总: 安装任务.总 }
-      记账('SnowLuma 已装好并启动（OneBot 127.0.0.1:3000，后台 127.0.0.1:5099）')
+      记账(`SnowLuma 已就绪（OneBot ${选定.地址}，后台 127.0.0.1:${后台端口}）${沿用 ? '；用的是已经在运行的实例' : ''}`)
     } catch (错) {
       const 说 = String((错 && 错.message) || 错)
       安装任务 = { ...安装任务, 进行中: false, 阶段: '失败', 错: 说 }
@@ -580,7 +671,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     const 目录 = 目标目录(配置)
     if (!是SnowLuma目录(目录)) return { ok: false, 说: '还没装 SnowLuma' }
     if (!(配置.SnowLuma && 配置.SnowLuma.同意协议)) return { ok: false, 说: '先在上面的安装向导里勾选同意协议' }
-    写SnowLuma配置(目录, 事件地址())
+    写SnowLuma配置(目录, 事件地址(), 取端口(配置.NapCat))
     const pid = 启动(目录, true)
     return { ok: true, 说: `SnowLuma 已启动（PID ${pid}）`, pid }
   }
@@ -624,7 +715,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     if (!是SnowLuma目录(目录)) return
     const 探 = await 探测()
     if (探.运行中) return
-    写SnowLuma配置(目录, 事件地址())
+    写SnowLuma配置(目录, 事件地址(), 取端口(配置.NapCat))
     启动(目录, true)
     记账('SnowLuma 没在跑，已按设置自动启动')
   }

@@ -6,7 +6,7 @@
 //      再决定要不要接话；只有挑中的消息进她的上下文，决定接才开一轮，说完发回原处。
 //   3) 历史导入：把 Tulpa 里已有的私聊记录读进鱼脑的经历流（只读，见 lib/import.js）。
 //
-// 发 QQ 走 NapCat 的 OneBot HTTP 接口（127.0.0.1:3000），全部是标准 OneBot 11 HTTP。
+// 发 QQ 走 NapCat 的 OneBot HTTP 接口（地址记在配置里，默认 127.0.0.1:3000），全部是标准 OneBot 11 HTTP。
 //
 // 出厂默认：总开关开、试运行关、社交开、导入开；账号 / 群 / 好友仍要自己填，
 // SnowLuma 的协议仍要本人勾选，没填目标时不会真发到具体会话。
@@ -207,7 +207,7 @@ const 默认配置 = {
   群号: '', // 发到哪个群（可空）
   转私聊: true,
   转群: false,
-  NapCat: 'http://127.0.0.1:3000', // OneBot HTTP 接口（无 token，固定由 SnowLuma 提供）
+  NapCat: 'http://127.0.0.1:3000', // OneBot HTTP 接口（无 token，固定由 SnowLuma 提供；一键配置会改成实际选中的端口）
   SnowLuma: {
     目录: '', // 留空 = 自动找已有安装，找不到就装到 <DSH_HOME>/snowluma
     后台密码: '', // SnowLuma 后台登录密码；只落本机配置，不进仓库

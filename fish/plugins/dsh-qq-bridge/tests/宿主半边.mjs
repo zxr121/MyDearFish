@@ -46,7 +46,8 @@ globalThis.fetch = async (url, 选项) => {
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
   const u = String(url)
   if (u.includes('get_login_info')) {
-    return { json: async () => ({ status: 'ok', retcode: 0, data: { user_id: 10001, nickname: '大肥鱼' } }) }
+    const 登录 = { status: 'ok', retcode: 0, data: { user_id: 10001, nickname: '大肥鱼' } }
+    return { text: async () => JSON.stringify(登录), json: async () => 登录 }
   }
   if (u.includes('get_friend_msg_history')) {
     return {
