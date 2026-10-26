@@ -504,6 +504,59 @@ test('短期窗口只要最近几行，超出的旧行不再返回', () => {
   store.close()
 })
 
+test('待提炼窗口按入库顺序从旧到新取，不被最新的一批挡住', () => {
+  const { store } = tempStore()
+  const at = Date.now()
+  for (let i = 0; i < 6; i += 1) {
+    store.insert(record(`第${i}句`, { sessionId: 'session-a', seq: i + 1, at: at + i }))
+  }
+  store.insert(record('工具输出', { sessionId: 'session-a', seq: 9, kind: 'tool', role: 'tool', at: at + 9 }))
+  store.insert(record('', { sessionId: 'session-a', seq: 10, at: at + 10, dropped: 'password' }))
+
+  const first = store.pendingExperiences({ limit: 3 })
+  assert.deepEqual(first.map((row) => row.text), ['第0句', '第1句', '第2句'])
+
+  const rest = store.pendingExperiences({ afterId: first[first.length - 1].id, limit: 10 })
+  assert.deepEqual(rest.map((row) => row.text), ['第3句', '第4句', '第5句'], '工具消息和丢弃的不进待提炼')
+  assert.deepEqual(store.pendingExperiences({ afterId: rest[rest.length - 1].id }), [])
+  store.close()
+})
+
+test('没有 id 水位时按时间戳取，时钟回拨后仍能靠 id 往后走', () => {
+  const { store } = tempStore()
+  const at = Date.now()
+  const old = store.insert(record('水位前的老话', { sessionId: 'session-a', seq: 1, at: at - 10_000 }))
+  const back = store.insert(record('时钟回拨后录的', { sessionId: 'session-a', seq: 2, at: at - 60_000 }))
+
+  assert.deepEqual(
+    store.pendingExperiences({ afterAt: at - 30_000 }).map((row) => row.text),
+    ['水位前的老话'],
+  )
+  assert.deepEqual(
+    store.pendingExperiences({ afterId: old.id }).map((row) => row.text),
+    ['时钟回拨后录的'],
+    '时间戳比水位旧、但入库更晚的话也要轮到',
+  )
+  assert.deepEqual(store.experienceById(old.id), { id: old.id, at: at - 10_000 })
+  assert.equal(store.experienceById(back.id + 1000), null)
+  store.close()
+})
+
+test('补课旧对话的迟到提炼不能把已经生效的新事实顶掉', () => {
+  const { store } = tempStore()
+  const at = 1_790_000_000_000
+  assert.equal(store.upsertFact({ subject: '主人', predicate: '昵称', object: '新名', at: at + 2_000 }).action, 'added')
+
+  const late = store.upsertFact({ subject: '主人', predicate: '昵称', object: '旧名', at: at })
+  assert.equal(late.action, 'stale')
+  assert.equal(late.reason, 'older-than-active')
+  assert.deepEqual(store.listFacts().map((fact) => fact.object), ['新名'], '现值仍是新名')
+
+  assert.equal(store.upsertFact({ subject: '主人', predicate: '昵称', object: '更新的名', at: at + 3_000 }).action, 'superseded')
+  assert.deepEqual(store.listFacts().map((fact) => fact.object), ['更新的名'])
+  store.close()
+})
+
 test('事实写入：同一件事重复提炼不会存成两份', () => {
   const { store } = tempStore()
   const at = Date.now()

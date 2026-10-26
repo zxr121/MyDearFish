@@ -695,6 +695,19 @@ export function openStore({ dir, config, diag = () => {} }) {
     WHERE dropped IS NULL AND content <> '' AND ts >= ? AND role IN ('user', 'assistant')
     ORDER BY ts DESC, id DESC LIMIT ?
   `)
+  const pendingAfterIdStmt = db && db.prepare(`
+    SELECT id, ts, session_id, role, actor, source_kind, content
+    FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND role IN ('user', 'assistant') AND id > ?
+    ORDER BY id ASC LIMIT ?
+  `)
+  const pendingAfterTsStmt = db && db.prepare(`
+    SELECT id, ts, session_id, role, actor, source_kind, content
+    FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND role IN ('user', 'assistant') AND ts > ?
+    ORDER BY ts ASC, id ASC LIMIT ?
+  `)
+  const experienceByIdStmt = db && db.prepare('SELECT id, ts FROM experiences WHERE id = ?')
   const innerSocialStmt = db && db.prepare(`
     SELECT MAX(ts) AS t FROM experiences
     WHERE dropped IS NULL AND role = 'user' AND kind IN ('user', 'qq', 'qq-group', 'qq-friend')
@@ -726,7 +739,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     ORDER BY ts DESC, id DESC LIMIT 80
   `)
   const factActiveStmt = db && db.prepare(`
-    SELECT id, object FROM facts
+    SELECT id, object, valid_from FROM facts
     WHERE subject = ? AND predicate = ? AND superseded_by IS NULL
     ORDER BY id DESC LIMIT 1
   `)
@@ -2107,6 +2120,53 @@ export function openStore({ dir, config, diag = () => {} }) {
   }
 
   /**
+   * 待提炼的经历：从水位之后按入库顺序取最旧的一批。
+   * 有经历 id 水位时按 id 走，系统时钟回拨和补录的旧时间戳都不会漏；
+   * 没有 id 水位（旧版 working.json 或刚重建过的库）就退回按时间戳。
+   * @param {{ afterId?: number, afterAt?: number, limit?: number }} [options]
+   * @returns {{ id: number, at: number, sessionId: string, role: string, actor: string, source: string, text: string }[]} 按入库顺序正序
+   */
+  function pendingExperiences(options = {}) {
+    if (db === null) return []
+    const afterId = Number.isFinite(options.afterId) ? Number(options.afterId) : 0
+    const afterAt = Number.isFinite(options.afterAt) ? Number(options.afterAt) : 0
+    const want = Math.min(Math.max(1, Number(options.limit) || 40), 200)
+    let raw
+    try {
+      raw = afterId > 0 ? pendingAfterIdStmt.all(afterId, want) : pendingAfterTsStmt.all(afterAt, want)
+    } catch (error) {
+      diag(`store: 待提炼窗口读失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+    return raw.map((row) => ({
+      id: Number(row.id) || 0,
+      at: Number(row.ts) || 0,
+      sessionId: String(row.session_id ?? ''),
+      role: String(row.role ?? ''),
+      actor: String(row.actor ?? ''),
+      source: String(row.source_kind ?? ''),
+      text: String(row.content ?? ''),
+    }))
+  }
+
+  /**
+   * 按 id 认一行经历，用来确认 working.json 里的水位还指在同一行上。
+   * 经历库从 JSONL 重建后 id 会重排，旧的 id 可能对上别的记录。
+   * @param {number} id - 水位里记下的经历 id。
+   * @returns {{ id: number, at: number } | null} 找不到或库不可用时返回 null。
+   */
+  function experienceById(id) {
+    if (db === null || !Number.isFinite(id) || id <= 0) return null
+    try {
+      const row = experienceByIdStmt.get(id)
+      return row ? { id: Number(row.id), at: Number(row.ts) || 0 } : null
+    } catch (error) {
+      diag(`store: 水位校验读失败（${String((error && error.message) || error)}）`)
+      return null
+    }
+  }
+
+  /**
    * 写一条从对话里提炼出来的事实。同一 subject+predicate 已经有现值时：
    * 内容相同就跳过（别把“昵称是 EMT”存成十份），内容不同就把旧值标成被取代
    * ——改了昵称不该留下两条同时生效。
@@ -2124,6 +2184,11 @@ export function openStore({ dir, config, diag = () => {} }) {
     try {
       const active = factActiveStmt.get(subject, predicate)
       if (active && String(active.object) === object) return { action: 'same', id: Number(active.id) }
+      // 补课旧对话时，迟到的旧说法不能把已经生效的新说法顶掉；新说法和
+      // 同一时刻的说法照常取代。
+      if (active && at < Number(active.valid_from)) {
+        return { action: 'stale', id: Number(active.id), reason: 'older-than-active' }
+      }
       const validFrom = Number.isFinite(fact.validFrom) ? Number(fact.validFrom) : at
       const confidence = clamp01(Number.isFinite(fact.confidence) ? Number(fact.confidence) : 0.7)
       const sourceIds = Array.isArray(fact.sourceIds) ? fact.sourceIds.slice(0, 40) : []
@@ -2491,6 +2556,8 @@ export function openStore({ dir, config, diag = () => {} }) {
     encodePending,
     sessionOverview,
     recentWindow,
+    pendingExperiences,
+    experienceById,
     innerSignals,
     upsertFact,
     listFacts,

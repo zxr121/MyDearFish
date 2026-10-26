@@ -33,7 +33,7 @@ import { createPrivacyGuard } from './privacy.js'
 import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
 import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
-import { extractionPrompt, factSentence, parseFacts, planConsolidation, shorttermText } from './working.js'
+import { extractionPrompt, factSentence, parseFactsDetailed, planConsolidation, shorttermText } from './working.js'
 import { isTrustedLocalRequest, readBodyLimited, readJsonLimited, sendBytes, sendJson } from './local-http.js'
 
 export const name = 'fish-mind'
@@ -311,8 +311,11 @@ export function apply(ctx) {
 
   // 短期层只持久化一个水位：已经提炼到哪儿了。对话原文本来就在经历流里，
   // 重启不丢，所以不需要再存一份“短期副本”。
+  // 水位同时记时间和经历 id：id 负责“一行都不漏”，时间戳只给旧版水位和
+  // 重建过的库兜底。
   const working = {
     lastConsolidatedAt: 0,
+    lastConsolidatedId: 0,
     lastRunAt: 0,
     lastStatus: '',
     factsWritten: 0,
@@ -326,6 +329,9 @@ export function apply(ctx) {
       if (!existsSync(workingPath)) return
       const raw = JSON.parse(readFileSync(workingPath, 'utf8'))
       if (Number.isFinite(raw.lastConsolidatedAt)) working.lastConsolidatedAt = Number(raw.lastConsolidatedAt)
+      if (Number.isFinite(raw.lastConsolidatedId) && Number(raw.lastConsolidatedId) > 0) {
+        working.lastConsolidatedId = Number(raw.lastConsolidatedId)
+      }
     } catch (error) {
       diag(`working: 读不了 ${workingPath}（${String((error && error.message) || error)}），从空水位开始`)
     }
@@ -334,7 +340,10 @@ export function apply(ctx) {
   function saveWorking() {
     try {
       const temp = `${workingPath}.tmp`
-      writeFileSync(temp, JSON.stringify({ lastConsolidatedAt: working.lastConsolidatedAt }, null, 2) + '\n', 'utf8')
+      writeFileSync(temp, JSON.stringify({
+        lastConsolidatedAt: working.lastConsolidatedAt,
+        lastConsolidatedId: working.lastConsolidatedId,
+      }, null, 2) + '\n', 'utf8')
       renameSync(temp, workingPath)
     } catch (error) {
       diag(`working: 写不了 ${workingPath}（${String((error && error.message) || error)}）`)
@@ -955,10 +964,20 @@ export function apply(ctx) {
   }
 
   let consolidating = false
+  // 提炼失败后退避，别每分钟对同一批原文重烧模型；连续坏输出还要防止
+  // 一条怪消息把后面所有原文永远堵在水位后。
+  let consolidateRetryAt = 0
+  let consolidateFailures = 0
+
+  function backoffConsolidation() {
+    consolidateFailures += 1
+    consolidateRetryAt = Date.now() + Math.min(30 * 60_000, 60_000 * 2 ** consolidateFailures)
+  }
 
   /**
-   * 短期→长期：把放凉或攒多的窗口交给模型提炼成事实，去重后写回经历流。
-   * 原文一条都不删，提炼只是多加几条查得到的说法。
+   * 短期→长期：从水位之后按入库顺序取最旧的一批交给模型提炼成事实，去重后
+   * 写回经历流。一批最多 maxRows 条，攒下的积压按 tick 逐批消化，不会被
+   * “只看最新一批”跳过。原文一条都不删，提炼只是多加几条查得到的说法。
    * @param {string} reason - 触发原因，进 sleep_runs 和 diag。
    */
   async function consolidateOnce(reason) {
@@ -966,12 +985,27 @@ export function apply(ctx) {
     if (config.mode !== 'live' || !config.working.enabled || !config.working.consolidate) {
       return { ran: false, reason: 'disabled' }
     }
+    if (Date.now() < consolidateRetryAt) return { ran: false, reason: 'backoff' }
     consolidating = true
     const started = Date.now()
     try {
-      const rows = store.recentWindow({ since: working.lastConsolidatedAt, rows: config.working.maxRows })
+      // 经历库从 JSONL 重建后 id 会重排，旧 id 可能对上别的记录；对不上就
+      // 退回时间戳水位，下一批成功后再记新的 id。
+      if (working.lastConsolidatedId > 0 && !store.degraded) {
+        const anchor = store.experienceById(working.lastConsolidatedId)
+        if (anchor === null || anchor.at !== working.lastConsolidatedAt) {
+          diag('working: 经历库重建过，水位改回按时间戳接着走')
+          working.lastConsolidatedId = 0
+        }
+      }
+      const rows = store.pendingExperiences({
+        afterId: working.lastConsolidatedId,
+        afterAt: working.lastConsolidatedAt,
+        limit: config.working.maxRows,
+      })
       const plan = planConsolidation(rows, {
         lastConsolidatedAt: working.lastConsolidatedAt,
+        lastConsolidatedId: working.lastConsolidatedId,
         idleMs: config.working.idleMinutes * 60_000,
         maxRows: config.working.maxRows,
         minRows: config.working.minRows,
@@ -1006,13 +1040,33 @@ export function apply(ctx) {
         if (chunk.type === 'text-delta') out += chunk.text
         if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
           working.lastStatus = 'model-error'
+          backoffConsolidation()
           diag(`memory: 提炼被模型拒绝（${String((chunk.reason.failure && chunk.reason.failure.message) || 'error')}）`)
           return { ran: false, reason: 'model-error' }
         }
       }
-      const facts = parseFacts(out, { max: config.working.maxFacts })
+      const parsed = parseFactsDetailed(out, { max: config.working.maxFacts })
+      if (!parsed.ok) {
+        // 模型没给出可解析的数组：这批一条都不推水位，下一轮重试。连续三次
+        // 都这样时跳过最早一条，免得一条怪消息把整条队列卡死（原文仍在）。
+        working.lastStatus = 'bad-output'
+        backoffConsolidation()
+        diag(`memory: 提炼输出没有 JSON 数组（连续第 ${consolidateFailures} 次），这批先不推水位`)
+        if (consolidateFailures >= 3) {
+          const oldest = plan.pending[0]
+          working.lastConsolidatedAt = Number(oldest.at) || working.lastConsolidatedAt
+          working.lastConsolidatedId = Number(oldest.id) || working.lastConsolidatedId
+          saveWorking()
+          consolidateFailures = 0
+          diag(`memory: 同一批连续 3 次没有可解析的提炼结果，跳过最早一条经历 ${oldest.id}`)
+        }
+        return { ran: false, reason: 'bad-output' }
+      }
+      const facts = parsed.facts
+      const lastRow = plan.pending[plan.pending.length - 1]
       const newest = plan.pending.reduce((acc, row) => Math.max(acc, Number(row.at) || 0), 0)
       let written = 0
+      let failed = 0
       for (const fact of facts) {
         const result = store.upsertFact({
           subject: fact.subject,
@@ -1022,6 +1076,9 @@ export function apply(ctx) {
           source: 'consolidation',
           at: newest,
         })
+        if (result.action === 'skipped' && (result.reason === 'error' || result.reason === 'degraded')) {
+          failed += 1
+        }
         if (result.action === 'added' || result.action === 'superseded') {
           written += 1
           // 写回经历流：走同一条脱敏和编码链路，长期召回才查得到这句话。
@@ -1037,19 +1094,30 @@ export function apply(ctx) {
           })
         }
       }
+      if (failed > 0) {
+        // 检索库这一刻写不进去：不推水位，下一轮整批重来；已经写成的事实
+        // 会被去重成 same，不会存成两份。
+        working.lastStatus = 'store-error'
+        backoffConsolidation()
+        diag(`memory: ${failed} 条事实没写进检索库，这批先不推水位`)
+        return { ran: false, reason: 'error' }
+      }
       working.factsWritten += written
       working.factsSkipped += facts.length - written
-      working.lastConsolidatedAt = newest + 1
+      working.lastConsolidatedAt = Number(lastRow.at) || working.lastConsolidatedAt
+      working.lastConsolidatedId = Number(lastRow.id) || working.lastConsolidatedId
       working.lastRunAt = Date.now()
       working.lastStatus = facts.length === 0 ? 'nothing-worth' : `ok:${reason}`
       working.runs += 1
+      consolidateFailures = 0
+      consolidateRetryAt = 0
       saveWorking()
       store.recordRun({
         startedAt: started,
         finishedAt: Date.now(),
         status: working.lastStatus,
         tasks: facts.map((fact) => `${fact.subject}·${fact.predicate}·${fact.object}`),
-        notes: `reason=${reason} pending=${plan.pending.length} written=${written}`,
+        notes: `reason=${reason} pending=${plan.pending.length} written=${written} to=${lastRow.id}`,
       })
       diag(`memory: 短期转长期（${reason}，看 ${plan.pending.length} 条，新记住 ${written} 条）`)
       // 提炼完顺手把章节树接上，刚放凉的那段对话当天就能在目录里翻到。
@@ -1057,6 +1125,7 @@ export function apply(ctx) {
       return { ran: true, reason, facts: facts.length, written }
     } catch (error) {
       working.lastStatus = 'error'
+      backoffConsolidation()
       diag(`memory: 转长期提炼失败（${String((error && error.message) || error)}）`)
       return { ran: false, reason: 'error' }
     } finally {
@@ -1342,6 +1411,7 @@ export function apply(ctx) {
           rows: config.working.rows,
           idleMinutes: config.working.idleMinutes,
           lastConsolidatedAt: working.lastConsolidatedAt,
+          lastConsolidatedId: working.lastConsolidatedId,
           lastRunAt: working.lastRunAt,
           lastStatus: working.lastStatus,
           runs: working.runs,

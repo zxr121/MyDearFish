@@ -60,23 +60,36 @@ export function shorttermText(rows, options = {}) {
 
 /**
  * 决定现在要不要把短期窗口转成长期事实。
- * 两条路：放凉了（静默超过 idleMs）或者攒多了（超过 maxRows）。
- * @param {{ at: number }[]} rows - 短期窗口，正序。
- * @param {{ lastConsolidatedAt?: number, now?: number, idleMs?: number, maxRows?: number, minRows?: number }} [options]
+ * 三条路：放凉了（静默超过 idleMs）、攒多了（超过 maxRows），
+ * 或者只剩一条但已经安静很久（超过 idleSingleMs），不让单条消息永远卡在水位后。
+ * @param {{ at: number, id?: number }[]} rows - 待提炼窗口，正序。
+ * @param {{ lastConsolidatedAt?: number, lastConsolidatedId?: number, now?: number, idleMs?: number, idleSingleMs?: number, maxRows?: number, minRows?: number }} [options]
  * @returns {{ ready: boolean, reason: string, pending: { at: number }[] }}
  */
 export function planConsolidation(rows, options = {}) {
   const last = Number.isFinite(options.lastConsolidatedAt) ? Number(options.lastConsolidatedAt) : 0
+  const lastId = Number.isFinite(options.lastConsolidatedId) ? Number(options.lastConsolidatedId) : 0
   const now = Number.isFinite(options.now) ? Number(options.now) : Date.now()
   const idleMs = Number.isFinite(options.idleMs) ? Number(options.idleMs) : 20 * 60 * 1000
+  const idleSingleMs = Number.isFinite(options.idleSingleMs) ? Number(options.idleSingleMs) : idleMs * 3
   const maxRows = Math.max(2, Number(options.maxRows) || 40)
   const minRows = Math.max(1, Number(options.minRows) || 2)
   const list = Array.isArray(rows) ? rows : []
-  const pending = list.filter((row) => Number(row && row.at) > last)
-  if (pending.length < minRows) return { ready: false, reason: 'not-enough', pending }
+  // 有经历 id 水位时按 id 认新行：时钟回拨、补录的旧时间戳都不会被时间条件挡掉。
+  const pending = list.filter((row) => (lastId > 0 && Number.isFinite(Number(row && row.id))
+    ? Number(row.id) > lastId
+    : Number(row && row.at) > last))
+  if (pending.length === 0) return { ready: false, reason: 'not-enough', pending }
   const newest = pending.reduce((acc, row) => Math.max(acc, Number(row.at) || 0), 0)
   if (pending.length >= maxRows) return { ready: true, reason: 'overflow', pending }
-  if (now - newest >= idleMs) return { ready: true, reason: 'idle', pending }
+  if (pending.length >= minRows) {
+    if (now - newest >= idleMs) return { ready: true, reason: 'idle', pending }
+    return { ready: false, reason: 'fresh', pending }
+  }
+  if (pending.length < minRows) {
+    if (now - newest >= idleSingleMs) return { ready: true, reason: 'idle-single', pending }
+    return { ready: false, reason: 'not-enough', pending }
+  }
   return { ready: false, reason: 'fresh', pending }
 }
 
@@ -112,23 +125,49 @@ export function extractionPrompt(rows, options = {}) {
 }
 
 /**
- * 读模型给的 JSON。容错：去掉代码围栏、只取第一个数组、逐条校验。
+ * 从模型输出里找 JSON 数组。整段解析失败时，按被 maxTokens 截断处理：
+ * 从后往前找最后一个完整的 `}`，补上 `]` 再试，救回前面已经写完的几条。
+ * @param {string} raw - 模型输出。
+ * @param {number} start - 第一个 `[` 的位置。
+ * @returns {unknown[] | null} 解析出的数组；找不到或修不回来时返回 null。
+ */
+function findFactArray(raw, start) {
+  const end = raw.lastIndexOf(']')
+  if (end > start) {
+    try {
+      const value = JSON.parse(raw.slice(start, end + 1))
+      if (Array.isArray(value)) return value
+    } catch {
+      // 末尾可能被截断，继续尝试补全。
+    }
+  }
+  let index = raw.length
+  for (let tries = 0; tries < 40; tries += 1) {
+    index = raw.lastIndexOf('}', index - 1)
+    if (index <= start) break
+    try {
+      const value = JSON.parse(`${raw.slice(start, index + 1)}]`)
+      if (Array.isArray(value)) return value
+    } catch {
+      // 再往前退一个对象继续试。
+    }
+  }
+  return null
+}
+
+/**
+ * 读模型给的 JSON，并把“没写出数组”和“写了空数组”分开。
+ * 前者要重试，后者是模型明确说没有值得记的事。
  * @param {string} text - 模型输出。
  * @param {{ max?: number }} [options]
- * @returns {{ subject: string, predicate: string, object: string, confidence: number }[]}
+ * @returns {{ ok: boolean, facts: { subject: string, predicate: string, object: string, confidence: number }[] }}
  */
-export function parseFacts(text, options = {}) {
+export function parseFactsDetailed(text, options = {}) {
   const raw = String(text ?? '')
   const start = raw.indexOf('[')
-  const end = raw.lastIndexOf(']')
-  if (start < 0 || end <= start) return []
-  let value
-  try {
-    value = JSON.parse(raw.slice(start, end + 1))
-  } catch {
-    return []
-  }
-  if (!Array.isArray(value)) return []
+  if (start < 0) return { ok: false, facts: [] }
+  const value = findFactArray(raw, start)
+  if (value === null) return { ok: false, facts: [] }
   const max = Math.min(Math.max(1, Number(options.max) || 8), 20)
   const clean = (input, limit) => String(input ?? '').replace(/\s+/g, ' ').trim().slice(0, limit)
   const out = []
@@ -147,7 +186,17 @@ export function parseFacts(text, options = {}) {
       confidence: Number.isFinite(confidence) ? Math.min(0.95, Math.max(0.2, confidence)) : 0.7,
     })
   }
-  return out
+  return { ok: true, facts: out }
+}
+
+/**
+ * 读模型给的 JSON。容错：去掉代码围栏、只取第一个数组、逐条校验。
+ * @param {string} text - 模型输出。
+ * @param {{ max?: number }} [options]
+ * @returns {{ subject: string, predicate: string, object: string, confidence: number }[]}
+ */
+export function parseFacts(text, options = {}) {
+  return parseFactsDetailed(text, options).facts
 }
 
 /** 把一条事实写成一句她能自然复述的中文，用作回写经历流的正文。 */

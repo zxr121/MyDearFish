@@ -1290,3 +1290,111 @@ test('短期放凉后转长期：提炼成事实并写回经历流，再跑一�
   assert.equal(calls.length, 2)
   ctx.dispose()
 })
+
+function consolidationHarness(home, reply) {
+  writeConfig(home, { mode: 'live', inject: true, working: { idleMinutes: 20, minRows: 2 }, chapters: { abstractive: false } })
+  const ctx = fakeContext()
+  memoryHarness(ctx)
+  ctx.set('agents', { list: () => [{ session: session('session-1'), ctx, options: { provider: 'deepseek', model: 'dsh-test' } }] })
+  const calls = []
+  ctx.set('llm', {
+    async * stream(options) {
+      calls.push(options)
+      yield { type: 'text-delta', text: typeof reply === 'function' ? reply(calls.length) : reply }
+      yield { type: 'finish', reason: { kind: 'done' } }
+    },
+  })
+  apply(ctx)
+  return { ctx, calls, mind: ctx.get('fishMind') }
+}
+
+test('积压的原文按最旧一批逐轮消化，不会被最新的一批挡住', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-backlog-'))
+  process.env.DSH_HOME = home
+  const { ctx, calls, mind } = consolidationHarness(home, '[]')
+  const now = Date.now()
+  for (let i = 1; i <= 45; i += 1) {
+    await ctx.emit('session/event', session('session-a'), messageEvent('user/message', `第${i}句`, {
+      seq: i,
+      time: now - 3 * 3_600_000 + i * 60_000,
+    }))
+  }
+
+  const first = await mind.consolidate('test')
+  assert.equal(first.ran, true)
+  assert.equal(first.facts, 0, '模型说没有值得记的也是有效结果')
+  assert.equal(calls[0].messages[0].content[0].text.includes('第1句'), true, '先消化最旧的一批')
+  assert.equal(calls[0].messages[0].content[0].text.includes('第41句'), false)
+  assert.equal(mind.state().memory.working.lastConsolidatedId, 40)
+
+  const second = await mind.consolidate('test')
+  assert.equal(second.ran, true)
+  assert.equal(calls[1].messages[0].content[0].text.includes('第41句'), true)
+  assert.equal(calls[1].messages[0].content[0].text.includes('第45句'), true)
+  assert.equal(mind.state().memory.working.lastConsolidatedId, 45)
+
+  assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'not-enough' })
+  assert.equal(calls.length, 2)
+  const saved = JSON.parse(readFileSync(join(home, 'fish-mind', 'working.json'), 'utf8'))
+  assert.equal(saved.lastConsolidatedId, 45)
+  ctx.dispose()
+})
+
+test('提炼没给出 JSON 数组时不推水位，连续三次才跳过最早一条', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-badout-'))
+  process.env.DSH_HOME = home
+  const now = 1_790_000_000_000
+  t.mock.timers.enable({ apis: ['Date'], now })
+  const { ctx, calls, mind } = consolidationHarness(home, '我没想到要记什么')
+  await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '我叫EMT', {
+    seq: 1,
+    time: now - 40 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-a'), messageEvent('assistant/message', '记住了', {
+    seq: 2,
+    time: now - 39 * 60_000,
+  }))
+
+  assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'bad-output' })
+  assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'backoff' }, '失败后先退避，不连着烧模型')
+  assert.equal(calls.length, 1)
+  assert.equal(mind.state().memory.working.lastConsolidatedId, 0, '坏输出不推水位')
+
+  t.mock.timers.tick(3 * 60_000)
+  assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'bad-output' })
+  t.mock.timers.tick(5 * 60_000)
+  assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'bad-output' })
+  assert.equal(calls.length, 3)
+
+  const state = mind.state().memory.working
+  assert.equal(state.lastConsolidatedId, 1, '连续三次后只跳过最早一条，后面的原文还在队列里')
+  assert.equal(state.lastConsolidatedAt, now - 40 * 60_000)
+  ctx.dispose()
+})
+
+test('经历库重建后旧 id 对不上，水位退回时间戳继续走', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-cursor-'))
+  process.env.DSH_HOME = home
+  mkdirSync(join(home, 'fish-mind'), { recursive: true })
+  const now = Date.now()
+  writeFileSync(join(home, 'fish-mind', 'working.json'), JSON.stringify({
+    lastConsolidatedAt: now - 30 * 60_000,
+    lastConsolidatedId: 999_999,
+  }) + '\n', 'utf8')
+  const { ctx, calls, mind } = consolidationHarness(home, '[{"subject":"主人","predicate":"昵称","object":"EMT"}]')
+  await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '我叫EMT', {
+    seq: 1,
+    time: now - 25 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-a'), messageEvent('assistant/message', '记住了', {
+    seq: 2,
+    time: now - 24 * 60_000,
+  }))
+
+  const result = await mind.consolidate('test')
+  assert.equal(result.ran, true)
+  assert.equal(result.written, 1)
+  assert.equal(calls.length, 1)
+  assert.equal(mind.state().memory.working.lastConsolidatedId, 2, '跑完后接上新的 id 水位')
+  ctx.dispose()
+})

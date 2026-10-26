@@ -296,9 +296,14 @@ function parsePeopleDocument(raw, warnings = []) {
 }
 
 function parseWorkingDocument(raw) {
-  if (!isPlainObject(raw)) return { lastConsolidatedAt: 0 }
+  if (!isPlainObject(raw)) return { lastConsolidatedAt: 0, lastConsolidatedId: 0 }
   const at = finite(raw.lastConsolidatedAt)
-  return { lastConsolidatedAt: at === null || at < 0 ? 0 : at }
+  const id = finite(raw.lastConsolidatedId)
+  return {
+    lastConsolidatedAt: at === null || at < 0 ? 0 : at,
+    // 导入包里不带 id 是旧包；导入后经历库会按 JSONL 重排，id 本来也要重新校验。
+    lastConsolidatedId: id === null || id < 0 ? 0 : id,
+  }
 }
 
 function readExperienceFile(dir, warnings) {
@@ -815,7 +820,10 @@ function applyStaged({ dir, dshHome, staged, backup, now }) {
   const saved = saveIdentity(dir, staged.identity, Number.isFinite(staged.identity.updatedAt) ? staged.identity.updatedAt : now)
   syncMoodNames(dshHome, saved)
   if (staged.working !== null) {
-    writeAtomicJson(join(dir, 'working.json'), { lastConsolidatedAt: staged.working.lastConsolidatedAt })
+    writeAtomicJson(join(dir, 'working.json'), {
+      lastConsolidatedAt: staged.working.lastConsolidatedAt,
+      lastConsolidatedId: staged.working.lastConsolidatedId,
+    })
   }
   if (staged.mood !== null) {
     writeAtomicJson(join(dshHome, 'feiyu-mood', 'state.json'), staged.mood)

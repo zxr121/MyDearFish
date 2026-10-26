@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractionPrompt, factSentence, parseFacts, planConsolidation, shorttermText } from '../lib/working.js'
+import { extractionPrompt, factSentence, parseFacts, parseFactsDetailed, planConsolidation, shorttermText } from '../lib/working.js'
 
 const BASE = 1_790_000_000_000
 
@@ -69,7 +69,7 @@ test('提炼计划：不够条数不动，放凉和攒多都动', () => {
   const now = BASE + 60 * 60_000
   const idleMs = 20 * 60_000
 
-  const few = planConsolidation(rows(1, BASE), { now, idleMs, maxRows: 40, minRows: 2 })
+  const few = planConsolidation(rows(1, now - 5 * 60_000), { now, idleMs, maxRows: 40, minRows: 2 })
   assert.equal(few.ready, false)
   assert.equal(few.reason, 'not-enough')
 
@@ -84,6 +84,18 @@ test('提炼计划：不够条数不动，放凉和攒多都动', () => {
   const many = planConsolidation(rows(40, now - 60_000), { now, idleMs, maxRows: 40, minRows: 2 })
   assert.equal(many.ready, true)
   assert.equal(many.reason, 'overflow')
+})
+
+test('只剩一条时安静够久也会送进提炼，不永远卡在水位后', () => {
+  const idleMs = 20 * 60_000
+  const single = rows(1, BASE)
+
+  const fresh = planConsolidation(single, { now: BASE + idleMs, idleMs, minRows: 2 })
+  assert.equal(fresh.ready, false, '普通放凉只等够 idleMs 时单条还不动')
+
+  const quiet = planConsolidation(single, { now: BASE + idleMs * 3, idleMs, minRows: 2 })
+  assert.equal(quiet.ready, true)
+  assert.equal(quiet.reason, 'idle-single')
 })
 
 test('提炼计划只看过水位之后的内容', () => {
@@ -102,6 +114,24 @@ test('提炼计划只看过水位之后的内容', () => {
   })
   assert.equal(fresh.ready, true)
   assert.equal(fresh.pending.length, 1)
+})
+
+test('有经历 id 水位时按 id 认新行：时钟回拨和补录旧时间戳都漏不掉', () => {
+  const now = BASE + 3 * 3_600_000
+  const list = [
+    { id: 11, at: BASE + 5_000, role: 'user', text: '水位之前的老话' },
+    { id: 12, at: BASE - 10 * 60_000, role: 'user', text: '时钟回拨后录进来的话' },
+    { id: 13, at: BASE + 6_000, role: 'assistant', text: '跟着回的一句' },
+  ]
+  const plan = planConsolidation(list, {
+    now,
+    lastConsolidatedAt: BASE + 5_000,
+    lastConsolidatedId: 11,
+    idleMs: 0,
+    minRows: 1,
+  })
+  assert.equal(plan.ready, true)
+  assert.deepEqual(plan.pending.map((row) => row.text), ['时钟回拨后录进来的话', '跟着回的一句'])
 })
 
 test('提炼提示带上已记住的事实和对话原文', () => {
@@ -128,6 +158,22 @@ test('事实解析容错：代码围栏、坏条目、可信度越界都能收�
 
   const many = parseFacts(JSON.stringify(Array.from({ length: 20 }, () => ({ subject: 'a', predicate: 'b', object: 'c' }))), { max: 3 })
   assert.equal(many.length, 3)
+})
+
+test('事实解析能救回被 maxTokens 截断的 JSON，并分清空数组和没写数组', () => {
+  const truncated = '[{"subject":"主人","predicate":"昵称","object":"EMT"},{"subject":"主人","predicate":"喜欢","object":"鲸鱼娘"},{"subject":"主'
+  assert.deepEqual(parseFacts(truncated, { max: 8 }).map((fact) => fact.predicate), ['昵称', '喜欢'])
+
+  const empty = parseFactsDetailed('[]', { max: 8 })
+  assert.equal(empty.ok, true, '空数组是模型明确说没有值得记的事')
+  assert.deepEqual(empty.facts, [])
+
+  const prose = parseFactsDetailed('我觉得这段没什么好记的。', { max: 8 })
+  assert.equal(prose.ok, false, '没写数组要留着重试，不能当成“没什么”')
+  assert.deepEqual(prose.facts, [])
+
+  const cutInFirst = parseFactsDetailed('[{"subject":"主', { max: 8 })
+  assert.equal(cutInFirst.ok, false)
 })
 
 test('事实写成一句她能直接说的话', () => {
