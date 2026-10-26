@@ -10,6 +10,8 @@
 //   8) 刷屏时被叫和主人的消息优先保留，不会被挤出待看或判断窗口
 //   9) 兴趣画像成熟前每条都判；成熟后快判只排序和限额，0 分也进慢判（超额靠探索补看），
 //      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判，直接开一轮
+//  10) 群里在回别人 / @ 别人 / 聊游戏或自定义不聊话题时，没被叫到就不进待看、不花判断；
+//      被叫到仍回，问游戏只照实说不玩
 // 跑法： node tests/社交半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
@@ -59,6 +61,24 @@ const 段 = 模.解析消息段({
   ],
 }, '999')
 报('消息段：@ 我 + 正文 + 回复 id', 段.at我 && 段.文字.includes('在吗') && 段.回复id === '42', JSON.stringify(段))
+const 段别人 = 模.解析消息段({
+  message: [
+    { type: 'at', data: { qq: '777', name: '群友777' } },
+    { type: 'text', data: { text: '你看这个' } },
+  ],
+}, '999')
+报('消息段：@ 别人不算叫她，但要能认出来', !段别人.at我 && 段别人.at别人 && 段别人.文字.includes('@群友777'), JSON.stringify(段别人))
+const 段全体 = 模.解析消息段({
+  message: [
+    { type: 'at', data: { qq: 'all' } },
+    { type: 'text', data: { text: '开会' } },
+  ],
+}, '999')
+报('消息段：@ 全体不算单独对某个人说', !段全体.at我 && !段全体.at别人 && 段全体.文字.includes('@全体成员'), JSON.stringify(段全体))
+报('游戏话题：游戏名、玩法、开黑都算',
+  模.像游戏话题('今晚开黑吗') && 模.像游戏话题('原神新版本') && 模.像游戏话题('打排位') && 模.像游戏话题('steam 夏促'))
+报('游戏话题：日常词不误伤', !模.像游戏话题('今天吃鸡蛋') && !模.像游戏话题('周末去海边') && !模.像游戏话题('今天风挺大'))
+报('不聊话题：中文包含、拉丁整词', 模.命中不聊话题('今天踢足球', ['足球']).join() === '足球' && 模.命中不聊话题('我在说 AI 的事', ['AI']).join() === 'AI' && 模.命中不聊话题('email 里说的', ['AI']).length === 0)
 const 图片段 = 模.解析消息段({
   message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } }],
 }, '999')
@@ -566,13 +586,14 @@ globalThis.fetch = async (url, 选项) => {
 }
 
 let 消息id = 1
-const 一条群消息 = (文本, { uid = 888, id, time, atSelf = false, replyId = '', 是主人 = false } = {}) => ({
+const 一条群消息 = (文本, { uid = 888, id, time, atSelf = false, atOther = false, replyId = '', 是主人 = false } = {}) => ({
   user_id: 是主人 ? 123 : uid,
   time: time === undefined ? Math.floor(Date.now() / 1000) + 100 : time,
   message_id: id === undefined ? 消息id++ : id,
   sender: { card: 是主人 ? '主人' : `群友${uid}`, nickname: 'x' },
   message: [
     ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
+    ...(atOther ? [{ type: 'at', data: { qq: '777', name: '群友777' } }] : []),
     ...(replyId === '' ? [] : [{ type: 'reply', data: { id: String(replyId) } }]),
     { type: 'text', data: { text: 文本 } },
   ],
@@ -660,6 +681,8 @@ const 第一轮 = 回合.at(-1)
 报('判断提示把兴趣和必回分开', String(判断调用[0]?.system).includes('兴趣只决定她会不会主动开新话题，不决定她能不能回') && String(判断调用[0]?.system).includes('兴趣不是门槛') && String(判断调用[0]?.system).includes('被 @、被叫名字、被回复、好友私聊、问到她本人、查好感度的消息必须放进 watch'))
 报('判断提示带上了兴趣词', String(判断调用[0]?.system).includes('她明确写下的兴趣：海、鲸鱼'))
 报('判断提示要求说明为什么想接', String(判断调用[0]?.system).includes('reason 写她为什么想接这一句'))
+报('判断提示要求不插入别人的对话', String(判断调用[0]?.system).includes('标着 [对别人说] 的消息在回复、引用或 @ 另一个人'))
+报('判断提示把游戏话题标成她不会', String(判断调用[0]?.system).includes('她不会、也不来往的话题：游戏（她不玩任何游戏）') && String(判断调用[0]?.system).includes('不能装懂'))
 报('社交会话标题写成 QQ 群号', 标题重命名.some(([sid, t]) => sid === 'session-qq-social-group-1001' && t === 'QQ 群 1001'), JSON.stringify(标题重命名))
 报('场景提示挂上了', 场景提示.some((s) => String(s.text).includes('【场景·QQ 群（群号 1001）】')))
 报('场景提示说明被叫至少要回', 场景提示.some((s) => String(s.text).includes('至少要回一句') && String(s.text).includes('不能装没看见')))
@@ -676,6 +699,8 @@ const 社交文字 = 场景提示.map((s) => String(s.text)).join('\n')
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
 报('场景提示说明一小时内聊过的事都记得', 场景提示.some((s) => String(s.text).includes('最近一小时聊过的事你都记得') && String(s.text).includes('别把几分钟前说过的当成没听过')))
+报('场景提示让别人的对话别插进去', 社交文字.includes('[对别人说]') && 社交文字.includes('别插进去'))
+报('场景提示把不聊游戏写成她的实际边界', 社交文字.includes('游戏（她不玩任何游戏）') && 社交文字.includes('我不玩/不太懂'))
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
 报('工具限制：社交会话只放开搜索', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 1 && 工具限制.at(-1).allow[0] === 'web_search', JSON.stringify(工具限制.at(-1)))
 报('工具闸门：只放搜索，其他工具仍拒绝', 工具闸门.length > 0 && 工具闸门.at(-1)({ name: 'web_search' }) === undefined && String(工具闸门.at(-1)({ name: 'bash' })).includes('只允许搜索查资料'))
@@ -1147,7 +1172,7 @@ await 等()
 报('被 @ 的消息带进了回话批次', String(回合.at(-1)?.message.content[0].text || '').includes('再说一句'))
 await 收到回复('session-qq-social-group-1012', '嗯嗯')
 
-// ---------- 13b 引用别人：带出被引用的原话；查不到就只留正文 ----------
+// ---------- 13b 引用别人 / @ 别人：不插话；直接叫到她时才带上被引用的原话 ----------
 写配置({ 群: ['1044'], 冷却秒: 0, 判断冷却秒: 0, 旁听: true })
 引用消息表.set('4901', {
   user_id: 777,
@@ -1159,18 +1184,89 @@ await 收到回复('session-qq-social-group-1012', '嗯嗯')
   一条群消息('好像不错', { uid: 888, id: 4902, replyId: 4901 }),
   一条群消息('引用的消息太旧了', { uid: 888, id: 4903, replyId: 4999 }),
 ])
-设判断(['4902'], true, 0.9, '可以接')
+设判断(['4902', '4903'], true, 0.9, '可以接')
 const 判断之前13q = 判断调用.length
 const 回合之前13q = 回合.length
 await 轮询社交()
 await 等()
+报('引用别人 → 不判断、不接话', 判断调用.length === 判断之前13q && 回合.length === 回合之前13q)
+报('引用别人 → 不进待看', (await 目标状态('group:1044')).待看 === 0)
+
+时间偏移 += 11_000
+群消息表.set(1044, [
+  一条群消息('好像不错', { uid: 888, id: 4902, replyId: 4901 }),
+  一条群消息('引用的消息太旧了', { uid: 888, id: 4903, replyId: 4999 }),
+  一条群消息('你俩聊得怎么样', { uid: 888, id: 4904, atOther: true }),
+])
+const 判断之前13r = 判断调用.length
+await 轮询社交()
+await 等()
+报('@ 别人 → 不判断、不接话', 判断调用.length === 判断之前13r && 回合.length === 回合之前13q)
+
+时间偏移 += 11_000
+群消息表.set(1044, [
+  ...群消息表.get(1044),
+  一条群消息('大肥鱼 你觉得呢', { uid: 888, id: 4905, replyId: 4901 }),
+])
+设判断(['4905'], true, 0.9, '在问她')
+await 轮询社交()
+await 等()
 const 判断资料13q = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
-报('引用别人 → 判断带上被引用的原话',
-  判断调用.length === 判断之前13q + 1 && 判断资料13q.includes('[#4902][群友]群友888：[引用群友777：周末去海边] 好像不错'))
-报('引用别人不标成在叫她', 判断资料13q.includes('[#4902][群友]群友888：') && !判断资料13q.includes('[#4902][被叫]'))
-报('回话也带上被引用的原话', 回合.length === 回合之前13q + 1 && String(回合.at(-1)?.message.content[0].text || '').includes('[引用群友777：周末去海边]'))
-报('引用查不到 → 正文照常留下', 判断资料13q.includes('[#4903][群友]群友888：引用的消息太旧了'))
-await 收到回复('session-qq-social-group-1044', '听着不错')
+const 位4905 = 判断资料13q.indexOf('#4905')
+报('引用别人但叫到她 → 判断带上被引用的原话',
+  判断调用.length === 判断之前13r + 1 && 判断资料13q.includes('[#4905][被叫][对别人说][群友]群友888：[引用群友777：周末去海边] 大肥鱼 你觉得呢'),
+  位4905 >= 0 ? 判断资料13q.slice(Math.max(0, 位4905 - 30), 位4905 + 220).replace(/\n/g, ' | ') : `没进判断；新增调用 ${判断调用.length - 判断之前13r}；${判断资料13q.slice(-160).replace(/\n/g, ' | ')}`)
+报('引用别人但叫到她 → 回话也带上原话', String(回合.at(-1)?.message.content[0].text || '').includes('[引用群友777：周末去海边]'))
+await 收到回复('session-qq-social-group-1044', '还没去呢')
+
+// ---------- 13c 游戏话题：没叫她不插话；点到她时仍回，但只说不玩 ----------
+写配置({ 群: ['1047'], 冷却秒: 0, 判断冷却秒: 0, 旁听: true })
+群消息表.set(1047, [
+  一条群消息('今晚开黑吗', { uid: 888, id: 7301 }),
+  一条群消息('一起来上分', { uid: 889, id: 7302 }),
+  一条群消息('今天风挺大', { uid: 890, id: 7303 }),
+])
+设判断(['7303'], true, 0.9, '这句能接')
+const 游戏前判断 = 判断调用.length
+const 游戏前回合 = 回合.length
+await 轮询社交()
+await 等()
+const 游戏资料 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('游戏话题不交给判断，同批正常消息照常接',
+  判断调用.length === 游戏前判断 + 1 && !游戏资料.includes('开黑') && !游戏资料.includes('上分') && 游戏资料.includes('今天风挺大'))
+报('游戏话题没带进回话', 回合.length === 游戏前回合 + 1 && !String(回合.at(-1)?.message.content[0].text || '').includes('开黑'))
+await 收到回复('session-qq-social-group-1047', '是挺大的')
+
+时间偏移 += 11_000
+群消息表.set(1047, [
+  ...群消息表.get(1047),
+  一条群消息('大肥鱼 你玩原神吗', { uid: 891, id: 7304, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+设判断(['7304'], true, 0.9, '在问她')
+await 轮询社交()
+await 等()
+const 游戏叫资料 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('直接叫她问游戏 → 仍要判断，并标出不聊',
+  判断调用.length === 游戏前判断 + 2 && 游戏叫资料.includes('[#7304][被叫][不聊:游戏][群友]群友891：大肥鱼 你玩原神吗'), 游戏叫资料.slice(-400))
+const 游戏叫回合 = String(回合.at(-1)?.message.content[0].text || '')
+报('直接叫她问游戏 → 回话提示照实说不玩', 游戏叫回合.includes('[不聊:游戏]') && 游戏叫回合.includes('我不玩/不太懂'))
+await 收到回复('session-qq-social-group-1047', '我不玩这个')
+
+// 关掉游戏开关、另划一个话题：游戏不再是拦点，自定义话题才是
+时间偏移 += 11_000
+写配置({ 群: ['1048'], 冷却秒: 0, 判断冷却秒: 0, 旁听: true, 不聊游戏: false, 不聊话题: ['足球'] })
+群消息表.set(1048, [
+  一条群消息('今晚开黑吗', { uid: 888, id: 7401 }),
+  一条群消息('周末去踢足球', { uid: 889, id: 7402 }),
+])
+设判断(['7401'], true, 0.9, '游戏也能聊了')
+const 改话题前判断 = 判断调用.length
+await 轮询社交()
+await 等()
+const 改话题资料 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('关掉不聊游戏后游戏照常进判断，自定义不聊话题仍拦住',
+  判断调用.length === 改话题前判断 + 1 && 改话题资料.includes('今晚开黑吗') && !改话题资料.includes('踢足球'))
+await 收到回复('session-qq-social-group-1048', '开啊')
 
 // ---------- 14 关注上限：挑太多也只收前几条 ----------
 写配置({ 群: ['1013'], 关注上限: 2 })
@@ -2072,14 +2168,14 @@ await 等到(async () => 发的.slice(并行前发).filter((x) => x.url.endsWith
 
 // ---------- 26 关掉并行：同一间屋子排多轮也不覆盖 ----------
 写配置({ 群: ['1086'], 冷却秒: 10, 判断冷却秒: 0, 并行: false })
-群消息表.set(1086, [一条群消息('今晚开黑吗', { id: 8811 })])
-设判断(['8811'], true, 0.9, '想玩')
+群消息表.set(1086, [一条群消息('今晚去吃火锅吗', { id: 8811 })])
+设判断(['8811'], true, 0.9, '想吃')
 const 串前回合 = 回合.length
 const 串前发 = 发的.length
 await 轮询社交()
 await 等到(async () => 回合.length === 串前回合 + 1)
 时间偏移 += 11_000
-群消息表.set(1086, [...群消息表.get(1086), 一条群消息('缺一个人', { id: 8812, time: Math.floor(Date.now() / 1000) + 200 })])
+群消息表.set(1086, [...群消息表.get(1086), 一条群消息('还缺一个人', { id: 8812, time: Math.floor(Date.now() / 1000) + 200 })])
 设判断(['8812'], true, 0.9, '想凑人')
 await 轮询社交()
 await 等到(async () => 回合.length === 串前回合 + 2)
