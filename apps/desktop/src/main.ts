@@ -43,7 +43,7 @@ import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashRep
 import { openWelcomeWindow } from './welcome-window.ts'
 import { WELCOME_IPC, needsWelcome, type WelcomeNotice } from './welcome-api.ts'
 import { connectDesktopWelcome, type DesktopWelcomeBackend } from './welcome-backend.ts'
-import { DesktopUpdateJournal } from './update-journal.ts'
+import { DesktopUpdateJournal, pruneDesktopUpdateJournals, readDesktopUpdateJournals } from './update-journal.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
 import { DesktopUpdateSchedule, resolveDesktopUpdateScheduleConfig } from './update-schedule.ts'
 import { desktopUpdateErrorSummary, presentDesktopUpdate } from './update-presentation.ts'
@@ -325,8 +325,26 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
 async function main(): Promise<void> {
   const desktopSettings = readDesktopSettings(app.getPath('userData'))
   void pruneCrashReports(app.getPath('logs'))
-  const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
-  const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, app.getVersion())
+  // Installed builds keep a bounded technical trail so a user can send one copy after an update failure.
+  const journalOverride = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
+  const journalDirectory = journalOverride ?? (app.isPackaged ? join(app.getPath('userData'), 'update-journal') : undefined)
+  let updateJournal: DesktopUpdateJournal | undefined
+  if (journalDirectory !== undefined) {
+    try {
+      updateJournal = new DesktopUpdateJournal(journalDirectory, app.getVersion())
+    } catch (error) {
+      // Qualification runs need every record; an ordinary install keeps working without diagnostics.
+      if (journalOverride !== undefined) throw error
+      console.warn(`desktop update journal unavailable: ${desktopErrorState(error).message}`)
+    }
+  }
+  if (journalOverride === undefined && journalDirectory !== undefined && updateJournal !== undefined) {
+    try {
+      pruneDesktopUpdateJournals(journalDirectory, 20)
+    } catch (error) {
+      console.warn(`desktop update journal cleanup failed: ${desktopErrorState(error).message}`)
+    }
+  }
   const resources = runtimeResources()
   const paths = resolveDesktopPaths(desktopDshHome())
   const development = !app.isPackaged
@@ -524,6 +542,20 @@ async function main(): Promise<void> {
   })
 
   const updateErrors = new WeakMap<DesktopUpdateState, Promise<void>>()
+  const copyUpdateDiagnostics = async (): Promise<void> => {
+    if (journalDirectory === undefined) return
+    const { files, text } = readDesktopUpdateJournals(journalDirectory)
+    clipboard.writeText([
+      'DSH desktop update diagnostics',
+      `generated: ${new Date().toISOString()}`,
+      `app: ${app.getVersion()}`,
+      `channel: ${updateChannel}`,
+      `system: ${process.platform} ${process.arch}`,
+      `files: ${files}`,
+      '',
+      text,
+    ].join('\n'))
+  }
   const showUpdateFailure = (state: DesktopUpdateState): Promise<void> => {
     if (state.phase !== 'error') return Promise.resolve()
     if (isMandatory()) { mandatoryUI?.sync(); return Promise.resolve() }
@@ -532,21 +564,39 @@ async function main(): Promise<void> {
       // Any failed fetch leaves the release page as the only remaining route to a working build.
       const downloadPage = state.failedOperation === 'check' || state.failedOperation === 'download'
         ? updateDownloadPage : undefined
+      const diagnostics = journalDirectory !== undefined && updateJournal !== undefined
+      const buttons = downloadPage === undefined && !diagnostics ? undefined : [
+        ...(downloadPage === undefined ? [] : [locale.messages.updateManualDownload]),
+        ...(diagnostics ? [locale.messages.updateCopyDiagnostics] : []),
+        locale.messages.later,
+      ]
+      const copyIndex = downloadPage === undefined ? 0 : 1
       shown = (async () => {
         const result = await ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
           message: desktopUpdateErrorSummary(state, locale.messages),
-          ...(downloadPage === undefined ? {} : {
-            detail: locale.messages.updateManualDownloadDetail,
-            buttons: [locale.messages.updateManualDownload, locale.messages.later],
-            cancelId: 1,
+          ...(buttons === undefined ? {} : {
+            detail: downloadPage === undefined ? locale.messages.updateDiagnosticsDetail : locale.messages.updateManualDownloadDetail,
+            buttons,
+            cancelId: buttons.length - 1,
           }),
           technicalDetails: state.technicalDetails ?? state.message ?? '' })
-        if (downloadPage === undefined || result.response !== 0) return
+        if (downloadPage !== undefined && result.response === 0) {
+          try {
+            await shell.openExternal(downloadPage)
+          } catch {
+            await ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
+              message: locale.messages.updateManualDownloadFailed, detail: downloadPage })
+          }
+          return
+        }
+        if (!diagnostics || result.response !== copyIndex) return
         try {
-          await shell.openExternal(downloadPage)
-        } catch {
+          await copyUpdateDiagnostics()
+          await ordinaryMessageBox({ type: 'info', title: locale.messages.updateFailedTitle,
+            message: locale.messages.updateDiagnosticsCopied, detail: locale.messages.updateDiagnosticsCopiedDetail })
+        } catch (error) {
           await ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
-            message: locale.messages.updateManualDownloadFailed, detail: downloadPage })
+            message: locale.messages.updateDiagnosticsFailed, detail: desktopErrorState(error).message })
         }
       })()
       updateErrors.set(state, shown)

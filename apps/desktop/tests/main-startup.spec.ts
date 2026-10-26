@@ -217,6 +217,7 @@ const harness = await vi.hoisted(async () => {
     get publishUpdate() { return publishUpdate! },
     set publishUpdate(value: (state: DesktopUpdateState) => DesktopUpdateState) { publishUpdate = value },
     dialog: { showOpenDialog: vi.fn(), showErrorBox: vi.fn(), showMessageBox: vi.fn() },
+    clipboard: { writeText: vi.fn() },
     openExternal: vi.fn(async () => {}),
     protocolHandle: vi.fn<(scheme: string, handler: (request: Request) => Response | Promise<Response>) => void>(),
     applyRelease: vi.fn(() => { preparing.resolve(); return prepared.promise }),
@@ -257,6 +258,7 @@ const harness = await vi.hoisted(async () => {
       loginShell.mockReset().mockImplementation(base => readLoginShell(base))
       updateDownload.mockReset().mockImplementation(async () => updateState)
       updateInstall.mockReset().mockImplementation(async () => updateState)
+      harness.clipboard.writeText.mockReset()
       nativeTheme.themeSource = 'system'; nativeTheme.shouldUseDarkColors = false
       preparing = deferred(); prepared = deferred(); hostStarted = deferred()
       navigated = deferred(); dialogShown = deferred(); quitCompleted = deferred()
@@ -282,6 +284,7 @@ vi.mock('electron', () => ({
   app: harness.app,
   BrowserWindow: harness.FakeWindow,
   dialog: harness.dialog,
+  clipboard: harness.clipboard,
   shell: { openExternal: harness.openExternal },
   nativeTheme: harness.nativeTheme,
   net: { fetch: vi.fn() },
@@ -1626,11 +1629,13 @@ describe('desktop main startup', () => {
   it('reports a manual check failure without offering a download', async () => {
     await readyForUpdate()
     harness.updateCheck.mockResolvedValueOnce({ phase: 'error', failedOperation: 'check', message: 'Feed unavailable' })
-    harness.dialog.showMessageBox.mockResolvedValue({ response: 0 })
+    harness.dialog.showMessageBox.mockResolvedValue({ response: 1 })
     await invoke(DESKTOP_IPC.updatesOpen, 'app')
     expect(harness.dialog.showMessageBox).toHaveBeenCalledTimes(2)
     expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'error',
-      message: 'Could not check for updates. Please try again later.', technicalDetails: 'Feed unavailable' }))
+      message: 'Could not check for updates. Please try again later.', technicalDetails: 'Feed unavailable',
+      buttons: [en.updateCopyDiagnostics, en.later], cancelId: 1 }))
+    expect(harness.openExternal).not.toHaveBeenCalled()
     expect(harness.updateDownload).not.toHaveBeenCalled()
   })
 
@@ -1641,7 +1646,8 @@ describe('desktop main startup', () => {
     harness.dialog.showMessageBox.mockResolvedValue({ response: 0 })
     await invoke(DESKTOP_IPC.updatesOpen, 'app')
     expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'error',
-      detail: en.updateManualDownloadDetail, buttons: [en.updateManualDownload, en.later], cancelId: 1 }))
+      detail: en.updateManualDownloadDetail,
+      buttons: [en.updateManualDownload, en.updateCopyDiagnostics, en.later], cancelId: 2 }))
     expect(harness.openExternal).toHaveBeenCalledWith('https://github.com/example/fish/releases/latest')
   })
 
@@ -1662,8 +1668,26 @@ describe('desktop main startup', () => {
     harness.dialog.showMessageBox.mockResolvedValue({ response: 0 })
     await invoke(DESKTOP_IPC.updatesOpen, 'app')
     expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'error',
-      detail: en.updateManualDownloadDetail, buttons: [en.updateManualDownload, en.later], cancelId: 1 }))
+      detail: en.updateManualDownloadDetail,
+      buttons: [en.updateManualDownload, en.updateCopyDiagnostics, en.later], cancelId: 2 }))
     expect(harness.openExternal).toHaveBeenCalledWith('https://github.com/example/fish/releases/latest')
+  })
+
+  it('copies bounded update diagnostics from the packaged log after a failure', async () => {
+    harness.embeddedDownloadPage = 'https://github.com/example/fish/releases/latest'
+    await readyForUpdate()
+    harness.dialog.showMessageBox.mockResolvedValueOnce({ response: 1 }).mockResolvedValue({ response: 0 })
+    harness.publishUpdate({ phase: 'error', failedOperation: 'download', version: '1.2.3', message: 'ERR_CONNECTION_RESET private-detail' })
+    await vi.waitFor(() => { expect(harness.clipboard.writeText).toHaveBeenCalledOnce() })
+    const copied = harness.clipboard.writeText.mock.calls[0]![0] as string
+    expect(copied).toContain('ERR_CONNECTION_RESET')
+    expect(copied).toContain('app: 1.0.0')
+    expect(copied).toContain('channel: nightly')
+    expect(copied).not.toContain('private-detail')
+    await vi.waitFor(() => {
+      expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
+        type: 'info', message: en.updateDiagnosticsCopied }))
+    })
   })
 
   it('rechecks the feed before retrying a failed download', async () => {

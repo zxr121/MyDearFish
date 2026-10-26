@@ -1,8 +1,11 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdirSync, utimesSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { DesktopUpdateJournal, desktopUpdateJournalState } from '../src/update-journal.ts'
+import {
+  DesktopUpdateJournal, desktopUpdateJournalState, pruneDesktopUpdateJournals, readDesktopUpdateJournals,
+} from '../src/update-journal.ts'
 
 describe('desktop qualification update journal', () => {
   it('keeps both versions in separate files in the shared evidence directory', async () => {
@@ -38,6 +41,31 @@ describe('desktop qualification update journal', () => {
     expect(desktopUpdateJournalState({ phase: 'downloading' })).toEqual({ phase: 'downloading' })
     expect(desktopUpdateJournalState({ phase: 'error' })).toEqual({ phase: 'error', errorCode: 'UNCLASSIFIED' })
     expect(desktopUpdateJournalState({ phase: 'verifying', version: '1.2.3', percent: 100 })).toEqual({ phase: 'verifying', targetVersion: '1.2.3' })
+  })
+
+  it('classifies feed and transport failures without retaining their text', () => {
+    const classify = (message: string) => desktopUpdateJournalState({ phase: 'error', failedOperation: 'download', message })
+    expect(classify('HttpError: 404 response body')).toMatchObject({ errorCode: 'HTTP_404' })
+    expect(classify('Error: ERR_UPDATER_CHANNEL_FILE_NOT_FOUND at redacted')).toMatchObject({ errorCode: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' })
+    expect(classify('net::ERR_CONNECTION_ABORTED')).toMatchObject({ errorCode: 'ERR_CONNECTION_ABORTED' })
+    expect(classify('unexpected updater failure')).toMatchObject({ errorCode: 'UNCLASSIFIED' })
+  })
+
+  it('keeps the newest journals and reads them for a diagnostic copy', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-update-journal-prune-'))
+    try {
+      const oldest = new DesktopUpdateJournal(directory, '1.0.0')
+      const middle = new DesktopUpdateJournal(directory, '1.0.1')
+      const newest = new DesktopUpdateJournal(directory, '1.0.2')
+      utimesSync(oldest.path, new Date(1_000), new Date(1_000))
+      utimesSync(middle.path, new Date(2_000), new Date(2_000))
+      pruneDesktopUpdateJournals(directory, 2)
+      expect(readdirSync(directory).sort()).toEqual([basename(middle.path), basename(newest.path)].sort())
+      const { files, text } = readDesktopUpdateJournals(directory, 1)
+      expect(files).toBe(1)
+      expect(text).toContain('"version":"1.0.2"')
+      expect(text).not.toContain('"version":"1.0.1"')
+    } finally { await rm(directory, { recursive: true, force: true }) }
   })
 
   it('refuses relative evidence paths and reports storage failure', async () => {
