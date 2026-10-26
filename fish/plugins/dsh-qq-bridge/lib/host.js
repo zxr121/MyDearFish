@@ -5118,6 +5118,67 @@ export function apply(ctx) {
     }
   }
 
+  // Web 层把宿主级压缩关掉了，改由每个 Agent 的预设自己挂；桥是直接
+  // ctx.agents.resume/create，不经过 Web 的预设编排，所以 QQ 会话一直没人压缩，
+  // 群里长到八十多万 token 就撞上模型上限、连着九轮开不了口。这里注册一个只带
+  // 压缩的内部预设，给桥建的会话挂上，让请求始终落在可靠尺寸内。
+  const 桥预设id = 'qq-social'
+  let 桥预设注册 = null
+  function 备好桥预设() {
+    if (桥预设注册 !== null) return 桥预设注册
+    const 册 = ctx.get('agentPresets')
+    if (!册) return Promise.resolve(undefined)
+    桥预设注册 = 册.register({
+      id: 桥预设id,
+      name: 'QQ 社交',
+      description: 'QQ 群聊 / 好友会话内部使用：只带上下文压缩，不挂工具。',
+      order: 90,
+      plugins: [
+        {
+          id: 'compaction',
+          name: 'cordis:group',
+          group: true,
+          isolate: { compaction: true, toolResultPruner: true },
+          config: [
+            {
+              id: 'compaction-basic',
+              name: '@deepseek-ai/dsh-compaction-basic',
+              // 和鱼 bundle 同一个预算：15 万 token 触发、留最近 5% 原文。
+              config: { thresholdRatio: 0.15, retainRatio: 0.05 },
+            },
+            {
+              id: 'tool-result-pruner',
+              name: '@deepseek-ai/dsh-compaction-tool-result-pruner',
+              config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 },
+            },
+          ],
+        },
+      ],
+    }).catch((error) => {
+      记账(`QQ 会话的压缩预设注册失败：${String((error && error.message) || error)}`)
+      桥预设注册 = null
+      return undefined
+    })
+    return 桥预设注册
+  }
+
+  async function 挂压缩预设(agentCtx) {
+    try {
+      await 备好桥预设()
+      const 册 = ctx.get('agentPresets')
+      if (!册) return
+      await 册.mount(agentCtx, 桥预设id)
+    } catch (error) {
+      记账(`QQ 会话的压缩挂不上：${String((error && error.message) || error)}`)
+    }
+  }
+
+  ctx.effect(() => () => {
+    const 登记 = 桥预设注册
+    桥预设注册 = null
+    if (登记) void 登记.then((注销) => (typeof 注销 === 'function' ? 注销() : undefined)).catch(() => {})
+  }, 'qq-bridge: QQ 社交压缩预设')
+
   /** 拿社交会话：先恢复旧档，确实没有才新建；每个群/好友一间主屋，忙时再开分线。 */
   async function 拿社交agent(目标, 分线号 = 0) {
     const 基础id = 会话idof(目标.key, 目标.会话id)
@@ -5131,7 +5192,7 @@ export function apply(ctx) {
       return 现有
     }
     const 配置 = 读配置()
-    const setup = (agentCtx) => {
+    const setup = async (agentCtx) => {
       收住开发提示(agentCtx, 目标.叫)
       try {
         agentCtx.systemPrompt.section({ name: 'qq-social-scene', order: 905, text: 社交提示(目标, 配置) })
@@ -5163,6 +5224,7 @@ export function apply(ctx) {
       } catch (error) {
         记账(`社交会话工具闸门挂不上（${目标.叫}）：${String((error && error.message) || error)}`)
       }
+      await 挂压缩预设(agentCtx)
     }
     const 选项 = 回复模型选项(配置) || 默认模型()
     const 区 = await 取工作区()
@@ -5240,13 +5302,14 @@ export function apply(ctx) {
       return 现有
     }
     if (主人agent失败At !== 0 && Date.now() - 主人agent失败At < 30_000) return null
-    const setup = (agentCtx) => {
+    const setup = async (agentCtx) => {
       收住开发提示(agentCtx, '主人私聊')
       try {
         agentCtx.systemPrompt.section({ name: 'qq-private-scene', order: 905, text: 主人私聊提示() })
       } catch (error) {
         记账(`QQ 私聊场景提示挂不上：${String((error && error.message) || error)}`)
       }
+      await 挂压缩预设(agentCtx)
     }
     const 选项 = 默认模型()
     const 区 = await 取工作区()
