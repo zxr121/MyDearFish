@@ -1,0 +1,12 @@
+{
+  "upstream": "https://github.com/in1t1a1/astrbot_plugin_memewiki",
+  "contentSource": "https://cnmeme.wiki",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 in1t1a1",
+  "builtAt": "2026-10-25 13:44:47",
+  "generatedAt": "2026-10-26T01:20:31.293Z",
+  "count": 6660,
+  "jsonBytes": 10645259,
+  "gzipBytes": 4237727,
+  "sha256": "c2dc3b5ee636e528d94759c6393b4f0aaf7580dde865b78d63ca853916efc5a4"
+}

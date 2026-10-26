@@ -49,7 +49,7 @@ test('普通技术文章和日常句子不会被误判', () => {
 })
 
 test('外部工具才打外部标记，本地文件工具只做可疑扫描', () => {
-  for (const name of ['web_search', 'web_fetch', 'browser_navigate', 'bili_comments', 'computer_click', 'mcp__github__search', 'mcp_fetch']) {
+  for (const name of ['web_search', 'web_fetch', 'browser_navigate', 'bili_comments', 'computer_click', 'mcp__github__search', 'mcp_fetch', 'search_meme']) {
     assert.equal(isUntrustedTool(name), true, name)
   }
   for (const name of ['read', 'write', 'bash', 'pwsh', 'fish_memory', 'skill']) {

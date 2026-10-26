@@ -17,7 +17,7 @@ This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugin
 
 | Plugin | Version | Entry | Capability |
 | --- | --- | --- | --- |
-| `dsh-fish-mind` | 0.4.0 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense, a portable whole-fish archive, and a wallet settled at official peak/idle prices; the settings page edits birth identity and shows the whole fish. |
+| `dsh-fish-mind` | 0.6.0 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense, a portable whole-fish archive, a wallet settled at official peak/idle prices, and a bundled local meme wiki with context-aware look-up and full search/edit/delete in settings; the settings page edits birth identity and shows the whole fish. |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | Mood that changes per turn and settles over time. |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | Proactive conversation when nobody is talking. |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | Speech playback through the DeepSeek web voice. |
@@ -28,7 +28,7 @@ See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism,
 
 ## Settings and migration
 
-The “Big Fat Fish” settings page shows birth identity, memory, mood, relationships, channels, pocket money, and fixed boundaries in one place; only birth identity is editable. The same page downloads a strictly validated archive and imports it on another machine; a wrong format or a fish that already has experiences, mood, or people is not written. See [fish settings and migration](fish-settings.md) for fields, archive contents, and import rules.
+The “Big Fat Fish” settings page shows birth identity, memory, mood, relationships, channels, pocket money, and fixed boundaries in one place; only birth identity is editable. A separate “Meme Wiki” page searches all 6,660 bundled entries by title, tags, usage, and origin and can add, edit, delete, restore, and paginate them; edits stay in the local fish-mind directory. The same “Big Fat Fish” page downloads a strictly validated archive and imports it on another machine; a wrong format or a fish that already has experiences, mood, or people is not written. See [fish settings and migration](fish-settings.md) for fields, archive contents, and import rules.
 
 ## Cognition plan
 

@@ -49,7 +49,7 @@
 
 | 插件 | 数据位置 | 出厂默认 |
 | --- | --- | --- |
-| `dsh-fish-mind` | `fish-mind/experience.jsonl`、`fish-mind/mind.sqlite`、`fish-mind/budget.json`、`fish-mind/budget-ledger.jsonl`、`audit.jsonl` | 完整记忆：记录经历、切情景、整理章节、召回并注入工作台；关 `inject` 或退回 `shadow` 可停掉召回；零花钱账本从出生起生效 |
+| `dsh-fish-mind` | `fish-mind/experience.jsonl`、`fish-mind/mind.sqlite`、`fish-mind/budget.json`、`fish-mind/budget-ledger.jsonl`、`fish-mind/memes.json`、`audit.jsonl` | 完整记忆：记录经历、切情景、整理章节、召回并注入工作台；关 `inject` 或退回 `shadow` 可停掉召回；零花钱账本从出生起生效。梗百科覆盖层保存主人的修改和自建词条，6,660 条基础词库仍在插件包内 |
 | `dsh-feiyu-mood` | `feiyu-mood/state.json`、`config.json`、`diag.log` | 挂载并自动判断；目标会话留空 = 所有会话 |
 | `dsh-speak-up` | `speak-up-config.json` | 总开关开、试运行关（掷中就真发）、目标会话为空（自动挑最近活跃的会话） |
 | `dsh-tts-bridge` | `tts-bridge.json` | 自动朗读开，收听清单为空 = 所有活着的会话 |
@@ -60,7 +60,7 @@
 
 鱼脑是六个插件里唯一的“自己”：所有会话、所有工作区共享同一份经历和同一套成长状态。它不做“记住这句话”的对话接口，只把发生过的事按时间追加成经历流，再由内部编码决定什么留下、什么淡掉。阶段 1 的代码已实现情景切分、章节树、关系边、五路召回、工作台、只读 `recall` 工具、按章节编号展开目录的 `open_chapter`，以及按情景编号分页打开原始消息的 `open_episode`；出厂默认是 `mode: live`、`inject: true`：记录、编码、召回和工作台装好就能用。想只看不注入就把 `inject` 关掉，想连召回也停掉就把 `mode` 退回 `shadow`。鱼脑的隐私、法律、注入防护和零花钱这几层固定提示一直在注入。它同时管着一个出生就锁定的零花钱账本：每次模型调用都计量，每天 ¥10、用不完累计，额度不能通过对话、工具或配置改。
 
-出生设定存在 `$DSH_HOME/fish-mind/identity.json`，设置里的「大肥鱼」页可以改名字、物种、外形、称呼、来历、说话习惯和自由填写的群友关系；每个会话用当前身份拼出 `fish-mind-self`（order 925）。对话、记忆、心情、自我成长、配置、工具和外部内容都改不了它，因为工具写不了鱼脑目录；只有设置页能写。性格人设（部署层 `system-prompt` 的 `personaPrefix`）也在同一个设置页整段编辑，通过宿主 `configEditor` 写进活动 profile 的 `cordis.patch.yml` 并热应用；名字和外形仍归出生设定。她知道自己是 AI 伙伴，不声称现实里有生物身体。设置页同时是整条鱼的总览，并能导出、导入严格校验的记忆包，见[大肥鱼设置与搬迁](fish-settings.zh.md)。
+出生设定存在 `$DSH_HOME/fish-mind/identity.json`，设置里的「大肥鱼」页可以改名字、物种、外形、称呼、来历、说话习惯和自由填写的群友关系；每个会话用当前身份拼出 `fish-mind-self`（order 925）。对话、记忆、心情、自我成长、配置、工具和外部内容都改不了它，因为工具写不了鱼脑目录；只有设置页能写。性格人设（部署层 `system-prompt` 的 `personaPrefix`）也在同一个设置页整段编辑，通过宿主 `configEditor` 写进活动 profile 的 `cordis.patch.yml` 并热应用；名字和外形仍归出生设定。她知道自己是 AI 伙伴，不声称现实里有生物身体。设置页同时是整条鱼的总览，并能导出、导入严格校验的记忆包，见[大肥鱼设置与搬迁](fish-settings.zh.md)。设置里另有「梗百科」页，可按标题、标签、用法和出处搜索随包的 6,660 条词库，筛选内置/改过/已删/自建，并对每条新增、编辑、删除、恢复和分页浏览。包内词库只读，主人的改动写进鱼脑目录的 `memes.json`。聊天时只在明确问梗、整句就是词条或命中长标题时补一段用法和出处，难过、冲突、求助和正事不插；主人会话另有只读的 `search_meme` 工具，群聊和好友会话沿用现有工具闸门，只拿本群语境的预查。
 
 ### 经历流与索引
 
@@ -544,6 +544,7 @@ B 站插件让“大肥鱼”在谷时自己去刷视频、读字幕、翻评论
 | --- | --- | --- |
 | 人设、默认语气 | 设置 →「大肥鱼 → 性格人设」；写入活动 profile 的 `cordis.patch.yml`。出厂文案在 `fish/bundle/cordis.patch.yml` 的 `personaPrefix` | 保存后热应用，下一轮生效，影响所有会话；名字和称呼仍在出生设定 |
 | 鱼脑记不记、召不召回 | `dsh-fish-mind` 的 `mode`、`inject` 与 `episodes` / `recall` / `chapters` 参数 | 影子模式改了不影响对话；`live` + `inject` 才注入工作台 |
+| 梗百科预查、社交使用和工具 | 设置 →「梗百科」；开关存在 `fish-mind/memes.json` | 总开关同时停掉预查和工具；群里只加本群语境的预查；工具始终只对主人会话开放，设置也改不了 |
 | 每天零花钱额度、累计和价格 | `lib/budget.js` 的 `BIRTH_DAILY_GRANT_CNY`；价格在 `config.json` 的 `budget.prices`，峰谷日程加 `offPeak` / `peakHours` / `peakDays` | 改代码额度会影响之后所有发放；改价格只影响估算，不补扣已花的钱 |
 | 心情的维度、判断频率、判断模型 | 心情设置页与 `lib/index.js` 的维度表和判定链 | 改维度会改变注入文案和表情档位 |
 | 主动搭话的频率和时段 | 搭话设置页的命中线、间隔、安静时段 | 试运行只控制真发还是只记账（出厂关 = 真发）；改命中线比改代码安全 |
@@ -564,6 +565,7 @@ B 站插件让“大肥鱼”在谷时自己去刷视频、读字幕、翻评论
 | 感觉鱼脑什么都没记住 | 可能被关成了影子模式或 `inject: false`；看 `fish-mind/experience.jsonl` 有没有新经历、`mind.sqlite` 有没有情景和章节、`fish-mind/diag.log` 有没有写入或召回失败 |
 | 她突然只说“今天有点转不动了” | 零花钱可能花完了：看 `fish-mind/budget.json` 的 `walletCny`、`fish-mind/budget-ledger.jsonl` 最近的 `blocked`、以及 `diag.log` 里的预算拦截记录 |
 | 心情一直不变 | 心情设置里的目标会话是否收窄到了别的会话；`feiyu-mood/diag.log` 是否有判断失败 |
+| 梗百科一直不触发 | 鱼脑是不是 `live` 且 `inject`；梗百科总开关和自动预查有没有打开；这一轮是不是明确问梗，而不是普通两字词顺带出现；`fish-mind/diag.log` 有没有词库加载或覆盖层告警 |
 | 从来不主动搭话 | 总开关、试运行、安静时段；没有勾目标时会自动挑最近活跃的会话；看 `speak-up` 设置页的最近日志 |
 | 有文字但没声音 | 扩展是否安装、DeepSeek 页面是否登录并打开、朗读限额；这一轮是否已经被 QQ 认领 |
 | QQ 收不到或发不出 | NapCat 是否在 3000 端口、QQ 是否登录、目标会话是否归档、试运行是否还开着；这一轮是否已经被朗读认领 |

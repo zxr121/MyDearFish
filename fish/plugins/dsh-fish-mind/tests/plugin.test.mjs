@@ -638,7 +638,7 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
 
   const recall = harness.tools.get('recall')
   assert.ok(recall)
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'])
   const value = await recall.execute({ query: '海边' }, {})
   assert.equal(value.enabled, false)
   assert.equal(value.reason, 'shadow-mode')
@@ -1042,9 +1042,9 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   const agent = { session: session('session-new'), ctx }
   agents.push(agent)
   await ctx.emit('agent/created', { agent })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'])
   const names = harness.contexts.map((entry) => entry.name)
-  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor']) {
+  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
     assert.ok(names.includes(name), name)
   }
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
@@ -1079,18 +1079,57 @@ test('社交会话只挂记忆提示，不注册记忆工具', async () => {
   const social = { session: session('session-qq-social-group-7'), ctx }
   agents.push(social)
   await ctx.emit('agent/created', { agent: social })
-  assert.deepEqual([...harness.tools.keys()], [], '社交会话不能注册 recall/open_episode')
+  assert.deepEqual([...harness.tools.keys()], [], '社交会话不能注册 recall/open_episode/search_meme')
   assert.ok(harness.contexts.some((entry) => entry.name === 'fish-mind-workspace'), '记忆提示照常挂')
   assert.ok(!harness.sections.some((entry) => entry.name === 'fish-mind-protocol'), '没有工具就不挂记忆协议')
 
   const owner = { session: session('session-owner'), ctx }
   agents.push(owner)
   await ctx.emit('agent/created', { agent: owner })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'])
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
 
   await ctx.emit('agent/disposed', { agent: social })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall'], '摘掉社交代理不影响主人会话的工具')
+  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
+  ctx.dispose()
+})
+
+test('梗百科按语境预查：主人聊天里认梗，社交会话用群里的说法，难过时不插', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+
+  const ownerId = 'session-owner'
+  const socialId = 'session-qq-social-group-7'
+  const owner = { session: session(ownerId), ctx }
+  const social = { session: session(socialId), ctx }
+  agents.push(owner, social)
+  await ctx.emit('agent/created', { agent: owner })
+  await ctx.emit('agent/created', { agent: social })
+
+  const memes = harness.contexts.find((entry) => entry.name === 'fish-mind-memes')
+  assert.ok(memes, '梗百科提示要挂上')
+  const ownerAssembly = { agent: { session: session(ownerId) } }
+  const socialAssembly = { agent: { session: session(socialId) } }
+
+  await ctx.emit('session/event', session(ownerId), messageEvent('user/message', '今天太内卷了，受不了', { seq: 10 }))
+  assert.match(memes.text(ownerAssembly), /【梗百科·这轮提到的词·只是资料】/)
+  assert.equal(memes.text(socialAssembly), '', '主人私聊里的梗不跟到群里')
+
+  await ctx.emit('session/event', session(socialId), messageEvent('user/message', '今天太内卷了', {
+    seq: 11,
+    source: { kind: 'qq-group' },
+  }))
+  assert.match(memes.text(socialAssembly), /【梗百科·群里提到的词·只是资料】/)
+
+  await ctx.emit('session/event', session(ownerId), messageEvent('user/message', '今天太内卷了，我真的好难受', { seq: 12 }))
+  assert.equal(memes.text(ownerAssembly), '', '难过时先照顾情绪，不科普梗')
+
   ctx.dispose()
 })
 

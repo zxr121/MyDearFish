@@ -96,11 +96,11 @@ function response() {
   }
 }
 
-async function call(routes, path, { method = 'GET', body, headers } = {}) {
+async function call(routes, path, { method = 'GET', body, headers, url } = {}) {
   const route = routes.find((item) => item.path === path)
   assert.ok(route, `没有注册 ${path}`)
   const res = response()
-  await route.handler(request(method, path, body, headers), res)
+  await route.handler(request(method, url || path, body, headers), res)
   const json = (() => {
     try {
       return JSON.parse(res.body.toString('utf8'))
@@ -118,7 +118,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 8)
+  assert.equal(routes.length, 13)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -227,6 +227,110 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.match(again.json.error, /等重启/)
 
   const wrongMethod = await call(routes, '/dsh-fish-mind/import', { method: 'GET' })
+  assert.equal(wrongMethod.res.status, 405)
+
+  ctx.dispose()
+})
+
+test('梗百科接口：搜索、增删改、恢复和开关', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-settings-'))
+  const ctx = fakeContext()
+  const routes = []
+  ctx.set('agents', { list: () => [] })
+  ctx.set('webServer', fakeServer(routes))
+  apply(ctx)
+  assert.equal(routes.length, 13)
+
+  const search = await call(routes, '/dsh-fish-mind/memes', {
+    url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&page=1&pageSize=5',
+  })
+  assert.equal(search.res.status, 200)
+  assert.equal(search.json.ok, true)
+  assert.ok(search.json.total >= 1)
+  assert.ok(search.json.items.some((item) => item.title === '内卷'))
+
+  const blocked = await call(routes, '/dsh-fish-mind/memes/save', {
+    method: 'POST',
+    body: { title: '跨站写入', usage: '不该成功。' },
+    headers: { 'sec-fetch-site': 'cross-site' },
+  })
+  assert.equal(blocked.res.status, 403)
+
+  const created = await call(routes, '/dsh-fish-mind/memes/save', {
+    method: 'POST',
+    body: { title: '测试自建梗', tags: '测试、接口', usage: '接口测试用。' },
+  })
+  assert.equal(created.res.status, 200)
+  assert.equal(created.json.item.custom, true)
+  assert.equal(created.json.stats.custom, 1)
+
+  const custom = await call(routes, '/dsh-fish-mind/memes', {
+    url: '/dsh-fish-mind/memes?filter=custom&query=%E6%B5%8B%E8%AF%95',
+  })
+  assert.equal(custom.json.total, 1)
+
+  const edited = await call(routes, '/dsh-fish-mind/memes/save', {
+    method: 'POST',
+    body: {
+      id: created.json.item.id,
+      title: '测试自建梗',
+      tags: ['测试'],
+      usage: '改过的正文。',
+    },
+  })
+  assert.equal(edited.res.status, 200)
+  assert.equal(edited.json.item.usage, '改过的正文。')
+
+  const missingId = await call(routes, '/dsh-fish-mind/memes/delete', {
+    method: 'POST',
+    body: {},
+  })
+  assert.equal(missingId.res.status, 400)
+
+  const removed = await call(routes, '/dsh-fish-mind/memes/delete', {
+    method: 'POST',
+    body: { id: created.json.item.id },
+  })
+  assert.equal(removed.res.status, 200)
+  assert.equal(removed.json.stats.custom, 0)
+
+  const builtin = (await call(routes, '/dsh-fish-mind/memes', {
+    url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&pageSize=10',
+  })).json.items.find((item) => item.title === '内卷')
+  assert.ok(builtin)
+  const builtinId = builtin.id
+  await call(routes, '/dsh-fish-mind/memes/save', {
+    method: 'POST',
+    body: {
+      id: builtinId,
+      title: builtin.title,
+      tags: builtin.tags,
+      usage: '临时修改。',
+      origin: builtin.origin,
+    },
+  })
+  const deletedBuiltin = await call(routes, '/dsh-fish-mind/memes/delete', {
+    method: 'POST',
+    body: { id: builtinId },
+  })
+  assert.equal(deletedBuiltin.json.stats.deleted, 1)
+  const restored = await call(routes, '/dsh-fish-mind/memes/restore', {
+    method: 'POST',
+    body: { id: builtinId, original: true },
+  })
+  assert.equal(restored.res.status, 200)
+  assert.equal(restored.json.item.edited, false)
+  assert.equal(restored.json.stats.deleted, 0)
+
+  const config = await call(routes, '/dsh-fish-mind/memes/config', {
+    method: 'POST',
+    body: { enabled: false, tool: false },
+  })
+  assert.equal(config.res.status, 200)
+  assert.equal(config.json.config.enabled, false)
+  assert.equal(config.json.config.tool, false)
+
+  const wrongMethod = await call(routes, '/dsh-fish-mind/memes', { method: 'POST', body: {} })
   assert.equal(wrongMethod.res.status, 405)
 
   ctx.dispose()

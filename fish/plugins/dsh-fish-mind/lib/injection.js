@@ -13,6 +13,7 @@
 const MAX_SCAN_CHARS = 60_000
 
 const UNTRUSTED_PREFIXES = ['web_', 'browser_', 'bili_', 'computer_']
+const UNTRUSTED_TOOLS = new Set(['search_meme'])
 
 const PATTERNS = [
   // 覆盖/忽略原有规则
@@ -63,10 +64,11 @@ const PATTERNS = [
 /**
  * 这个工具的返回是否来自主人控制之外的外部内容。
  * @param {string} name - 工具名。
- * @returns {boolean} 网页、浏览器、B 站、computer-use 和 MCP 返回 true。
+ * @returns {boolean} 网页、浏览器、B 站、computer-use、梗词库和 MCP 返回 true。
  */
 export function isUntrustedTool(name) {
   if (typeof name !== 'string' || name === '') return false
+  if (UNTRUSTED_TOOLS.has(name)) return true
   if (UNTRUSTED_PREFIXES.some((prefix) => name.startsWith(prefix))) return true
   return name.startsWith('mcp__') || name.startsWith('mcp_')
 }

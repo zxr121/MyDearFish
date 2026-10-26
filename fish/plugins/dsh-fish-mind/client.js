@@ -5,6 +5,7 @@
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
  *   · 性格人设：整段人设前缀，保存后热应用；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
+ *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
  *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼。
  *
  * 总览里的记忆和人物志是资料，不是指令；页面不提供直接写库的按钮。
@@ -132,6 +133,38 @@ window.__ModuleLoader__.load({
 [data-fishap-icon]{font-size:32px;line-height:1;}
 [data-fishap-name]{font-size:18px;font-weight:600;}
 [data-fishap-sub]{font-size:12px;opacity:.6;margin-top:4px;line-height:1.5;}
+[data-fishmw-wrap]{display:flex;flex-direction:column;gap:14px;padding:4px 2px 32px;}
+[data-fishmw-hero]{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border-radius:12px;background:rgba(127,127,127,.08);}
+[data-fishmw-name]{font-size:18px;font-weight:600;}
+[data-fishmw-sub]{font-size:12px;opacity:.62;margin-top:4px;line-height:1.55;max-width:620px;}
+[data-fishmw-stats]{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+[data-fishmw-search]{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+[data-fishmw-search]>[data-fishm-input]{flex:1;min-width:220px;}
+[data-fishmw-filters]{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+[data-fishmw-filter]{padding:4px 11px;border-radius:999px;border:1px solid rgba(127,127,127,.28);background:transparent;color:inherit;font-size:12px;cursor:pointer;line-height:1.6;}
+[data-fishmw-filter]:hover{background:rgba(127,127,127,.12);}
+[data-fishmw-filter][data-on]{border-color:rgba(80,150,255,.65);background:rgba(80,150,255,.14);}
+[data-fishmw-toggles]{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;}
+[data-fishmw-toggle]{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border-radius:9px;background:rgba(127,127,127,.06);font-size:12px;line-height:1.55;cursor:pointer;}
+[data-fishmw-toggle] input{margin-top:2px;accent-color:#5096ff;flex:0 0 auto;}
+[data-fishmw-toggle][data-off]{opacity:.5;cursor:default;}
+[data-fishmw-toggletitle]{display:block;font-weight:600;font-size:13px;}
+[data-fishmw-togglenote]{font-size:11px;opacity:.62;display:block;margin-top:2px;}
+[data-fishmw-list]{display:flex;flex-direction:column;gap:7px;}
+[data-fishmw-row]{padding:10px 12px;border-radius:9px;background:rgba(127,127,127,.06);display:flex;flex-direction:column;gap:6px;}
+[data-fishmw-rowhead]{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+[data-fishmw-rowtitle]{font-size:14px;font-weight:600;}
+[data-fishmw-rowactions]{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
+[data-fishmw-rowactions [data-fishm-btn]{padding:3px 9px;font-size:12px;}
+[data-fishmw-snippet]{font-size:12px;line-height:1.6;opacity:.82;white-space:pre-wrap;word-break:break-word;}
+[data-fishmw-tags]{font-size:11px;opacity:.6;line-height:1.5;}
+[data-fishmw-confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;padding:7px 9px;border-radius:7px;background:rgba(220,120,80,.13);}
+[data-fishmw-pager]{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;opacity:.85;}
+[data-fishmw-form]{display:flex;flex-direction:column;gap:9px;padding:12px 14px;border-radius:10px;border:1px solid rgba(127,127,127,.22);}
+[data-fishmw-formgrid]{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:9px;}
+[data-fishmw-count]{font-size:12px;opacity:.65;}
+[data-fishmw-attrib]{font-size:11px;line-height:1.7;opacity:.55;padding-top:10px;border-top:1px solid rgba(127,127,127,.16);}
+[data-fishmw-attrib] a{color:inherit;}
 `
 
     function Section({ title, note, children }) {
@@ -1025,6 +1058,397 @@ window.__ModuleLoader__.load({
             }, '知道了'))))
     }
 
+    const MEME_FILTERS = [
+      ['all', '全部'],
+      ['builtin', '内置'],
+      ['custom', '自建'],
+      ['edited', '改过'],
+      ['deleted', '已删'],
+    ]
+    const MEME_PAGE_SIZE = 20
+    const MEME_TOGGLES = [
+      ['enabled', '启用梗百科', '关掉后不再预查，查询工具也会停用。'],
+      ['autoInject', '自动预查', '聊天里提到词库里的梗时，自动把用法带进那一轮。'],
+      ['socialInject', '群聊和好友也预查', '只在这个群或好友自己的会话里用；主人私下的记忆不会跟出去。'],
+      ['tool', '开放查询工具', '让模型遇到没把握的新词时主动查；群聊和好友会话始终不开放。'],
+    ]
+
+    function memeDraftFrom(item) {
+      return {
+        id: item.id || '',
+        title: item.title || '',
+        tags: Array.isArray(item.tags) ? item.tags.join('、') : '',
+        usage: item.usage || '',
+        origin: item.origin || '',
+        other: item.other || '',
+      }
+    }
+
+    function MemesPanel() {
+      const [query, setQuery] = React.useState('')
+      const [appliedQuery, setAppliedQuery] = React.useState('')
+      const [filter, setFilter] = React.useState('all')
+      const [page, setPage] = React.useState(1)
+      const [data, setData] = React.useState(null)
+      const [loading, setLoading] = React.useState(true)
+      const [msg, setMsg] = React.useState('')
+      const [msgKind, setMsgKind] = React.useState('')
+      const [editing, setEditing] = React.useState(null)
+      const [draft, setDraft] = React.useState(null)
+      const [confirm, setConfirm] = React.useState(null)
+      const [busy, setBusy] = React.useState('')
+      const [tick, setTick] = React.useState(0)
+
+      const note = (text, kind) => {
+        setMsg(text)
+        setMsgKind(kind || '')
+      }
+
+      React.useEffect(() => {
+        const timer = setTimeout(() => {
+          setAppliedQuery(query.trim())
+          setPage(1)
+        }, 250)
+        return () => clearTimeout(timer)
+      }, [query])
+
+      React.useEffect(() => {
+        let alive = true
+        setLoading(true)
+        const params = new URLSearchParams({
+          query: appliedQuery,
+          filter,
+          page: String(page),
+          pageSize: String(MEME_PAGE_SIZE),
+        })
+        getJson(`${API}/memes?${params.toString()}`)
+          .then((res) => {
+            if (!alive) return
+            setData(res)
+            if (res.page > res.pageCount) setPage(res.pageCount)
+          })
+          .catch((error) => {
+            if (alive) note(String((error && error.message) || error), 'error')
+          })
+          .finally(() => {
+            if (alive) setLoading(false)
+          })
+        return () => {
+          alive = false
+        }
+      }, [appliedQuery, filter, page, tick])
+
+      const run = async (label, action) => {
+        if (busy !== '') return
+        setBusy(label)
+        try {
+          await action()
+        } catch (error) {
+          note(String((error && error.message) || error), 'error')
+        } finally {
+          setBusy('')
+        }
+      }
+
+      const refresh = () => setTick((value) => value + 1)
+
+      const startNew = () => {
+        setEditing({ id: '', builtin: false, custom: false, edited: false })
+        setDraft(memeDraftFrom({}))
+        setConfirm(null)
+        note('')
+      }
+      const startEdit = (item) => {
+        setEditing(item)
+        setDraft(memeDraftFrom(item))
+        setConfirm(null)
+        note('')
+      }
+      const cancelEdit = () => {
+        setEditing(null)
+        setDraft(null)
+      }
+      const saveDraft = () => run('save', async () => {
+        if (draft.title.trim() === '') throw new Error('标题不能为空')
+        const creating = draft.id === ''
+        const result = await postJson(`${API}/memes/save`, draft)
+        setEditing(null)
+        setDraft(null)
+        if (creating) {
+          setQuery('')
+          setFilter('all')
+          setPage(1)
+        }
+        note(`已保存「${result.item.title}」`, 'ok')
+        refresh()
+      })
+      const removeItem = (item) => run(`delete:${item.id}`, async () => {
+        await postJson(`${API}/memes/delete`, { id: item.id })
+        setConfirm(null)
+        if (editing && editing.id === item.id) cancelEdit()
+        note(item.builtin
+          ? `已删除「${item.title}」，可以在“已删”里恢复`
+          : `已删除自建词条「${item.title}」`, 'ok')
+        refresh()
+      })
+      const restoreItem = (item, original) => run(`restore:${item.id}`, async () => {
+        await postJson(`${API}/memes/restore`, { id: item.id, original: original === true })
+        setConfirm(null)
+        if (editing && editing.id === item.id) cancelEdit()
+        note(original ? `已还原「${item.originalTitle || item.title}」的原文` : `已恢复「${item.title}」`, 'ok')
+        refresh()
+      })
+      const setToggle = (key, checked) => run(`config:${key}`, async () => {
+        const patch = key === 'autoInject'
+          ? { inject: checked, autoInject: checked }
+          : { [key]: checked }
+        const result = await postJson(`${API}/memes/config`, patch)
+        setData((current) => (current === null ? current : { ...current, config: result.config }))
+      })
+
+      const stats = (data && data.stats) || {}
+      const config = (data && data.config) || {}
+      const source = (data && data.source) || null
+      const items = list(data && data.items)
+      const total = Number.isFinite(data && data.total) ? data.total : 0
+      const pageCount = Number.isFinite(data && data.pageCount) ? data.pageCount : 1
+      const autoOn = config.inject === true && config.autoInject === true
+      const toggleValue = (key) => (key === 'autoInject' ? autoOn : config[key] === true)
+      const toggleDisabled = (key) => key !== 'enabled' && config.enabled !== true
+
+      const toggle = ([key, label, hint]) => h('label', {
+        'data-fishmw-toggle': '',
+        'data-off': toggleDisabled(key) ? '' : undefined,
+        key,
+      },
+        h('input', {
+          type: 'checkbox',
+          checked: toggleValue(key),
+          disabled: toggleDisabled(key) || busy !== '',
+          onChange: (event) => setToggle(key, event.target.checked),
+        }),
+        h('span', {},
+          h('span', { 'data-fishmw-toggletitle': '' }, label),
+          h('span', { 'data-fishmw-togglenote': '' }, hint)))
+
+      const field = (label, key, options = {}) => h('label', { 'data-fishm-field': '' },
+        h('span', { 'data-fishm-flabel': '' }, label),
+        options.area
+          ? h('textarea', {
+              'data-fishm-input': '',
+              'data-fishm-area': '',
+              rows: options.rows || 3,
+              value: draft[key],
+              placeholder: options.placeholder || '',
+              onChange: (event) => setDraft({ ...draft, [key]: event.target.value }),
+            })
+          : h('input', {
+              'data-fishm-input': '',
+              type: 'text',
+              value: draft[key],
+              maxLength: options.maxLength,
+              placeholder: options.placeholder || '',
+              onChange: (event) => setDraft({ ...draft, [key]: event.target.value }),
+            }),
+        options.hint ? h('span', { 'data-fishm-note': '' }, options.hint) : null)
+
+      const form = draft === null ? null : h('div', { 'data-fishmw-form': '' },
+        h('div', { 'data-fishm-h': '' },
+          editing && editing.id
+            ? (editing.builtin ? `修改内置词条「${editing.originalTitle || editing.title}」` : '修改自建词条')
+            : '新增词条'),
+        editing && editing.builtin
+          ? h('div', { 'data-fishm-note': '' }, '保存后只改这台机器上的副本；内置词库以后再更新，也不会覆盖你的修改。')
+          : null,
+        h('div', { 'data-fishmw-formgrid': '' },
+          field('标题', 'title', { maxLength: 64 }),
+          field('标签', 'tags', { placeholder: '用、或逗号分开，最多 20 个' })),
+        field('怎么用 / 怎么接', 'usage', { area: true, rows: 5 }),
+        field('出处', 'origin', { area: true, rows: 3, hint: '出处只用来帮你理解，她不会照搬。' }),
+        field('其它', 'other', { area: true, rows: 2 }),
+        h('div', { 'data-fishm-actions': '' },
+          h('button', {
+            'data-fishm-btn': '',
+            'data-primary': '',
+            type: 'button',
+            disabled: busy !== '',
+            onClick: saveDraft,
+          }, busy === 'save' ? '保存中…' : '保存'),
+          h('button', { 'data-fishm-btn': '', type: 'button', onClick: cancelEdit }, '取消'),
+          editing && editing.builtin && editing.edited
+            ? h('button', {
+                'data-fishm-btn': '',
+                type: 'button',
+                onClick: () => setConfirm({ kind: 'original', id: editing.id }),
+              }, '还原原文')
+            : null,
+          confirm && confirm.kind === 'original' && editing && confirm.id === editing.id
+            ? h('span', { 'data-fishmw-confirm': '' },
+                '还原会丢掉你改过的内容，只恢复内置原文。',
+                h('button', {
+                  'data-fishm-btn': '',
+                  type: 'button',
+                  disabled: busy !== '',
+                  onClick: () => restoreItem(editing, true),
+                }, '确认还原'),
+                h('button', { 'data-fishm-btn': '', type: 'button', onClick: () => setConfirm(null) }, '取消'))
+            : null))
+
+      const row = (item) => {
+        const flags = []
+        flags.push(item.builtin ? ['', '内置'] : ['on', '自建'])
+        if (item.edited) flags.push(['warn', '改过'])
+        if (item.deleted) flags.push(['off', '已删'])
+        return h('div', { 'data-fishmw-row': '', key: item.id },
+          h('div', { 'data-fishmw-rowhead': '' },
+            h('span', { 'data-fishmw-rowtitle': '' }, item.title),
+            item.originalTitle
+              ? h('span', { 'data-fishm-chip': '' }, `原型：${item.originalTitle}`)
+              : null,
+            flags.map(([kind, label], index) => h('span', { 'data-fishm-chip': kind, key: index }, label)),
+            h('span', { 'data-fishmw-rowactions': '' },
+              item.deleted
+                ? h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    disabled: busy !== '',
+                    onClick: () => restoreItem(item, false),
+                  }, '恢复')
+                : h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    disabled: busy !== '',
+                    onClick: () => startEdit(item),
+                  }, '编辑'),
+              !item.deleted && item.builtin && item.edited
+                ? h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    disabled: busy !== '',
+                    onClick: () => setConfirm({ kind: 'original', id: item.id }),
+                  }, '还原原文')
+                : null,
+              !item.deleted
+                ? h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    disabled: busy !== '',
+                    onClick: () => setConfirm({ kind: 'delete', id: item.id }),
+                  }, '删除')
+                : null)),
+          item.tags.length > 0 ? h('div', { 'data-fishmw-tags': '' }, item.tags.join('、')) : null,
+          h('div', { 'data-fishmw-snippet': '' }, item.snippet || item.usage || item.origin || '（还没有正文）'),
+          confirm && confirm.id === item.id && confirm.kind === 'delete'
+            ? h('div', { 'data-fishmw-confirm': '' },
+                item.builtin
+                  ? '删除这条内置词条？之后可以在“已删”里恢复。'
+                  : '删除这条自建词条？删了就找不回来了。',
+                h('button', {
+                  'data-fishm-btn': '',
+                  type: 'button',
+                  disabled: busy !== '',
+                  onClick: () => removeItem(item),
+                }, '确认删除'),
+                h('button', { 'data-fishm-btn': '', type: 'button', onClick: () => setConfirm(null) }, '取消'))
+            : null,
+          confirm && confirm.id === item.id && confirm.kind === 'original'
+            ? h('div', { 'data-fishmw-confirm': '' },
+                '还原会丢掉你改过的内容，只恢复内置原文。',
+                h('button', {
+                  'data-fishm-btn': '',
+                  type: 'button',
+                  disabled: busy !== '',
+                  onClick: () => restoreItem(item, true),
+                }, '确认还原'),
+                h('button', { 'data-fishm-btn': '', type: 'button', onClick: () => setConfirm(null) }, '取消'))
+            : null)
+      }
+
+      return h('div', { 'data-fishmw-wrap': '' },
+        h('div', { 'data-fishmw-hero': '' },
+          h('div', {},
+            h('div', { 'data-fishmw-name': '' }, '梗百科'),
+            h('div', { 'data-fishmw-sub': '' }, '网络梗、流行语和黑话的本地词库。她聊天时会按语境取用；这里有完整搜索、增删改和开关。')),
+          h('div', { 'data-fishmw-stats': '' },
+            h('span', { 'data-fishm-chip': '' }, `词条 ${num(stats.total)}`),
+            h('span', { 'data-fishm-chip': '' }, `内置 ${num(stats.builtin)}`),
+            h('span', { 'data-fishm-chip': '' }, `自建 ${num(stats.custom)}`),
+            h('span', { 'data-fishm-chip': stats.edited > 0 ? 'warn' : '' }, `改过 ${num(stats.edited)}`),
+            h('span', { 'data-fishm-chip': stats.deleted > 0 ? 'warn' : '' }, `已删 ${num(stats.deleted)}`))),
+        data && data.warning ? h('div', { 'data-fishm-banner': '' }, data.warning) : null,
+        msg !== '' ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null,
+        h('div', { 'data-fishm-sec': '' },
+          h('div', { 'data-fishm-h': '' }, '用法开关'),
+          h('div', { 'data-fishm-note': '' }, '自动预查只在她本人聊天时生效；群聊和好友会话只取本群自己的上下文，不碰主人私下的记忆。'),
+          h('div', { 'data-fishmw-toggles': '' }, MEME_TOGGLES.map(toggle))),
+        h('div', { 'data-fishm-sec': '' },
+          h('div', { 'data-fishm-h': '' }, '查词与维护'),
+          h('div', { 'data-fishmw-search': '' },
+            h('input', {
+              'data-fishm-input': '',
+              type: 'search',
+              value: query,
+              placeholder: '搜标题、标签或正文；多个词用空格分开',
+              'aria-label': '搜索梗百科',
+              onChange: (event) => setQuery(event.target.value),
+            }),
+            query !== '' ? h('button', {
+              'data-fishm-btn': '',
+              type: 'button',
+              onClick: () => setQuery(''),
+            }, '清空') : null,
+            h('button', { 'data-fishm-btn': '', type: 'button', onClick: startNew }, '＋ 新增词条')),
+          h('div', { 'data-fishmw-filters': '' },
+            MEME_FILTERS.map(([value, label]) => h('button', {
+              key: value,
+              type: 'button',
+              'data-fishmw-filter': '',
+              'data-on': filter === value ? '' : undefined,
+              onClick: () => {
+                setFilter(value)
+                setPage(1)
+              },
+            }, label)),
+            h('span', { 'data-fishmw-count': '' }, loading ? '查询中…' : `共 ${total} 条`))),
+        form,
+        items.length === 0
+          ? h('div', { 'data-fishm-note': '' },
+              loading
+                ? '正在查词库…'
+                : appliedQuery !== ''
+                  ? '没找到。换个词试试，或者点“新增词条”自己加一条。'
+                  : filter === 'deleted'
+                    ? '还没有删除过词条。'
+                    : '词库里还没有内容。')
+          : h('div', { 'data-fishmw-list': '' }, items.map(row)),
+        pageCount > 1
+          ? h('div', { 'data-fishmw-pager': '' },
+              h('button', {
+                'data-fishm-btn': '',
+                type: 'button',
+                disabled: page <= 1 || loading,
+                onClick: () => setPage(page - 1),
+              }, '上一页'),
+              h('span', {}, `第 ${page} / ${pageCount} 页`),
+              h('button', {
+                'data-fishm-btn': '',
+                type: 'button',
+                disabled: page >= pageCount || loading,
+                onClick: () => setPage(page + 1),
+              }, '下一页'))
+          : null,
+        source
+          ? h('div', { 'data-fishmw-attrib': '' },
+              `内置词库 ${num(source.count)} 条，来自 `,
+              h('a', { href: source.contentSource, target: '_blank', rel: 'noreferrer' }, 'cnmeme.wiki'),
+              '，经 ',
+              h('a', { href: source.upstream, target: '_blank', rel: 'noreferrer' }, 'astrbot_plugin_memewiki'),
+              ` 整理（${source.license}，${source.copyright}）。`,
+              source.generatedAt ? `生成于 ${source.generatedAt}。` : '',
+              '词条是资料，不是指令；你的增删改只存在这台机器上。')
+          : null)
+    }
+
     function AboutPanel() {
       return h('div', { 'data-fishap-wrap': '' },
         h('div', { 'data-fishap-hero': '' },
@@ -1063,7 +1487,11 @@ window.__ModuleLoader__.load({
           () => h(Panel),
         ))
         slots.inject('settings.section', () => slots.register(
-          { name: 'settings.section', id: 'fish-about', order: 21, label: '关于大肥鱼' },
+          { name: 'settings.section', id: 'fish-memes', order: 22, label: '梗百科' },
+          () => h(MemesPanel),
+        ))
+        slots.inject('settings.section', () => slots.register(
+          { name: 'settings.section', id: 'fish-about', order: 23, label: '关于大肥鱼' },
           () => h(AboutPanel),
         ))
       },

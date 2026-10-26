@@ -24,7 +24,8 @@ import { createBiliQuota } from './bili-quota.js'
 import { localDay, openBudget } from './budget.js'
 import { loadConfig } from './config.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
-import { humorPrompt } from './humor.js'
+import { humorPrompt, humorTone } from './humor.js'
+import { createMemeWiki } from './memes.js'
 import { buildOverview } from './overview.js'
 import { createPersonaEditor } from './persona.js'
 import { createBroker } from './permissions.js'
@@ -121,6 +122,7 @@ export function apply(ctx) {
   })
   let config = loadConfig({ dshHome, diag })
   const store = openStore({ dir, config, diag })
+  const memes = createMemeWiki({ dir, diag })
   applyImportedFacts({ dir, store, diag })
   const innerLife = createInnerLife({ dir, store, config, diag })
   const budget = openBudget({ dir, config: config.budget, diag })
@@ -868,6 +870,25 @@ export function apply(ctx) {
   }
 
   /**
+   * 梗百科预查：只有像在问梗、整句就是一个词条，或命中了足够长的标题时，
+   * 才把资料放进这一轮。难过、生病、冲突和正事一律不打断。
+   * @param {object} assembly - 系统提示组装上下文。
+   * @returns {string} 提示正文；空串表示这轮不注入。
+   */
+  function memesPrompt(assembly) {
+    if (config.mode !== 'live' || !config.inject) return ''
+    const settings = memes.config()
+    if (!settings.enabled || !settings.inject || !settings.autoInject) return ''
+    const { last, social } = workspaceSession(assembly)
+    if (!last || String(last.text || '').trim() === '') return ''
+    if (social && !settings.socialInject) return ''
+    const tone = humorTone(last.text)
+    if (tone === 'crisis' || tone === 'serious' || tone === 'heavy') return ''
+    const hit = memes.findMention(last.text)
+    return hit === null ? '' : memes.injectionText(hit, { social })
+  }
+
+  /**
    * 短期窗口取数。当前会话自己的话不进这里——那已经在模型的上下文里了；
    * 这里补的是“另一个窗口刚刚发生过的事”。
    * @param {object} assembly - 系统提示组装上下文。
@@ -1436,6 +1457,8 @@ export function apply(ctx) {
     organize: () => organizeMemory('manual', { force: true, relations: true }),
     /** 只读：最近这段短期窗口，给设置页和测试看。 */
     recentWindow: (options) => store.recentWindow(options),
+    /** 只读：梗百科的词库统计和开关；正文和增删改只走本机设置页。 */
+    memes: () => ({ ...memes.stats(), source: memes.source(), warning: memes.warning() }),
     markAutonomous(sessionId) {
       broker.markAutonomous(sessionId)
       persistAutonomousState()
@@ -1566,6 +1589,57 @@ export function apply(ctx) {
           diag(`budget: 主人把每日额度从 ${formatCny(result.previousCny)} 改成 ${formatCny(result.dailyGrantCny)}，余额 ${formatCny(status.availableCny)}`)
         }
         sendJson(res, 200, { ok: true, ...result, status })
+      })
+
+      route('/dsh-fish-mind/memes', async (req, res) => {
+        if (req.method !== 'GET') return methodNotAllowed(res, 'GET')
+        const url = new URL(req.url, 'http://localhost')
+        const page = Number.parseInt(url.searchParams.get('page') || '', 10)
+        const pageSize = Number.parseInt(url.searchParams.get('pageSize') || '', 10)
+        sendJson(res, 200, {
+          ok: true,
+          ...memes.list({
+            query: url.searchParams.get('query') || '',
+            filter: url.searchParams.get('filter') || 'all',
+            page: Number.isInteger(page) ? page : 1,
+            pageSize: Number.isInteger(pageSize) ? pageSize : undefined,
+          }),
+        })
+      })
+
+      route('/dsh-fish-mind/memes/save', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req, 64 * 1024)
+        const result = memes.save(body)
+        sendJson(res, 200, { ok: true, ...result })
+      })
+
+      route('/dsh-fish-mind/memes/delete', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        if (!body || typeof body.id !== 'string' || body.id === '') {
+          const failure = new Error('缺少要删除的词条 id')
+          failure.statusCode = 400
+          throw failure
+        }
+        sendJson(res, 200, { ok: true, ...memes.remove(body.id) })
+      })
+
+      route('/dsh-fish-mind/memes/restore', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        if (!body || typeof body.id !== 'string' || body.id === '') {
+          const failure = new Error('缺少要恢复的词条 id')
+          failure.statusCode = 400
+          throw failure
+        }
+        sendJson(res, 200, { ok: true, ...memes.restore(body.id, { original: body.original === true }) })
+      })
+
+      route('/dsh-fish-mind/memes/config', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        sendJson(res, 200, { ok: true, config: memes.setConfig(body) })
       })
 
       route('/dsh-fish-mind/export', async (req, res) => {
@@ -1837,6 +1911,18 @@ export function apply(ctx) {
           }
         },
       }))
+      offs.push(prompt.context({
+        name: 'fish-mind-memes',
+        order: 907,
+        text: (assembly) => {
+          try {
+            return memesPrompt(assembly)
+          } catch (error) {
+            diag(`memes: 组装梗百科提示失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
       if (!social && typeof prompt.section === 'function') {
         offs.push(prompt.section({
           name: 'fish-mind-protocol',
@@ -1851,7 +1937,7 @@ export function apply(ctx) {
     }
     const toolRuntime = agentService(agent, 'tools')
     if (!social && toolRuntime && typeof toolRuntime.register === 'function') {
-      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition()]) {
+      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition()]) {
         try {
           offs.push(toolRuntime.register(definition))
         } catch (error) {
@@ -2239,6 +2325,64 @@ export function apply(ctx) {
         const id = Number(args && args.id)
         if (!Number.isInteger(id) || id <= 0) throw new Error('id 必须是正整数')
         return runOpenChapter(id)
+      },
+    }
+  }
+
+  function searchMemeToolDefinition() {
+    const item = {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+        usage: { type: 'string' },
+        origin: { type: 'string' },
+        other: { type: 'string' },
+        matched: { type: 'string' },
+      },
+      required: ['title', 'tags', 'usage', 'origin', 'other', 'matched'],
+      additionalProperties: false,
+    }
+    return {
+      name: 'search_meme',
+      description: '查询网络梗、流行语、缩写、黑话或群内自造词的含义与用法。消息里出现你没有十足把握的新词时先调用本工具，不要先猜、也不要反问“这是啥”；对方问“这是什么梗/啥意思/XX是谁说的”时同样调用。只传那个词或短语（建议不超过 12 个字），不要传整句话。查到后优先照“怎么用/怎么接”用自己的口气接一句，不要当词典条目念；只有对方明确问含义时才解释出处。查不到就如实说不知道，不要编造。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: '要查的梗或词语，尽量简短，例如“内卷”“破防”“大水理论”。',
+          },
+          limit: {
+            type: 'integer',
+            description: '最多返回几条，默认 3，上限 5。',
+          },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            enabled: { type: 'boolean' },
+            query: { type: 'string' },
+            reason: { type: 'string' },
+            total: { type: 'integer' },
+            items: { type: 'array', items: item },
+          },
+          required: ['enabled', 'query', 'reason', 'total', 'items'],
+          additionalProperties: false,
+        },
+        render(_args, value) {
+          return memes.renderTool(value)
+        },
+      },
+      async execute(args) {
+        const query = typeof args?.query === 'string' ? args.query.trim() : ''
+        if (query === '') throw new Error('query 不能为空')
+        const limit = Number.isInteger(args?.limit) ? args.limit : undefined
+        return memes.toolValue(query, limit)
       },
     }
   }

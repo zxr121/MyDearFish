@@ -509,7 +509,7 @@ This layer judges only the current user message by surface cues and calls no mod
 
 Explicit non-goals: no joke library, no rotating catchphrases, no memes or canned slang as a substitute for wit, no aggressive humor disguised as directness, no self-degradation for sympathy, and no joking while the other person is sad, ill, asking for help, or rushing a deadline. Humor is an expression of closeness, not a tool for crossing boundaries, softening a refusal, probing private matters, or avoiding a serious answer.
 
-In implementation, `fish-mind` gains `humor.js` (pure functions) and the `fish-mind-humor` prompt context (order 909), which appears only when `mode=live`, `inject=true`, and `humor.inject` is true. It stays empty when there is no current user message, the tone does not fit, or a group has no joking atmosphere. The layer makes only regex decisions and adds no model call; the prompt is about five hundred characters and travels with the main reply each turn.
+In implementation, `fish-mind` gains `humor.js` (pure functions) and the `fish-mind-humor` prompt context (order 909), which appears only when `mode=live`, `inject=true`, and `humor.inject` is true. It stays empty when there is no current user message, the tone does not fit, or a group has no joking atmosphere. The layer makes only regex decisions and adds no model call; the prompt is about five hundred characters and travels with the main reply each turn. A bundled local meme wiki only explains unfamiliar slang before the turn; it supplies usage and origin as reference, not a stock of jokes or catchphrases, so the no-joke-library rule still holds.
 
 ### Self and narrative
 
