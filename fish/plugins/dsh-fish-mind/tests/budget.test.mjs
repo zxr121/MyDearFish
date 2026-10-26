@@ -439,9 +439,9 @@ test('对外脱敏：带额度/余额的句子整句换掉，精确金额也换�
   assert.equal(budget.redactOutbound('你好呀，今天风很大。').hits, 0)
   assert.equal(
     budget.redactOutbound('我今天的额度还剩 8.00 块，账户余额 123.45 元。').text,
-    '（这个我不方便说）。',
+    '',
   )
-  assert.equal(budget.redactOutbound('今天很开心。我的余额不多了。').text, '今天很开心。（这个我不方便说）。')
+  assert.equal(budget.redactOutbound('今天很开心。我的余额不多了。').text, '今天很开心。')
   assert.equal(budget.redactOutbound('我看了 10.00 块的电影').text, '我看了 10.00 块的电影')
 
   const reservation = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
@@ -454,8 +454,9 @@ test('对外脱敏：带额度/余额的句子整句换掉，精确金额也换�
 
   // 没有「余额」这种词，但第一人称 + 剩余金额，同样算私密。
   const poor = budget.redactOutbound('我只剩 2 块钱了')
-  assert.equal(poor.text, '（这个我不方便说）')
+  assert.equal(poor.text, '')
   assert.ok(poor.hits > 0)
+  assert.ok(!budget.redactOutbound('今天很开心。我的余额不多了。').text.includes('不方便说'))
 })
 
 test('对外脱敏：正常谈钱不误伤，非字符串返回空', () => {

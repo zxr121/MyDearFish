@@ -646,8 +646,9 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
 
   /**
    * 对外脱敏：QQ、B 站评论/私信、任何离开本机的内容都要先过这里。
-   * 带“余额/额度/账本”等词的一整句直接换掉；其余句子清掉货币金额；
+   * 带“余额/额度/账本”等词的一整句直接删掉；其余句子清掉货币金额；
    * 即使没有这些词，只要出现了账本里精确到分的私密数字，也会被换掉。
+   * 整条只剩私密内容时返回空串，调用方据此整条不发。
    * @param {string} text - 准备发出去的文本。
    * @returns {{text:string, hits:number, reasons:string[]}} 处理后的文本与命中原因。
    */
@@ -664,13 +665,19 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       reasons.push('budget-word')
       const parts = output.split(/([。！？!?]+|\n+)/)
       let rebuilt = ''
+      let dropped = false
       for (let index = 0; index < parts.length; index += 2) {
         const body = parts[index] || ''
         const delimiter = parts[index + 1] || ''
-        if (BUDGET_WORDS.test(body) || PRIVATE_MONEY.test(body)) rebuilt += '（这个我不方便说）' + delimiter
-        else rebuilt += scrubAmounts(body) + delimiter
+        if (BUDGET_WORDS.test(body) || PRIVATE_MONEY.test(body)) {
+          dropped = true
+          // 换行分隔必须留住，否则删掉中间一句会把前后两句粘成一句。
+          if (delimiter.includes('\n')) rebuilt += '\n'
+        } else {
+          rebuilt += scrubAmounts(body) + delimiter
+        }
       }
-      output = rebuilt
+      output = dropped ? rebuilt.replace(/\n{2,}/g, '\n').trim() : rebuilt
     }
 
     for (const amount of knownAmounts()) {

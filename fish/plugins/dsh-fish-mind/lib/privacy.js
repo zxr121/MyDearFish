@@ -2,7 +2,8 @@
 //
 // 四道口子都在这里准备：
 //   · redact(text, mode) —— 把值换成标签。tool 模式只清秘密，保留路径（工具还要用）；
-//     local 模式再清主机名、用户名和本机路径；outbound 模式连路径和整句都换掉。
+//     local 模式再清主机名、用户名和本机路径；outbound 模式连路径和整句都删掉，
+//     整条只剩私密内容就返回空，让调用方失败关闭而不是发一句拒绝话术。
 //   · protectStream —— 模型输出一边流一边清，块结束时用整段再清一遍兜底。
 //   · hasCredential —— 工具参数里出现真凭据时，给 Capability Broker 一个硬拒绝的理由。
 //   · learn —— 用户亲口贴出来的密码/令牌，进程内记住；不落盘，重启就忘。
@@ -14,7 +15,6 @@ import { homedir, hostname, networkInterfaces, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { scrub } from './sanitize.js'
 
-const REFUSAL = '（这个我不方便说）'
 const HOLD_CHARS = 24
 const HOLD_TOKENS = 6
 const MAX_LEARNED = 120
@@ -346,15 +346,19 @@ export function createPrivacyGuard({ dshHome = join(homedir(), '.dsh'), diag = (
     })
 
     if (mode === 'outbound') {
+      let dropped = false
       out = splitSentences(out)
         .map(([body, delimiter]) => {
           if (!OUTBOUND_WORDS.test(body)) return body + delimiter
           if (/不方便说|不想说|不能说/.test(body) && !hasConcreteValue(body)) return body + delimiter
           if (!hasConcreteValue(body) && !hasCopula(body)) return body + delimiter
           bump('outbound-private')
-          return REFUSAL + delimiter
+          dropped = true
+          // 换行分隔必须留住，否则删掉中间一句会把前后两句粘成一句。
+          return delimiter.includes('\n') ? '\n' : ''
         })
         .join('')
+      if (dropped) out = out.replace(/\n{2,}/g, '\n').trim()
     }
 
     const cleaned = scrub(out)
@@ -721,7 +725,6 @@ export function createPrivacyGuard({ dshHome = join(homedir(), '.dsh'), diag = (
     redactBlock,
     describe,
     addPrivatePath,
-    refusal: () => REFUSAL,
     exactCount: () => facts.length,
     learnedCount: () => learned.size,
   }

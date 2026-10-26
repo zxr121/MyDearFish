@@ -33,12 +33,25 @@ test('tool：保留路径和用户名，只清真正的秘密', () => {
   }
 })
 
-test('outbound：谈本机信息的整句直接换掉，正常句子保留', () => {
+test('outbound：谈本机信息的整句直接删掉，正常句子保留', () => {
   const guard = makeGuard()
   const result = guard.redact(`这台电脑的主机名是 ${hostname()}。今天天气不错。`, 'outbound')
   assert.ok(!result.text.includes(hostname()), result.text)
-  assert.ok(result.text.includes('（这个我不方便说）'), result.text)
-  assert.ok(result.text.includes('今天天气不错'), result.text)
+  assert.ok(!result.text.includes('不方便说'), result.text)
+  assert.equal(result.text, '今天天气不错。')
+})
+
+test('outbound：整条都是私密内容就删空，不发拒绝话术', () => {
+  const guard = makeGuard()
+  const result = guard.redact(`这台电脑的主机名是 ${hostname()}`, 'outbound')
+  assert.equal(result.text, '')
+  assert.ok(result.hits > 0)
+})
+
+test('outbound：删中间一句不会把前后两句粘起来', () => {
+  const guard = makeGuard()
+  const result = guard.redact(`今天天气不错\n主机名是 ${hostname()}\n晚上吃鱼`, 'outbound')
+  assert.equal(result.text, '今天天气不错\n晚上吃鱼')
 })
 
 test('outbound：盘符路径和账号密码都留不下', () => {
