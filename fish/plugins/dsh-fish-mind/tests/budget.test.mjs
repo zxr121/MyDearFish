@@ -13,6 +13,7 @@ import {
   normalizePeakHours,
   normalizePrice,
   normalizePriceEntry,
+  officialPrices,
   openBudget,
   resolvePrice,
 } from '../lib/budget.js'
@@ -565,4 +566,71 @@ test('B 站巡检额度按天重置，旧账本没有巡检字段就按 0 读', 
   clock = clockAt(1)
   assert.equal(budget.status().bili.spentTodayCny, 0)
   assert.equal(budget.reserve({ provider: 'p', model: 'm' }, 'bili').ok, true)
+})
+
+test('价目表升级后旧账本按当前价重算，多扣的退回钱包，只重算一次', () => {
+  const dir = tempDir()
+  const day = '2026-10-21'
+  const at = new Date(2026, 9, 21, 10, 0, 0).getTime()
+  // 旧账本按偏高的默认价记了 ¥3.20：10 万输入、100 万缓存读、1 万输出。
+  writeFileSync(join(dir, 'budget.json'), JSON.stringify({
+    version: 1,
+    createdAt: new Date(at).toISOString(),
+    createdAtDay: day,
+    dailyGrantCny: 10,
+    walletCny: 6.8,
+    lastGrantDay: day,
+    days: { [day]: { spentCny: 3.2, calls: 1, unmetered: 0, biliSpentCny: 0, biliCalls: 0 } },
+  }) + '\n', 'utf8')
+  writeFileSync(join(dir, 'budget-ledger.jsonl'), JSON.stringify({
+    type: 'spend',
+    at,
+    day,
+    provider: 'deepseek-official',
+    model: 'deepseek-flash',
+    costCny: 3.2,
+    usage: { inputTokens: 100_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 0, outputTokens: 10_000 },
+  }) + '\n', 'utf8')
+
+  const config = baseConfig({ prices: officialPrices() })
+  const first = openBudget({ dir, config, now: () => at })
+  assert.equal(first.status().spentTodayCny, 0.32)
+  assert.equal(first.status().walletCny, 9.68)
+  const calibrate = readLedger(dir).filter((entry) => entry.type === 'calibrate')
+  assert.equal(calibrate.length, 1)
+  assert.equal(calibrate[0].deltaCny, 2.88)
+  assert.equal(calibrate[0].walletAfterCny, 9.68)
+
+  const second = openBudget({ dir, config, now: () => at })
+  assert.equal(second.status().walletCny, 9.68)
+  assert.equal(readLedger(dir).filter((entry) => entry.type === 'calibrate').length, 1)
+})
+
+test('水流条数对不上的那天不重算，免得拿残缺账本退钱', () => {
+  const dir = tempDir()
+  const day = '2026-10-21'
+  const at = new Date(2026, 9, 21, 10, 0, 0).getTime()
+  writeFileSync(join(dir, 'budget.json'), JSON.stringify({
+    version: 1,
+    createdAt: new Date(at).toISOString(),
+    createdAtDay: day,
+    dailyGrantCny: 10,
+    walletCny: 6.8,
+    lastGrantDay: day,
+    days: { [day]: { spentCny: 3.2, calls: 2, unmetered: 0, biliSpentCny: 0, biliCalls: 0 } },
+  }) + '\n', 'utf8')
+  writeFileSync(join(dir, 'budget-ledger.jsonl'), JSON.stringify({
+    type: 'spend',
+    at,
+    day,
+    provider: 'deepseek-official',
+    model: 'deepseek-flash',
+    costCny: 1.6,
+    usage: { inputTokens: 50_000, cacheReadTokens: 500_000, cacheWriteTokens: 0, outputTokens: 5_000 },
+  }) + '\n', 'utf8')
+
+  const budget = openBudget({ dir, config: baseConfig({ prices: officialPrices() }), now: () => at })
+  assert.equal(budget.status().spentTodayCny, 3.2)
+  assert.equal(budget.status().walletCny, 6.8)
+  assert.equal(readLedger(dir).filter((entry) => entry.type === 'calibrate').length, 0)
 })

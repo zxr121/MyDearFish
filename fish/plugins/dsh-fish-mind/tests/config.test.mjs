@@ -104,6 +104,9 @@ test('预算默认开着，每天额度不在配置里，价格逐字段归一',
   assert.equal(defaults.budget.balanceRefreshMinutes, 15)
   assert.equal(defaults.budget.biliShare, 0.25)
   assert.equal(defaults.budget.defaultPrice.input, 4)
+  // 她自己的路由出厂按 DeepSeek 官方峰谷价，钱包才对得上账单。
+  assert.equal(defaults.budget.prices['deepseek-official/deepseek-flash'].cacheRead, 0.04)
+  assert.equal(defaults.budget.prices['deepseek-official/deepseek-flash'].offPeak.cacheRead, 0.02)
 
   const config = normalizeConfig({
     budget: {
@@ -123,6 +126,16 @@ test('预算默认开着，每天额度不在配置里，价格逐字段归一',
   assert.deepEqual(config.budget.defaultPrice, { input: 0, cacheRead: 0, cacheWrite: 0, output: 20, reasoning: 0 })
   assert.deepEqual(config.budget.prices['p/m'], { input: 2, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 })
   assert.equal(config.budget.prices.bad, undefined)
+  // 空 prices 和没写的路由都保留出厂价；按路由覆盖才改价。
+  assert.equal(config.budget.prices['deepseek-official/deepseek-flash'].output, 8)
+  const empty = normalizeConfig({ budget: { prices: {} } }, { dshHome: home })
+  assert.equal(empty.budget.prices['deepseek-official/deepseek-flash'].cacheRead, 0.04)
+  const overridden = normalizeConfig({
+    budget: { prices: { 'deepseek-official/deepseek-flash': { output: 1 } } },
+  }, { dshHome: home })
+  assert.deepEqual(overridden.budget.prices['deepseek-official/deepseek-flash'], {
+    input: 0, cacheRead: 0, cacheWrite: 0, output: 1, reasoning: 0,
+  })
 })
 
 test('B 站巡检占比超出 0–1 就夹住，坏值退回默认', () => {

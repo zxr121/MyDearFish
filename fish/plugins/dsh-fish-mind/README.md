@@ -247,12 +247,12 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 
 ### 价格
 
-仓库里没有文本 token 价目表，默认价是保守估算，按每百万 token 的人民币价：输入 ¥4、缓存读 ¥1、缓存写 ¥4、输出 ¥16、reasoning ¥0。可以在 `config.json` 里按路由覆盖：
+她自己的路由 `deepseek-official/deepseek-flash` 出厂就带 DeepSeek 官方峰谷价，按每百万 token 的人民币价：高峰输入 ¥2、缓存读 ¥0.04、缓存写 ¥2、输出 ¥8；谷时和周末减半为 ¥1 / ¥0.02 / ¥1 / ¥4；工作日 09–12、14–18 为高峰。账本按本机时钟切换峰谷价，钱包里的余额因此对应真实账单。没配到的路由仍用偏高的默认价（输入 ¥4、缓存读 ¥1、缓存写 ¥4、输出 ¥16、reasoning ¥0），宁可提前停，也不要把主人的钱花超。可以在 `config.json` 里按路由覆盖；`prices` 写空或只写部分路由时，出厂价继续生效：
 
 ```json
 "budget": {
   "prices": {
-    "deepseek/deepseek-flash": {
+    "deepseek-official/deepseek-flash": {
       "input": 2, "cacheRead": 0.04, "cacheWrite": 2, "output": 8,
       "offPeak": { "input": 1, "cacheRead": 0.02, "cacheWrite": 1, "output": 4 },
       "peakHours": [[9, 12], [14, 18]],
@@ -264,7 +264,9 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 }
 ```
 
-查找顺序是 `provider/model` → `model` → `provider` → `defaultPrice`。基础五项是高峰价；`offPeak`、`peakHours`、`peakDays` 齐全时，按本机时钟在高峰价和谷时价之间切换。`peakDays` 用 0=周日 … 6=周六，不写就是每天；区间左闭右开。日程缺项或写坏就只按基础价算，仍然偏高而不是漏算。把路由配成官方单价后，钱包里的额度就对应真实账单；没配的路由继续用偏高的默认价。
+查找顺序是 `provider/model` → `model` → `provider` → `defaultPrice`。基础五项是高峰价；`offPeak`、`peakHours`、`peakDays` 齐全时，按本机时钟在高峰价和谷时价之间切换。`peakDays` 用 0=周日 … 6=周六，不写就是每天；区间左闭右开。日程缺项或写坏就只按基础价算，仍然偏高而不是漏算。
+
+账本的价目表版本（`budget.json` 里的 `pricingVersion`）落后时，升级后第一次启动会按当前价重算每一天的花费，把多扣的差额退回钱包，并写一条 `calibrate` 流水；一天的水流条数和记账次数对不上就跳过那天，免得拿残缺账本重算。已经按官方价记过账的实例重算差额是 0。
 
 ### 余额与隐私
 

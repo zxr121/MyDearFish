@@ -5,9 +5,9 @@
 //   · 每一次模型调用都算花钱：说话、思考、判断心情、刷 B 站、压缩上下文，全部经过 llm/stream 结算。
 //   · 账户余额只给她自己看；对外通道（QQ、B 站评论/私信）在代码层再做一道脱敏。
 //
-// 价格是估算：仓库里没有文本 token 价目表，中转 provider 的价格也各不相同。
-// DEFAULT_PRICE 故意取得偏高，宁可提前停，也不要把主人的钱花超；按路由配好官方价后，
-// 可以用 offPeak / peakHours / peakDays 描述峰谷日程，让账本对上真实账单。
+// 价格：她自己的路由（deepseek-official/deepseek-flash）出厂就按 DeepSeek 官方峰谷价结算，
+// 钱包余额才对得上真实账单；没配到的路由仍用偏高的 DEFAULT_PRICE，宁可提前停，
+// 也不要把主人的钱花超。价目表版本变化时，旧账本按当前价重算一次，多扣的退回钱包。
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -17,6 +17,28 @@ export const MAX_DAILY_GRANT_CNY = 10000
 // B 站巡检最多占当天每日额度的四分之一；这是软上限，普通聊天不受影响。
 export const DEFAULT_BILI_SHARE = 0.25
 export const DEFAULT_PRICE = Object.freeze({ input: 4, cacheRead: 1, cacheWrite: 4, output: 16, reasoning: 0 })
+// 账本按哪一版价目表结算过；旧账本缺这个字段时补算一次差额。
+export const PRICING_VERSION = 2
+
+/**
+ * 出厂价目表：deepseek-flash 用 DeepSeek 官方价（每百万 token 人民币），
+ * 工作日 09–12、14–18 为高峰，其余时段和周末按谷时价。
+ * @returns {object} `budget.prices` 的默认内容。
+ */
+export function officialPrices() {
+  return {
+    'deepseek-official/deepseek-flash': {
+      input: 2,
+      cacheRead: 0.04,
+      cacheWrite: 2,
+      output: 8,
+      reasoning: 0,
+      offPeak: { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4, reasoning: 0 },
+      peakHours: [[9, 12], [14, 18]],
+      peakDays: [1, 2, 3, 4, 5],
+    },
+  }
+}
 
 const PRICE_KEYS = ['input', 'cacheRead', 'cacheWrite', 'output', 'reasoning']
 const PER_MILLION = 1_000_000
@@ -248,6 +270,7 @@ function blankState(today, at = Date.now()) {
     walletCny: BIRTH_DAILY_GRANT_CNY,
     lastGrantDay: today,
     days: {},
+    pricingVersion: PRICING_VERSION,
     lastBalance: null,
     lastBalanceAttempt: null,
   }
@@ -265,6 +288,7 @@ function normalizeState(raw, today) {
   state.lastGrantDay = typeof raw.lastGrantDay === 'string' && dayNumber(raw.lastGrantDay) !== null
     ? raw.lastGrantDay
     : today
+  state.pricingVersion = Number.isInteger(raw.pricingVersion) ? raw.pricingVersion : 0
   if (isPlainObject(raw.days)) {
     for (const [day, value] of Object.entries(raw.days)) {
       if (dayNumber(day) === null || !isPlainObject(value)) continue
@@ -380,8 +404,75 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     return currentConfig.enabled !== false
   }
 
-  function priceFor(provider, model) {
-    return resolvePrice(currentConfig.prices, currentConfig.defaultPrice, provider, model, now())
+  function priceFor(provider, model, at = now()) {
+    return resolvePrice(currentConfig.prices, currentConfig.defaultPrice, provider, model, at)
+  }
+
+  /**
+   * 价目表换过版本：按当前价重算账本里每一天的花费，把多扣的差额退回钱包。
+   * 只改每日合计和钱包，原始流水不动；一天的水流条数对不上就跳过那天，免得拿残缺账本重算。
+   */
+  function repriceLedger() {
+    if (state.pricingVersion === PRICING_VERSION) return
+    if (!existsSync(ledgerPath)) {
+      state.pricingVersion = PRICING_VERSION
+      persist()
+      return
+    }
+    let text
+    try {
+      text = readFileSync(ledgerPath, 'utf8')
+    } catch (error) {
+      diag(`budget: 读不了账本，价格重算下次再试（${String((error && error.message) || error)}）`)
+      return
+    }
+    const totals = new Map()
+    for (const line of text.split('\n')) {
+      if (line === '') continue
+      let entry
+      try {
+        entry = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (!isPlainObject(entry) || entry.type !== 'spend') continue
+      if (typeof entry.day !== 'string' || dayNumber(entry.day) === null) continue
+      const bucket = totals.get(entry.day) || { calls: 0, spentCny: 0, biliSpentCny: 0 }
+      bucket.calls += 1
+      if (isPlainObject(entry.usage)) {
+        const price = priceFor(String(entry.provider || ''), String(entry.model || ''), Number(entry.at) || now())
+        const cost = round(costOfUsage(entry.usage, price), 6)
+        bucket.spentCny = round(bucket.spentCny + cost, 6)
+        if (entry.scope === 'bili') bucket.biliSpentCny = round(bucket.biliSpentCny + cost, 6)
+      }
+      totals.set(entry.day, bucket)
+    }
+    for (const [day, bucket] of Object.entries(state.days)) {
+      const next = totals.get(day)
+      if (next === undefined || next.calls !== bucket.calls) continue
+      const delta = round(bucket.spentCny - next.spentCny, 6)
+      const biliDelta = round(bucket.biliSpentCny - next.biliSpentCny, 6)
+      // 分位以下的差异只是逐笔四舍五入的尾数，不值得写一条流水。
+      if (Math.abs(delta) < 1e-4 && Math.abs(biliDelta) < 1e-4) continue
+      const before = { spentCny: bucket.spentCny, biliSpentCny: bucket.biliSpentCny }
+      bucket.spentCny = round(next.spentCny, 6)
+      bucket.biliSpentCny = round(next.biliSpentCny, 6)
+      state.walletCny = round(state.walletCny + delta, 6)
+      ledger({
+        type: 'calibrate',
+        at: now(),
+        day,
+        beforeSpentCny: before.spentCny,
+        afterSpentCny: bucket.spentCny,
+        beforeBiliSpentCny: before.biliSpentCny,
+        afterBiliSpentCny: bucket.biliSpentCny,
+        deltaCny: delta,
+        walletAfterCny: state.walletCny,
+        note: '价目表更新后按当前价重算',
+      })
+    }
+    state.pricingVersion = PRICING_VERSION
+    persist()
   }
 
   function biliShare() {
@@ -706,6 +797,8 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       walletAfterCny: state.walletCny,
       reason: existed ? 'reset' : 'birth',
     })
+  } else {
+    repriceLedger()
   }
   ensureGrant()
 
