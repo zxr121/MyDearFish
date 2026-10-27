@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -118,7 +118,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 14)
+  assert.equal(routes.length, 16)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -141,6 +141,11 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.equal(initial.json.phrases.privateDodge, '这个我不方便细说')
   assert.equal(initial.json.phraseDefaults.budgetBlock, '今天我这边有点转不动了，先歇一会儿，明天再找你。')
   assert.equal(initial.json.phraseLimit, 200)
+  assert.equal(initial.json.backup.enabled, true)
+  assert.equal(initial.json.backup.intervalHours, 24)
+  assert.equal(initial.json.backup.count, 0)
+  assert.equal(initial.json.backup.dirName, 'fish-backups')
+  assert.equal(JSON.stringify(initial.json).includes(process.env.DSH_HOME), false, '总览不带本机路径')
 
   const saved = await call(routes, '/dsh-fish-mind/birth', {
     method: 'POST',
@@ -215,6 +220,61 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.match(longPhrase.json.error, /最多 200 字/)
   assert.equal((await call(routes, '/dsh-fish-mind/phrases', { method: 'GET' })).res.status, 405)
 
+  const badBackupEnabled = await call(routes, '/dsh-fish-mind/backup/config', {
+    method: 'POST',
+    body: { enabled: 'yes', intervalHours: 24 },
+  })
+  assert.equal(badBackupEnabled.res.status, 400)
+  assert.match(badBackupEnabled.json.error, /enabled/)
+  const badBackupInterval = await call(routes, '/dsh-fish-mind/backup/config', {
+    method: 'POST',
+    body: { enabled: true, intervalHours: 0 },
+  })
+  assert.equal(badBackupInterval.res.status, 400)
+  assert.match(badBackupInterval.json.error, /1 到 720/)
+  const fractionalBackupInterval = await call(routes, '/dsh-fish-mind/backup/config', {
+    method: 'POST',
+    body: { enabled: true, intervalHours: 1.5 },
+  })
+  assert.equal(fractionalBackupInterval.res.status, 400)
+  assert.equal((await call(routes, '/dsh-fish-mind/backup/config', { method: 'GET' })).res.status, 405)
+
+  const backupSaved = await call(routes, '/dsh-fish-mind/backup/config', {
+    method: 'POST',
+    body: { enabled: true, intervalHours: 6 },
+  })
+  assert.equal(backupSaved.res.status, 200)
+  assert.equal(backupSaved.json.backup.enabled, true)
+  assert.equal(backupSaved.json.backup.intervalHours, 6)
+  assert.equal(backupSaved.json.backup.count, 1)
+  assert.equal(backupSaved.json.run.ok, true)
+  assert.match(backupSaved.json.run.fileName, /^mydearfish-\d{4}-\d{2}-\d{2}-\d{6}(?:-\d+)?\.zip$/)
+  assert.ok(existsSync(join(process.env.DSH_HOME, 'fish-backups', backupSaved.json.run.fileName)))
+  assert.equal(JSON.stringify(backupSaved.json).includes(process.env.DSH_HOME), false, '接口不回绝对路径')
+
+  const manualBackup = await call(routes, '/dsh-fish-mind/backup/now', { method: 'POST' })
+  assert.equal(manualBackup.res.status, 200)
+  assert.equal(manualBackup.json.run.ok, true)
+  assert.equal(manualBackup.json.backup.count, 2)
+  assert.equal((await call(routes, '/dsh-fish-mind/backup/now', { method: 'GET' })).res.status, 405)
+
+  const afterBackup = await call(routes, '/dsh-fish-mind/overview')
+  assert.equal(afterBackup.json.backup.count, 2)
+  assert.equal(afterBackup.json.backup.files.length, 2)
+  assert.equal(afterBackup.json.backup.lastRun.ok, true)
+  assert.equal(JSON.stringify(afterBackup.json).includes(process.env.DSH_HOME), false)
+
+  const backupDisabled = await call(routes, '/dsh-fish-mind/backup/config', {
+    method: 'POST',
+    body: { enabled: false, intervalHours: 6 },
+  })
+  assert.equal(backupDisabled.res.status, 200)
+  assert.equal(backupDisabled.json.backup.enabled, false)
+  assert.equal(backupDisabled.json.run, null)
+  assert.equal((await call(routes, '/dsh-fish-mind/backup/now', { method: 'POST' })).res.status, 200, '关掉自动备份也能手动备一份')
+  const savedBackupConfig = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'config.json'), 'utf8'))
+  assert.deepEqual(savedBackupConfig.backup, { enabled: false, intervalHours: 6 })
+
   const rejected = await call(routes, '/dsh-fish-mind/birth', {
     method: 'POST',
     body: { name: '', species: '虎鲸娘', appearance: 'x', ownerAddress: '船长' },
@@ -270,7 +330,7 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 14)
+  assert.equal(routes.length, 16)
 
   const search = await call(routes, '/dsh-fish-mind/memes', {
     url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&page=1&pageSize=5',

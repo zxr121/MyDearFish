@@ -549,6 +549,7 @@ B 站插件让“大肥鱼”在谷时自己去刷视频、读字幕、翻评论
 | 人设、默认语气 | 设置 →「大肥鱼 → 性格人设」；写入活动 profile 的 `cordis.patch.yml`。出厂文案在 `fish/bundle/cordis.patch.yml` 的 `personaPrefix` | 保存后热应用，下一轮生效，影响所有会话；名字和称呼仍在出生设定 |
 | 私事托词、额度用完时回主人那句 | 设置 →「大肥鱼 → 自定义话术」；存在 `fish-mind/config.json` 的 `phrases` | 保存后当场生效；QQ 场景提示每轮现取，已经在聊的房间也不用重启 |
 | 鱼脑记不记、召不召回 | `dsh-fish-mind` 的 `mode`、`inject` 与 `episodes` / `recall` / `chapters` 参数 | 影子模式改了不影响对话；`live` + `inject` 才注入工作台 |
+| 自动备份放哪、多久一次、留几份 | 设置 →「大肥鱼 → 自动备份」；存在 `fish-mind/config.json` 的 `backup` | 备份落在 `<DSH_HOME>/fish-backups`（打包版就是安装目录的 `data`）；最多留最新 5 份，最旧的先删；开关和 1–720 小时间隔当场生效 |
 | 梗百科预查、社交使用和工具 | 设置 →「梗百科」；开关存在 `fish-mind/memes.json` | 总开关同时停掉预查和工具；群里只加本群语境的预查；工具始终只对主人会话开放，设置也改不了 |
 | 每天零花钱额度、累计和价格 | `lib/budget.js` 的 `BIRTH_DAILY_GRANT_CNY`；价格在 `config.json` 的 `budget.prices`，峰谷日程加 `offPeak` / `peakHours` / `peakDays` | 改代码额度会影响之后所有发放；价目表版本落后时启动会按当前价重算旧账，多扣的差额退回钱包 |
 | 心情的维度、判断频率、判断模型 | 心情设置页与 `lib/index.js` 的维度表和判定链 | 改维度会改变注入文案和表情档位 |

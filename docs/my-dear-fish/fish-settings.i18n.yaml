@@ -3,17 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/fish-settings.md
 /fish-settings-and-migration:
-  en: d0fe4332ad25ac13
-  zh: e47b1e96389bfd93
+  en: 89594d72273fd1ae
+  zh: a220074364a8fccf
 /fish-settings-and-migration/overview:
-  en: 4dbf5838e503c2be
-  zh: 3c74e562c9516b8c
+  en: f006e54e9b4611ab
+  zh: 6b7aac61c5da5dd0
 /fish-settings-and-migration/birth-identity:
   en: 623b63ca600692d0
   zh: 9ed980cd50c9c8f4
 /fish-settings-and-migration/persona:
   en: d81932b360c5cd47
   zh: 5938b955bb830842
+/fish-settings-and-migration/custom-phrases:
+  en: ba36be4f4923b43a
+  zh: 64ee7902e1a94440
+/fish-settings-and-migration/automatic-backup:
+  en: ba08998d5f7a6359
+  zh: 5f0013165a1876e9
 /fish-settings-and-migration/what-travels-and-what-does-not:
   en: 81011e34518f46b5
   zh: 198fc1e0428fcae0

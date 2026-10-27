@@ -103,8 +103,19 @@ int wmain(int argc, wchar_t** argv) {
     assert(uninstall_data::RemoveApplicationContents(install.c_str(), L"") == ERROR_INVALID_NAME);
     assert(uninstall_data::RemoveApplicationContents(L"C:\\", L"data") == ERROR_INVALID_NAME);
     assert(uninstall_data::RemoveApplicationContents((root + L"\\missing").c_str(), L"data") == ERROR_SUCCESS);
+    assert(uninstall_data::RemoveHome(install.c_str(), home.c_str()) == ERROR_SUCCESS);
+    assert(!Exists(home));
+    assert(Exists(install));
+    // A protected root that merely overlaps the home in either direction still stops removal.
+    assert(CreateDirectoryW(home.c_str(), nullptr));
+    assert(uninstall_data::RemoveHome(install.c_str(), install.c_str()) == ERROR_ACCESS_DENIED);
+    assert(uninstall_data::RemoveHome(install.c_str(), (home + L"\\inside").c_str()) == ERROR_ACCESS_DENIED);
+    assert(uninstall_data::RemoveHome(install.c_str(), L"relative\\home") == ERROR_INVALID_NAME);
+    assert(Exists(home));
     assert(uninstall_data::RemoveTree(home) == ERROR_SUCCESS);
     assert(RemoveDirectoryW(install.c_str()));
+    assert(uninstall_data::RemoveHome((root + L"\\missing").c_str(), nullptr) == ERROR_SUCCESS);
+    assert(uninstall_data::RemoveHome(L"C:\\", nullptr) == ERROR_INVALID_NAME);
 
     // A protected root elsewhere does not block removal.
     assert(uninstall_data::Remove(data.c_str(), installation.c_str(), (root + L"\\elsewhere").c_str()) == ERROR_SUCCESS);

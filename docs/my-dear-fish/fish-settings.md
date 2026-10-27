@@ -2,7 +2,7 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, and fixed boundaries all appear on one page; birth identity, persona, and custom phrases are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
+The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, and automatic backup are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
 
 ## Overview
 
@@ -19,6 +19,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | People-book relationships | Names, aliases, familiarity, times seen, and owner flag from the QQ people book; QQ numbers are not shown | No |
 | Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; a closed voice card can be shown again here; addresses, tokens, and login state are not shown | Card visibility only |
 | Pocket money | Daily grant, available balance, spent today, and call count; Bilibili patrol spend today and its quarter-of-the-grant cap | No |
+| Automatic backup | Whether the whole fish is packed on a schedule, the interval (1–720 hours), the latest and next backup, and the five retained files; a backup can also be taken immediately | Yes |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
 
 Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.
@@ -51,6 +52,16 @@ Settings → “Big Fat Fish → Custom phrases” edits two local lines that us
 - **When pocket money runs out**: the local reply to the owner when the ledger blocks the turn; no model request is made. Group rooms still stay silently on `[不接话]`, and internal calls still return `FISH_BUDGET_EXHAUSTED`; neither is affected by this line.
 
 Both live under `phrases` in `fish-mind/config.json`, up to 200 characters each. Line breaks and runs of whitespace collapse to a single space, leading and trailing whitespace is trimmed, and a blank value falls back to the factory line. “Reset to factory” writes both factory lines back. Saving touches only `phrases`, leaves the rest of the config intact, and takes effect immediately without a restart or `reload()`.
+
+## Automatic backup
+
+The fish packs itself into `$DSH_HOME/fish-backups/` on the configured interval. In an installed desktop build `$DSH_HOME` is `<installation>\data`, so backups live in the installation directory; in development it is the repository's `data` folder. Each archive matches the settings-page export: birth identity, the experience stream, long-term facts, the short-term watermark, mood, and the people book. Configuration, credentials, the pocket-money ledger, and session records are not included.
+
+The switch and interval live in Settings → “Big Fat Fish → Automatic backup”; the interval runs from 1 to 720 hours and takes effect immediately without a restart. A check runs every minute and writes a new archive only once the interval has passed since the latest backup, so restarts do not pile up duplicates. With automatic backup off, “Back up now” still writes one manually.
+
+At most five archives are kept; older ones are deleted first. Only the plugin's own `mydearfish-YYYY-MM-DD-HHMMSS.zip` files (a same-second second archive carries a `-2` suffix) are pruned; any other file placed in `fish-backups` is left alone. Each archive is written to a temporary file and then renamed, so an interrupted write leaves no half zip; if a regular file occupies the `fish-backups` path, that round fails loudly instead of overwriting it. While an import waits for a restart or the search index is rebuilding, the automatic round is skipped and retried at the next check.
+
+A backup is a copy, not a migration: handing the fish to someone else still uses “Export the whole fish”. Uninstalling the desktop app asks whether to delete the memory, chat history, and settings under `<installation>\data`; choosing No or uninstalling silently keeps them for the next install into the same directory.
 
 ## What travels and what does not
 

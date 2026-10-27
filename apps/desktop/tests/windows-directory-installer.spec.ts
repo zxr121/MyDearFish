@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url)
 const section = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')),
   'templates/nsis/installSection.nsh'), 'utf8')
 
-it('removes application files through the native helper while keeping the packaged Harness home', () => {
+it('removes application files through the native helper and asks before deleting the packaged Harness home', () => {
   const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/uninstaller.nsh'), 'utf8')
   const adapted = directoryUninstaller(source)
   expect(adapted).not.toContain('--delete-app-data')
@@ -20,14 +20,27 @@ it('removes application files through the native helper while keeping the packag
   expect(directoryUninstaller(source.replaceAll('\n', '\r\n'))).toBe(adapted)
   const removal = adapted.indexOf('UninstallRemoveInstallation')
   expect(removal).toBeGreaterThan(-1)
+  expect(adapted.indexOf('Call un.AskRemoveHome')).toBeGreaterThan(removal)
   expect(adapted.indexOf('RMDir "$INSTDIR"')).toBeGreaterThan(removal)
   expect(adapted).not.toContain('RMDir /r $INSTDIR')
   expect(adapted).not.toContain('RMDir /r "\\\\?\\$INSTDIR"')
-  expect(adapted).toContain('$INSTDIR\\data')
-  expect(adapted).toContain('UNINSTALLER_DATA_KEPT')
+  expect(adapted).not.toContain('UNINSTALLER_DATA_KEPT')
   expect(() => directoryUninstaller(source.replace('  Var /GLOBAL isDeleteAppData\n', ''))).toThrow('template changed')
   expect(() => directoryUninstaller(source.replace('  DeleteRegKey SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}"', ''))).toThrow('template changed')
   expect(() => directoryUninstaller(source.replace('    RMDir /r $INSTDIR', '    RMDir /r $INSTDIR\n    RMDir /r $INSTDIR'))).toThrow('template changed')
+})
+
+it('asks before the packaged Harness home leaves and keeps it on silent or linked data entries', () => {
+  const prompt = readFileSync(join(import.meta.dirname, '..', 'installer', 'uninstall.nsh'), 'utf8')
+  const only = prompt.slice(prompt.indexOf('Function un.AskRemoveHome'), prompt.indexOf('FunctionEnd', prompt.indexOf('Function un.AskRemoveHome')))
+  expect(only).toContain('${If} ${Silent}')
+  expect(only).toContain('$INSTDIR\\data')
+  expect(only).toContain('0x400')
+  expect(only).toContain('MessageBox MB_YESNO|MB_ICONQUESTION')
+  expect(only).toContain('/SD IDNO IDYES dshDeleteHome')
+  expect(only).toContain('Goto dshKeepHome')
+  expect(only).toContain('UninstallRemoveHome(w "$INSTDIR", w "$UnHome")')
+  expect(only).toContain('UNINSTALLER_DATA_DELETE_FAILED')
 })
 
 it.each(['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh'])('cleans staged files before %s exits', (helper) => {

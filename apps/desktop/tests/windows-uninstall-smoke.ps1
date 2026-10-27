@@ -62,7 +62,7 @@ try {
         [IO.File]::WriteAllText((Join-Path $productDataPath 'state.txt'), 'product data')
         [IO.File]::WriteAllText((Join-Path $userDataPath 'Local State'), 'chromium profile')
         [IO.File]::WriteAllText((Join-Path $cachePath 'download.txt'), 'update')
-        if ($mode -eq 'data-inside') {
+        if ($mode -in @('data-inside', 'data-delete')) {
             New-Item -ItemType Directory -Force -Path (Join-Path $dataPath 'fish-mind') | Out-Null
             [IO.File]::WriteAllText((Join-Path $dataPath 'fish-mind\experience.jsonl'), 'keep memory')
         }
@@ -73,13 +73,19 @@ try {
         if ($mode -eq 'upgrade') { $arguments = '/S /KEEP_APP_DATA --updated /currentuser ' + $arguments }
         if ($mode -eq 'replaced') { $arguments = '/S /KEEP_APP_DATA /currentuser ' + $arguments }
         if ($mode -eq 'home-inside') { $env:DSH_HOME = Join-Path $userDataPath 'home' } else { Remove-Item Env:DSH_HOME -ErrorAction SilentlyContinue }
-        $process = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -WindowStyle ($(if ($mode -eq 'interactive') { 'Normal' } else { 'Hidden' }))
-        if ($mode -eq 'interactive') {
+        $process = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -WindowStyle ($(if ($mode -in @('interactive', 'data-delete')) { 'Normal' } else { 'Hidden' }))
+        if ($mode -in @('interactive', 'data-delete')) {
             $welcomeText = if ($Language -eq 'ENGLISH') { 'Welcome' } else { -join [char[]]@(0x6B22, 0x8FCE) }
             $welcome = Wait-Text $welcomeText
             $window = [InstallerCapture]::TopLevel($welcome)
             [void][InstallerCapture]::SaveNative($window, (Join-Path $OutputDirectory 'uninstall-welcome.png'), $false)
             [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($window, 1))
+            if ($mode -eq 'data-delete') {
+                $promptText = if ($Language -eq 'ENGLISH') { "Delete the fish's memory" } else { '大肥鱼的记忆' }
+                $prompt = Wait-Text $promptText
+                $promptWindow = [InstallerCapture]::TopLevel($prompt)
+                [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($promptWindow, 6))
+            }
             $finishedText = if ($Language -eq 'ENGLISH') { 'has been uninstalled' } else { -join [char[]]@(0x5DF2, 0x4ECE, 0x4F60) }
             [void](Wait-Text $finishedText)
             [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($window, 1))
@@ -94,16 +100,20 @@ try {
         if ((Test-Path (Join-Path $userDataPath 'Local State')) -ne $userDataRetained) { throw "Electron user data retention failed: $mode" }
         if ((Test-Path -LiteralPath $scopePath) -ne $userDataRetained) { throw "Package scope directory retention failed: $mode" }
         if ((Test-Path (Join-Path $cachePath 'download.txt')) -ne $retained) { throw "Update cache retention failed: $mode" }
-        if ($mode -eq 'data-inside') {
+        if ($mode -in @('data-inside', 'data-delete')) {
             $experience = Join-Path $dataPath 'fish-mind\experience.jsonl'
-            if (-not (Test-Path -LiteralPath $experience)) { throw 'Uninstall removed the packaged Harness home' }
-            if ([IO.File]::ReadAllText($experience) -ne 'keep memory') { throw 'Uninstall changed the packaged Harness home' }
-            $timer = [Diagnostics.Stopwatch]::StartNew()
-            while ($true) {
-                $leftover = @(Get-ChildItem -LiteralPath $installPath -Force | Where-Object { $_.Name -ne 'data' })
-                if ($leftover.Count -eq 0) { break }
-                if ($timer.Elapsed.TotalSeconds -gt 20) { throw "Application files remained beside the Harness home: $($leftover.Name -join ', ')" }
-                Start-Sleep -Milliseconds 100
+            if ($mode -eq 'data-inside') {
+                if (-not (Test-Path -LiteralPath $experience)) { throw 'Silent uninstall removed the packaged Harness home' }
+                if ([IO.File]::ReadAllText($experience) -ne 'keep memory') { throw 'Uninstall changed the packaged Harness home' }
+                $timer = [Diagnostics.Stopwatch]::StartNew()
+                while ($true) {
+                    $leftover = @(Get-ChildItem -LiteralPath $installPath -Force | Where-Object { $_.Name -ne 'data' })
+                    if ($leftover.Count -eq 0) { break }
+                    if ($timer.Elapsed.TotalSeconds -gt 20) { throw "Application files remained beside the Harness home: $($leftover.Name -join ', ')" }
+                    Start-Sleep -Milliseconds 100
+                }
+            } elseif (Test-Path -LiteralPath $experience) {
+                throw 'Confirmed uninstall kept the packaged Harness home'
             }
         }
         Write-Output "passed: $mode"

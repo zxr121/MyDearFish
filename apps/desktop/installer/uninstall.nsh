@@ -1,4 +1,5 @@
-; Electron user data and updater downloads leave with the application; the Harness home is never touched.
+; Electron user data and updater downloads leave with the application unless the owner keeps them.
+; The packaged Harness home is the fish's memory; the owner decides whether it leaves.
 !include FileFunc.nsh
 Var UnTarget
 Var UnHome
@@ -33,4 +34,32 @@ Function un.CleanData
   !endif
   StrCpy $UnTarget "$LOCALAPPDATA\${DSH_UPDATER_CACHE_NAME}"
   Call un.RemoveData
+FunctionEnd
+
+; Ask before deleting the fish's memory; only an explicit Yes removes the packaged Harness home.
+; Silent uninstalls keep it, and a linked or non-directory data entry is never followed.
+Function un.AskRemoveHome
+  ${If} ${Silent}
+    Return
+  ${EndIf}
+  System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR\data") i.r0'
+  ${If} $0 == -1
+    Return
+  ${EndIf}
+  IntOp $1 $0 & 0x10
+  IntOp $2 $0 & 0x400
+  ${If} $1 == 0
+  ${OrIf} $2 != 0
+    Return
+  ${EndIf}
+  ; Anything but Yes keeps the memory, including closing the prompt.
+  MessageBox MB_YESNO|MB_ICONQUESTION "$(UNINSTALLER_DELETE_DATA)$\r$\n$INSTDIR\data" /SD IDNO IDYES dshDeleteHome
+  Goto dshKeepHome
+dshDeleteHome:
+  System::Call '$PLUGINSDIR\window-frame.dll::UninstallRemoveHome(w "$INSTDIR", w "$UnHome") i.r3 ?c'
+  ${If} $3 != 0
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(UNINSTALLER_DATA_DELETE_FAILED)$\r$\n$INSTDIR\data" /SD IDOK
+  ${EndIf}
+dshKeepHome:
+  ClearErrors
 FunctionEnd

@@ -14,6 +14,10 @@ const MODES = new Set(['off', 'shadow', 'live'])
 /** 自定义话术每句最多这么多字；设置页按同一上限校验。 */
 export const PHRASE_LIMIT = 200
 
+/** 自动备份间隔的可调范围（小时）：最短一小时，最长一个月。 */
+export const BACKUP_INTERVAL_MIN = 1
+export const BACKUP_INTERVAL_MAX = 720
+
 /** 出厂话术：私事被追问时的托词、零花钱被账本拦住时本地回主人的一句。 */
 export const DEFAULT_PHRASES = Object.freeze({
   privateDodge: '这个我不方便细说',
@@ -139,6 +143,11 @@ export function buildDefaults(dshHome) {
     },
     // 她遇到两种情况时说的原话；设置页「大肥鱼 → 自定义话术」可以改写。
     phrases: { ...DEFAULT_PHRASES },
+    // 自动备份：把整条鱼定时打包到安装目录下的 fish-backups，最多留 5 份。
+    backup: {
+      enabled: true,
+      intervalHours: 24,
+    },
     // 每日额度默认 ¥10，存在 budget.json，由设置页「大肥鱼 → 零花钱」写入；这里不提供修改项。
     budget: {
       enabled: true,
@@ -347,6 +356,19 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     diag('config: phrases 不是对象，使用默认值')
   }
 
+  if (isPlainObject(raw.backup)) {
+    const b = raw.backup
+    config.backup.enabled = pickBoolean(b.enabled, config.backup.enabled)
+    config.backup.intervalHours = pickNumber(
+      b.intervalHours,
+      config.backup.intervalHours,
+      BACKUP_INTERVAL_MIN,
+      BACKUP_INTERVAL_MAX,
+    )
+  } else if (raw.backup !== undefined) {
+    diag('config: backup 不是对象，使用默认值')
+  }
+
   if (isPlainObject(raw.budget)) {
     const b = raw.budget
     config.budget.enabled = pickBoolean(b.enabled, config.budget.enabled)
@@ -469,6 +491,48 @@ export function savePhrases({ dshHome, phrases, diag = () => {} }) {
   writeFileSync(temp, JSON.stringify(raw, null, 2) + '\n', 'utf8')
   renameSync(temp, path)
   diag(`config: 自定义话术已保存（私事兜底 ${saved.privateDodge.length} 字，额度兜底 ${saved.budgetBlock.length} 字）`)
+  return saved
+}
+
+/**
+ * 只改自动备份的开关和间隔并原子写回 config.json；其它字段原样保留。
+ * 原文件不是合法 JSON 时抛 400，不动它。
+ * @param {object} options - `{ dshHome, backup, diag }`。
+ * @returns {{ enabled: boolean, intervalHours: number }} 归一后的备份设置。
+ */
+export function saveBackup({ dshHome, backup, diag = () => {} }) {
+  const path = join(dshHome, 'fish-mind', 'config.json')
+  let raw = {}
+  if (existsSync(path)) {
+    try {
+      raw = JSON.parse(readFileSync(path, 'utf8'))
+    } catch (error) {
+      const failure = new Error(`config.json 不是合法 JSON（${String((error && error.message) || error)}），先修好再保存`)
+      failure.statusCode = 400
+      throw failure
+    }
+  }
+  if (!isPlainObject(raw)) {
+    const failure = new Error('config.json 内容不是对象，先修好再保存')
+    failure.statusCode = 400
+    throw failure
+  }
+  const current = isPlainObject(raw.backup) ? raw.backup : {}
+  const saved = {
+    enabled: pickBoolean(backup && backup.enabled, pickBoolean(current.enabled, true)),
+    intervalHours: pickNumber(
+      backup && backup.intervalHours,
+      pickNumber(current.intervalHours, 24, BACKUP_INTERVAL_MIN, BACKUP_INTERVAL_MAX),
+      BACKUP_INTERVAL_MIN,
+      BACKUP_INTERVAL_MAX,
+    ),
+  }
+  raw.backup = { ...current, ...saved }
+  mkdirSync(dirname(path), { recursive: true })
+  const temp = `${path}.tmp`
+  writeFileSync(temp, JSON.stringify(raw, null, 2) + '\n', 'utf8')
+  renameSync(temp, path)
+  diag(`config: 自动备份${saved.enabled ? '开' : '关'}，间隔 ${saved.intervalHours} 小时`)
   return saved
 }
 

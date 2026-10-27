@@ -19,10 +19,11 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSy
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPending, readImportReport, stageFishImport } from './archive.js'
+import { backupIsDue, describeBackups, writeBackup } from './backup.js'
 import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, resetIdentity, saveIdentity, syncMoodNames } from './birth.js'
 import { createBiliQuota } from './bili-quota.js'
 import { localDay, openBudget } from './budget.js'
-import { DEFAULT_PHRASES, PHRASE_LIMIT, loadConfig, savePhrases } from './config.js'
+import { BACKUP_INTERVAL_MAX, BACKUP_INTERVAL_MIN, DEFAULT_PHRASES, PHRASE_LIMIT, loadConfig, saveBackup, savePhrases } from './config.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
 import { humorPrompt, humorTone } from './humor.js'
 import { createMemeWiki } from './memes.js'
@@ -54,6 +55,7 @@ const DIAG_MAX_BYTES = 1024 * 1024
 const METRICS_WINDOW = 200
 const HEALTH_INTERVAL = 6 * 60 * 60 * 1000
 const BALANCE_TICK = 60 * 1000
+const BACKUP_TICK = 60 * 1000
 // 社交通道的来源：主人私下的对话不能跟着这些会话走，短期窗口也一样要挡。
 const SOCIAL_SOURCE_KINDS_LIST = ['qq-group', 'qq-friend']
 
@@ -135,6 +137,8 @@ export function apply(ctx) {
   let balanceInFlight = false
   let lastBalanceTry = 0
   let rebuilding = false
+  let backupInFlight = false
+  let lastBackupRun = null
 
   function noteStreamHit(kind, times) {
     privacyStats.streamHits += times
@@ -1354,6 +1358,66 @@ export function apply(ctx) {
     return changed ? out : contexts
   }
 
+  function backupStatus() {
+    return describeBackups({
+      dshHome,
+      enabled: config.backup.enabled,
+      intervalHours: config.backup.intervalHours,
+      last: lastBackupRun,
+    })
+  }
+
+  async function runBackup(reason, { force = false } = {}) {
+    if (backupInFlight) return { ok: false, busy: true, error: '上一次备份还没写完' }
+    // 暂存导入等重启时，当前这份记忆即将被换掉，此时备份没有意义。
+    if (importIsPending(dir)) return { ok: false, skipped: 'pending-import', error: '有一个导入包等重启，先不备份' }
+    if (rebuilding) return { ok: false, skipped: 'rebuilding', error: '正在重建检索库，稍后再备份' }
+    if (!force && (!config.backup.enabled || !backupIsDue({ dshHome, intervalHours: config.backup.intervalHours }))) {
+      return { ok: false, skipped: 'not-due' }
+    }
+    backupInFlight = true
+    const startedAt = Date.now()
+    try {
+      const result = writeBackup({
+        dir,
+        dshHome,
+        store,
+        identity,
+        pluginVersion: PLUGIN_VERSION,
+        now: startedAt,
+      })
+      lastBackupRun = {
+        at: startedAt,
+        ok: true,
+        reason,
+        fileName: result.fileName,
+        bytes: result.bytes,
+        pruned: result.pruned.length,
+      }
+      diag(`backup: ${reason} 备份 ${result.fileName}（${result.bytes}B，经历 ${result.counts.experiences}，事实 ${result.counts.facts}${result.pruned.length > 0 ? `，清理 ${result.pruned.length} 份旧备份` : ''}）`)
+      return result
+    } catch (error) {
+      const message = String((error && error.message) || error)
+      lastBackupRun = { at: startedAt, ok: false, reason, error: message }
+      diag(`backup: ${reason} 失败（${message}）`)
+      return { ok: false, error: message }
+    } finally {
+      backupInFlight = false
+    }
+  }
+
+  function publicBackupRun(result) {
+    if (!result || result.ok !== true) return result
+    return {
+      ok: true,
+      fileName: result.fileName,
+      bytes: result.bytes,
+      counts: result.counts,
+      warnings: result.warnings,
+      pruned: result.pruned.length,
+    }
+  }
+
   function state() {
     const stats = store.stats()
     let budgetState
@@ -1436,6 +1500,7 @@ export function apply(ctx) {
         suspiciousResults: privacyStats.injectionHits,
       },
       budget: budgetState,
+      backup: backupStatus(),
       phase: config.mode === 'shadow'
         ? '影子运行：只记录；不注入、不召回、不调模型'
         : config.mode === 'live'
@@ -1497,6 +1562,14 @@ export function apply(ctx) {
     budget: () => budget.status(),
     /** 设置页写的两句自定义话术；QQ 桥拼社交提示时读 privateDodge。 */
     phrases: () => ({ ...config.phrases }),
+    /** 自动备份的只读状态；不含绝对路径。 */
+    backups: () => backupStatus(),
+    /**
+     * 维护入口：立刻打一份备份，不等定时器。
+     * @param {string} [reason] - 流水里记录的触发原因。
+     * @returns {Promise<object>} 备份结果；正在进行、导入待重启或重建时会跳过。
+     */
+    backupNow: (reason) => runBackup(typeof reason === 'string' && reason !== '' ? reason : 'manual', { force: true }),
     /**
      * 对外脱敏：QQ、B 站评论/私信等离开本机的内容必须先过这里。
      * 先擦本机身份和凭据，再擦余额与额度；调用方拿不到结果时应当拒发，而不是按原文发。
@@ -1611,6 +1684,7 @@ export function apply(ctx) {
             limits: IDENTITY_LIMITS,
             store,
             budget: snapshot.budget,
+            backup: snapshot.backup,
             permissions: snapshot.permissions,
             privacy: snapshot.privacy,
             injection: snapshot.injection,
@@ -1703,6 +1777,37 @@ export function apply(ctx) {
         })
         config.phrases = saved
         sendJson(res, 200, { ok: true, phrases: { ...saved }, defaults: { ...DEFAULT_PHRASES } })
+      })
+
+      route('/dsh-fish-mind/backup/config', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        if (typeof (body && body.enabled) !== 'boolean') {
+          const failure = new Error('enabled 必须是 true 或 false')
+          failure.statusCode = 400
+          throw failure
+        }
+        const interval = body && body.intervalHours
+        if (!Number.isInteger(interval) || interval < BACKUP_INTERVAL_MIN || interval > BACKUP_INTERVAL_MAX) {
+          const failure = new Error(`备份间隔要填 ${BACKUP_INTERVAL_MIN} 到 ${BACKUP_INTERVAL_MAX} 之间的整数小时`)
+          failure.statusCode = 400
+          throw failure
+        }
+        const saved = saveBackup({ dshHome, backup: { enabled: body.enabled, intervalHours: interval }, diag })
+        config.backup = saved
+        const result = saved.enabled ? await runBackup('config') : null
+        sendJson(res, 200, { ok: true, backup: backupStatus(), run: publicBackupRun(result) })
+      })
+
+      route('/dsh-fish-mind/backup/now', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const result = await runBackup('manual', { force: true })
+        if (result.ok !== true) {
+          const failure = new Error(result.error || '没备份成功')
+          failure.statusCode = result.busy || result.skipped ? 409 : 500
+          throw failure
+        }
+        sendJson(res, 200, { ok: true, run: publicBackupRun(result), backup: backupStatus() })
       })
 
       route('/dsh-fish-mind/memes', async (req, res) => {
@@ -2621,6 +2726,17 @@ export function apply(ctx) {
       clearInterval(timer)
     }
   }, 'fish-mind: 账户余额刷新')
+
+  ctx.effect(() => {
+    // 每分钟检查一次：到了间隔才真正打包，重启后看最新一份的时间，不会重复备份。
+    const timer = setInterval(() => {
+      if (!config.backup.enabled || backupInFlight) return
+      if (!backupIsDue({ dshHome, intervalHours: config.backup.intervalHours })) return
+      void runBackup('tick')
+    }, BACKUP_TICK)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }, 'fish-mind: 自动备份')
 
   ctx.effect(() => {
     const timer = setInterval(() => {

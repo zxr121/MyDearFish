@@ -204,6 +204,43 @@ function walletOverview(budget) {
   }
 }
 
+function backupOverview(backup) {
+  if (!isPlainObject(backup)) return { available: false }
+  const lastRun = isPlainObject(backup.lastRun)
+    ? {
+        at: number(backup.lastRun.at),
+        ok: backup.lastRun.ok === true,
+        reason: text(backup.lastRun.reason, 24),
+        fileName: text(backup.lastRun.fileName, 120),
+        bytes: number(backup.lastRun.bytes),
+        pruned: number(backup.lastRun.pruned),
+        error: text(backup.lastRun.error, 240),
+      }
+    : null
+  return {
+    available: true,
+    enabled: backup.enabled === true,
+    intervalHours: number(backup.intervalHours, 24),
+    keep: number(backup.keep, 5),
+    dirName: text(backup.dirName, 40) || 'fish-backups',
+    count: number(backup.count),
+    lastAt: number(backup.lastAt),
+    nextAt: number(backup.nextAt),
+    due: backup.due === true,
+    files: Array.isArray(backup.files)
+      ? backup.files
+          .slice(0, 10)
+          .map((file) => ({
+            name: text(file && file.name, 120),
+            bytes: number(file && file.bytes),
+            at: number(file && file.at),
+          }))
+          .filter((file) => file.name !== '')
+      : [],
+    lastRun,
+  }
+}
+
 function boundariesOverview(permissions, privacy, injection) {
   const permissionInfo = isPlainObject(permissions) ? permissions : {}
   const privacyInfo = isPlainObject(privacy) ? privacy : {}
@@ -321,6 +358,7 @@ export function buildOverview({
   limits,
   store,
   budget,
+  backup,
   permissions,
   privacy,
   injection,
@@ -355,6 +393,7 @@ export function buildOverview({
     social: socialOverview(dshHome),
     channels: channelOverview(dshHome),
     wallet: walletOverview(budget),
+    backup: backupOverview(backup),
     boundaries: boundariesOverview(permissions, privacy, injection),
     archive: {
       pending: importIsPending(dir),

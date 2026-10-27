@@ -87,7 +87,7 @@ export function installWindowsDirectoryInstaller() {
 /**
  * Keep user-data removal in the native helper, which refuses unsafe roots and never follows links.
  * @param {string} source - Pinned upstream uninstaller source.
- * @returns {string} Uninstaller that keeps the packaged Harness home beside the removed application files.
+ * @returns {string} Uninstaller whose interactive path asks whether the packaged Harness home leaves.
  */
 export function directoryUninstaller(source) {
   const normalized = source.replaceAll('\r\n', '\n')
@@ -99,14 +99,7 @@ export function directoryUninstaller(source) {
     `System::Call '$PLUGINSDIR\\window-frame.dll::UninstallRemoveInstallation(w "$INSTDIR") ?c'
     RMDir "$INSTDIR"
     ClearErrors
-    \${IfNot} \${Silent}
-      System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR\\data") i.r0'
-      \${If} $0 != -1
-        IntOp $1 $0 & 0x10
-        \${If} $1 != 0
-          MessageBox MB_OK|MB_ICONINFORMATION "$(UNINSTALLER_DATA_KEPT)$\\r$\\n$INSTDIR\\data" /SD IDOK
-        \${EndIf}
-      \${EndIf}
-    \${EndIf}
+    Call un.AskRemoveHome
+    RMDir "$INSTDIR"
     ClearErrors`)
 }

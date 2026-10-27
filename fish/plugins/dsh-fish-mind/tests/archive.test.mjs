@@ -254,6 +254,18 @@ test('设置页总览带完整画像，但不带 QQ 号、群号和本机路径'
       unmeteredToday: 0,
       account: null,
     },
+    backup: {
+      enabled: true,
+      intervalHours: 12,
+      keep: 5,
+      dirName: 'fish-backups',
+      count: 1,
+      lastAt: 3000,
+      nextAt: 3000 + 12 * 60 * 60 * 1000,
+      due: false,
+      files: [{ name: 'mydearfish-2026-10-27-164530.zip', bytes: 2048, at: 3000 }],
+      lastRun: { at: 3000, ok: true, reason: 'tick', fileName: 'mydearfish-2026-10-27-164530.zip', bytes: 2048, pruned: 0 },
+    },
     permissions: {
       enabled: true,
       emergencyStop: false,
@@ -284,6 +296,11 @@ test('设置页总览带完整画像，但不带 QQ 号、群号和本机路径'
   assert.equal(overview.wallet.availableCny, 9.5)
   assert.equal(overview.boundaries.permissions.protectedReadPaths, 2)
   assert.equal(overview.archive.pending, false)
+  assert.equal(overview.backup.enabled, true)
+  assert.equal(overview.backup.intervalHours, 12)
+  assert.equal(overview.backup.count, 1)
+  assert.equal(overview.backup.files[0].name, 'mydearfish-2026-10-27-164530.zip')
+  assert.equal(overview.backup.lastRun.ok, true)
 
   const serialized = JSON.stringify(overview)
   assert.equal(serialized.includes('123456789'), false)

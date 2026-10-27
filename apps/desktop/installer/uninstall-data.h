@@ -156,6 +156,33 @@ inline DWORD RemoveApplicationContents(LPCWSTR input, LPCWSTR retained) {
     return first;
 }
 
+// Remove the packaged Harness home after the owner explicitly confirms. The home itself may equal
+// the protected root; any other overlap in either direction still stops removal.
+inline DWORD RemoveHome(LPCWSTR input, LPCWSTR protectedRoot) {
+    std::wstring install;
+    if (!Normalize(input, install)) return ERROR_INVALID_NAME;
+    const std::wstring home = install + L"\\data";
+    DWORD guard = RejectSystemRoot(install);
+    if (guard) return guard;
+    if (protectedRoot && *protectedRoot) {
+        std::wstring root;
+        if (!Normalize(protectedRoot, root)) return ERROR_INVALID_NAME;
+        if (_wcsicmp(root.c_str(), home.c_str()) != 0
+            && (Contains(home, root) || Contains(root, home))) return ERROR_ACCESS_DENIED;
+    }
+    Handles parents;
+    DWORD error = Pin(install, parents);
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return ERROR_SUCCESS;
+    if (error) return error;
+    {
+        Handles homeHandle;
+        error = Pin(home, homeHandle);
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return ERROR_SUCCESS;
+        if (error) return error;
+    }
+    return RemoveTree(home);
+}
+
 // Never select a shell folder, its ancestor, Windows/Program Files descendants,
 // a path overlapping the installation, or a path overlapping the protected root
 // (the configured Harness home). Linked descendants are unlinked only.

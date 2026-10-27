@@ -22,6 +22,7 @@
 - 出生设定：名字、物种、外形、对主人的称呼、来历、说话习惯和自由填写的群友关系存在 `identity.json`，由设置里的「大肥鱼」页原子写入；每个会话用当前身份拼出注入提示。工具写不了鱼脑目录，所以对话、记忆、心情、自我成长、配置和外部内容都改不了它。她仍知道自己是 AI 伙伴，不声称现实世界里有一具生物身体。
 - 性格人设：`system-prompt` 的整段 `personaPrefix` 在设置里的「大肥鱼 → 性格人设」读写；没有自定义时显示出厂人设。保存经宿主 `configEditor` 写入活动 profile 的 `cordis.patch.yml` 并热应用，下一轮生效；恢复出厂会删掉覆盖，而不是抄回出厂文案。最多 12000 字，不能写 `{{变量}}`。
 - 自定义话术：设置 →「大肥鱼 → 自定义话术」能改两句本地话——被问到主人私事细节时的托词（QQ 群/好友每轮现取，改完下一轮就生效，旧房间不用重启），和零花钱被账本拦住时她回主人的那句本地回复。句子存在 `config.json` 的 `phrases`，每句最多 200 字，空白压成单行；留空退回出厂那句。
+- 自动备份：设置 →「大肥鱼 → 自动备份」能开关并按小时设间隔（1–720，默认 24）。到点把整条鱼打包到 `$DSH_HOME/fish-backups/mydearfish-YYYY-MM-DD-HHMMSS.zip`，最多留 5 份，超出从最旧删起；只删本插件写出的文件，先写临时文件再改名。「立即备份」不受自动开关限制，导入等重启或重建索引时会跳过。
 
 设计背景见 [认知方案](../../../docs/my-dear-fish/cognition.zh.md)，阶段清单见 [开发计划](../../../docs/my-dear-fish/development-plan.zh.md)。
 
@@ -55,6 +56,8 @@
 | `import-report.json` | 最近一次导入的结果、计数和失败原因 |
 | `import-backup-<时间>/` | 应用导入前的文件备份 |
 
+自动备份不在鱼脑目录里，单独写在 `$DSH_HOME/fish-backups/`：每份是完整记忆包，文件名带秒，最多留最近 5 份。它只清理这个目录里符合 `mydearfish-YYYY-MM-DD-HHMMSS.zip` 的普通文件，主人自己放进去的东西一概不动；重启后按最新一份的时间判断是否到期，不会因为多开几次就多备一份。
+
 敏感内容不会写进 `experience.jsonl`：密码、密钥、令牌、身份证、银行卡和明确写出的住址命中后，整条经历只保留时间、来源和计数，正文丢弃。普通正文完整存档到 `archiveChars` 为止；SQLite 里的 FTS、实体和显著性只吃前 `maxTextChars` 字。
 
 ## 核心治理
@@ -69,6 +72,7 @@
 | 名字、物种、外形、称呼、来历、说话习惯和群友关系 | 主人 | 设置 →「大肥鱼」；写入 `identity.json` |
 | 性格人设（整段语气和说话方式） | 主人 | 设置 →「大肥鱼 → 性格人设」；写入活动 profile 的 `cordis.patch.yml` |
 | 私事托词和额度拦截时说的话 | 主人 | 设置 →「大肥鱼 → 自定义话术」；写入 `config.json` 的 `phrases` |
+| 自动备份的开关和间隔 | 主人 | 设置 →「大肥鱼 → 自动备份」；写入 `config.json` 的 `backup` |
 | 记忆编码、事实抽取、价值与身份更新 | 鱼脑内部固化流程 | 没有对话或工具入口 |
 | 查看核心和记忆 | 用户 | 直接打开 `$DSH_HOME/fish-mind/` |
 | 彻底删除 | 用户 | 停止应用后删除文件 |
@@ -82,9 +86,9 @@
 
 ## 设置页与搬迁
 
-`client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/phrases`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格人设、自我提示、记忆、心情、人物志、通道、零花钱和边界；QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
+`client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/phrases`、`POST /dsh-fish-mind/backup/config`、`POST /dsh-fish-mind/backup/now`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格人设、自我提示、记忆、心情、人物志、通道、零花钱、自动备份和边界；QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
 
-导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；不导出配置、账本、审计、日志、SQLite、通道配置或凭据。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），只进空鱼（0 条经历、0 人、0 条心情），先暂存 `.import-pending/`，重启时在打开 SQLite 前应用并备份；格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
+导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；不导出配置、账本、审计、日志、SQLite、通道配置或凭据。自动备份复用同一条打包路径，只是把文件写进 `$DSH_HOME/fish-backups/` 而不是交给浏览器下载。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），只进空鱼（0 条经历、0 人、0 条心情），先暂存 `.import-pending/`，重启时在打开 SQLite 前应用并备份；格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
 
 ## 情景记忆
 
@@ -328,6 +332,10 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
     "privateDodge": "这个我不方便细说",
     "budgetBlock": "今天我这边有点转不动了，先歇一会儿，明天再找你。"
   },
+  "backup": {
+    "enabled": true,
+    "intervalHours": 24
+  },
   "capture": {
     "user": true,
     "assistant": true,
@@ -372,6 +380,7 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 - `working`：短期层。`enabled` 关整层，`inject` 只关注入（仍转长期），`consolidate` 只关提炼（仍注入短期窗口）。`ttlMinutes` 1–1440、`rows` 2–60、`chars` 200–4000 决定当场想得起多少；`idleMinutes` 1–1440、`maxRows` 2–200、`minRows` 1–20 决定什么时候转长期；`maxFacts` 1–20、`maxTokens` 128–4096、`tickSeconds` 10–3600 是每次提炼的上限和检查频率。载入时会把 `minRows` 压到不超过 `maxRows`——门槛比窗口还高的话提炼永远攒不够，会静默死掉。
 - `humor.inject`：幽默层开关，默认开。关掉后 `fish-mind-humor` 整段不注入，其它提示和记忆不受影响。
 - `phrases.privateDodge` / `phrases.budgetBlock`：两句本地话，默认“这个我不方便细说”和“今天我这边有点转不动了，先歇一会儿，明天再找你。”。前者用在 QQ 群/好友的场景提示里，后者是额度拦住主人这一轮时直接发出去的本地回复。每句最多 200 字，空白压成单行后再存；留空或坏值退回默认。设置页写的就是这里，保存后当场生效，不用 `reload()`。
+- `backup.enabled` / `backup.intervalHours`：自动备份开关和间隔，默认开、24 小时，范围 1–720 小时。备份目录固定为 `$DSH_HOME/fish-backups/`，保留份数固定 5 份；设置页写这两项，保存后当场生效。间隔改小后，下一分钟的检查就会按新间隔判断是否到期。
 - 梗百科的 `enabled`、`inject`、`socialInject`、`autoInject`、`tool` 不在 `config.json`，而是和覆盖词条一起放在 `fish-mind/memes.json`，由设置页的「梗百科」页写入。`inject` 与 `autoInject` 都在打开时才预查；`tool` 只影响主人会话。
 - `budget.enabled`：关掉后不预留、不计量、不拦截，模型调用全部放行。只在排障时关。
 - `budget.inject`：关掉后系统提示里不再出现私密账本，她仍然受额度硬拦。
@@ -409,7 +418,7 @@ Windows 的 sandbox 只限制写入，不限制读取和网络。因此 Broker �
 node --test fish/plugins/dsh-fish-mind/tests/*.test.mjs
 ```
 
-测试覆盖：来源映射、群聊/好友来源与按会话隔离召回、敏感清洗、中文二元组检索、单字回退、去重、JSONL 重建、情景切段、显著性阈值、章节树（日/周/月、社交作用域、导入排除、原文展开）、v2→v3 迁移、关系边（事实取代、图召回、重建一致）、五路召回与融合、时间窗解析、来源标签与置信度、补编码、工作台注入与截断、影子/关闭模式不召回、`recall` 工具、同会话显式回查、`open_chapter` 目录展开、`open_episode` 原文与分页续读、超长正文按 `archiveChars` 存档而索引只吃 `maxTextChars` 前缀、上下文压缩摘要写进经历流及 `capture.compaction` 关闭、前台/后台权限判定、私密路径与本机探测硬拒绝、紧急停止、审计、写接口缺失、默认每日额度与设置页调额、跨天累计、日期倒流、预留与结算、账户余额归一、对外脱敏、工具结果脱敏、模型输出流式脱敏、注入识别与警示、危险命令拒绝和全局 `llm/stream` 拦截、外部 MCP 工具的只读白名单与非白名单硬拒、导入旧记录的来源标签与整类排除、`agent/created` 事件驱动挂载与 `agent/disposed` 摘除及挂载抛错不影响宿主、短期窗口的按会话/按屋子（分线合并）与来源过滤和 TTL 与字数淘汰、社交版短期段、旧出厂值自动抬到一小时、提炼计划（放凉/攒满/只剩一条/水位之后）、积压从最旧逐批消化、id 水位跨时钟回拨与重建、坏输出不推水位和连续失败跳一条、事实去重与取代、`sleep_runs` 流水、`working` 配置区间收敛、幽默提示的语气档位与社交收敛及 `humor.inject` 开关、性格人设的整段读写与校验（保留换行、清控制字符、拒绝空值与 `{{变量}}`、恢复出厂只删覆盖、缺 `configEditor` 返回 501）、梗百科真实词库加载与搜索排序、自建增删改、内置改删恢复、重名冲突、坏覆盖层备份、预查命中与不命中、社交版提示、`search_meme` 渲染和五条设置路由。
+测试覆盖：来源映射、群聊/好友来源与按会话隔离召回、敏感清洗、中文二元组检索、单字回退、去重、JSONL 重建、情景切段、显著性阈值、章节树（日/周/月、社交作用域、导入排除、原文展开）、v2→v3 迁移、关系边（事实取代、图召回、重建一致）、五路召回与融合、时间窗解析、来源标签与置信度、补编码、工作台注入与截断、影子/关闭模式不召回、`recall` 工具、同会话显式回查、`open_chapter` 目录展开、`open_episode` 原文与分页续读、超长正文按 `archiveChars` 存档而索引只吃 `maxTextChars` 前缀、上下文压缩摘要写进经历流及 `capture.compaction` 关闭、前台/后台权限判定、私密路径与本机探测硬拒绝、紧急停止、审计、写接口缺失、默认每日额度与设置页调额、跨天累计、日期倒流、预留与结算、账户余额归一、对外脱敏、工具结果脱敏、模型输出流式脱敏、注入识别与警示、危险命令拒绝和全局 `llm/stream` 拦截、外部 MCP 工具的只读白名单与非白名单硬拒、导入旧记录的来源标签与整类排除、`agent/created` 事件驱动挂载与 `agent/disposed` 摘除及挂载抛错不影响宿主、短期窗口的按会话/按屋子（分线合并）与来源过滤和 TTL 与字数淘汰、社交版短期段、旧出厂值自动抬到一小时、提炼计划（放凉/攒满/只剩一条/水位之后）、积压从最旧逐批消化、id 水位跨时钟回拨与重建、坏输出不推水位和连续失败跳一条、事实去重与取代、`sleep_runs` 流水、`working` 配置区间收敛、幽默提示的语气档位与社交收敛及 `humor.inject` 开关、性格人设的整段读写与校验（保留换行、清控制字符、拒绝空值与 `{{变量}}`、恢复出厂只删覆盖、缺 `configEditor` 返回 501）、梗百科真实词库加载与搜索排序、自建增删改、内置改删恢复、重名冲突、坏覆盖层备份、预查命中与不命中、社交版提示、`search_meme` 渲染、自动备份（打包、同名碰撞、只留五份、非本插件文件不动、备份目录被文件占用时报错、到期判断、旧备份清理）和七条设置路由。
 
 从 JSONL 重建：
 

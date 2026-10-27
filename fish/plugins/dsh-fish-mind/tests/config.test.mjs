@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildDefaults, expandPath, loadConfig, normalizeConfig } from '../lib/config.js'
+import { buildDefaults, expandPath, loadConfig, normalizeConfig, saveBackup, BACKUP_INTERVAL_MAX, BACKUP_INTERVAL_MIN } from '../lib/config.js'
 
 function tempHome() {
   return mkdtempSync(join(tmpdir(), 'fish-mind-config-'))
@@ -324,4 +324,48 @@ test('~ 和 $DSH_HOME 会展开', () => {
   assert.equal(expandPath('~/x', { dshHome: home }), join(homedir(), 'x'))
   assert.equal(expandPath('$DSH_HOME/x', { dshHome: home }), join(home, 'x'))
   assert.equal(expandPath('${DSH_HOME}/x', { dshHome: home }), join(home, 'x'))
+})
+
+test('自动备份默认开、默认 24 小时，坏值退回或夹到边界', () => {
+  const home = tempHome()
+  const defaults = buildDefaults(home)
+  assert.deepEqual(defaults.backup, { enabled: true, intervalHours: 24 })
+
+  const low = normalizeConfig({ backup: { enabled: 'yes', intervalHours: 0 } }, { dshHome: home })
+  assert.deepEqual(low.backup, { enabled: true, intervalHours: BACKUP_INTERVAL_MIN })
+  const high = normalizeConfig({ backup: { enabled: false, intervalHours: 9999 } }, { dshHome: home })
+  assert.deepEqual(high.backup, { enabled: false, intervalHours: BACKUP_INTERVAL_MAX })
+
+  const lines = []
+  const bad = normalizeConfig({ backup: 'nope' }, { dshHome: home, diag: (line) => lines.push(line) })
+  assert.deepEqual(bad.backup, defaults.backup)
+  assert.ok(lines.some((line) => line.includes('backup 不是对象')))
+})
+
+test('保存自动备份只改这两项，其它配置和自建字段原样保留', () => {
+  const home = tempHome()
+  mkdirSync(join(home, 'fish-mind'), { recursive: true })
+  const path = join(home, 'fish-mind', 'config.json')
+  writeFileSync(path, JSON.stringify({
+    mode: 'shadow',
+    backup: { enabled: false, intervalHours: 6, keep: 'old' },
+    private: true,
+  }), 'utf8')
+
+  const saved = saveBackup({ dshHome: home, backup: { enabled: true, intervalHours: 12 } })
+  assert.deepEqual(saved, { enabled: true, intervalHours: 12 })
+  const raw = JSON.parse(readFileSync(path, 'utf8'))
+  assert.equal(raw.mode, 'shadow')
+  assert.equal(raw.private, true)
+  assert.equal(raw.backup.keep, 'old')
+  assert.equal(raw.backup.enabled, true)
+  assert.equal(raw.backup.intervalHours, 12)
+
+  writeFileSync(path, '{ 坏 JSON', 'utf8')
+  assert.throws(() => saveBackup({ dshHome: home, backup: { enabled: true, intervalHours: 1 } }), (error) => {
+    assert.equal(error.statusCode, 400)
+    assert.match(error.message, /不是合法 JSON/)
+    return true
+  })
+  assert.equal(readFileSync(path, 'utf8'), '{ 坏 JSON')
 })

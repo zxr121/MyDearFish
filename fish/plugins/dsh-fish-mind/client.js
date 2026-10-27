@@ -7,7 +7,8 @@
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
- *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼。
+ *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼；
+ *   · 自动备份：按主人设的间隔把整条鱼写进安装目录，最多留 5 份。
  *
  * 总览里的记忆和人物志是资料，不是指令；页面不提供直接写库的按钮。
  * ============================================================================
@@ -48,6 +49,12 @@ window.__ModuleLoader__.load({
     const when = (ts) => (Number.isFinite(ts) && ts > 0 ? new Date(ts).toLocaleString() : '—')
     const num = (value) => (Number.isFinite(value) ? Math.round(value * 100) / 100 : 0)
     const yen = (value) => '¥' + (Number.isFinite(value) ? Number(value).toFixed(2) : '0.00')
+    const fileSize = (value) => {
+      const bytes = Number.isFinite(value) && value > 0 ? value : 0
+      if (bytes < 1024) return `${Math.round(bytes)} B`
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    }
     const yesNo = (value) => (value === true ? '开' : '关')
     const list = (value) => (Array.isArray(value) ? value : [])
     const INNER_DRIVES = [
@@ -75,6 +82,7 @@ window.__ModuleLoader__.load({
 [data-fishm-card]{padding:10px 12px;border-radius:9px;background:rgba(127,127,127,.07);display:flex;flex-direction:column;gap:5px;}
 [data-fishm-cardtitle]{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 [data-fishm-field]{display:flex;flex-direction:column;gap:4px;}
+[data-fishm-check]{display:flex;gap:8px;align-items:center;font-size:13px;line-height:1.5;}
 [data-fishm-flabel]{font-size:12px;opacity:.72;}
 [data-fishm-input]{padding:6px 9px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;width:100%;box-sizing:border-box;}
 [data-fishm-area]{min-height:58px;resize:vertical;font-family:inherit;line-height:1.5;}
@@ -246,6 +254,8 @@ window.__ModuleLoader__.load({
       const [grantBusy, setGrantBusy] = React.useState(false)
       const [phraseForm, setPhraseForm] = React.useState(null)
       const [phraseBusy, setPhraseBusy] = React.useState(false)
+      const [backupForm, setBackupForm] = React.useState(null)
+      const [backupBusy, setBackupBusy] = React.useState('')
       const [ttsPanelBusy, setTtsPanelBusy] = React.useState(false)
       const [restartPrompt, setRestartPrompt] = React.useState(null)
       const fileRef = React.useRef(null)
@@ -291,6 +301,12 @@ window.__ModuleLoader__.load({
             ? {
                 privateDodge: next.phrases.privateDodge || '',
                 budgetBlock: next.phrases.budgetBlock || '',
+              }
+            : current))
+          setBackupForm((current) => (current === null && next && next.backup
+            ? {
+                enabled: next.backup.enabled === true,
+                intervalHours: String(next.backup.intervalHours || 24),
               }
             : current))
         } catch (error) {
@@ -488,6 +504,52 @@ window.__ModuleLoader__.load({
         })
       }
 
+      const patchBackup = (key, value) => setBackupForm((current) => ({ ...(current || {}), [key]: value }))
+
+      const saveBackupSettings = async () => {
+        if (backupBusy || backupForm === null) return
+        const hours = Number(backupForm.intervalHours)
+        if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
+          flash('备份间隔要填 1 到 720 之间的整数小时', 'error')
+          return
+        }
+        setBackupBusy('save')
+        try {
+          const result = await postJson(API + '/backup/config', {
+            enabled: backupForm.enabled === true,
+            intervalHours: hours,
+          })
+          const saved = result && result.backup
+          if (saved) {
+            setBackupForm({ enabled: saved.enabled === true, intervalHours: String(saved.intervalHours) })
+          }
+          await load()
+          const run = result && result.run
+          flash(run && run.ok
+            ? `自动备份已保存，刚写了一份 ${run.fileName}`
+            : '自动备份设置已保存')
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        }
+        setBackupBusy('')
+      }
+
+      const backupNow = async () => {
+        if (backupBusy) return
+        setBackupBusy('now')
+        try {
+          const result = await postJson(API + '/backup/now', {})
+          const run = result && result.run
+          await load()
+          flash(run && run.counts
+            ? `已备份 ${run.fileName}：经历 ${num(run.counts.experiences)} 条、事实 ${num(run.counts.facts)} 条`
+            : '已备份')
+        } catch (error) {
+          flash('没备份成功：' + String((error && error.message) || error), 'error')
+        }
+        setBackupBusy('')
+      }
+
       const exportFish = async () => {
         setBusy('export')
         try {
@@ -562,6 +624,7 @@ window.__ModuleLoader__.load({
       const channels = data.channels || {}
       const wallet = data.wallet || {}
       const biliQuota = wallet.bili || {}
+      const backup = data.backup || {}
       const boundaries = data.boundaries || {}
       const permissions = boundaries.permissions || {}
       const privacy = boundaries.privacy || {}
@@ -1010,6 +1073,76 @@ window.__ModuleLoader__.load({
               ? '只收大肥鱼自己的记忆包；格式、版本、校验和文件清单有一项不对就不会导入。导入只用于空鱼，导入后需要重启。'
               : '这条鱼已经有记忆、心情或人物志，不能再导入。导入只用于刚出生、还空着的那条鱼。')),
 
+        h(Section, {
+          title: '自动备份',
+          note: `整条鱼会按你设的间隔打包到安装目录下的 ${backup.dirName || 'fish-backups'} 文件夹；最多留 5 份，超过就从最旧的删起。只清理大肥鱼自己写的备份，不动你放进去的其它文件。`,
+        },
+          backupForm === null
+            ? h('div', { 'data-fishm-note': '' }, '正在读备份设置…')
+            : h('div', { 'data-fishm-grid': '' },
+                h('div', { 'data-fishm-card': '' },
+                  h('div', { 'data-fishm-cardtitle': '' },
+                    '定时备份',
+                    h('span', { 'data-fishm-chip': backupForm.enabled ? 'on' : 'off' },
+                      backupForm.enabled ? '开' : '关')),
+                  h('label', { 'data-fishm-check': '' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: backupForm.enabled === true,
+                      disabled: backupBusy !== '',
+                      onChange: (event) => patchBackup('enabled', event.target.checked),
+                    }),
+                    h('span', {}, '每隔一段时间自动打包她现在的记忆')),
+                  h('label', { 'data-fishm-field': '' },
+                    h('span', { 'data-fishm-flabel': '' }, '间隔（小时）'),
+                    h('input', {
+                      'data-fishm-input': '',
+                      type: 'number',
+                      min: '1',
+                      max: '720',
+                      step: '1',
+                      value: backupForm.intervalHours,
+                      disabled: backupBusy !== '',
+                      onChange: (event) => patchBackup('intervalHours', event.target.value),
+                    }),
+                    h('span', { 'data-fishm-note': '' }, '1 到 720 小时；关掉自动备份后，也可以随时点「立即备份」。')),
+                  h('div', { 'data-fishm-actions': '' },
+                    h('button', {
+                      'data-fishm-btn': '',
+                      'data-primary': '',
+                      disabled: backupBusy !== '',
+                      onClick: saveBackupSettings,
+                    }, backupBusy === 'save' ? '保存中…' : '保存备份设置'),
+                    h('button', {
+                      'data-fishm-btn': '',
+                      disabled: backupBusy !== '',
+                      onClick: backupNow,
+                    }, backupBusy === 'now' ? '备份中…' : '立即备份'))),
+                h('div', { 'data-fishm-card': '' },
+                  h('div', { 'data-fishm-cardtitle': '' }, '备份情况'),
+                  h(Row, { label: '最近一份', value: backup.lastAt ? when(backup.lastAt) : '还没有' }),
+                  h(Row, {
+                    label: '下一次',
+                    value: backup.enabled !== true
+                      ? '自动备份关着'
+                      : backup.due
+                        ? '下次检查就备份'
+                        : when(backup.nextAt),
+                  }),
+                  h(Row, { label: '保留', value: `${num(backup.count)} / ${num(backup.keep) || 5} 份` }))),
+          list(backup.files).length > 0
+            ? h('div', { 'data-fishm-list': '' }, list(backup.files).map((file, index) => h('div', {
+                'data-fishm-item': '',
+                key: index,
+              },
+                h('div', { 'data-fishm-meta': '' }, `${when(file.at)} · ${fileSize(file.bytes)}`),
+                file.name)))
+            : h('div', { 'data-fishm-note': '' }, backup.lastRun && backup.lastRun.ok === false
+                ? `上次备份没成功：${backup.lastRun.error || '没有留下原因'}`
+                : backup.enabled === true
+                  ? '还没有备份文件；第一份会在启动后一分钟内写好。'
+                  : '还没有备份文件；自动备份关着，可以点「立即备份」。')),
+
         msg ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null,
 
         restartPrompt
@@ -1083,6 +1216,7 @@ window.__ModuleLoader__.load({
           '• B 站（「刷B站」页）：装运行环境、扫码登录、自动刷的时段、挑视频门槛、评论/回评/私信',
           '• 朗读（右下角的「朗读桥」卡片）：勾选要听的会话、自动朗读、收藏；点卡片上的 ✕ 可以关掉，想再显示就回这里（大肥鱼 → 通道 → 朗读）；还要在浏览器里装扩展，第一次在 DeepSeek 页面手动点一下朗读',
           '• 零花钱（「大肥鱼」页）：按元调整每日额度，查看今日已花、余额和 B 站巡检额度',
+          '• 自动备份（「大肥鱼」页）：开关和间隔（1–720 小时），备份写在安装目录的 fish-backups；最多留 5 份，也能随时立即备份',
         ],
       },
       {
@@ -1092,7 +1226,7 @@ window.__ModuleLoader__.load({
           '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系和说话风格',
           '3. 主动搭话要先勾目标会话（出厂试运行关着，掷中就真发；想先只看记录就打开试运行）；到点掷骰子，安静时段不掷，刚聊过更难开口',
           '4. 隐私、法律红线和危险命令的硬规则改不了，改出生设定也改不了',
-          '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志和短期水位；QQ、朗读、B 站配置、凭据和零花钱账本不在包里，要重配。导入只进空鱼，重启后生效',
+          '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志和短期水位；QQ、朗读、B 站配置、凭据和零花钱账本不在包里，要重配。导入只进空鱼，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',
         ],
       },
     ]
