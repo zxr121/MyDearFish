@@ -47,7 +47,7 @@ describe('desktop release metadata', () => {
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture(channel: 'nightly' | 'latest' = 'nightly', version = '1.1.0-alpha.1') {
+function fixture(channel: 'nightly' | 'latest' = 'nightly', version = '1.1.0-alpha.1', enabled = true) {
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async () => ({
     isUpdateAvailable: true,
@@ -66,7 +66,7 @@ function fixture(channel: 'nightly' | 'latest' = 'nightly', version = '1.1.0-alp
   const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall }) as unknown as AppUpdater
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
-    beforeRestart, updater, () => true, () => version, downloadResult, channel,
+    beforeRestart, updater, () => enabled, () => version, downloadResult, channel,
   )
   coordinators.push(coordinator)
   return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall, beforeRestart, downloadResult }
@@ -175,6 +175,14 @@ describe('desktop update coordinator', () => {
     await Promise.all([f.coordinator.check(), f.coordinator.check(true)])
     expect(f.states).toEqual([expect.objectContaining({ phase: 'error', failedOperation: 'check' })])
     expect(f.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('reports no update instead of a failed check when the build has no packaged update source', async () => {
+    const f = fixture('nightly', '1.1.0-alpha.1', false)
+    expect(await f.coordinator.check(true)).toEqual({ phase: 'idle' })
+    expect(f.checkForUpdates).not.toHaveBeenCalled()
+    expect(f.states).toEqual([{ phase: 'idle' }])
+    expect(f.coordinator.state).toEqual({ phase: 'idle' })
   })
 
   it.each(['1.0.0', '1.1.0-alpha.1', 'invalid'])('does not download or install inapplicable version %s', async (version) => {

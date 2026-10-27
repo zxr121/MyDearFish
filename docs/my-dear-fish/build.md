@@ -24,7 +24,7 @@ When an update check fails, the failure dialog offers **Download manually**, whi
 
 Local packaging needs Node 24, the repository's pnpm version, Git, PowerShell, tar, Python, Visual C++ Build Tools, and a Windows SDK that provides `vswhere.exe`. Dependency installation and runtime preparation also need access to npm, GitHub release assets, and nodejs.org.
 
-Write `apps/desktop/.env.windows`; the file is ignored by Git. A build without an update feed has no update channel and reports failed checks; the two feed settings below make it behave like the CI artifact:
+Write `apps/desktop/.env.windows`; the file is ignored by Git. A build without an update feed has no update channel; update checks report no update instead of failing. The two feed settings below make it behave like the CI artifact:
 
 ```
 DSH_DESKTOP_APP_ID=com.deepseek.harness

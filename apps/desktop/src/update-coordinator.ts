@@ -184,7 +184,8 @@ export class DesktopUpdateCoordinator {
   private async doCheck(): Promise<DesktopUpdateState> {
     try {
       this.assertLive()
-      if (!this.enabled()) throw new Error('desktop update: this application has no packaged update source')
+      // No packaged source means this build has no release feed, which is a build property rather than a failed check.
+      if (!this.enabled()) return this.setState({ phase: 'idle' })
       const result = await this.updater.checkForUpdates()
       if (result === null) throw new Error('desktop update: no check result was returned')
       const version = result.updateInfo.version

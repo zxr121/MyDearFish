@@ -24,7 +24,7 @@ unsigned Windows 构建随包携带 `resources/app-update.yml`，更新源是本
 
 本机打包需要 Node 24、仓库固定的 pnpm 版本、Git、PowerShell、tar、Python、Visual C++ Build Tools，以及提供 `vswhere.exe` 的 Windows SDK。安装依赖和准备运行时还需要访问 npm、GitHub release 资源与 nodejs.org。
 
-写入 `apps/desktop/.env.windows`；该文件被 Git 忽略。不配置更新源时，产物没有更新通道，检查更新会报告失败；写入下面两项后与 CI 产物行为一致：
+写入 `apps/desktop/.env.windows`；该文件被 Git 忽略。不配置更新源时，产物没有更新通道，检查更新按“没有新版本”处理，不显示失败；写入下面两项后与 CI 产物行为一致：
 
 ```
 DSH_DESKTOP_APP_ID=com.deepseek.harness
