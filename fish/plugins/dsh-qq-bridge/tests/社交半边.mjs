@@ -2631,6 +2631,97 @@ const 认人摘录 = String(认人轮?.message.source?.excerpt || '')
   认人轮 && 认人轮.message.source && !('sender' in 认人轮.message.source),
   JSON.stringify(认人轮 && 认人轮.message.source))
 
+// ---------- 30 按人控制：不理的人连 @ 都不接；少理的人没叫她不看，叫到才短应 ----------
+时间偏移 = 0
+写配置({ 群: ['1301'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0, 人的态度: { 'group:1301': { 888: 'ignore' } } })
+群消息表.set(1301, [
+  一条群消息('今天食堂好难吃', { id: 30001 }),
+  一条群消息('大肥鱼 你吃了吗', { id: 30002, atSelf: true }),
+])
+设判断(['30002'], true, 0.9, '被叫了')
+const 判断前不理 = 判断调用.length
+const 回合前不理 = 回合.length
+await 轮询社交()
+await 等()
+const 不理态 = await 目标状态('group:1301')
+报('不理的人：连 @ 都不进待看、不花判断的钱、不开回合',
+  判断调用.length === 判断前不理 && 回合.length === 回合前不理 && 不理态 && 不理态.待看 === 0 && 不理态.今日 === 0,
+  JSON.stringify({ 判断: 判断调用.length - 判断前不理, 回合: 回合.length - 回合前不理, 态: 不理态 }))
+
+写配置({ 群: ['1302'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0, 人的态度: { 'group:1302': { 888: 'cold' } } })
+群消息表.set(1302, [一条群消息('今天食堂好难吃', { id: 30011 })])
+const 判断前少理 = 判断调用.length
+await 轮询社交()
+await 等()
+const 少理态 = await 目标状态('group:1302')
+报('少理的人：没叫她的消息不进待看、不判',
+  判断调用.length === 判断前少理 && 少理态 && 少理态.待看 === 0 && 少理态.今日 === 0,
+  JSON.stringify({ 判断: 判断调用.length - 判断前少理, 态: 少理态 }))
+
+群消息表.set(1302, [
+  一条群消息('今天食堂好难吃', { id: 30011 }),
+  一条群消息('大肥鱼 你吃了吗', { id: 30012, atSelf: true }),
+])
+设判断(['30012'], true, 0.9, '被叫了')
+const 回合前少理 = 回合.length
+await 轮询社交()
+const 开了少理 = await 等到(async () => 回合.length === 回合前少理 + 1)
+const 少理文 = String(回合.at(-1)?.message.content[0].text || '')
+报('少理的人：被叫到才接，提示带 [冷处理]、只短应，不追着聊',
+  开了少理 && 少理文.includes('[冷处理]') && 少理文.includes('别把冷淡带到别人身上') && !少理文.includes('今天食堂好难吃'),
+  少理文.slice(-360))
+await 收到回复('session-qq-social-group-1302', '嗯')
+
+// ---------- 31 少掺和：只接叫她的；主人随口说的仍照常 ----------
+写配置({ 群: ['1303'], 少掺和: ['group:1303'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0 })
+群消息表.set(1303, [一条群消息('今天食堂好难吃', { id: 30021 })])
+const 判断前掺 = 判断调用.length
+await 轮询社交()
+await 等()
+const 掺态 = await 目标状态('group:1303')
+报('少掺和：没叫她的群友消息先不看、不判',
+  判断调用.length === 判断前掺 && 掺态 && 掺态.待看 === 0 && 掺态.今日 === 0,
+  JSON.stringify({ 判断: 判断调用.length - 判断前掺, 态: 掺态 }))
+
+群消息表.set(1303, [
+  一条群消息('今天食堂好难吃', { id: 30021 }),
+  一条群消息('今天有点累', { id: 30022, 是主人: true }),
+  一条群消息('大肥鱼 在吗', { id: 30023, atSelf: true }),
+])
+设判断(['30022', '30023'], true, 0.9, '主人在，群友也在叫她')
+const 回合前掺 = 回合.length
+await 轮询社交()
+const 开了掺 = await 等到(async () => 回合.length === 回合前掺 + 1)
+const 掺文 = String(回合.at(-1)?.message.content[0].text || '')
+报('少掺和：主人随口说的照常进判断，群友只有叫她才进',
+  开了掺 && 掺文.includes('今天有点累') && 掺文.includes('大肥鱼 在吗') && !掺文.includes('今天食堂好难吃'),
+  掺文.slice(-360))
+await 收到回复('session-qq-social-group-1303', '在呢')
+
+// ---------- 32 /save：少掺和与人的态度按房间清洗 ----------
+写配置({ 群: ['1304'] })
+await 路由.get('/dsh-qq-bridge/save')(造请求({
+  社交: {
+    群: ['1304', '1305', '1306'],
+    好友: ['7911'],
+    关掉: ['group:1305'],
+    只听: ['group:1306'],
+    少掺和: ['group:1304', 'group:1305', 'group:1306', 'friend:7911', 'group:9999'],
+    人的态度: {
+      'group:1304': { 888: 'cold', 999: 'ignore', 123: 'cold', 12: 'cold', 777: 'weird' },
+      'friend:7911': { 888: 'ignore' },
+      'group:9999': { 888: 'ignore' },
+    },
+  },
+}), fakeRes)
+const 存盘态度 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+报('/save：少掺和只留开着的群，关掉 / 只听 / 好友 / 旧群都清掉',
+  JSON.stringify(存盘态度.社交.少掺和) === '["group:1304"]',
+  JSON.stringify(存盘态度.社交.少掺和))
+报('/save：人的态度只留群、有效号、非主人；好友和旧群不收',
+  JSON.stringify(存盘态度.社交.人的态度) === '{"group:1304":{"888":"cold","999":"ignore"}}',
+  JSON.stringify(存盘态度.社交.人的态度))
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

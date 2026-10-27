@@ -201,6 +201,7 @@ window.__ModuleLoader__.load({
       const [展开人, 设展开人] = React.useState('')
       const [全部人, 设全部人] = React.useState(false)
       const [全部关系, 设全部关系] = React.useState(false)
+      const [人号草稿, 设人号草稿] = React.useState({})
       // —— 思想活动：从 /thoughts 增量拉，绝不碰 /state（不然会冲掉没保存的表单值）——
       const [绪流, 设绪流] = React.useState([])
       const [绪摘, 设绪摘] = React.useState(null)
@@ -480,19 +481,19 @@ window.__ModuleLoader__.load({
       const 社交 = 配置.社交 || {}
       const 关掉们 = Array.isArray(社交.关掉) ? 社交.关掉 : []
       const 只听们 = Array.isArray(社交.只听) ? 社交.只听 : []
+      const 少掺和们 = Array.isArray(社交.少掺和) ? 社交.少掺和 : []
+      const 人态表 = 社交.人的态度 && typeof 社交.人的态度 === 'object' && !Array.isArray(社交.人的态度) ? 社交.人的态度 : {}
+      const 人态度数 = Object.values(人态表).reduce((n, 人们) => n + Object.keys(人们 || {}).length, 0)
       const 房间开关 = (key, 叫) => {
-        const 值 = 关掉们.includes(key) ? 'off' : 只听们.includes(key) ? 'listen' : 'normal'
+        const 是群 = key.startsWith('group:')
+        const 值 = 关掉们.includes(key) ? 'off' : 少掺和们.includes(key) ? 'few' : 只听们.includes(key) ? 'listen' : 'normal'
         const 切 = (v) => {
-          if (v === 'normal') {
-            改社交('关掉', 关掉们.filter((k) => k !== key))
-            改社交('只听', 只听们.filter((k) => k !== key))
-          } else if (v === 'listen') {
-            改社交('关掉', 关掉们.filter((k) => k !== key))
-            改社交('只听', 只听们.includes(key) ? 只听们 : [...只听们, key])
-          } else {
-            改社交('关掉', 关掉们.includes(key) ? 关掉们 : [...关掉们, key])
-            改社交('只听', 只听们.filter((k) => k !== key))
-          }
+          改社交('关掉', 关掉们.filter((k) => k !== key))
+          改社交('少掺和', 少掺和们.filter((k) => k !== key))
+          改社交('只听', 只听们.filter((k) => k !== key))
+          if (v === 'few') 改社交('少掺和', 少掺和们.includes(key) ? 少掺和们 : [...少掺和们, key])
+          else if (v === 'listen') 改社交('只听', 只听们.includes(key) ? 只听们 : [...只听们, key])
+          else if (v === 'off') 改社交('关掉', 关掉们.includes(key) ? 关掉们 : [...关掉们, key])
         }
         return h('label', {
           key,
@@ -508,11 +509,58 @@ window.__ModuleLoader__.load({
             onChange: (e) => 切(e.target.value),
           },
             h('option', { style: S.option, value: 'normal' }, '正常'),
+            ...(是群 ? [h('option', { style: S.option, value: 'few' }, '少掺和（只接叫我的）')] : []),
             h('option', { style: S.option, value: 'listen' }, '只听不说'),
             h('option', { style: S.option, value: 'off' }, '关掉'),
           ),
         )
       }
+      const 改人态 = (key, 号, 态度) => {
+        const 人们 = { ...(人态表[key] || {}) }
+        if (态度 === 'normal') delete 人们[号]
+        else 人们[号] = 态度
+        const 全 = { ...人态表 }
+        if (Object.keys(人们).length === 0) delete 全[key]
+        else 全[key] = 人们
+        改社交('人的态度', 全)
+      }
+      const 群人 = (key) => {
+        const 定过 = 人态表[key] || {}
+        const 出 = []
+        const 见 = new Set()
+        for (const p of 人物页) {
+          if (p.主人) continue
+          const 房 = (Array.isArray(p.房) ? p.房 : []).find((r) => r.key === key)
+          if (!房) continue
+          出.push({ 号: String(p.号), 名: String(p.名 || ''), 最后At: Number(房.最后At) || 0 })
+          见.add(String(p.号))
+        }
+        for (const 号 of Object.keys(定过)) {
+          if (!见.has(号)) 出.push({ 号, 名: '', 最后At: 0 })
+        }
+        return 出
+          .sort((a, b) => Number(!!定过[b.号]) - Number(!!定过[a.号]) || b.最后At - a.最后At)
+          .slice(0, 10)
+      }
+      const 加个人 = (key, 态度) => {
+        const 号 = String(人号草稿[key] || '').trim()
+        if (!/^\d{3,20}$/.test(号)) {
+          设说('QQ 号看着不对：' + (号 || '（空）'))
+          return
+        }
+        改人态(key, 号, 态度)
+        设人号草稿({ ...人号草稿, [key]: '' })
+      }
+      const 人态选择 = (key, 号) =>
+        h('select', {
+          style: { ...S.small, padding: '3px 6px' },
+          value: (人态表[key] || {})[号] || 'normal',
+          onChange: (e) => 改人态(key, 号, e.target.value),
+        },
+          h('option', { style: S.option, value: 'normal' }, '正常'),
+          h('option', { style: S.option, value: 'cold' }, '少理（被叫才短应）'),
+          h('option', { style: S.option, value: 'ignore' }, '不理（叫了也不接）'),
+        )
       const 社态 = 态.社交 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
       // 宿主读到的群名 / 好友备注：开关列表和状态行都拿它把号翻成名字。
@@ -886,7 +934,49 @@ window.__ModuleLoader__.load({
                 ? h('span', { style: S.dim }, '先在「群号」「好友 QQ」里填好，这里会给每一间出一个开关。')
                 : 可开房间.map(({ key, 叫 }) => 房间开关(key, 叫)),
             ),
-            '正常 = 看、学、说；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。改完记得保存。',
+            '正常 = 看、学、说；少掺和 = 只接叫她的话（@、叫名字、回复她、问她本人），没叫她的群友消息不进视线，主人随口说的仍照常；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。改完记得保存。',
+          ),
+          行('她跟谁说话',
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+              可开房间.filter(({ key }) => key.startsWith('group:')).length === 0
+                ? h('span', { style: S.dim }, '先在「群号」里填好群，这里会按群列出她见过的人。')
+                : 可开房间.filter(({ key }) => key.startsWith('group:')).map(({ key, 叫 }) => {
+                    const 人们 = 群人(key)
+                    const 草 = String(人号草稿[key] || '')
+                    return h('div', { key, style: { borderTop: '1px solid var(--dsw-alias-border-l2)', paddingTop: 6 } },
+                      h('div', { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 4 } }, 叫),
+                      人们.length === 0
+                        ? h('div', { style: S.dim },
+                            人态表[key]
+                              ? '设置的人她还没在这间群见过，但态度照常生效。'
+                              : '还没在这间群见过人；见过之后会列在这里，也可以先在下面直接填 QQ 号。',
+                          )
+                        : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 3 } },
+                            人们.map((p) => h('label', {
+                              key: p.号,
+                              style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 },
+                            },
+                              h('span', {
+                                style: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                              }, p.名 ? p.名 + '（' + p.号 + '）' : 'QQ ' + p.号),
+                              人态选择(key, p.号),
+                            )),
+                          ),
+                      h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 } },
+                        h('input', {
+                          type: 'text',
+                          style: { ...S.small, width: 130 },
+                          placeholder: '加一个 QQ 号',
+                          value: 草,
+                          onChange: (e) => 设人号草稿({ ...人号草稿, [key]: e.target.value }),
+                        }),
+                        按钮('按少理加', () => 加个人(key, 'cold'), false),
+                        按钮('按不理加', () => 加个人(key, 'ignore'), false),
+                      ),
+                    )
+                  }),
+            ),
+            '只对群聊生效，主人自己不受影响。少理 = 他没点你名就不看、不接；真被叫到只短答一句，不追问、不起新话题。不理 = 连 @、回复和戳一戳都不接。好友私聊要安静，用上面的「每一间的开关」。改完记得保存。',
           ),
           行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 2, 3600), '同一目标两次开口的成熟期基础间隔（默认 15 秒）；实际会按兴致走指数曲线，想接时几秒就能开口。'),
           行('冷却曲线',
@@ -969,6 +1059,8 @@ window.__ModuleLoader__.load({
               '｜模式：' + (社态.模式 === 'mention' ? '只把被叫交给她' : 'auto') +
               '｜登录号：' + (自己 ? 自己.昵称 + '（' + 自己.号 + '）' : '还没探到') +
               '｜今天已接：' + (社态.今日已接 || 0) +
+              (少掺和们.length > 0 ? '｜少掺和：' + 少掺和们.length + ' 间' : '') +
+              (人态度数 > 0 ? '｜少理/不理：' + 人态度数 + ' 人' : '') +
               (社态.在静音 ? '｜现在静音中' : ''),
           ),
           h('div', {
@@ -1002,6 +1094,8 @@ window.__ModuleLoader__.load({
                   房标(t.类型 === 'group' ? '群' : '好友', t.号, t.key) + '（' + 短id(t.会话id) + '）· ' +
                     (t.允许 === false ? '已单独关掉（不看、不说） · ' : '') +
                     (t.允许 !== false && t.能说 === false ? '只听不说（照常看和学，不开口） · ' : '') +
+                    (t.少掺和 ? '少掺和（只接叫她的） · ' : '') +
+                    (t.人的态度 && Object.keys(t.人的态度).length > 0 ? '少理/不理 ' + Object.keys(t.人的态度).length + ' 人 · ' : '') +
                     (t.活着 ? '会话活着' : '等它第一次开口') +
                     (t.待看 ? ' · 待看 ' + t.待看 + ' 条' : '') +
                     (t.待发 ? ' · 正在想' : '') +
