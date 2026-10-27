@@ -11,6 +11,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 
 const 家 = mkdtempSync(join(tmpdir(), 'qq-bridge-'))
 process.env.DSH_HOME = 家
@@ -42,6 +43,7 @@ let 私聊消息文本 = '宝宝'
 let 私聊消息时间 = 9999999999
 let 私聊消息id = 9000
 let 私聊附加 = []
+let 私聊消息段 = null
 const 引用消息表 = new Map()
 globalThis.fetch = async (url, 选项) => {
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -56,7 +58,7 @@ globalThis.fetch = async (url, 选项) => {
         status: 'ok', retcode: 0,
         data: {
           messages: [
-            { user_id: 123, time: 私聊消息时间, message_id: 私聊消息id, message_type: 'private', message: [{ type: 'text', data: { text: 私聊消息文本 } }] },
+            { user_id: 123, time: 私聊消息时间, message_id: 私聊消息id, message_type: 'private', message: 私聊消息段 || [{ type: 'text', data: { text: 私聊消息文本 } }] },
             ...私聊附加,
           ],
         },
@@ -85,12 +87,24 @@ globalThis.fetch = async (url, 选项) => {
     return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
   }
   if (u.includes('multimedia.nt.qq.com.cn')) {
+    // 每张图按地址给不同字节，收藏去重（md5）才分得清是不是同一张。
+    const 尾巴 = createHash('md5').update(u).digest()
+    const 字节 = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...尾巴.subarray(0, 12)])
     return {
       ok: true,
       url: u,
-      headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? '4' : null) },
-      async arrayBuffer() { return new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer },
+      headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? String(字节.length) : null) },
+      async arrayBuffer() { return 字节.buffer },
     }
+  }
+  if (u.endsWith('/add_custom_face')) {
+    发了.push({ url: u, 体 })
+    const emojiId = 'qq-' + createHash('md5').update(String(体.file || '')).digest('hex').slice(0, 10)
+    return { json: async () => ({ status: 'ok', retcode: 0, data: { emoji_id: emojiId } }) }
+  }
+  if (u.endsWith('/modify_custom_face')) {
+    发了.push({ url: u, 体 })
+    return { json: async () => ({ status: 'ok', retcode: 0, data: {} }) }
   }
   发了.push({ url: u, 体 })
   return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: 1 } }) }
@@ -251,6 +265,7 @@ const ctx = {
 }
 
 const 附件们 = []
+const 附件字节 = new Map()
 const 假附件 = {
   imageLimits: {
     maxImageBytes: 5_000_000,
@@ -261,8 +276,14 @@ const 假附件 = {
     return inputs.map((输入) => {
       const ref = { attachmentId: 'att-' + 附件们.length, mediaType: 输入.mediaType, bytes: 输入.data.length, width: 1, height: 1, name: 输入.name }
       附件们.push(ref)
+      附件字节.set(ref.attachmentId, 输入.data)
       return ref
     })
+  },
+  async readImage(ref) {
+    const 数据 = 附件字节.get(ref && ref.attachmentId)
+    if (!数据) throw new Error('附件不存在')
+    return { data: 数据, mediaType: ref.mediaType }
   },
 }
 
@@ -624,6 +645,106 @@ const 风格文 = 转进的.at(-1)?.content?.[0]?.text || ''
   转进的.length === 之前风格转 + 7 && 风格文.includes('说话节奏') && 风格文.includes('内部提示') &&
     风格文.includes('别复述') && 风格文.includes('别让对方看出来'),
   JSON.stringify(风格文.slice(0, 240)))
+
+// ⑯e 私聊：主人说“存下来” → 当场写进 QQ 收藏，提示里带收藏号
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
+}, null, 2), 'utf8')
+私聊附加 = []
+私聊消息id = 9701
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3000
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/green-sticker.gif', file: 'green-sticker.gif', summary: '[动画表情]', sub_type: 1 } },
+  { type: 'text', data: { text: '这个绿毛的表情存下来，回头发给我' } },
+]
+const 之前存 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 存后1 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 绿 = 存后1.items.find((x) => x.source.includes('主人私聊'))
+const 存文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：主人说存下来 → 表情真写进 QQ 收藏', 转进的.length === 之前存 + 1 && !!绿 && 绿.label === '主人让存', JSON.stringify(存后1.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
+报('私聊：存下的表情在提示里标成“你收藏的 #N”，并给出按图发送的写法', !!绿 && 存文.includes(`你收藏的 #${绿.id}`) && 存文.includes('【收藏对应】') && 存文.includes('[发表情:图N]'), JSON.stringify(存文.slice(-400)))
+
+// ⑯f 按收藏编号发回：发的就是刚存下的那张，不用她猜
+const 之前发回 = 发了.length
+监听[0](会话, 助手消息(160, 1, [块('text', `发你 [发表情:#${绿?.id}]`)], false))
+监听[0](会话, 转完(160))
+await new Promise((r) => setTimeout(r, 700))
+const 发回 = 发了.slice(之前发回)
+报('私聊：按收藏编号发回 → 发的是刚存下的那张', !!绿 && 发回.length === 2
+  && 发回[0].url.endsWith('/send_private_msg') && 发回[0].体.message[0].data.text === '发你'
+  && 发回[1].url.endsWith('/send_custom_face') && 发回[1].体.emoji_id === 绿.emojiId && 发回[1].体.user_id === 123,
+  JSON.stringify(发回.map((x) => ({ url: x.url, 体: x.体 }))))
+
+// ⑯g 没收藏过的新图：她写 [发表情:图1] → 先存进收藏再发，发的是这一张，不拿像的顶替
+私聊附加 = []
+私聊消息id = 9711
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3100
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/blue-sticker.gif', file: 'blue-sticker.gif', summary: '[动画表情]', sub_type: 1 } },
+  { type: 'text', data: { text: '这张也发我一下' } },
+]
+const 之前蓝 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 蓝文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：没让她存的新表情不会先存', 转进的.length === 之前蓝 + 1 && JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.length === 存后1.items.length, JSON.stringify(蓝文.slice(-200)))
+报('私聊：新表情带上“按图号发回”的提示', 蓝文.includes('【存表情】') && 蓝文.includes('[发表情:图N]'), JSON.stringify(蓝文.slice(-300)))
+const 之前图发 = 发了.length
+监听[0](会话, 助手消息(161, 1, [块('text', '[发表情:图1] 给你')], false))
+监听[0](会话, 转完(161))
+await new Promise((r) => setTimeout(r, 900))
+const 图发 = 发了.slice(之前图发)
+const 图发消息 = 图发.filter((x) => x.url.endsWith('/send_custom_face') || x.url.endsWith('/send_private_msg'))
+const 存后2 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 蓝 = 存后2.items.find((x) => !存后1.items.some((y) => y.id === x.id))
+报('私聊：[发表情:图1] 没收藏过的先存再发，发的是这一张', 图发.some((x) => x.url.endsWith('/add_custom_face'))
+  && 图发消息.length === 2
+  && 图发消息[0].url.endsWith('/send_custom_face') && 图发消息[0].体.emoji_id === 蓝?.emojiId
+  && 图发消息[1].url.endsWith('/send_private_msg') && 图发消息[1].体.message[0].data.text === '给你'
+  && !!蓝 && 蓝.label === '表情' && 存后2.items.length === 存后1.items.length + 1,
+  JSON.stringify({ 发: 图发.map((x) => x.url), 蓝 }))
+
+// ⑯h 同一张表情再发一次（纯图，不带字）→ 按内容认出收藏号，不把两张说成一张
+私聊附加 = []
+私聊消息id = 9712
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3200
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/blue-sticker.gif', file: 'blue-sticker.gif', summary: '[动画表情]', sub_type: 1 } },
+]
+const 之前重 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 重文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：同一张表情再发一次 → 提示标出“你收藏的 #N”，纯图也能进回合',
+  转进的.length === 之前重 + 1 && !!蓝 && 重文.includes(`你收藏的 #${蓝.id}`) && 重文.includes('【收藏对应】'),
+  JSON.stringify(重文.slice(0, 320)))
+
+// ⑯i 自动收藏只能起通用名；她真给了短名字就改名，并同步回 QQ 收藏备注
+私聊附加 = []
+私聊消息id = 9713
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3300
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/orange-sticker.gif', file: 'orange-sticker.gif', summary: '[动画表情]', sub_type: 1 } },
+  { type: 'text', data: { text: '这个也存一下' } },
+]
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 存后3 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 橙 = 存后3.items.find((x) => !存后2.items.some((y) => y.id === x.id))
+const 之前改 = 发了.length
+监听[0](会话, 助手消息(162, 1, [块('text', '[存表情:图1:橘猫趴床] 记好了')], false))
+监听[0](会话, 转完(162))
+await new Promise((r) => setTimeout(r, 700))
+const 存后4 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 橙改 = 存后4.items.find((x) => x.id === 橙?.id)
+const 改发 = 发了.slice(之前改)
+报('私聊：[存表情:图1:短名字] 把自动收藏的通用名换成她起的名字', !!橙 && 橙.label === '主人让存' && 橙改?.label === '橘猫趴床', JSON.stringify({ 橙, 橙改 }))
+报('私聊：改名同步回 QQ 收藏备注', 改发.some((x) => x.url.endsWith('/modify_custom_face') && x.体.emoji_id === 橙?.emojiId && x.体.desc === '橘猫趴床'), JSON.stringify(改发.map((x) => x.url)))
+报('私聊：[存表情] 不占发送位，话照发', 改发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '记好了'))
+私聊消息段 = null
+私聊附加 = []
 
 // ⑰ 历史导入：四个口都在，且没打开开关 / 没鱼脑 / 没令牌时一个字节都不取
 假鱼脑.observe = (输入) => { 观察到的.push(输入); return { ok: true, id: 观察到的.length, hash: 'h' + 观察到的.length } }
