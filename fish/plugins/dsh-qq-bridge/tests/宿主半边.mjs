@@ -44,6 +44,7 @@ let 私聊消息时间 = 9999999999
 let 私聊消息id = 9000
 let 私聊附加 = []
 let 私聊消息段 = null
+let 收藏上传失败 = false // 模拟 QQ 收藏写不进去（验证她说“存好了”会被改成实情）
 const 引用消息表 = new Map()
 globalThis.fetch = async (url, 选项) => {
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -115,6 +116,7 @@ globalThis.fetch = async (url, 选项) => {
   }
   if (u.endsWith('/add_custom_face')) {
     发了.push({ url: u, 体 })
+    if (收藏上传失败) return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
     const emojiId = 'qq-' + createHash('md5').update(String(体.file || '')).digest('hex').slice(0, 10)
     return { json: async () => ({ status: 'ok', retcode: 0, data: { emoji_id: emojiId } }) }
   }
@@ -768,6 +770,68 @@ const 改发 = 发了.slice(之前改)
 报('私聊：[存表情] 不占发送位，话照发', 改发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '记好了'))
 私聊消息段 = null
 私聊附加 = []
+
+// ⑯j 主人私聊说“你保存下这几个”：普通图也照存
+私聊附加 = []
+私聊消息id = 9721
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3400
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/regular-photo.jpg', file: 'regular-photo.jpg', summary: '[图片]', sub_type: 0 } },
+  { type: 'text', data: { text: '你保存下这几个' } },
+]
+const 之前普 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 存后5 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 普图 = 存后5.items.find((x) => !存后4.items.some((y) => y.id === x.id))
+const 普文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：主人说“你保存下这几个” → 普通图也存进收藏', 转进的.length === 之前普 + 1 && !!普图 && 普图.label === '主人让存' && String(普图.source).includes('主人私聊'), JSON.stringify(存后5.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
+报('私聊：普通图存下后也标“你收藏的 #N”', !!普图 && 普文.includes(`你收藏的 #${普图.id}`), JSON.stringify(普文.slice(-300)))
+
+// ⑯k 收藏写不进去时，她说“存好了”会被改成实情
+收藏上传失败 = true
+私聊附加 = []
+私聊消息id = 9722
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3500
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/black-sticker.gif', file: 'black-sticker.gif', summary: '[动画表情]', sub_type: 1 } },
+  { type: 'text', data: { text: '这只黑的也存一下' } },
+]
+const 之失 = 转进的.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 失文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：收藏失败时，入站提示标着“没存成”', 转进的.length === 之失 + 1 && 失文.includes('没存成'), JSON.stringify(失文.slice(-300)))
+const 之改 = 发了.length
+监听[0](会话, 助手消息(163, 1, [块('text', '[存表情:图1:黑猫] 存好了')], false))
+监听[0](会话, 转完(163))
+await new Promise((r) => setTimeout(r, 700))
+const 改私发 = 发了.slice(之改).filter((x) => x.url.endsWith('/send_private_msg'))
+报('私聊：没存成却说“存好了” → 改成“没存进去”', 改私发.length === 1 && 改私发[0].体.message[0].data.text.includes('没存进去') && !改私发[0].体.message[0].data.text.includes('存好了'), JSON.stringify(改私发.map((x) => x.体.message)))
+收藏上传失败 = false
+
+// ⑯l 发了收藏里没有的编号：不发，下一轮提示她没发成
+私聊附加 = []
+私聊消息id = 9723
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3600
+私聊消息段 = null
+私聊消息文本 = '发个表情看看'
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 之落 = 发了.length
+监听[0](会话, 助手消息(164, 1, [块('text', '[发表情:#999] 喏')], false))
+监听[0](会话, 转完(164))
+await new Promise((r) => setTimeout(r, 700))
+const 落发 = 发了.slice(之落)
+报('私聊：收藏里没有的编号不发', !落发.some((x) => x.url.endsWith('/send_custom_face')) && 落发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '喏'), JSON.stringify(落发.map((x) => ({ url: x.url, 体: x.体 }))))
+私聊消息id = 9724
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3700
+私聊消息文本 = '刚才发哪去了'
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 落文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：编号没发成会写进下一轮提示', 落文.includes('【表情没发成】') && 落文.includes('#999'), JSON.stringify(落文.slice(-260)))
+私聊消息段 = null
 
 // ⑰ 历史导入：四个口都在，且没打开开关 / 没鱼脑 / 没令牌时一个字节都不取
 假鱼脑.observe = (输入) => { 观察到的.push(输入); return { ok: true, id: 观察到的.length, hash: 'h' + 观察到的.length } }

@@ -536,6 +536,7 @@ const 好友消息表 = new Map()
 const 转发表 = new Map()
 const 引用消息表 = new Map()
 const 固定图 = new Map() // URL → 固定字节：验证同一张表情再发一次时按 md5 认出来
+let 收藏上传失败 = false // 模拟 QQ 收藏写不进去（验证她说“存好了”会被改成实情）
 globalThis.fetch = async (url, 选项) => {
   const u = String(url)
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -597,12 +598,13 @@ globalThis.fetch = async (url, 选项) => {
     }
   }
   if (u.endsWith('/add_custom_face')) {
+    发的.push({ url: u, 体 })
+    if (收藏上传失败) return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
     const 源 = String(体.file || '')
     const bytes = 源.startsWith('base64://') ? Buffer.from(源.slice('base64://'.length), 'base64') : Buffer.alloc(0)
     const md5 = createHash('md5').update(bytes).digest('hex')
     const emojiId = `700_${++收藏序号}_${md5}_0_0`
     QQ收藏.set(emojiId, { emojiId, md5, desc: '' })
-    发的.push({ url: u, 体 })
     return { json: async () => ({ status: 'ok', retcode: 0, data: { emoji_id: emojiId } }) }
   }
   if (u.endsWith('/modify_custom_face')) {
@@ -650,14 +652,15 @@ const 一条空叫 = (id, time) => ({
   message: [{ type: 'at', data: { qq: '999' } }],
 })
 
-const 一条带图群消息 = (id, { 是主人 = false, atSelf = false } = {}) => ({
+const 一条带图群消息 = (id, { 是主人 = false, atSelf = false, 表情 = true, 文本 = '', url = 'https://multimedia.nt.qq.com.cn/download?x=1' } = {}) => ({
   user_id: 是主人 ? 123 : 888,
   time: Math.floor(Date.now() / 1000) + 100,
   message_id: id,
   sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
   message: [
     ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
-    { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[动画表情]', sub_type: 1 } },
+    { type: 'image', data: { url, file: 'a.jpg', summary: 表情 ? '[动画表情]' : '[图片]', sub_type: 表情 ? 1 : 0 } },
+    ...(文本 === '' ? [] : [{ type: 'text', data: { text: 文本 } }]),
   ],
 })
 
@@ -1858,6 +1861,77 @@ await 等()
 报('主人 @ 让收藏 → 直接开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1035').length === 轮前21f + 1)
 await 收到回复('session-qq-social-group-1035', '好，收了')
 报('主人 @ 让收藏 → 回话发回群', 发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1035))
+
+// ---------- 21f2 主人没 @ 只说“你保存下这几个”：同批别人的普通图也照存 ----------
+写配置({ 群: ['1037'] })
+const 图21f2 = 'https://multimedia.nt.qq.com.cn/download?x=21f2'
+固定图.set(图21f2, Buffer.from('普通图-21f2'))
+const 收藏数前21f2 = QQ收藏.size
+群消息表.set(1037, [
+  一条带图群消息(4551, { 表情: false, 文本: '你看这几个', url: 图21f2 }),
+  一条群消息('你保存下这几个', { 是主人: true, id: 4552 }),
+])
+设判断(['4551', '4552'], true, 0.9, '主人让存')
+await 轮询社交()
+await 等()
+const 提示21f2 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('主人没 @ 说“你保存下这几个” → 同批别人的普通图也存进 QQ', QQ收藏.size === 收藏数前21f2 + 1, `收藏 +${QQ收藏.size - 收藏数前21f2}`)
+报('自动存下的普通图在图注里标着“你收藏的 #编号”', /【图 1·群友888·你收藏的 #\d+ 主人让存】/.test(提示21f2), 提示21f2.slice(0, 400))
+
+// ---------- 21f3 主人先说了存、图下一批才到：等图来了补存 ----------
+写配置({ 群: ['1038'], 判断冷却秒: 0 })
+const 图21f3 = 'https://multimedia.nt.qq.com.cn/download?x=21f3'
+固定图.set(图21f3, Buffer.from('普通图-21f3'))
+const 收藏数前21f3 = QQ收藏.size
+群消息表.set(1038, [一条群消息('你帮我存下来', { 是主人: true, id: 4561 })])
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等()
+报('主人先说了存、图还没到 → 先不存', QQ收藏.size === 收藏数前21f3)
+群消息表.set(1038, [
+  一条群消息('你帮我存下来', { 是主人: true, id: 4561 }),
+  一条带图群消息(4562, { 是主人: true, 表情: false, 文本: '就这张', url: 图21f3 }),
+])
+await 轮询社交()
+await 等()
+报('下一批图来了 → 主人让存的普通图补存进 QQ', QQ收藏.size === 收藏数前21f3 + 1, `收藏 +${QQ收藏.size - 收藏数前21f3}`)
+
+// ---------- 21f4 收藏写不进 QQ 时，她说“存好了”会被改成实情 ----------
+写配置({ 群: ['1039'] })
+const 图21f4 = 'https://multimedia.nt.qq.com.cn/download?x=21f4'
+固定图.set(图21f4, Buffer.from('表情-21f4'))
+const 收藏数前21f4 = QQ收藏.size
+收藏上传失败 = true
+群消息表.set(1039, [一条带图群消息(4571, { 是主人: true, atSelf: true, 文本: '这个存一下', url: 图21f4 })])
+const 发前21f4 = 发的.length
+await 轮询社交()
+await 等()
+报('收藏失败 → 没写进 QQ', QQ收藏.size === 收藏数前21f4)
+const 存失提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('存失败的图在图注里标着“没存成”', 存失提示.includes('没存成'), 存失提示.slice(-300))
+await 收到回复('session-qq-social-group-1039', '[存表情:图1:黑猫] 存好了')
+await 等到(async () => 发的.slice(发前21f4).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1039))
+const 失发 = 发的.slice(发前21f4).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1039)
+报('没存成却说“存好了” → 改成“没存进去”再发', 失发.length === 1 && 失发[0].体.message[0].data.text.includes('没存进去') && !失发[0].体.message[0].data.text.includes('存好了'), JSON.stringify(失发.map((x) => x.体.message)))
+收藏上传失败 = false
+
+// ---------- 21f5 发了收藏里没有的编号：不发，下一轮提示她没发成 ----------
+写配置({ 群: ['1046'], 判断冷却秒: 0, 冷却秒: 0 })
+群消息表.set(1046, [一条群消息('今天好热', { id: 4691 })])
+设判断(['4691'], true, 0.9, '想接')
+await 轮询社交()
+await 等()
+const 发前21f5 = 发的.length
+await 收到回复('session-qq-social-group-1046', '[发表情:#999] 热死了')
+await 等到(async () => 发的.slice(发前21f5).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1046))
+报('收藏里没有的编号不发', !发的.slice(发前21f5).some((x) => x.url.endsWith('/send_custom_face')))
+群消息表.set(1046, [一条群消息('今天好热', { id: 4691 }), 一条群消息('开空调了', { id: 4692, uid: 889, atSelf: true })])
+设判断(['4692'], true, 0.9, '接着聊')
+const 回合前21f5 = 回合.length
+await 轮询社交()
+await 等()
+const 落提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('编号没发成 → 下一轮提示里说明并给出真编号范围', 回合.length === 回合前21f5 + 1 && 落提示.includes('【表情没发成】') && 落提示.includes('#999'), 落提示.slice(-320))
 
 // ---------- 21g 聊天节奏：话没断 + 高把握 → 允许顺着问一句 ----------
 写配置({ 群: ['1041'], 判断冷却秒: 10, 冷却秒: 10 })
