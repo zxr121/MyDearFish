@@ -83,6 +83,9 @@ const 图片段 = 模.解析消息段({
   message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } }],
 }, '999')
 报('消息段：图片带 url/file/summary', 图片段.文字 === '[图片]' && 图片段.图片们.length === 1 && 图片段.图片们[0].url.includes('qq.com.cn') && 图片段.图片们[0].file === 'a.jpg', JSON.stringify(图片段))
+const 收藏标注 = 模.标收藏表情('[图片]', [{ 收藏号: 16, 收藏名: '天青色瞪眼鱼' }])
+报('收藏表情：正文后面带编号', 收藏标注 === '[图片]（你收藏的 #16 天青色瞪眼鱼）', 收藏标注)
+报('收藏表情：没收藏过的图不加注', 模.标收藏表情('[图片]', [{}]) === '[图片]', 模.标收藏表情('[图片]', [{}]))
 const 转发段 = 模.解析消息段({
   message: [{ type: 'forward', data: { id: 'res-1' } }],
 }, '999')
@@ -509,6 +512,7 @@ const 群消息表 = new Map()
 const 好友消息表 = new Map()
 const 转发表 = new Map()
 const 引用消息表 = new Map()
+const 固定图 = new Map() // URL → 固定字节：验证同一张表情再发一次时按 md5 认出来
 globalThis.fetch = async (url, 选项) => {
   const u = String(url)
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -552,6 +556,15 @@ globalThis.fetch = async (url, 选项) => {
     }
   }
   if (u.includes('multimedia.nt.qq.com.cn')) {
+    const 指定 = 固定图.get(u)
+    if (指定) {
+      return {
+        ok: true,
+        url: u,
+        headers: { get: (k) => (k === 'content-type' ? 'image/jpeg' : k === 'content-length' ? String(指定.length) : null) },
+        async arrayBuffer() { return 指定.buffer.slice(指定.byteOffset, 指定.byteOffset + 指定.byteLength) },
+      }
+    }
     图序号 += 1
     return {
       ok: true,
@@ -943,6 +956,43 @@ const 收藏项 = [...QQ收藏.values()][0]
 报('看中的表情直接写进 QQ 收藏', QQ收藏.size === 1 && 收藏项 && 收藏项.desc === '测试表情', JSON.stringify([...QQ收藏.values()]))
 报('本地只留编号和备注', 表情索引.items.length === 1 && 表情索引.items[0].label === '测试表情' && 表情索引.items[0].emojiId === (收藏项 && 收藏项.emojiId) && !表情索引.items[0].file, 表情索引文本.slice(0, 160))
 报('不再往本机写表情图片', !existsSync(join(家, 'qq-stickers')))
+
+// ---------- 6c-2 同一张表情再发一次：按图片内容认出收藏编号，她不会把两张说成同一张 ----------
+const 原图块 = 图轮.message.content.find((b) => b.type === 'image')
+const 原表情 = Buffer.from(保存的图.get(原图块.attachment.attachmentId) || [])
+const 再发一次图 = 'https://multimedia.nt.qq.com.cn/sticker-again.jpg'
+固定图.set(再发一次图, 原表情)
+写配置({ 群: ['1032'] })
+群消息表.set(1032, [{
+  user_id: 123,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: 1610,
+  sender: { card: '主人', nickname: 'x' },
+  message: [{ type: 'image', data: { url: 再发一次图, file: 'again.jpg', summary: '[动画表情]', sub_type: 1 } }],
+}])
+设判断(['1610'], true, 0.9, '她收藏过这张')
+await 轮询社交()
+await 等()
+const 认表情轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1032').at(-1)
+const 认表情文 = String(认表情轮?.message?.content?.[0]?.text || '')
+报('同一张表情再发：按 md5 认出收藏编号', 认表情文.includes('【图 1·主人·表情·你收藏的 #1 测试表情】'), 认表情文.slice(0, 600))
+报('同一张表情再发：正文后面也带编号', 认表情文.split('\n').some((line) => line.includes('主人：[图片]（你收藏的 #1 测试表情）') && line.includes('[图 1]')), 认表情文.slice(0, 700))
+报('同一张表情再发：明确告诉她发哪个编号', 认表情文.includes('【收藏对应】图 1 就是你收藏的 #1 测试表情'), 认表情文.slice(0, 700))
+await 收到回复('session-qq-social-group-1032', '[发表情:#1] 就是这张')
+await new Promise((r) => setTimeout(r, 800)) // 表情和话之间隔 450ms，等整轮落地完
+const 认表情发 = 发的.filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1032)
+报('说“就是这张”时发的是收藏里的同一张', 认表情发.length === 1 && 认表情发[0].体.emoji_id === (收藏项 && 收藏项.emojiId), JSON.stringify(认表情发.map((x) => x.体.emoji_id)))
+// 下一轮再看上下文：别人发的图和她自己发的表情都带编号，不会被对调
+写配置({ 群: ['1032'], 判断冷却秒: 10 })
+时间偏移 += 11_000
+群消息表.set(1032, [一条群消息('刚才那张呢', { id: 1611 })])
+设判断(['1611'], true, 0.9, '接着聊刚才那张')
+await 轮询社交()
+await 等()
+const 追问轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1032').at(-1)
+const 追问文 = String(追问轮?.message?.content?.[0]?.text || '')
+报('后续上下文保留别人发来的表情编号', 追问文.split('\n').some((line) => line.includes('主人：[图片]（你收藏的 #1 测试表情）')), 追问文.slice(0, 900))
+报('后续上下文保留她自己发的表情编号', 追问文.split('\n').some((line) => line.includes('[发了一张表情包：#1 测试表情]')), 追问文.slice(0, 900))
 
 // 学习期把握 0.35 也愿意先应一声（门槛 0.3）
 写配置({ 群: ['1026'] })

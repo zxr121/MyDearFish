@@ -1,6 +1,6 @@
 {
   "name": "dsh-qq-bridge",
-  "version": "0.2.65",
+  "version": "0.2.66",
   "description": "通到 QQ：DSH 里的 AI 伙伴和 QQ 双向互通 —— 它说完话自动发到 QQ，你在 QQ 里说的话自动转进 DSH。固定用 SnowLuma，设置页一键装好、配好、拉起。",
   "license": "MIT",
   "type": "module",
