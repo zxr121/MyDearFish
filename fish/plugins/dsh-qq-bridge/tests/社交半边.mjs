@@ -1383,7 +1383,7 @@ await 收到回复('session-qq-social-group-1047', '我不玩这个')
   一条群消息('今晚开黑吗', { uid: 888, id: 7401 }),
   一条群消息('周末去踢足球', { uid: 889, id: 7402 }),
 ])
-设判断(['7401'], true, 0.9, '游戏也能聊了')
+设判断(['970401'], true, 0.9, '游戏也能聊了')
 const 改话题前判断 = 判断调用.length
 await 轮询社交()
 await 等()
@@ -2124,6 +2124,46 @@ const 风格轮文 = String(风格轮?.message.content[0].text || '')
   风格轮 && 风格轮文.includes('【说话节奏·内部提示') && 风格轮文.includes('别复述'),
   风格轮文.slice(-400))
 
+// ---------- 21q 每一间单独的开关：关掉的群不看不说，好友照常 ----------
+写配置({ 群: ['1190'], 好友: ['7910'], 关掉: ['group:1190'], 快判: false, 判断冷却秒: 0, 冷却秒: 0 })
+群消息表.set(1190, [一条群消息('大肥鱼 你来说说', { id: 970401, atSelf: true })])
+好友消息表.set(7910, [一条好友消息('在吗', { id: 970402, uid: 7910 })])
+设判断(['970402'], false, 0.2, '先看看')
+const 判断前关 = 判断调用.length
+await 轮询社交()
+await 等()
+const 关群态 = await 目标状态('group:1190')
+const 好友态 = await 目标状态('friend:7910')
+报('单独关掉的群：/state 标出关着，被叫也不看、不判、不接',
+  关群态 && 关群态.允许 === false && 关群态.待看 === 0 && 关群态.今日 === 0 && 判断调用.length === 判断前关 + 1,
+  JSON.stringify({ 群: 关群态, 判断次数: 判断调用.length - 判断前关 }))
+报('没关掉的好友照常进待看和判断', 好友态 && 好友态.允许 === true, JSON.stringify(好友态))
+
+// 正在想的那一轮，开关关掉后不落地
+写配置({ 群: ['1191'], 快判: false, 判断冷却秒: 0, 冷却秒: 0 })
+群消息表.set(1191, [一条群消息('鱼又浮上来了', { id: 970403 })])
+设判断(['970403'], true, 0.9, '接一句')
+await 轮询社交()
+await 等()
+报('准备接话：待发已挂上', (await 目标状态('group:1191')).待发 === true)
+const 关前半 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1191).length
+写配置({ 群: ['1191'], 快判: false, 判断冷却秒: 0, 冷却秒: 0, 关掉: ['group:1191'] })
+await 收到回复('session-qq-social-group-1191', '这句话不该发出去')
+报('关掉时正在想的一轮也拦住，不落地',
+  发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1191).length === 关前半 &&
+    (await 日志文本()).includes('的单独开关关着，这轮不发'),
+  (await 日志文本()).slice(-200))
+
+// 重新勾上：同一间屋接着用
+写配置({ 群: ['1190'], 好友: ['7910'], 快判: false, 判断冷却秒: 0, 冷却秒: 0 })
+群消息表.set(1190, [一条群消息('大肥鱼 你来说说', { id: 970401, atSelf: true })])
+设判断(['970401'], false, 0.2, '先看看')
+const 判断前开 = 判断调用.length
+await 轮询社交()
+await 等()
+const 开群态 = await 目标状态('group:1190')
+报('重新勾上：群恢复看不看、接不接', 开群态 && 开群态.允许 === true && 判断调用.length === 判断前开 + 1, JSON.stringify(开群态))
+
 // ---------- 22 /models 与 /save 深层合并 ----------
 写配置({ 群: ['1019'], 快判: false })
 const fakeRes = { statusCode: 200, setHeader: () => {}, end: (s) => { 存储.push(JSON.parse(s)) } }
@@ -2150,6 +2190,14 @@ const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
 报('/state 标出回复和判断模型能不能看图', 状态.社交.看图 && 状态.社交.看图.回复 === false && 状态.社交.看图.判断 === true, JSON.stringify(状态.社交.看图))
+await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 群: ['2001'], 好友: ['3003', '3004'], 关掉: ['group:2001', 'x', 'friend:abc', 'friend:3003', 'group:2001'] } }), fakeRes)
+const 存盘3 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+报('/save 只留合法的房间开关键', JSON.stringify(存盘3.社交.关掉) === JSON.stringify(['group:2001', 'friend:3003']), JSON.stringify(存盘3.社交.关掉))
+const 开关状态 = (await 宿主.概况()).社交.目标
+报('/state 回出每一间的开关', 开关状态.find((t) => t.key === 'group:2001')?.允许 === false && 开关状态.find((t) => t.key === 'friend:3004')?.允许 === true, JSON.stringify(开关状态.map((t) => [t.key, t.允许])))
+await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 好友: [] } }), fakeRes)
+const 存盘4 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+报('名单里删掉的房间，开关跟着忘掉', JSON.stringify(存盘4.社交.关掉) === JSON.stringify(['group:2001']), JSON.stringify(存盘4.社交.关掉))
 
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/people')(造请求(undefined, { method: 'GET' }), fakeRes)

@@ -473,6 +473,24 @@ window.__ModuleLoader__.load({
       const 雪OneBot = String(雪.OneBot || 配置.NapCat || 'http://127.0.0.1:3000')
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
+      const 关掉们 = Array.isArray(社交.关掉) ? 社交.关掉 : []
+      const 房间开关 = (key, 叫) => h('label', {
+        key,
+        style: { display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 14, whiteSpace: 'nowrap' },
+      },
+        h('input', {
+          type: 'checkbox',
+          checked: !关掉们.includes(key),
+          onChange: (e) => 改社交('关掉', e.target.checked ? 关掉们.filter((k) => k !== key) : [...关掉们, key]),
+        }),
+        '允许在「' + 叫 + '」说话',
+      )
+      const 可开房间 = [
+        ...(社交.群 || []).map((号) => ({ key: 'group:' + 号, 叫: '群 ' + 号 })),
+        ...(社交.好友 || [])
+          .filter((号) => String(号) !== String(配置.私聊QQ || '').trim())
+          .map((号) => ({ key: 'friend:' + 号, 叫: '好友 ' + 号 })),
+      ]
       const 社态 = 态.社交 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
       const 自己 = 社态.自己 || (雪连上 ? { 昵称: 雪.昵称, 号: 雪.用户 } : null)
@@ -828,6 +846,14 @@ window.__ModuleLoader__.load({
             placeholder: '例如：10001, 10002（逗号或换行分隔）',
             onChange: (e) => { 设好友文本(e.target.value); 改社交('好友', 拆列表(e.target.value)) },
           }), '好友私聊也只在她感兴趣、想说话时才回；别把主人自己的号写进来（主人在上面「私聊 QQ 号」里管）。'),
+          行('每一间的开关',
+            h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+              可开房间.length === 0
+                ? h('span', { style: S.dim }, '先在「群号」「好友 QQ」里填好，这里会给每一间出一个开关。')
+                : 可开房间.map(({ key, 叫 }) => 房间开关(key, 叫)),
+            ),
+            '勾掉 = 这一间她既不接话也不看消息，戳一戳也不理；群 / 好友清单和聊天记录都留着，重新勾上就接着用。改完记得保存。',
+          ),
           行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 2, 3600), '同一目标两次开口的成熟期基础间隔（默认 15 秒）；实际会按兴致走指数曲线，想接时几秒就能开口。'),
           行('冷却曲线',
             h('div', { style: { display: 'flex', gap: 8 } },
@@ -940,6 +966,7 @@ window.__ModuleLoader__.load({
             : 社交目标们.map((t) => h('div', { key: t.key, style: { ...S.日志行, marginTop: 6 } },
                 h('div', null,
                   t.叫 + '（' + 短id(t.会话id) + '）· ' +
+                    (t.允许 === false ? '已单独关掉（不看、不说） · ' : '') +
                     (t.活着 ? '会话活着' : '等它第一次开口') +
                     (t.待看 ? ' · 待看 ' + t.待看 + ' 条' : '') +
                     (t.待发 ? ' · 正在想' : '') +

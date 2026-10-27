@@ -240,6 +240,7 @@ const 默认配置 = {
     试运行: false, // 只读消息、记录规则判断，不调模型、不发消息
     群: [], // 允许旁听/接话的群号
     好友: [], // 允许私聊的 QQ 号（主人自己的号会自动跳过）
+    关掉: [], // 单独关掉的房间：'group:群号' / 'friend:QQ号'；关掉 = 不看不说，配置和会话都留着
     记人: true, // 在群和私聊里认人、记长期有用的事；关系跟着人走，只记本机
     学说话: true, // 摸清对方打字的节奏、语气和口头禅，也学群里反复出现的短说法；只存统计，不存原话
     复读: true, // 接不上又不想装没看见时，可以原样复读群友刚刷的一句短话
@@ -318,6 +319,19 @@ const 洗号列表 = (值) => {
   return 出
 }
 
+const 洗房间键列表 = (值) => {
+  const 出 = []
+  for (const 项 of Array.isArray(值) ? 值 : []) {
+    const s = typeof 项 === 'string' ? 项.trim() : ''
+    const m = /^(group|friend):(\d{3,20})$/.exec(s)
+    if (m === null) continue
+    const key = `${m[1]}:${m[2]}`
+    if (!出.includes(key)) 出.push(key)
+    if (出.length >= 50) break
+  }
+  return 出
+}
+
 const 洗词列表 = (值, 兜, 上限 = 30) => {
   const 出 = []
   for (const 项 of Array.isArray(值) ? 值 : []) {
@@ -362,11 +376,16 @@ function 归一化社交(原始) {
   const 混 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始) ? 原始 : {}
   const 兜 = 默认配置.社交
   const 模式 = 混.模式 === 'mention' ? 'mention' : 混.模式 === 'auto' ? 'auto' : 兜.模式
+  const 群 = 洗号列表(混.群)
+  const 好友 = 洗号列表(混.好友)
+  // 开关只对现在配置里的房间有意义；名单里删掉的房间顺手忘掉它的开关。
+  const 房间 = new Set([...群.map((号) => `group:${号}`), ...好友.map((号) => `friend:${号}`)])
   return {
     启用: 布(混.启用, 兜.启用),
     试运行: 布(混.试运行, 兜.试运行),
-    群: 洗号列表(混.群),
-    好友: 洗号列表(混.好友),
+    群,
+    好友,
+    关掉: 洗房间键列表(混.关掉).filter((key) => 房间.has(key)),
     记人: 布(混.记人, 兜.记人),
     学说话: 布(混.学说话, 兜.学说话),
     复读: 布(混.复读, 兜.复读),
@@ -3905,14 +3924,15 @@ export function apply(ctx) {
   function 社交目标们(配置) {
     const 出 = []
     const 主人号 = String(配置.私聊QQ || '').trim()
+    const 关掉 = new Set(Array.isArray(配置.社交.关掉) ? 配置.社交.关掉 : [])
     for (const 号 of 配置.社交.群) {
       const key = `group:${号}`
-      出.push({ key, 类型: 'group', 号, 会话id: 会话idof(key, 社交会话id('group', 号)), 叫: `群 ${号}` })
+      出.push({ key, 类型: 'group', 号, 允许: !关掉.has(key), 会话id: 会话idof(key, 社交会话id('group', 号)), 叫: `群 ${号}` })
     }
     for (const 号 of 配置.社交.好友) {
       if (号 === 主人号) continue
       const key = `friend:${号}`
-      出.push({ key, 类型: 'friend', 号, 会话id: 会话idof(key, 社交会话id('friend', 号)), 叫: `好友 ${号}` })
+      出.push({ key, 类型: 'friend', 号, 允许: !关掉.has(key), 会话id: 会话idof(key, 社交会话id('friend', 号)), 叫: `好友 ${号}` })
     }
     return 出
   }
@@ -6217,6 +6237,11 @@ export function apply(ctx) {
     try {
       const 自己 = await 取自己()
       for (const 目标 of 目标们) {
+        // 单独关掉的房间：连着攒下的待看一起清掉，重新打开时从头看，不吃旧消息。
+        if (!目标.允许) {
+          社交待看.delete(目标.key)
+          continue
+        }
         try {
           await 轮询一个社交目标(配置, 目标, 自己)
         } catch (error) {
@@ -6263,6 +6288,7 @@ export function apply(ctx) {
       return 记账(`${目标.叫}：这轮决定不接话`)
     }
     if (!配置.总开关 || !配置.社交.启用) return 记账('总开关或社交开关已经关掉，这轮不发')
+    if ((配置.社交.关掉 || []).includes(目标.key)) return 记账(`${目标.叫} 的单独开关关着，这轮不发`)
     if (配置.社交.试运行) {
       const 表情数 = (文本.match(/\[发表情:\s*#?\d{1,9}\s*\]/g) || []).length
       return 记账(`试运行：本来要发回 ${目标.叫}「${文本.slice(0, 50)}${文本.length > 50 ? '…' : ''}」${表情数 > 0 ? ` + ${表情数} 张表情包` : ''}`)
@@ -6920,6 +6946,7 @@ export function apply(ctx) {
           号: 目标.号,
           会话id: 目标.会话id,
           叫: 目标.叫,
+          允许: 目标.允许,
           活着: !!agent,
           本小时: c.本小时.filter((t) => 现在 - t < 3_600_000).length,
           今日: c.今日,
@@ -7149,8 +7176,9 @@ export function apply(ctx) {
       记账(`戳一戳收报口重开失败：${String((error && error.message) || error)}`)
     }
     const 状态 = 洗好.总开关 ? (洗好.试运行 ? '（只记账）' : '（真发）') : '（总开关关着）'
+    const 关掉数 = 洗好.社交.关掉.length
     const 社交状态 = 洗好.社交.启用
-      ? `｜社交 ${洗好.社交.试运行 ? '试运行' : '真发'}（群 ${洗好.社交.群.length}｜好友 ${洗好.社交.好友.length}）`
+      ? `｜社交 ${洗好.社交.试运行 ? '试运行' : '真发'}（群 ${洗好.社交.群.length}｜好友 ${洗好.社交.好友.length}${关掉数 > 0 ? `｜单独关 ${关掉数}` : ''}）`
       : '｜社交关着'
     const 导入状态 = `｜导入 ${洗好.导入.启用 ? '开（只读旧记录）' : '关'}`
     const 戳状态词 = 洗好.戳一戳.启用 ? `听 ${洗好.戳一戳.端口}` : '关'
@@ -7391,6 +7419,10 @@ export function apply(ctx) {
           continue
         }
         if (!配置.总开关 || !配置.社交.启用) continue
+        // 排戳有 1.2 秒缓冲，按现在的配置再确认一次这间屋还开着。
+        const 现在目标 = 社交目标们(配置).find((t) => t.key === 项.目标.key)
+        if (!现在目标 || !现在目标.允许) continue
+        项.目标 = 现在目标
         const 消息 = {
           id: `poke:${项.目标.key}:${项.戳.戳人者}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
           at: Math.floor(Date.now() / 1000),
@@ -7436,7 +7468,7 @@ export function apply(ctx) {
     if (!配置.社交.启用) return
     const 键 = `${戳.场景}:${戳.场景 === 'group' ? 戳.群号 : 戳.戳人者}`
     const 目标 = 社交目标们(配置).find((t) => t.key === 键)
-    if (!目标) return
+    if (!目标 || !目标.允许) return
     排戳(戳, 戳一戳说法(事件), 目标, 主人戳)
   }
 
