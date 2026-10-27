@@ -717,6 +717,9 @@ const 社交文字 = 场景提示.map((s) => String(s.text)).join('\n')
 报('场景提示别复读对方的理由', 社交文字.includes('别把对方刚说的理由换个说法重复一遍'))
 报('场景提示要求不当辩论赛', 社交文字.includes('不争输赢') && 社交文字.includes('不要求证据'))
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
+报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
+报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('你说的是 xx 发的那张吗'))
+报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
 报('场景提示说明称呼和 @ 说的就是她', 场景提示.some((s) => String(s.text).includes('说的都是你') && String(s.text).includes('别用第三人称')))
 报('场景提示说明一小时内聊过的事都记得', 场景提示.some((s) => String(s.text).includes('最近一小时聊过的事你都记得') && String(s.text).includes('别把几分钟前说过的当成没听过')))
 报('场景提示让别人的对话别插进去', 社交文字.includes('[对别人说]') && 社交文字.includes('别插进去'))
@@ -993,6 +996,54 @@ const 追问轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1032')
 const 追问文 = String(追问轮?.message?.content?.[0]?.text || '')
 报('后续上下文保留别人发来的表情编号', 追问文.split('\n').some((line) => line.includes('主人：[图片]（你收藏的 #1 测试表情）')), 追问文.slice(0, 900))
 报('后续上下文保留她自己发的表情编号', 追问文.split('\n').some((line) => line.includes('[发了一张表情包：#1 测试表情]')), 追问文.slice(0, 900))
+
+// ---------- 6c-3 有人回头问“图里那个”：旧图重新附上，不拿这轮新图硬套 ----------
+写配置({ 群: ['1040'], 判断冷却秒: 0, 冷却秒: 1 })
+const 旧图地址 = 'https://multimedia.nt.qq.com.cn/ask-old.jpg'
+const 新图地址 = 'https://multimedia.nt.qq.com.cn/ask-new.jpg'
+固定图.set(旧图地址, Buffer.from([0xff, 0xd8, 0xff, 0xd3]))
+固定图.set(新图地址, Buffer.from([0xff, 0xd8, 0xff, 0xd4]))
+const 带图带字 = (id, 文本, { 是主人 = false, atSelf = false, url }) => ({
+  user_id: 是主人 ? 123 : 888,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: id,
+  sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
+  message: [
+    ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
+    { type: 'image', data: { url, file: 'x.jpg', summary: '[图片]' } },
+    { type: 'text', data: { text: 文本 } },
+  ],
+})
+群消息表.set(1040, [带图带字(2911, '这是你吗', { atSelf: true, url: 旧图地址 })])
+设判断(['2911'], true, 0.9, '发了张图问她')
+await 轮询社交()
+await 等()
+const 旧图附件 = 附件们.at(-1)?.attachmentId
+await 收到回复('session-qq-social-group-1040', '颜色有点像')
+时间偏移 += 11_000
+群消息表.set(1040, [带图带字(2912, '人家是问你看看图那个像不像你', { 是主人: true, url: 新图地址 })])
+设判断(['2912'], true, 0.9, '主人在说刚才那张')
+await 轮询社交()
+await 等()
+const 回头轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1040').at(-1)
+const 回头文 = String(回头轮?.message?.content?.[0]?.text || '')
+const 回头图块 = (回头轮?.message?.content || []).filter((b) => b.type === 'image')
+报('回头问图：新图和旧图都附上', 回头图块.length === 2 && 回头图块.some((b) => b.attachment?.attachmentId === 旧图附件), JSON.stringify(回头图块.map((b) => b.attachment?.attachmentId)))
+报('回头问图：旧图在上下文行里单独标号', 回头文.split('\n').some((line) => line.includes('群友888：') && line.includes('[旧图 1]')), 回头文.slice(0, 900))
+报('回头问图：图注写明旧图是谁之前发的', 回头文.includes('【旧图 1·之前发过·群友888】'), 回头文.slice(0, 900))
+报('回头问图：提示先看旧图，不拿新图硬套', 回头文.includes('先看旧图') && 回头文.includes('别拿这轮新发的图硬套'), 回头文.slice(0, 1200))
+报('回头问图：这轮新图仍然单独编号', 回头文.split('\n').some((line) => line.includes('主人：[图片]') && line.includes('[图 1]')), 回头文.slice(0, 900))
+await 收到回复('session-qq-social-group-1040', '我说的是刚才那张')
+
+// 新图配的是无关的话：不带旧图，省图钱
+时间偏移 += 11_000
+群消息表.set(1040, [带图带字(2913, '哈哈', { 是主人: true, url: 新图地址 })])
+设判断(['2913'], true, 0.9, '随手发图')
+await 轮询社交()
+await 等()
+const 无关图轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1040').at(-1)
+const 无关图块 = (无关图轮?.message?.content || []).filter((b) => b.type === 'image')
+报('没在说图：上下文旧图不重复附', 无关图块.length === 1, JSON.stringify(无关图块.map((b) => b.attachment?.attachmentId)))
 
 // 学习期把握 0.35 也愿意先应一声（门槛 0.3）
 写配置({ 群: ['1026'] })
