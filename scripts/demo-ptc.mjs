@@ -7,7 +7,7 @@ const task = process.argv.slice(2).join(' ').trim()
 const child = spawn(process.execPath, [
   '--import',
   'tsx/esm',
-  'apps/cli/src/bin.ts',
+  'scripts/fish-cli.ts',
   '--profile',
   'headless',
   task,

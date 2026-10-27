@@ -418,6 +418,7 @@ if (isMain) {
     // The same launch vector as the root `dsh` script, so the served Host runs
     // from source exactly as `pnpm dsh web` would.
     if (options.serve) {
+      process.env.DSH_HOME ||= fileURLToPath(new URL('../data', import.meta.url))
       spawnStage(supervisor, 'dsh web', process.execPath, [
         '--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', ...options.appArgs,
       ], false)

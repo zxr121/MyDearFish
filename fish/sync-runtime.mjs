@@ -2,7 +2,6 @@
 // 把 profile 里安装的鱼插件按本地源码重装一遍：pnpm 的 file: 依赖是实体副本，
 // git pull 只改源码，不会自动更新 profile/node_modules。
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -22,8 +21,7 @@ function option(name) {
 }
 
 function defaultHome() {
-  const workspaceHome = join(repo, '..', '.dsh')
-  return existsSync(workspaceHome) ? workspaceHome : join(homedir(), '.dsh')
+  return join(repo, 'data')
 }
 
 const home = resolve(option('home') || process.env.DSH_HOME || defaultHome())

@@ -151,11 +151,11 @@ interface RuntimeResources {
   readonly dsh: string
 }
 
-/** Packaged installs keep their Harness home beside the executable unless DSH_HOME overrides it. */
+/** Installations keep their Harness home beside the executable (or checkout root in development) unless DSH_HOME overrides it. */
 function desktopDshHome(): string {
   if (process.env.DSH_HOME?.trim()) return resolveDshHome()
   if (app.isPackaged) return join(dirname(process.execPath), 'data')
-  return resolveDshHome()
+  return join(app.getAppPath(), '..', '..', 'data')
 }
 
 function runtimeResources(): RuntimeResources {
@@ -346,7 +346,10 @@ async function main(): Promise<void> {
     }
   }
   const resources = runtimeResources()
-  const paths = resolveDesktopPaths(desktopDshHome())
+  const home = desktopDshHome()
+  // The Host resolves its own home from the environment; without this it would fall back to ~/.dsh.
+  process.env.DSH_HOME = home
+  const paths = resolveDesktopPaths(home)
   const development = !app.isPackaged
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
