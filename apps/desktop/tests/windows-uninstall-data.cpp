@@ -40,6 +40,7 @@ int wmain(int argc, wchar_t** argv) {
     PWSTR profile = nullptr;
     assert(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &profile)));
     assert(uninstall_data::Remove(profile, installation.c_str(), nullptr) == ERROR_ACCESS_DENIED);
+    assert(uninstall_data::RemoveApplicationContents(profile, L"data") == ERROR_ACCESS_DENIED);
     CoTaskMemFree(profile);
 
     // A protected root overlapping the target in either direction, or an unusable one, stops removal.
@@ -82,6 +83,28 @@ int wmain(int argc, wchar_t** argv) {
     assert(uninstall_data::RemoveEmptyParents(package.c_str(), root.c_str()) == ERROR_SUCCESS);
     assert(!Exists(scope));
     assert(Exists(root));
+
+    // Application removal keeps the packaged Harness home and removes every other entry.
+    const std::wstring install = root + L"\\install";
+    const std::wstring home = install + L"\\data";
+    assert(CreateDirectoryW(install.c_str(), nullptr));
+    assert(CreateDirectoryW(home.c_str(), nullptr));
+    assert(CreateDirectoryW((home + L"\\fish-mind").c_str(), nullptr));
+    File(home + L"\\fish-mind\\experience.jsonl");
+    assert(CreateDirectoryW((install + L"\\resources").c_str(), nullptr));
+    File(install + L"\\resources\\app.asar", FILE_ATTRIBUTE_READONLY);
+    File(install + L"\\application.exe");
+    assert(uninstall_data::RemoveApplicationContents(install.c_str(), L"data") == ERROR_SUCCESS);
+    assert(Exists(home + L"\\fish-mind\\experience.jsonl"));
+    assert(!Exists(install + L"\\application.exe"));
+    assert(!Exists(install + L"\\resources"));
+    assert(uninstall_data::RemoveApplicationContents(install.c_str(), L"data") == ERROR_SUCCESS);
+    assert(uninstall_data::RemoveApplicationContents(install.c_str(), nullptr) == ERROR_INVALID_NAME);
+    assert(uninstall_data::RemoveApplicationContents(install.c_str(), L"") == ERROR_INVALID_NAME);
+    assert(uninstall_data::RemoveApplicationContents(L"C:\\", L"data") == ERROR_INVALID_NAME);
+    assert(uninstall_data::RemoveApplicationContents((root + L"\\missing").c_str(), L"data") == ERROR_SUCCESS);
+    assert(uninstall_data::RemoveTree(home) == ERROR_SUCCESS);
+    assert(RemoveDirectoryW(install.c_str()));
 
     // A protected root elsewhere does not block removal.
     assert(uninstall_data::Remove(data.c_str(), installation.c_str(), (root + L"\\elsewhere").c_str()) == ERROR_SUCCESS);

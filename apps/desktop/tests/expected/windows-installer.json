@@ -17,6 +17,7 @@
     "app-started-on-welcome-rejected-before-extraction",
     "silent-update-retains-directory-and-ignores-unrelated-process",
     "invalid-destination-rejection",
+    "uninstall-retains-home-and-reinstall-adopts-it",
     "uninstall"
   ]
 }

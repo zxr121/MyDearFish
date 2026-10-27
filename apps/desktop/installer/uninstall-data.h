@@ -93,19 +93,9 @@ inline DWORD RemoveTree(const std::wstring& path) {
     return first ? first : error;
 }
 
-// Never select a shell folder, its ancestor, Windows/Program Files descendants,
-// a path overlapping the installation, or a path overlapping the protected root
-// (the configured Harness home). Linked descendants are unlinked only.
-inline DWORD Remove(LPCWSTR input, LPCWSTR installation, LPCWSTR protectedRoot) {
-    std::wstring path, install;
-    if (!Normalize(input, path) || !Normalize(installation, install)) return ERROR_INVALID_NAME;
-    if (Contains(path, install) || Contains(install, path)) return ERROR_ACCESS_DENIED;
-    if (protectedRoot && *protectedRoot) {
-        std::wstring home;
-        // An unusable protected root cannot establish separation from retained data.
-        if (!Normalize(protectedRoot, home)) return ERROR_INVALID_NAME;
-        if (Contains(path, home) || Contains(home, path)) return ERROR_ACCESS_DENIED;
-    }
+// Shell folders, their ancestors, and Windows or Program Files descendants must never become
+// deletion targets. Callers pass a normalized path.
+inline DWORD RejectSystemRoot(const std::wstring& path) {
     struct ComScope {
         HRESULT result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         ~ComScope() { if (SUCCEEDED(result)) CoUninitialize(); }
@@ -133,6 +123,54 @@ inline DWORD Remove(LPCWSTR input, LPCWSTR installation, LPCWSTR protectedRoot) 
         if ((id == &FOLDERID_Windows || id == &FOLDERID_ProgramFiles || id == &FOLDERID_ProgramFilesX86)
             && Contains(folder, path)) return ERROR_ACCESS_DENIED;
     }
+    return ERROR_SUCCESS;
+}
+
+// Remove every child of an installation root except one retained top-level directory. The caller
+// removes the root itself when nothing is retained. Linked children are unlinked only.
+inline DWORD RemoveApplicationContents(LPCWSTR input, LPCWSTR retained) {
+    std::wstring root;
+    if (!Normalize(input, root) || !retained || !*retained) return ERROR_INVALID_NAME;
+    DWORD guard = RejectSystemRoot(root);
+    if (guard) return guard;
+    Handles pinned;
+    DWORD error = Pin(root, pinned);
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return ERROR_SUCCESS;
+    if (error) return error;
+    WIN32_FIND_DATAW entry{};
+    HANDLE search = FindFirstFileW((L"\\\\?\\" + root + L"\\*").c_str(), &entry);
+    if (search == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        return error == ERROR_FILE_NOT_FOUND ? ERROR_SUCCESS : error;
+    }
+    DWORD first = ERROR_SUCCESS;
+    do {
+        if (wcscmp(entry.cFileName, L".") == 0 || wcscmp(entry.cFileName, L"..") == 0) continue;
+        if (_wcsicmp(entry.cFileName, retained) == 0) continue;
+        error = RemoveTree(root + L"\\" + entry.cFileName);
+        if (error && !first) first = error;
+    } while (FindNextFileW(search, &entry));
+    error = GetLastError();
+    FindClose(search);
+    if (error != ERROR_NO_MORE_FILES && !first) first = error;
+    return first;
+}
+
+// Never select a shell folder, its ancestor, Windows/Program Files descendants,
+// a path overlapping the installation, or a path overlapping the protected root
+// (the configured Harness home). Linked descendants are unlinked only.
+inline DWORD Remove(LPCWSTR input, LPCWSTR installation, LPCWSTR protectedRoot) {
+    std::wstring path, install;
+    if (!Normalize(input, path) || !Normalize(installation, install)) return ERROR_INVALID_NAME;
+    if (Contains(path, install) || Contains(install, path)) return ERROR_ACCESS_DENIED;
+    if (protectedRoot && *protectedRoot) {
+        std::wstring home;
+        // An unusable protected root cannot establish separation from retained data.
+        if (!Normalize(protectedRoot, home)) return ERROR_INVALID_NAME;
+        if (Contains(path, home) || Contains(home, path)) return ERROR_ACCESS_DENIED;
+    }
+    DWORD guard = RejectSystemRoot(path);
+    if (guard) return guard;
     Handles parents;
     for (size_t end = path.find(L'\\', 3); end != std::wstring::npos; end = path.find(L'\\', end + 1)) {
         DWORD error = Pin(path.substr(0, end), parents);

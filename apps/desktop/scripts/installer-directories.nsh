@@ -5,6 +5,8 @@ Var dshNewDirectory
 Var dshOldDirectory
 Var dshOldMoved
 Var dshNewMoved
+Var dshDataStash
+Var dshDataMoved
 Var dshDirectoryError
 Var dshDirectorySource
 Var dshDirectoryDestination
@@ -107,6 +109,8 @@ Var dshRecoveryStopped
   StrCpy $dshOldDirectory "$INSTDIR.old-$0"
   StrCpy $dshOldMoved ""
   StrCpy $dshNewMoved ""
+  StrCpy $dshDataStash "$INSTDIR.data-$0"
+  StrCpy $dshDataMoved ""
   StrCpy $dshDirectoryError 0
   StrCpy $dshRestoreError 0
   StrCpy $dshRecoveryStopped ""
@@ -156,6 +160,7 @@ Function dshRollbackDirectories
     ${If} $dshRestoreError != 0
       ; Leave the complete backup in place if another process prevents restoration.
       DetailPrint $dshOldDirectory
+      DetailPrint $dshDataStash
       RMDir /r "\\?\$dshNewDirectory"
       Return
     ${EndIf}
@@ -163,6 +168,17 @@ Function dshRollbackDirectories
   ${EndIf}
   ${If} $dshNewDirectory != ""
     RMDir /r "\\?\$dshNewDirectory"
+  ${EndIf}
+  ${If} $dshDataMoved == "1"
+    ClearErrors
+    CreateDirectory "$dshFinalDirectory"
+    !insertmacro dshDirectoryOperation "$dshDataStash" "$dshFinalDirectory\data" $dshDirectoryError "retain-return"
+    ${If} $dshDirectoryError == 0
+      StrCpy $dshDataMoved ""
+    ${Else}
+      StrCpy $dshRecoveryStopped "1"
+      DetailPrint $dshDataStash
+    ${EndIf}
   ${EndIf}
   StrCpy $INSTDIR $dshFinalDirectory
 FunctionEnd
@@ -173,6 +189,21 @@ Function dshPromoteDirectories
   !endif
   ; SetOutPath opens a directory handle; release it before either rename.
   SetOutPath $PLUGINSDIR
+  ; The packaged Harness home stays outside the directory swap so every path below can return it.
+  ClearErrors
+  System::Call 'kernel32::GetFileAttributesW(w "$dshFinalDirectory\data") i.r0'
+  ${If} $0 != -1
+    StrCpy $dshDirectorySource "$dshFinalDirectory\data"
+    StrCpy $dshDirectoryDestination "$dshDataStash"
+    !insertmacro dshDirectoryOperation "$dshDirectorySource" "$dshDirectoryDestination" $dshDirectoryError "retain"
+    ${If} $dshDirectoryError != 0
+      Call dshRollbackDirectories
+      !insertmacro dshReportDirectoryFailure
+      SetErrors
+      Return
+    ${EndIf}
+    StrCpy $dshDataMoved "1"
+  ${EndIf}
   ClearErrors
   ${If} ${FileExists} "$dshFinalDirectory\*.*"
     StrCpy $dshDirectorySource $dshFinalDirectory
@@ -220,5 +251,17 @@ FunctionEnd
   ${If} $dshOldMoved == "1"
     RMDir /r "\\?\$dshOldDirectory"
     StrCpy $dshOldMoved ""
+  ${EndIf}
+  ${If} $dshDataMoved == "1"
+    ClearErrors
+    !insertmacro dshDirectoryOperation "$dshDataStash" "$dshFinalDirectory\data" $dshDirectoryError "retain-return"
+    ${If} $dshDirectoryError == 0
+      StrCpy $dshDataMoved ""
+    ${Else}
+      DetailPrint $dshDataStash
+      ${IfNot} ${Silent}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_DATA_RESTORE_FAILED)$\r$\n$dshDataStash"
+      ${EndIf}
+    ${EndIf}
   ${EndIf}
 !macroend

@@ -70,6 +70,11 @@ extern "C" __declspec(dllexport) DWORD __cdecl UninstallRemoveData(LPCWSTR path,
     return uninstall_data::Remove(path, installation, protectedRoot);
 }
 
+// Returns a Win32 error code; application files leave while the packaged Harness home stays.
+extern "C" __declspec(dllexport) DWORD __cdecl UninstallRemoveInstallation(LPCWSTR installation) {
+    return uninstall_data::RemoveApplicationContents(installation, L"data");
+}
+
 // Returns a Win32 error code; only ordinary empty directories strictly below the stop directory are removed.
 extern "C" __declspec(dllexport) DWORD __cdecl UninstallRemoveEmptyParents(LPCWSTR path, LPCWSTR stop) {
     return uninstall_data::RemoveEmptyParents(path, stop);

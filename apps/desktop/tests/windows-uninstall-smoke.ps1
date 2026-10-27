@@ -11,6 +11,8 @@ $expected = Get-Content (Join-Path $PSScriptRoot 'expected/windows-uninstall.jso
 $roaming = [Environment]::GetFolderPath('ApplicationData')
 $local = [Environment]::GetFolderPath('LocalApplicationData')
 $installPath = Join-Path $OutputDirectory 'Uninstall App'
+$applicationPath = Join-Path $installPath ($ProductName + '.exe')
+$dataPath = Join-Path $installPath 'data'
 $homePath = Join-Path $OutputDirectory 'Harness Home'
 $externalPath = Join-Path $OutputDirectory 'External Project'
 $productDataPath = Join-Path $roaming $ProductName
@@ -30,14 +32,14 @@ function Wait-Text([string]$Text) {
     } while ($timer.Elapsed.TotalSeconds -lt 20)
     throw "Missing '$Text': $([InstallerCapture]::VisibleText($process.Id))"
 }
-function Wait-Exit {
+function Wait-Exit([string]$Path = $installPath) {
     if (-not $process.WaitForExit(30000)) { $process.Kill(); $process.WaitForExit(); throw 'Uninstaller timed out' }
     if ($process.ExitCode -ne 0) { throw "Uninstall failed: $($process.ExitCode)" }
     $process.Dispose()
     $script:process = $null
     # The NSIS uninstaller hands its section to a temporary copy; the launched process exits before removal completes.
     $timer = [Diagnostics.Stopwatch]::StartNew()
-    while (Test-Path -LiteralPath $installPath) {
+    while (Test-Path -LiteralPath $Path) {
         if ($timer.Elapsed.TotalSeconds -gt 20) { throw 'Application directory remained' }
         Start-Sleep -Milliseconds 100
     }
@@ -60,9 +62,13 @@ try {
         [IO.File]::WriteAllText((Join-Path $productDataPath 'state.txt'), 'product data')
         [IO.File]::WriteAllText((Join-Path $userDataPath 'Local State'), 'chromium profile')
         [IO.File]::WriteAllText((Join-Path $cachePath 'download.txt'), 'update')
+        if ($mode -eq 'data-inside') {
+            New-Item -ItemType Directory -Force -Path (Join-Path $dataPath 'fish-mind') | Out-Null
+            [IO.File]::WriteAllText((Join-Path $dataPath 'fish-mind\experience.jsonl'), 'keep memory')
+        }
         Copy-Item -LiteralPath (Join-Path $installPath ('Uninstall ' + $ProductName + '.exe')) -Destination $uninstaller -Force
         $arguments = '_?=' + $installPath
-        if ($mode -in @('silent', 'home-inside')) { $arguments = '/S ' + $arguments }
+        if ($mode -in @('silent', 'home-inside', 'data-inside')) { $arguments = '/S ' + $arguments }
         # electron-builder's installUtil.nsh runs an older uninstaller with exactly these flags when replacing it.
         if ($mode -eq 'upgrade') { $arguments = '/S /KEEP_APP_DATA --updated /currentuser ' + $arguments }
         if ($mode -eq 'replaced') { $arguments = '/S /KEEP_APP_DATA /currentuser ' + $arguments }
@@ -78,7 +84,7 @@ try {
             [void](Wait-Text $finishedText)
             [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($window, 1))
         }
-        Wait-Exit
+        Wait-Exit $(if ($mode -eq 'data-inside') { $applicationPath } else { $installPath })
         $retained = $mode -in @('upgrade', 'replaced')
         # A DSH_HOME inside the Electron directory protects that directory (and its scope) but not the other roots.
         $userDataRetained = $retained -or $mode -eq 'home-inside'
@@ -88,11 +94,24 @@ try {
         if ((Test-Path (Join-Path $userDataPath 'Local State')) -ne $userDataRetained) { throw "Electron user data retention failed: $mode" }
         if ((Test-Path -LiteralPath $scopePath) -ne $userDataRetained) { throw "Package scope directory retention failed: $mode" }
         if ((Test-Path (Join-Path $cachePath 'download.txt')) -ne $retained) { throw "Update cache retention failed: $mode" }
+        if ($mode -eq 'data-inside') {
+            $experience = Join-Path $dataPath 'fish-mind\experience.jsonl'
+            if (-not (Test-Path -LiteralPath $experience)) { throw 'Uninstall removed the packaged Harness home' }
+            if ([IO.File]::ReadAllText($experience) -ne 'keep memory') { throw 'Uninstall changed the packaged Harness home' }
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            while ($true) {
+                $leftover = @(Get-ChildItem -LiteralPath $installPath -Force | Where-Object { $_.Name -ne 'data' })
+                if ($leftover.Count -eq 0) { break }
+                if ($timer.Elapsed.TotalSeconds -gt 20) { throw "Application files remained beside the Harness home: $($leftover.Name -join ', ')" }
+                Start-Sleep -Milliseconds 100
+            }
+        }
         Write-Output "passed: $mode"
     }
 } finally {
     Remove-Item Env:DSH_HOME -ErrorAction SilentlyContinue
     if ($process) { if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }; $process.Dispose() }
+    if (Test-Path -LiteralPath $installPath) { Remove-Item -LiteralPath $installPath -Recurse -Force }
     # Only unique test identities below known application-data parents are removed.
     foreach ($pair in @(@($productDataPath, $roaming), @($scopePath, $roaming), @($cachePath, $local))) {
         $target = [IO.Path]::GetFullPath($pair[0])

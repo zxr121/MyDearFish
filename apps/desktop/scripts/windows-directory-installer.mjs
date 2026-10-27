@@ -87,12 +87,26 @@ export function installWindowsDirectoryInstaller() {
 /**
  * Keep user-data removal in the native helper, which refuses unsafe roots and never follows links.
  * @param {string} source - Pinned upstream uninstaller source.
- * @returns {string} Uninstaller with long-path application removal and no upstream RMDir data removal.
+ * @returns {string} Uninstaller that keeps the packaged Harness home beside the removed application files.
  */
 export function directoryUninstaller(source) {
   const normalized = source.replaceAll('\r\n', '\n')
   const start = normalized.indexOf('  Var /GLOBAL isDeleteAppData\n')
   const end = normalized.indexOf('  DeleteRegKey SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}"', start)
   if (start < 0 || end < 0) throw new Error('NSIS uninstaller data removal template changed')
-  return replaceOnce(normalized.slice(0, start) + normalized.slice(end), 'RMDir /r $INSTDIR', 'RMDir /r "\\\\?\\$INSTDIR"')
+  // The home lives inside the installation directory, so application removal must skip it explicitly.
+  return replaceOnce(normalized.slice(0, start) + normalized.slice(end), 'RMDir /r $INSTDIR',
+    `System::Call '$PLUGINSDIR\\window-frame.dll::UninstallRemoveInstallation(w "$INSTDIR") ?c'
+    RMDir "$INSTDIR"
+    ClearErrors
+    \${IfNot} \${Silent}
+      System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR\\data") i.r0'
+      \${If} $0 != -1
+        IntOp $1 $0 & 0x10
+        \${If} $1 != 0
+          MessageBox MB_OK|MB_ICONINFORMATION "$(UNINSTALLER_DATA_KEPT)$\\r$\\n$INSTDIR\\data" /SD IDOK
+        \${EndIf}
+      \${EndIf}
+    \${EndIf}
+    ClearErrors`)
 }

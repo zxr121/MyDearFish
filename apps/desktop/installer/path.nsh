@@ -131,9 +131,26 @@ Function InstallerPreflight
         ${DoWhile} $1 != ""
             ${If} $1 != "."
             ${AndIf} $1 != ".."
-                FindClose $0
-                StrCpy $InstallerError "$(INSTALLER_PATH_OWNERSHIP)"
-                Return
+                ; A retained Harness home is the only entry a new installation may adopt.
+                StrCpy $3 0
+                ${If} $1 == "data"
+                    System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR\data") i.r2'
+                    ${If} $2 != -1
+                        IntOp $3 $2 & 0x10
+                        IntOp $2 $2 & 0x400
+                        ${If} $3 != 0
+                        ${AndIf} $2 == 0
+                            StrCpy $3 1
+                        ${Else}
+                            StrCpy $3 0
+                        ${EndIf}
+                    ${EndIf}
+                ${EndIf}
+                ${If} $3 == 0
+                    FindClose $0
+                    StrCpy $InstallerError "$(INSTALLER_PATH_OWNERSHIP)"
+                    Return
+                ${EndIf}
             ${EndIf}
             FindNext $0 $1
         ${Loop}

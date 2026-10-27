@@ -256,6 +256,29 @@ try {
     Run-Silent ('/S /D=' + $foreign) 2
     if ((Get-Content -LiteralPath (Join-Path $foreign 'keep.txt')) -ne 'preserved') { throw 'Foreign directory changed' }
     $results.Add('invalid-destination-rejection')
+
+    $experience = Join-Path $installPath 'data\fish-mind\experience.jsonl'
+    New-Item -ItemType Directory -Force -Path (Split-Path $experience) | Out-Null
+    Set-Content -LiteralPath $experience -Value 'keep memory' -NoNewline
+    $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -WindowStyle Hidden
+    $processes.Add($uninstallProcess)
+    if (-not $uninstallProcess.WaitForExit(60000)) { throw 'Uninstaller timed out' }
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    while (Test-Path -LiteralPath $appPath) {
+        if ($timer.Elapsed.TotalSeconds -gt 20) { throw 'Uninstall did not remove the application' }
+        Start-Sleep -Milliseconds 50
+    }
+    # The temporary uninstaller copy removes its registration after the files; reinstall only once it is gone.
+    $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $RegistryKey
+    while (Test-Path -LiteralPath $uninstallKey) {
+        if ($timer.Elapsed.TotalSeconds -gt 20) { throw 'Uninstall did not remove its registration' }
+        Start-Sleep -Milliseconds 50
+    }
+    if ((Get-Content -LiteralPath $experience -Raw) -ne 'keep memory') { throw 'Uninstall removed the packaged Harness home' }
+    Run-Silent ('/S /D=' + $installPath) 0
+    if (-not (Test-Path -LiteralPath $appPath)) { throw 'Reinstall did not restore the application' }
+    if ((Get-Content -LiteralPath $experience -Raw) -ne 'keep memory') { throw 'Reinstall replaced the retained Harness home' }
+    $results.Add('uninstall-retains-home-and-reinstall-adopts-it')
 } catch {
     Write-Output "Installer check failed: $_"
     throw

@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url)
 const section = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')),
   'templates/nsis/installSection.nsh'), 'utf8')
 
-it('keeps data cleanup out of the upstream template while retaining application removal and registration cleanup', () => {
+it('removes application files through the native helper while keeping the packaged Harness home', () => {
   const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/uninstaller.nsh'), 'utf8')
   const adapted = directoryUninstaller(source)
   expect(adapted).not.toContain('--delete-app-data')
@@ -18,9 +18,16 @@ it('keeps data cleanup out of the upstream template while retaining application 
   expect(adapted).toContain('DeleteRegKey SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}"')
   expect(adapted).toContain('DeleteRegKey SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY_2}"')
   expect(directoryUninstaller(source.replaceAll('\n', '\r\n'))).toBe(adapted)
-  expect(adapted).toContain('RMDir /r "\\\\?\\$INSTDIR"')
+  const removal = adapted.indexOf('UninstallRemoveInstallation')
+  expect(removal).toBeGreaterThan(-1)
+  expect(adapted.indexOf('RMDir "$INSTDIR"')).toBeGreaterThan(removal)
+  expect(adapted).not.toContain('RMDir /r $INSTDIR')
+  expect(adapted).not.toContain('RMDir /r "\\\\?\\$INSTDIR"')
+  expect(adapted).toContain('$INSTDIR\\data')
+  expect(adapted).toContain('UNINSTALLER_DATA_KEPT')
   expect(() => directoryUninstaller(source.replace('  Var /GLOBAL isDeleteAppData\n', ''))).toThrow('template changed')
   expect(() => directoryUninstaller(source.replace('  DeleteRegKey SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}"', ''))).toThrow('template changed')
+  expect(() => directoryUninstaller(source.replace('    RMDir /r $INSTDIR', '    RMDir /r $INSTDIR\n    RMDir /r $INSTDIR'))).toThrow('template changed')
 })
 
 it.each(['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh'])('cleans staged files before %s exits', (helper) => {
