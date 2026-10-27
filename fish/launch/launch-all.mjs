@@ -1,7 +1,7 @@
 // 一键启动 SnowLuma → QQ → DSH，并等到各自就绪；已在运行的会跳过。
 // 运行数据只放在仓库的 data 目录（和安装版的 <安装目录>\data 同一规则），不碰 ~/.dsh。
 import { spawn, execFileSync } from 'node:child_process'
-import { openSync, closeSync, appendFileSync, mkdirSync } from 'node:fs'
+import { openSync, closeSync, appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { connect } from 'node:net'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,10 +10,24 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const 家 = join(REPO, 'data')
 const 日志 = join(家, '启动日志.txt')
 const NODE_DIR = dirname(process.execPath)
-const SNOW = 'D:\\SnowLuma\\app'
 const QQ = 'C:\\Program Files\\Tencent\\QQNT\\QQ.exe'
 
 mkdirSync(家, { recursive: true })
+
+// SnowLuma 认设置页装的那份（D:\MyDearFish\data\snowluma 之类），别再另起一套抢 3002。
+function SnowLuma配置() {
+  try {
+    return JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8')).SnowLuma || {}
+  } catch (error) {
+    return {}
+  }
+}
+
+function SnowLuma目录() {
+  const 目录 = String(SnowLuma配置().目录 || '').trim()
+  if (目录 && existsSync(join(目录, 'index.mjs')) && existsSync(join(目录, 'node.exe'))) return 目录
+  return 'D:\\SnowLuma\\app'
+}
 
 function 记(文) {
   const 行 = `[${new Date().toLocaleString('zh-CN', { hour12: false })}] ${文}`
@@ -76,9 +90,11 @@ async function 主() {
     记('SnowLuma 已在运行')
   } else {
     记('启动 SnowLuma…')
-    拉起(join(SNOW, 'node.exe'), ['index.mjs'], { cwd: SNOW }, join(家, 'SnowLuma启动.log'))
+    const 目录 = SnowLuma目录()
+    const 环境 = { ...process.env, ...(SnowLuma配置().同意协议 ? { SNOWLUMA_ACCEPT_EULA: '1', SNOWLUMA_ACCEPT_PRIVACY: '1' } : {}) }
+    拉起(join(目录, 'node.exe'), ['index.mjs'], { cwd: 目录, env: 环境 }, join(家, 'SnowLuma启动.log'))
     if (await 等端口(5099, 40)) 记('SnowLuma 就绪（5099）')
-    else 记('SnowLuma 40 秒内没起来，检查 D:\\SnowLuma\\app\\logs')
+    else 记(`SnowLuma 40 秒内没起来，检查 ${join(目录, 'logs')}`)
   }
 
   if (进程在跑('QQ.exe')) {
