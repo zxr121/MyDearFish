@@ -744,6 +744,7 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
 报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('你说的是 xx 发的那张吗'))
+报('场景提示教她引用哪张用话说清、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('别写 [#编号] 这种编号当引用'))
 报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
 报('场景提示要求接图的意思而不是念图', 社交文字.includes('不是让你念图') && 社交文字.includes('别报发色、配色、耳朵、眼睛') && 社交文字.includes('照问照答'))
 报('场景提示禁止自导自演', 社交文字.includes('别自导自演') && 社交文字.includes('没有前文支撑'))
@@ -1133,6 +1134,21 @@ const 多表情发 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || 
   && 多表情发[3].url.endsWith('/send_group_msg') && 多表情发[3].体.message[0].data.text === '再来一张',
   JSON.stringify(多表情发.map((x) => (x.url.endsWith('/send_custom_face') ? '[表情]' : x.体.message[0].data.text))))
 报('连发表情：两张都用的是收藏里那张', 多表情发[0].体.emoji_id === (收藏项 && 收藏项.emojiId) && 多表情发[2].体.emoji_id === (收藏项 && 收藏项.emojiId), JSON.stringify([多表情发[0] && 多表情发[0].体.emoji_id, 多表情发[2] && 多表情发[2].体.emoji_id]))
+
+// ---------- 6e 短写成 [#N]：按表情发出去，编号不当正文发出去 ----------
+写配置({ 群: ['1066'] })
+群消息表.set(1066, [一条群消息('存下的发一下', { id: 1666 })])
+设判断(['1666'], true, 0.9, '发存下的')
+await 轮询社交()
+await 等()
+const 短写前 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1066).length
+await 收到回复('session-qq-social-group-1066', 'aibo 存下的这就发 [#1]')
+await new Promise((r) => setTimeout(r, 1800))
+const 短写发 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1066).slice(短写前)
+报('短写 [#N]：按表情发出去，编号不留在正文', 短写发.length === 2
+  && 短写发[0].url.endsWith('/send_group_msg') && 短写发[0].体.message[0].data.text === 'aibo 存下的这就发'
+  && 短写发[1].url.endsWith('/send_custom_face') && 短写发[1].体.emoji_id === (收藏项 && 收藏项.emojiId),
+  JSON.stringify(短写发.map((x) => (x.url.endsWith('/send_custom_face') ? '[表情]' : x.体.message[0].data.text))))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })
