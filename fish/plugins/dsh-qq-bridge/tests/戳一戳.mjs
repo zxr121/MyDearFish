@@ -139,6 +139,7 @@ await 推({ post_type: 'notice', notice_type: 'notify', sub_type: 'poke', self_i
 await 等(1700)
 报('群戳进社交会话，主人戳她不走兴趣判断', 社群的().length === 前群 + 1 && 文本(社群的().at(-1)).includes('拍了拍你'), 文本(社群的().at(-1)).slice(0, 300))
 报('群戳带上“被叫”标记', 文本(社群的().at(-1)).includes('[说到你]'), 文本(社群的().at(-1)).slice(0, 300))
+报('社交提示教她按戳回一句，不演门铃', 文本(社群的().at(-1)).includes('【戳一戳】') && 文本(社群的().at(-1)).includes('别改写成门铃'), 文本(社群的().at(-1)).slice(0, 300))
 
 // ③b 只听不说：戳她也不开回合，只把这一下记进社交会话
 const 原配置 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
