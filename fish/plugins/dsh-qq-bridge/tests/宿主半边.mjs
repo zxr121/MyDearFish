@@ -544,7 +544,7 @@ const 自动房 = 'session-qq-private-123'
 const 私聊文字 = 场景提示.map((s) => String(s.text)).join('\n')
 报('QQ 私聊场景提示不再讲标点和分条机制', !私聊文字.includes('句尾基本不加句号') && !私聊文字.includes('最多 3 条'), 私聊文字.slice(0, 200))
 报('QQ 私聊场景提示要求别开课、别争输赢', 私聊文字.includes('别主动开课') && 私聊文字.includes('不争输赢'))
-报('QQ 私聊场景提示要求接图的意思而不是念图', 私聊文字.includes('接的是这张图的意思') && 私聊文字.includes('别报发色'))
+报('QQ 私聊场景提示要求接图的意思而不是念图', 私聊文字.includes('接的是这张图的意思') && 私聊文字.includes('别报发色') && 私聊文字.includes('明确问细节就照答'))
 报('QQ 私聊也挂了提示过滤器', 装配监听.length > 0 && 装配监听.at(-1).选项 && 装配监听.at(-1).选项.prepend === true)
 报('没有工作区 → 自动建一个并挂上', 建的工作区.length > 0 && 挂工作区记录.includes(自动房), JSON.stringify({ 建: 建的工作区, 挂: 挂工作区记录 }))
 报('私聊消息进了自动房', 转进的.length > 0 && JSON.stringify(转进的.at(-1).content[0].text).includes('没填目标'))
