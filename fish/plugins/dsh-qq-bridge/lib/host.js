@@ -4049,6 +4049,58 @@ export function apply(ctx) {
     return 自己号缓存
   }
 
+  // 设置页把群号 / QQ 号翻成名字：只读 OneBot 的名单，10 分钟内复用；取不到就留空、照旧显示号。
+  const 房间名缓存 = new Map() // 'group:123' / 'friend:456' → 群名 / 好友备注或昵称
+  let 房间名上次 = 0
+  let 房间名在取 = null
+
+  /** 问一次本机 OneBot 的只读接口；连不上、不是 OneBot 或超时都当作没读到。 */
+  async function 问OneBot(配置, action) {
+    try {
+      const r = await fetch(`${配置.NapCat}/${action}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+        signal: AbortSignal.timeout(1200),
+      })
+      const j = await r.json()
+      return j && j.status === 'ok' ? j.data : null
+    } catch (error) {
+      return null
+    }
+  }
+
+  /**
+   * 把群 / 好友号翻成名字，补进 社交目标们 的 名。
+   * @param {object} 配置 - 当前配置（用其中的 OneBot 地址）。
+   * @param {boolean} 连上 - SnowLuma 是否已接上 QQ；没接上就不打扰 OneBot。
+   * @returns {Promise<void>} 取完（或跳过）就结束；失败不抛。
+   */
+  async function 补房间名(配置, 连上) {
+    if (!连上) return
+    if (房间名在取) return 房间名在取
+    const 缺名 = 社交目标们(配置).some((t) => !房间名缓存.get(t.key))
+    if (Date.now() - 房间名上次 < (缺名 ? 15_000 : 10 * 60_000)) return
+    房间名上次 = Date.now()
+    房间名在取 = (async () => {
+      const [群们, 友们] = await Promise.all([
+        问OneBot(配置, 'get_group_list'),
+        问OneBot(配置, 'get_friend_list'),
+      ])
+      for (const 项 of Array.isArray(群们) ? 群们 : []) {
+        const 号 = String(项 && 项.group_id !== undefined ? 项.group_id : '')
+        const 名 = 夹文((项 && (项.group_name || 项.group_remark)) || '', 40)
+        if (/^\d{3,20}$/.test(号) && 名 !== '') 房间名缓存.set(`group:${号}`, 名)
+      }
+      for (const 项 of Array.isArray(友们) ? 友们 : []) {
+        const 号 = String(项 && 项.user_id !== undefined ? 项.user_id : '')
+        const 名 = 夹文((项 && (项.remark || 项.nickname)) || '', 40)
+        if (/^\d{3,20}$/.test(号) && 名 !== '') 房间名缓存.set(`friend:${号}`, 名)
+      }
+    })().finally(() => { 房间名在取 = null })
+    return 房间名在取
+  }
+
   /** 把配置里的群/好友展开成社交目标；主人自己的 QQ 不当作“好友”。 */
   function 社交目标们(配置) {
     const 出 = []
@@ -4057,12 +4109,14 @@ export function apply(ctx) {
     const 只听 = new Set(Array.isArray(配置.社交.只听) ? 配置.社交.只听 : [])
     for (const 号 of 配置.社交.群) {
       const key = `group:${号}`
-      出.push({ key, 类型: 'group', 号, 允许: !关掉.has(key), 能说: !只听.has(key), 会话id: 会话idof(key, 社交会话id('group', 号)), 叫: `群 ${号}` })
+      出.push({ key, 类型: 'group', 号, 允许: !关掉.has(key), 能说: !只听.has(key), 会话id: 会话idof(key, 社交会话id('group', 号)), 叫: `群 ${号}`, 名: 房间名缓存.get(key) || '' })
     }
     for (const 号 of 配置.社交.好友) {
       if (号 === 主人号) continue
       const key = `friend:${号}`
-      出.push({ key, 类型: 'friend', 号, 允许: !关掉.has(key), 能说: !只听.has(key), 会话id: 会话idof(key, 社交会话id('friend', 号)), 叫: `好友 ${号}` })
+      // 名单还没读到（或接口没给）时，用人物志里认过的名字兜底。
+      const 人 = 人物.get(解号(号))
+      出.push({ key, 类型: 'friend', 号, 允许: !关掉.has(key), 能说: !只听.has(key), 会话id: 会话idof(key, 社交会话id('friend', 号)), 叫: `好友 ${号}`, 名: 房间名缓存.get(key) || (人 && 人.名 ? 夹文(人.名, 40) : '') })
     }
     return 出
   }
@@ -7169,7 +7223,8 @@ export function apply(ctx) {
     }))
 
   /** 设置页的社交状态：每个目标活着没有、这一小时/今天接了几次、现在能不能接。 */
-  const 社交概况 = async (配置) => {
+  const 社交概况 = async (配置, 已连QQ) => {
+    await 补房间名(配置, 已连QQ)
     const 目标们 = 社交目标们(配置)
     const 现在 = Date.now()
     const 主人号 = String(配置.私聊QQ || '').trim()
@@ -7237,6 +7292,7 @@ export function apply(ctx) {
           号: 目标.号,
           会话id: 目标.会话id,
           叫: 目标.叫,
+          名: 目标.名 || '',
           允许: 目标.允许,
           能说: 目标.能说,
           活着: !!agent,
@@ -7327,7 +7383,7 @@ export function apply(ctx) {
         ? '手填'
         : (目标 && 是主人QQ会话(目标) ? '自动（QQ 私聊专用）' : (目标 ? '自动（最近说话的会话）' : '无')),
       目标情况: 目标 && 清单.length ? 清单.filter((x) => x.id === 目标) : [],
-      社交: await 社交概况(配置),
+      社交: await 社交概况(配置, snow状态.已连QQ),
       表情包: {
         数量: 表情们.length,
         最近: 表情们.slice(-8).map((x) => ({ id: x.id, label: x.label })),

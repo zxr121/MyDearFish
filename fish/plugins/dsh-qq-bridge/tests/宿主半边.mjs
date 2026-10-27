@@ -52,6 +52,22 @@ globalThis.fetch = async (url, 选项) => {
     const 登录 = { status: 'ok', retcode: 0, data: { user_id: 10001, nickname: '大肥鱼' } }
     return { text: async () => JSON.stringify(登录), json: async () => 登录 }
   }
+  if (u.endsWith('/get_group_list')) {
+    return {
+      json: async () => ({
+        status: 'ok', retcode: 0,
+        data: [{ group_id: 2001, group_name: '摸鱼小分队', group_remark: '不摸鱼群' }],
+      }),
+    }
+  }
+  if (u.endsWith('/get_friend_list')) {
+    return {
+      json: async () => ({
+        status: 'ok', retcode: 0,
+        data: [{ user_id: 3004, nickname: '小鱿鱼', remark: '鱿鱼' }],
+      }),
+    }
+  }
   if (u.includes('get_friend_msg_history')) {
     return {
       json: async () => ({
@@ -429,6 +445,7 @@ await new Promise((r) => setTimeout(r, 20))
 // ⑧ /state 路由能回配置 + NapCat 探活
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
   总开关: false, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
+  社交: { 群: ['2001'], 好友: ['3004'] },
 }, null, 2), 'utf8')
 const 存储 = []
 const fakeRes = { statusCode: 200, setHeader: () => {}, end: (s) => { 存储.push(JSON.parse(s)) } }
@@ -448,6 +465,9 @@ await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' })
 const 状态 = 存储[0]
 报('/state 回出配置', 状态 && 状态.ok === true && 状态.配置 && 状态.配置.总开关 === false, JSON.stringify(状态 && 状态.配置))
 报('/state 探到 NapCat 那个号', 状态 && 状态.NapCat状态 && 状态.NapCat状态.昵称 === '大肥鱼' && 状态.NapCat状态.用户 === 10001, JSON.stringify(状态 && 状态.NapCat状态))
+const 房名 = Object.fromEntries(((状态 && 状态.社交 && 状态.社交.目标) || []).map((t) => [t.key, t.名]))
+报('/state 把群号 / 好友号翻成名字（群名优先，好友备注优先）',
+  房名['group:2001'] === '摸鱼小分队' && 房名['friend:3004'] === '鱿鱼', JSON.stringify(房名))
 
 // ⑧a 来源防线：跨站网页 / DNS rebinding 不能碰这些接口
 存储.length = 0

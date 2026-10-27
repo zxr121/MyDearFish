@@ -493,7 +493,10 @@ window.__ModuleLoader__.load({
           key,
           style: { display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 14, whiteSpace: 'nowrap' },
         },
-          h('span', null, 叫),
+          h('span', {
+            title: 叫,
+            style: { display: 'inline-block', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' },
+          }, 叫),
           h('select', {
             style: { ...S.small, marginLeft: 4, padding: '3px 6px' },
             value: 值,
@@ -505,14 +508,20 @@ window.__ModuleLoader__.load({
           ),
         )
       }
-      const 可开房间 = [
-        ...(社交.群 || []).map((号) => ({ key: 'group:' + 号, 叫: '群 ' + 号 })),
-        ...(社交.好友 || [])
-          .filter((号) => String(号) !== String(配置.私聊QQ || '').trim())
-          .map((号) => ({ key: 'friend:' + 号, 叫: '好友 ' + 号 })),
-      ]
       const 社态 = 态.社交 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
+      // 宿主读到的群名 / 好友备注：开关列表和状态行都拿它把号翻成名字。
+      const 房名表 = new Map(社交目标们.map((t) => [String(t.key), String(t.名 || '')]))
+      const 房标 = (前缀, 号, key) => {
+        const 名 = 房名表.get(key) || ''
+        return 名 === '' ? 前缀 + ' ' + 号 : 前缀 + ' ' + 名 + '（' + 号 + '）'
+      }
+      const 可开房间 = [
+        ...(社交.群 || []).map((号) => ({ key: 'group:' + 号, 叫: 房标('群', 号, 'group:' + 号) })),
+        ...(社交.好友 || [])
+          .filter((号) => String(号) !== String(配置.私聊QQ || '').trim())
+          .map((号) => ({ key: 'friend:' + 号, 叫: 房标('好友', 号, 'friend:' + 号) })),
+      ]
       const 自己 = 社态.自己 || (雪连上 ? { 昵称: 雪.昵称, 号: 雪.用户 } : null)
       const 导入 = 配置.导入 || {}
       const 导态 = 态.导入 || {}
@@ -985,7 +994,7 @@ window.__ModuleLoader__.load({
             ? h('div', { style: { ...S.dim, marginTop: 6 } }, '还没配群或好友。保存后这里会列出每个目标活没活着、今天接了几次。')
             : 社交目标们.map((t) => h('div', { key: t.key, style: { ...S.日志行, marginTop: 6 } },
                 h('div', null,
-                  t.叫 + '（' + 短id(t.会话id) + '）· ' +
+                  房标(t.类型 === 'group' ? '群' : '好友', t.号, t.key) + '（' + 短id(t.会话id) + '）· ' +
                     (t.允许 === false ? '已单独关掉（不看、不说） · ' : '') +
                     (t.允许 !== false && t.能说 === false ? '只听不说（照常看和学，不开口） · ' : '') +
                     (t.活着 ? '会话活着' : '等它第一次开口') +
