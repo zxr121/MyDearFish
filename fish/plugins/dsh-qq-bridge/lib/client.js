@@ -483,64 +483,94 @@ window.__ModuleLoader__.load({
       const 只听们 = Array.isArray(社交.只听) ? 社交.只听 : []
       const 少掺和们 = Array.isArray(社交.少掺和) ? 社交.少掺和 : []
       const 人态表 = 社交.人的态度 && typeof 社交.人的态度 === 'object' && !Array.isArray(社交.人的态度) ? 社交.人的态度 : {}
-      const 人态度数 = Object.values(人态表).reduce((n, 人们) => n + Object.keys(人们 || {}).length, 0)
-      const 房间开关 = (key, 叫) => {
+      const 人态字 = { warm: '多聊', quiet: '不主动', cold: '少理', ignore: '不理' }
+      // 旧配置里可能还直接写着字符串；过期的人当没设，免得状态一直停在“少理”。
+      const 人态值 = (值) => {
+        const 态 = 值 && typeof 值 === 'object' && !Array.isArray(值)
+          ? 值
+          : typeof 值 === 'string' ? { 态: 值, 到: 0 } : null
+        if (!态) return null
+        if (!Object.prototype.hasOwnProperty.call(人态字, 态.态)) return null
+        const 到 = Number(态.到) || 0
+        if (到 > 0 && 到 <= Date.now()) return null
+        return { 态: 态.态, 到: 到 > 0 ? 到 : 0 }
+      }
+      const 人态度数 = Object.values(人态表).reduce(
+        (n, 人们) => n + Object.values(人们 || {}).filter((v) => 人态值(v) !== null).length, 0,
+      )
+      const 今晚零点 = () => {
+        const d = new Date()
+        d.setHours(24, 0, 0, 0)
+        return d.getTime()
+      }
+      const 明早八点 = () => {
+        const d = new Date()
+        d.setHours(8, 0, 0, 0)
+        if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1)
+        return d.getTime()
+      }
+      const 期限值 = (到) => (到 <= 0 ? 'forever' : 到 <= 今晚零点() ? 'tonight' : '3d')
+      const 改房间态 = (key, v) => {
+        改社交('关掉', 关掉们.filter((k) => k !== key))
+        改社交('少掺和', 少掺和们.filter((k) => k !== key))
+        改社交('只听', 只听们.filter((k) => k !== key))
+        if (v === 'few') 改社交('少掺和', 少掺和们.includes(key) ? 少掺和们 : [...少掺和们, key])
+        else if (v === 'listen') 改社交('只听', 只听们.includes(key) ? 只听们 : [...只听们, key])
+        else if (v === 'off') 改社交('关掉', 关掉们.includes(key) ? 关掉们 : [...关掉们, key])
+      }
+      const 房间态选择 = (key) => {
         const 是群 = key.startsWith('group:')
         const 值 = 关掉们.includes(key) ? 'off' : 少掺和们.includes(key) ? 'few' : 只听们.includes(key) ? 'listen' : 'normal'
-        const 切 = (v) => {
-          改社交('关掉', 关掉们.filter((k) => k !== key))
-          改社交('少掺和', 少掺和们.filter((k) => k !== key))
-          改社交('只听', 只听们.filter((k) => k !== key))
-          if (v === 'few') 改社交('少掺和', 少掺和们.includes(key) ? 少掺和们 : [...少掺和们, key])
-          else if (v === 'listen') 改社交('只听', 只听们.includes(key) ? 只听们 : [...只听们, key])
-          else if (v === 'off') 改社交('关掉', 关掉们.includes(key) ? 关掉们 : [...关掉们, key])
-        }
-        return h('label', {
-          key,
-          style: { display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 14, whiteSpace: 'nowrap' },
+        return h('select', {
+          style: { ...S.small, padding: '3px 6px' },
+          value: 值,
+          onChange: (e) => 改房间态(key, e.target.value),
         },
-          h('span', {
-            title: 叫,
-            style: { display: 'inline-block', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' },
-          }, 叫),
-          h('select', {
-            style: { ...S.small, marginLeft: 4, padding: '3px 6px' },
-            value: 值,
-            onChange: (e) => 切(e.target.value),
-          },
-            h('option', { style: S.option, value: 'normal' }, '正常'),
-            ...(是群 ? [h('option', { style: S.option, value: 'few' }, '少掺和（只接叫我的）')] : []),
-            h('option', { style: S.option, value: 'listen' }, '只听不说'),
-            h('option', { style: S.option, value: 'off' }, '关掉'),
-          ),
+          h('option', { style: S.option, value: 'normal' }, '正常'),
+          ...(是群 ? [h('option', { style: S.option, value: 'few' }, '少掺和（只接叫我的）')] : []),
+          h('option', { style: S.option, value: 'listen' }, '只听不说'),
+          h('option', { style: S.option, value: 'off' }, '关掉'),
         )
       }
-      const 改人态 = (key, 号, 态度) => {
+      const 改人态 = (key, 号, 态度, 期限 = 'forever') => {
         const 人们 = { ...(人态表[key] || {}) }
-        if (态度 === 'normal') delete 人们[号]
-        else 人们[号] = 态度
+        if (态度 === 'normal') {
+          delete 人们[号]
+        } else {
+          const 到 = 期限 === 'tonight' ? 今晚零点() : 期限 === '3d' ? Date.now() + 3 * 86_400_000 : 0
+          人们[号] = { 态: 态度, 到 }
+        }
         const 全 = { ...人态表 }
         if (Object.keys(人们).length === 0) delete 全[key]
         else 全[key] = 人们
         改社交('人的态度', 全)
       }
       const 群人 = (key) => {
-        const 定过 = 人态表[key] || {}
+        const 定过 = Object.fromEntries(Object.entries(人态表[key] || {}).filter(([, v]) => 人态值(v) !== null))
+        const 目标 = (Array.isArray((态.社交 || {}).目标) ? 态.社交.目标 : []).find((t) => t.key === key)
+        const 来回 = new Map(
+          (目标 && Array.isArray(目标.人来回) ? 目标.人来回 : []).map((x) => [String(x.号), Number(x.次) || 0]),
+        )
         const 出 = []
         const 见 = new Set()
         for (const p of 人物页) {
           if (p.主人) continue
           const 房 = (Array.isArray(p.房) ? p.房 : []).find((r) => r.key === key)
           if (!房) continue
-          出.push({ 号: String(p.号), 名: String(p.名 || ''), 最后At: Number(房.最后At) || 0 })
+          出.push({ 号: String(p.号), 名: String(p.名 || ''), 最后At: Number(房.最后At) || 0, 次: 来回.get(String(p.号)) || 0 })
           见.add(String(p.号))
         }
-        for (const 号 of Object.keys(定过)) {
-          if (!见.has(号)) 出.push({ 号, 名: '', 最后At: 0 })
+        for (const [号, 次] of 来回) {
+          if (见.has(号)) continue
+          出.push({ 号, 名: '', 最后At: 0, 次 })
+          见.add(号)
         }
-        return 出
-          .sort((a, b) => Number(!!定过[b.号]) - Number(!!定过[a.号]) || b.最后At - a.最后At)
-          .slice(0, 10)
+        for (const 号 of Object.keys(定过)) {
+          if (!见.has(号)) 出.push({ 号, 名: '', 最后At: 0, 次: 0 })
+        }
+        出.sort((a, b) => b.次 - a.次 || b.最后At - a.最后At)
+        const 排好 = 出.filter((p) => 定过[p.号]).concat(出.filter((p) => !定过[p.号]))
+        return 排好.slice(0, 12)
       }
       const 加个人 = (key, 态度) => {
         const 号 = String(人号草稿[key] || '').trim()
@@ -551,16 +581,93 @@ window.__ModuleLoader__.load({
         改人态(key, 号, 态度)
         设人号草稿({ ...人号草稿, [key]: '' })
       }
-      const 人态选择 = (key, 号) =>
-        h('select', {
-          style: { ...S.small, padding: '3px 6px' },
-          value: (人态表[key] || {})[号] || 'normal',
-          onChange: (e) => 改人态(key, 号, e.target.value),
-        },
-          h('option', { style: S.option, value: 'normal' }, '正常'),
-          h('option', { style: S.option, value: 'cold' }, '少理（被叫才短应）'),
-          h('option', { style: S.option, value: 'ignore' }, '不理（叫了也不接）'),
+      const 人态选择 = (key, 号) => {
+        const 值 = 人态值((人态表[key] || {})[号])
+        const 态 = 值 ? 值.态 : 'normal'
+        const 期 = 值 ? 期限值(值.到) : 'forever'
+        return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+          h('select', {
+            style: { ...S.small, padding: '3px 6px' },
+            value: 态,
+            onChange: (e) => 改人态(key, 号, e.target.value, 期),
+          },
+            h('option', { style: S.option, value: 'normal' }, '正常'),
+            h('option', { style: S.option, value: 'warm' }, '多聊（多接、多问一句）'),
+            h('option', { style: S.option, value: 'quiet' }, '不主动（没叫她先不接）'),
+            h('option', { style: S.option, value: 'cold' }, '少理（被叫才短应）'),
+            h('option', { style: S.option, value: 'ignore' }, '不理（叫了也不接）'),
+          ),
+          态 === 'normal'
+            ? null
+            : h('select', {
+                style: { ...S.small, padding: '3px 6px' },
+                value: 期,
+                onChange: (e) => 改人态(key, 号, 态, e.target.value),
+                title: '到点自动恢复正常',
+              },
+                h('option', { style: S.option, value: 'forever' }, '一直'),
+                h('option', { style: S.option, value: 'tonight' }, '到今晚'),
+                h('option', { style: S.option, value: '3d' }, '3 天'),
+              ),
+          值 && 值.到 > 0 ? h('span', { style: S.dim, title: '到点自动恢复' }, 时间短(值.到)) : null,
         )
+      }
+      const 空数框 = (值, onChange, 占位, 最小 = 0, 最大 = 1000) =>
+        h('input', {
+          type: 'number',
+          style: { ...S.small, width: 66 },
+          value: 值 === undefined ? '' : String(值),
+          placeholder: 占位,
+          min: 最小,
+          max: 最大,
+          step: 1,
+          title: '留空 = 跟默认；填 0 = 这间不限',
+          onChange: (e) => onChange(e.target.value),
+        })
+      // 一间屋的规矩：看/说模式、临时歇着、这间单独的主动话量（只对群有意义）。
+      const 房规矩 = ({ key, 叫 }) => {
+        const 到 = 房歇到(key)
+        const t = 房计.get(key) || {}
+        const 单 = 房单(key)
+        const 量 = 房话量(key)
+        const 是群 = key.startsWith('group:')
+        return h('div', { key, style: { borderTop: '1px solid var(--dsw-alias-border-l2)', paddingTop: 6 } },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+            h('span', {
+              style: { flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600 },
+            }, 叫),
+            房间态选择(key),
+            到 > 0
+              ? h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+                  h('span', { style: { ...S.dim, color: '#c0392b' } }, '歇到 ' + 时间短(到) + '（照常看和学，不说话）'),
+                  按钮('这就回来', () => 改歇着(key, 0), false),
+                )
+              : h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+                  按钮('歇半小时', () => 改歇着(key, 1800), false),
+                  按钮('歇 1 小时', () => 改歇着(key, 3600), false),
+                  按钮('歇到明早', () => 改歇着(key, Math.max(60, Math.round((明早八点() - Date.now()) / 1000))), false),
+                ),
+          ),
+          h('div', { style: { ...S.dim, marginTop: 3 } },
+            (是群 ? '主动话量 ' + 量.每时 + ' 轮/时 · ' + 量.每日 + ' 轮/日' +
+              (量.自己定 ? '（这间单独定）' : '（跟默认）') : '私聊都算直接找你，不占主动话量') +
+              (t.暂停中 ? '｜已连续失败暂停' : '') +
+              ((t.主动本小时 || t.主动今日)
+                ? '｜已用：本小时 ' + (t.主动本小时 || 0) + ' 轮 · 今天 ' + (t.主动今日 || 0) + ' 轮'
+                : '') +
+              (t.人的态度 && Object.keys(t.人的态度).length > 0 ? '｜个别态度 ' + Object.keys(t.人的态度).length + ' 人' : ''),
+          ),
+          是群
+            ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 } },
+                h('span', { style: S.dim }, '这间的主动话量'),
+                空数框(单.每时, (v) => 改话量(key, '每时', v), String(社交.主动每时 ?? 6)),
+                h('span', { style: S.dim }, '轮/时'),
+                空数框(单.每日, (v) => 改话量(key, '每日', v), String(社交.主动每日 ?? 40)),
+                h('span', { style: S.dim }, '轮/日'),
+              )
+            : null,
+        )
+      }
       const 社态 = 态.社交 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
       // 宿主读到的群名 / 好友备注：开关列表和状态行都拿它把号翻成名字。
@@ -575,6 +682,41 @@ window.__ModuleLoader__.load({
           .filter((号) => String(号) !== String(配置.私聊QQ || '').trim())
           .map((号) => ({ key: 'friend:' + 号, 叫: 房标('好友', 号, 'friend:' + 号) })),
       ]
+      const 话量表 = 社交.话量 && typeof 社交.话量 === 'object' && !Array.isArray(社交.话量) ? 社交.话量 : {}
+      const 房单 = (key) => (话量表[key] && typeof 话量表[key] === 'object' ? 话量表[key] : {})
+      // 空 = 跟全局；填 0 = 这间不限。
+      const 房话量 = (key) => {
+        const 单 = 房单(key)
+        const 读 = (值, 兜) => (值 === undefined ? Math.round(Number(兜) || 0) : Math.round(Number(值) || 0))
+        return {
+          每时: 读(单.每时, 社交.主动每时),
+          每日: 读(单.每日, 社交.主动每日),
+          自己定: Object.keys(单).length > 0,
+        }
+      }
+      const 改话量 = (key, 字段, 文) => {
+        const 单 = { ...房单(key) }
+        const 清 = String(文).trim()
+        if (清 === '') delete 单[字段]
+        else 单[字段] = Math.max(0, Math.round(Number(清) || 0))
+        const 全 = { ...话量表 }
+        if (Object.keys(单).length === 0) delete 全[key]
+        else 全[key] = 单
+        改社交('话量', 全)
+      }
+      const 歇着表 = 社交.歇着 && typeof 社交.歇着 === 'object' && !Array.isArray(社交.歇着) ? 社交.歇着 : {}
+      const 房歇到 = (key) => {
+        const 到 = Number(歇着表[key]) || 0
+        return 到 > Date.now() ? 到 : 0
+      }
+      const 改歇着 = (key, 秒) => {
+        const 全 = { ...歇着表 }
+        const 秒数 = Math.round(Number(秒) || 0)
+        if (秒数 > 0) 全[key] = Date.now() + 秒数 * 1000
+        else delete 全[key]
+        改社交('歇着', 全)
+      }
+      const 房计 = new Map(社交目标们.map((t) => [String(t.key), t]))
       const 自己 = 社态.自己 || (雪连上 ? { 昵称: 雪.昵称, 号: 雪.用户 } : null)
       const 导入 = 配置.导入 || {}
       const 导态 = 态.导入 || {}
@@ -928,13 +1070,14 @@ window.__ModuleLoader__.load({
             placeholder: '例如：10001, 10002（逗号或换行分隔）',
             onChange: (e) => { 设好友文本(e.target.value); 改社交('好友', 拆列表(e.target.value)) },
           }), '好友私聊也只在她感兴趣、想说话时才回；别把主人自己的号写进来（主人在上面「私聊 QQ 号」里管）。'),
-          行('每一间的开关',
-            h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+          行('每一间的规矩',
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
               可开房间.length === 0
-                ? h('span', { style: S.dim }, '先在「群号」「好友 QQ」里填好，这里会给每一间出一个开关。')
-                : 可开房间.map(({ key, 叫 }) => 房间开关(key, 叫)),
+                ? h('span', { style: S.dim }, '先在「群号」「好友 QQ」里填好，这里会给每一间出规矩。')
+                : 可开房间.map((房) => 房规矩(房)),
             ),
-            '正常 = 看、学、说；少掺和 = 只接叫她的话（@、叫名字、回复她、问她本人），没叫她的群友消息不进视线，主人随口说的仍照常；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。改完记得保存。',
+            '正常 = 看、学、说；少掺和 = 只接叫她的话（@、叫名字、回复她、问她本人），没叫她的群友消息不进视线，主人随口说的仍照常；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。' +
+              '「歇一会儿」是临时的只听不说：照常看和学，到点自己回来，不用记得去改回来。改完记得保存。',
           ),
           行('她跟谁说话',
             h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
@@ -959,6 +1102,7 @@ window.__ModuleLoader__.load({
                               h('span', {
                                 style: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
                               }, p.名 ? p.名 + '（' + p.号 + '）' : 'QQ ' + p.号),
+                              p.次 > 0 ? h('span', { style: { ...S.dim, whiteSpace: 'nowrap' }, title: '今天这个人把她的聊天拽进去几轮' }, '今天 ' + p.次 + ' 轮') : null,
                               人态选择(key, p.号),
                             )),
                           ),
@@ -970,13 +1114,16 @@ window.__ModuleLoader__.load({
                           value: 草,
                           onChange: (e) => 设人号草稿({ ...人号草稿, [key]: e.target.value }),
                         }),
+                        按钮('按多聊加', () => 加个人(key, 'warm'), false),
                         按钮('按少理加', () => 加个人(key, 'cold'), false),
                         按钮('按不理加', () => 加个人(key, 'ignore'), false),
                       ),
                     )
                   }),
             ),
-            '只对群聊生效，主人自己不受影响。少理 = 他没点你名就不看、不接；真被叫到只短答一句，不追问、不起新话题。不理 = 连 @、回复和戳一戳都不接。好友私聊要安静，用上面的「每一间的开关」。改完记得保存。',
+            '只对群聊生效，主人自己不受影响。' +
+              '多聊 = 他说话更容易进视线、更愿意多接一句；不主动 = 他没点你名就不看、不接，被叫照常应；少理 = 没点你名就不看、不接，真被叫到只短答一句，不追问、不起新话题；不理 = 连 @、回复和戳一戳都不接。' +
+              '每种态度都可以选「一直 / 到今晚 / 3 天」，到点自己恢复正常；「今天 N 轮」是这个人今天把她的聊天拽进去的次数，用来找谁最花 token。好友私聊要安静，用上面的「每一间的规矩」。改完记得保存。',
           ),
           行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 2, 3600), '同一目标两次开口的成熟期基础间隔（默认 15 秒）；实际会按兴致走指数曲线，想接时几秒就能开口。'),
           行('冷却曲线',
@@ -993,7 +1140,25 @@ window.__ModuleLoader__.load({
             ),
             '零花钱从左边（元）降到「最低余额」时，冷却按曲线逐渐乘以右边；低于最低余额就不再开口。',
           ),
-          行('接话次数', h('span', { style: S.dim }, '不设上限'), '只受鱼脑零花钱额度约束；冷却只决定说话的节奏，不限制一天或一小时聊多少轮。'),
+          行('主动话量（默认）',
+            h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+              数框(社交.主动每时 ?? 6, (v) => 改社交('主动每时', v), 1, 0, 1000),
+              h('span', { style: S.dim }, '轮/时'),
+              数框(社交.主动每日 ?? 40, (v) => 改社交('主动每日', v), 1, 0, 1000),
+              h('span', { style: S.dim }, '轮/日'),
+            ),
+            '她自己凑上去说话的额度；被叫、问她本人和主人说话不算，额度用完也照样应。0 = 不限；每一间可以在上面单独改。' +
+              '额度用完只是暂时不主动搭话，消息照收照学，下个小时 / 第二天自己恢复。',
+          ),
+          行('连着说',
+            h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+              数框(社交.连说上限 ?? 3, (v) => 改社交('连说上限', v), 1, 0, 20),
+              h('span', { style: S.dim }, '轮 / 两分钟内，先歇'),
+              数框(社交.连说歇秒 ?? 30, (v) => 改社交('连说歇秒', v), 5, 0, 600),
+              h('span', { style: S.dim }, '秒'),
+            ),
+            '像人一样：一口气主动说太多轮就先停一下，别把整间群刷成她的。歇着时消息攒着，到点一起看，不丢；被叫和主人不走这条。0 = 不拦。',
+          ),
           行('同时接话', 勾(社交.并行, (v) => 改社交('并行', v)), '她正在回一条时，别的值得回的新消息会开一条「分线」会话同时回，不用等前一条说完；分线也会带最近上下文。'),
           行('分线上限', 数框(社交.并行上限, (v) => 改社交('并行上限', v), 1, 0, 6), '每个群 / 好友最多同时开几条分线（默认 2，0 = 不并行、按顺序回）；主屋本身不算在内。'),
           行('最低余额（元）', 数框(社交.最低余额, (v) => 改社交('最低余额', v), 0.5, 0, 1000), '鱼脑零花钱低于这个数就什么都不看、不接（被叫也不接）。'),
@@ -1060,7 +1225,10 @@ window.__ModuleLoader__.load({
               '｜登录号：' + (自己 ? 自己.昵称 + '（' + 自己.号 + '）' : '还没探到') +
               '｜今天已接：' + (社态.今日已接 || 0) +
               (少掺和们.length > 0 ? '｜少掺和：' + 少掺和们.length + ' 间' : '') +
-              (人态度数 > 0 ? '｜少理/不理：' + 人态度数 + ' 人' : '') +
+              (人态度数 > 0 ? '｜单独态度：' + 人态度数 + ' 人' : '') +
+              (可开房间.filter(({ key }) => 房歇到(key) > 0).length > 0
+                ? '｜歇着：' + 可开房间.filter(({ key }) => 房歇到(key) > 0).length + ' 间'
+                : '') +
               (社态.在静音 ? '｜现在静音中' : ''),
           ),
           h('div', {
@@ -1095,12 +1263,16 @@ window.__ModuleLoader__.load({
                     (t.允许 === false ? '已单独关掉（不看、不说） · ' : '') +
                     (t.允许 !== false && t.能说 === false ? '只听不说（照常看和学，不开口） · ' : '') +
                     (t.少掺和 ? '少掺和（只接叫她的） · ' : '') +
-                    (t.人的态度 && Object.keys(t.人的态度).length > 0 ? '少理/不理 ' + Object.keys(t.人的态度).length + ' 人 · ' : '') +
+                    (t.歇到 ? '歇着（' + 时间短(t.歇到) + ' 自己回来，照常看和学） · ' : '') +
+                    (t.人的态度 && Object.keys(t.人的态度).length > 0 ? '个别态度 ' + Object.keys(t.人的态度).length + ' 人 · ' : '') +
                     (t.活着 ? '会话活着' : '等它第一次开口') +
                     (t.待看 ? ' · 待看 ' + t.待看 + ' 条' : '') +
                     (t.待发 ? ' · 正在想' : '') +
                     (t.分线 ? ' · 分线 ' + t.分线 + ' 条在同时回' : '') +
-                    ' · 本小时 ' + (t.本小时 || 0) + ' / 今日 ' + (t.今日 || 0) +
+                    ' · 今天开口 ' + (t.今日 || 0) + '（本小时 ' + (t.本小时 || 0) + '）' +
+                    (t.话量
+                      ? ' · 主动 ' + (t.主动本小时 || 0) + '/' + t.话量.每时 + ' 每时 · ' + (t.主动今日 || 0) + '/' + t.话量.每日 + ' 每日'
+                      : '') +
                     (t.画像
                       ? ' · ' + (!社交.快判 ? '快判已关' : t.画像.成熟 ? '快判已成熟' : '好奇期 ' + (t.画像.样本 || 0) + '/' + (t.画像.门槛样本 || 20)) +
                         (typeof t.画像.意愿阈值 === 'number' ? ' · 门槛 ' + t.画像.意愿阈值.toFixed(2) : '') +
