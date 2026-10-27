@@ -1966,6 +1966,127 @@ export function 群消息体(text) {
   return { group_id: 0, message: [{ type: 'text', data: { text } }] }
 }
 
+const 呼叫标记 = /\[@\s*([^\]\r\n]{1,32}?)\s*\]/g
+const 呼叫后分隔 = /[\s，,。.！!？?：:；;、~～…（(「『【"'‘’\-—]/u
+// 名字只写一截时，太短的一截（“我要”“海苔”）不认，免得把寻常字眼当成在叫谁。
+const 呼叫短名下限 = 4
+
+/** 一个能被叫到的名字和它够长的一截：全名、前几截、后几截。 */
+function 呼叫候选(人) {
+  const 出 = new Set()
+  for (const 名 of Array.isArray(人 && 人.名们) ? 人.名们 : []) {
+    const 净 = String(名 || '').trim()
+    if (净 === '') continue
+    出.add(净)
+    for (let 长 = 净.length - 1; 长 >= 呼叫短名下限; 长--) {
+      出.add(净.slice(0, 长))
+      出.add(净.slice(净.length - 长))
+    }
+  }
+  return [...出]
+}
+
+/**
+ * 从名字找到这间屋里的人：先认全名或 QQ 号，再把名字里够长的一截认成同一个人
+ * （“我要吃美好时光海苔”被叫成“美好时光海苔”也对得上）。
+ * 同名或认不准时不猜。
+ * @param {string} 词 - 她写的名字或 QQ 号。
+ * @param {{ 号: string, 名们: string[] }[]} 名表 - 这间屋最近说过话、能 @ 的人。
+ * @returns {{ 号: string, 名: string } | null} 认出来的人；认不准返回 null。
+ */
+export function 认呼叫对象(词, 名表 = []) {
+  const 净 = String(词 || '').trim()
+  const 名单 = (Array.isArray(名表) ? 名表 : []).filter((人) => 人 && /^\d{3,20}$/.test(String(人.号 || '')))
+  if (净 === '' || 名单.length === 0) return null
+  if (/^\d{3,20}$/.test(净)) {
+    const 人 = 名单.find((x) => String(x.号) === 净)
+    return 人 ? { 号: String(人.号), 名: String((人.名们 && 人.名们[0]) || 净) } : null
+  }
+  const 全 = 名单.filter((人) => (人.名们 || []).some((名) => String(名 || '').trim() === 净))
+  if (全.length === 1) return { 号: String(全[0].号), 名: 净 }
+  if (全.length > 1) return null
+  if (净.length < 呼叫短名下限) return null
+  const 部分 = 名单.filter((人) => (人.名们 || []).some((名) => {
+    const 名净 = String(名 || '').trim()
+    return 名净.length > 净.length && 名净.includes(净)
+  }))
+  return 部分.length === 1 ? { 号: String(部分[0].号), 名: 净 } : null
+}
+
+/** 一句话开头直接写的群友名字（前面带不带一个 @ 都行）：认得出是谁、后面又跟着分隔（空格/标点/整句就这一个名字）才算。 */
+function 开头呼叫(文字, 名表 = []) {
+  const 起 = 文字.length - 文字.trimStart().length
+  const 余 = 文字.slice(起)
+  if (余 === '' || 余.startsWith('[@')) return null
+  const 艾特 = /^@\s*/u.exec(余)
+  const 名起 = 艾特 ? 艾特[0].length : 0
+  const 名余 = 余.slice(名起)
+  let 选 = null
+  let 撞了 = false
+  for (const 人 of Array.isArray(名表) ? 名表 : []) {
+    if (!人 || !/^\d{3,20}$/.test(String(人.号 || ''))) continue
+    for (const 词 of 呼叫候选(人)) {
+      if (词 === '' || !名余.startsWith(词)) continue
+      const 后 = 名余[词.length]
+      if (后 !== undefined && !呼叫后分隔.test(后)) continue
+      if (!选 || 词.length > 选.词.length) {
+        选 = { 人, 词 }
+        撞了 = false
+      } else if (词.length === 选.词.length && String(选.人.号) !== String(人.号)) {
+        撞了 = true
+      }
+    }
+  }
+  return 选 && !撞了 ? { 人: 选.人, 词: 选.词, 起, 止: 起 + 名起 + 选.词.length } : null
+}
+
+/**
+ * 把回复里的 @ 写法换成真正的 QQ @：`[@名字]` 是明确点名，群聊开头直接写的群友名字（带不带 @ 都行）也算。
+ * 认不出的人只留名字，不发假 @；名表为空（好友私聊）时也不会把标记原样发出去。
+ * @param {string} 文字 - 一条要发出去的文字。
+ * @param {{ 号: string, 名们: string[] }[]} [名表] - 这间屋最近说过话、能 @ 的人。
+ * @returns {{ 段们: { type: string, data: object }[], 显示: string, 提到: string[] }} OneBot 消息段、带 @名字 的显示文本、被 @ 的号。
+ */
+export function 拆呼叫段(文字, 名表 = []) {
+  const 原文 = String(文字 || '')
+  const 段们 = []
+  const 显示 = []
+  const 提到 = []
+  const 推字 = (块) => {
+    const 文 = String(块 || '')
+    if (文 === '') return
+    const 末 = 段们[段们.length - 1]
+    if (末 && 末.type === 'text') 末.data.text += 文
+    else 段们.push({ type: 'text', data: { text: 文 } })
+    显示.push(文)
+  }
+  const 推人 = (人, 词) => {
+    段们.push({ type: 'at', data: { qq: String(人.号), name: String(人.名 || 词) } })
+    显示.push(`@${人.名 || 词}`)
+    提到.push(String(人.号))
+  }
+  let 游 = 0
+  const 起 = 开头呼叫(原文, 名表)
+  if (起) {
+    推字(原文.slice(0, 起.起))
+    推人(起.人, 起.词)
+    游 = 起.止
+  }
+  const 余 = 原文.slice(游)
+  let 末 = 0
+  for (const m of 余.matchAll(呼叫标记)) {
+    推字(余.slice(末, m.index))
+    const 词 = String(m[1] || '').trim()
+    const 人 = 认呼叫对象(词, 名表)
+    if (人) 推人(人, 词)
+    else 推字(词)
+    末 = m.index + m[0].length
+  }
+  推字(余.slice(末))
+  if (段们.length === 0) 段们.push({ type: 'text', data: { text: '' } })
+  return { 段们, 显示: 显示.join(''), 提到 }
+}
+
 /** 把一段长文字拆成连发的几条：先按空行拆；只有一段时退一步按单换行拆（聊天里几乎不会真的要一条多行）。 */
 export function 按段拆(文字) {
   const 原文 = String(文字 || '')
@@ -4643,6 +4764,7 @@ export function apply(ctx) {
       ...(目标.类型 === 'group' ? [
         '- 消息前标着 [对别人说] 的是在回复、引用或 @ 另一个人：那是他们两个人之间的话，别插进去；除非这条也标着 [说到你] / [问你] / [查好感度]，那说明你也在这句话里，只接和你有关的那半句。',
         '- 群里 @ 是邀请不是命令；接具体那一句，不逐条点评、不刷屏、不抢话。',
+        '- 要专门叫谁，就写 [@名字]（桥会换成 QQ 真正的 @，只认这间屋最近说过话的人）；不想叫谁就直接接话，别把名字光秃秃挂在开头当称呼。',
         '- 群里大家打字很随便：常就几个字到十几个字，一句能说完就一句；别把一句话拆成两三条，也别像在群里发通知。',
         '- 群里的标点很随意：多数人不打句号，也别每句都挂“嘛/啦/呀/哦”；别每轮都反问，跟着这个群的节奏走。',
         '- 别总结、别列点、别讲道理、别像客服或助手；接具体那一句，一两句就够。有人认真问你技术、求助时再正常答清楚。',
@@ -5615,6 +5737,28 @@ export function apply(ctx) {
   }
 
   /**
+   * 这间屋最近说过话、她能 @ 到的人：名字、别名 → QQ 号。
+   * 只认这一小时在这间屋里出现过的人，不替没在场的人乱 @。
+   */
+  function 可叫的人(目标) {
+    const 人 = new Map()
+    for (const m of 近时缓冲(目标)) {
+      if (!m || m.自己) continue
+      const 原号 = String(m.uid || '')
+      if (!/^\d{3,20}$/.test(原号)) continue
+      if (!人.has(原号)) 人.set(原号, { 号: 原号, 名们: [] })
+      const 项 = 人.get(原号)
+      const p = 人物.get(解号(原号))
+      const 名们 = [String(m.说话人 || '').trim(), String((p && p.名) || '').trim()]
+      for (const 名 of Array.isArray(p && p.别名) ? p.别名 : []) 名们.push(String(名 || '').trim())
+      for (const 名 of 名们) {
+        if (名 !== '' && !项.名们.includes(名)) 项.名们.push(名)
+      }
+    }
+    return [...人.values()]
+  }
+
+  /**
    * 把消息并进这间屋子的短期缓冲：同一 id 只留一份，只留最近一小时，最多 240 条。
    * 缓冲只在内存里，重启就没了；要过夜的部分由鱼脑另外记。
    * @param {object} 目标 - 群/好友目标。
@@ -6411,15 +6555,20 @@ export function apply(ctx) {
         .map((项) => (项.文字 === undefined ? 项 : { ...项, 文字: 收句号(项.文字) }))
         .filter((项) => 项.文字 === undefined || 项.文字 !== '')
     const action = 目标.类型 === 'group' ? 'send_group_msg' : 'send_private_msg'
+    const 名表 = 目标.类型 === 'group' ? 可叫的人(目标) : []
     let 全过 = true
     let 真发出 = false
     const 发出的表情 = []
+    const 发出文字们 = []
     for (let i = 0; i < 项们.length; i++) {
       const 项 = 项们[i]
       if (项.文字 !== undefined) {
-        const 体 = 目标.类型 === 'group' ? 群消息体(项.文字) : 私人消息体(项.文字)
-        if (目标.类型 === 'group') 体.group_id = Number(目标.号)
-        else 体.user_id = Number(目标.号)
+        const 呼叫 = 拆呼叫段(项.文字, 名表)
+        const 体 = 目标.类型 === 'group'
+          ? { group_id: Number(目标.号), message: 呼叫.段们 }
+          : 私人消息体(呼叫.显示)
+        if (目标.类型 !== 'group') 体.user_id = Number(目标.号)
+        发出文字们.push(呼叫.显示)
         const r = await 发一个(配置.NapCat, action, 体)
         if (r.ok) {
           真发出 = true
@@ -6456,7 +6605,7 @@ export function apply(ctx) {
       if (i < 项们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
     }
     const 文字条数 = 项们.filter((x) => x.文字 !== undefined).length
-    const 发出文字 = 项们.map((x) => (x.文字 === undefined ? '' : x.文字)).filter(Boolean).join(' ')
+    const 发出文字 = 发出文字们.filter(Boolean).join(' ')
     if (项们.length > 0) {
       记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? (要复读 ? '跟着群友复读了一句' : `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}）`) : '开口有问题'}：「${发出文字.slice(0, 50)}${发出文字.length > 50 ? '…' : ''}」`)
       记思绪('开口', `${全过 ? '在' : '在（有问题）'} ${目标.叫} ${要复读 ? '复读了一句' : `说了 ${文字条数} 条`}${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}`, {
