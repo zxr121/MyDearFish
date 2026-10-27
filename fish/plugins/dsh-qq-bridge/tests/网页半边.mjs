@@ -156,6 +156,24 @@ const 缺 = 要有.filter((x) => !文.includes(x))
 报('关键元素都渲染出来（含连接状态 + 目标会话标题）', 缺.length === 0, 缺.length ? '缺：' + 缺.join('、') : 文.length + ' 字节')
 报('每一间用群名 / 好友备注，读不到名字时照旧显示号', 文.includes('群 摸鱼小分队（1001）') && 文.includes('好友 小鱿鱼（2002）') && 文.includes('群 1002'), '')
 
+// 原生下拉的弹出层自己画白底、只继承字色；选项不带主题底色就会白底白字。
+const 收标签 = (节点, 标, 出 = []) => {
+  if (Array.isArray(节点)) {
+    节点.forEach((x) => 收标签(x, 标, 出))
+    return 出
+  }
+  if (!节点 || typeof 节点 !== 'object') return 出
+  if (节点.t === 标) 出.push(节点)
+  ;(节点.kids || []).forEach((x) => 收标签(x, 标, 出))
+  return 出
+}
+const 下拉们 = 收标签(树, 'select')
+const 选项们 = 收标签(树, 'option')
+报('原生下拉的选项都带主题底色和字色（暗色主题下不再白底白字）',
+  下拉们.length >= 3 && 选项们.length > 0 &&
+    选项们.every((o) => o.p.style && o.p.style.background === 'var(--dsw-alias-bg-layer-1)' && o.p.style.color === 'var(--dsw-alias-label-primary)'),
+  JSON.stringify({ 下拉: 下拉们.length, 选项: 选项们.length, 漏了: 选项们.filter((o) => !(o.p.style && o.p.style.background)).length }))
+
 // ② 思想活动：自动刷新只拉 /thoughts 增量，绝不碰 /state（不然会冲掉没保存的表单值）
 const 拉过的 = []
 const 定时们 = []

@@ -82,6 +82,11 @@ window.__ModuleLoader__.load({
         width: 140,
         boxSizing: 'border-box',
       },
+      // 原生下拉的弹出层自己画白底、只继承字色：不给选项带底色，暗色主题下就是白底白字。
+      option: {
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+      },
       ok: { color: 'var(--dsw-alias-state-business-primary)', fontSize: 12 },
       已同步: { margin: '6px 0 10px', fontSize: 12, color: 'var(--dsw-alias-state-business-primary)' },
       未保存: { margin: '6px 0 10px', fontSize: 12, color: '#c0392b', fontWeight: 600 },
@@ -450,9 +455,9 @@ window.__ModuleLoader__.load({
         const 仅文本 = !!(当前 !== '' && (模型选项.find((o) => o.value === 当前) || {}).仅文本)
         return h('div', null,
           h('select', { style: S.input, value: 当前, onChange: (e) => onChange(e.target.value) },
-            h('option', { value: '' }, 默认词),
-            ...(列表里没有 ? [h('option', { value: 当前 }, 当前 + '（当前配置）')] : []),
-            ...模型选项.map((o) => h('option', { key: o.value, value: o.value }, o.label)),
+            h('option', { style: S.option, value: '' }, 默认词),
+            ...(列表里没有 ? [h('option', { style: S.option, value: 当前 }, 当前 + '（当前配置）')] : []),
+            ...模型选项.map((o) => h('option', { style: S.option, key: o.value, value: o.value }, o.label)),
           ),
           仅文本
             ? h('div', { style: { ...S.hint, color: '#c0392b' } }, '这个模型只收文字：QQ 图片会被换成占位文字，她看不到图里的内容。')
@@ -502,9 +507,9 @@ window.__ModuleLoader__.load({
             value: 值,
             onChange: (e) => 切(e.target.value),
           },
-            h('option', { value: 'normal' }, '正常'),
-            h('option', { value: 'listen' }, '只听不说'),
-            h('option', { value: 'off' }, '关掉'),
+            h('option', { style: S.option, value: 'normal' }, '正常'),
+            h('option', { style: S.option, value: 'listen' }, '只听不说'),
+            h('option', { style: S.option, value: 'off' }, '关掉'),
           ),
         )
       }
@@ -797,9 +802,9 @@ window.__ModuleLoader__.load({
             value: 配置.目标会话 || '',
             onChange: (e) => 改('目标会话', e.target.value),
           },
-            h('option', { value: '' }, '（自动：QQ 私聊专用屋）'),
+            h('option', { style: S.option, value: '' }, '（自动：QQ 私聊专用屋）'),
             ...目标们.map((s) =>
-              h('option', { value: s.id }, (s.标题 || '…' + 短id(s.id)) + ' · ' + 短id(s.id)),
+              h('option', { style: S.option, value: s.id }, (s.标题 || '…' + 短id(s.id)) + ' · ' + 短id(s.id)),
             ),
           ),
           h('div', { style: { marginTop: 4 } }, 按钮('刷新清单', 拉, false, 忙)),
@@ -857,8 +862,8 @@ window.__ModuleLoader__.load({
               value: 社交.模式 || 'auto',
               onChange: (e) => 改社交('模式', e.target.value),
             },
-              h('option', { value: 'auto' }, 'auto —— 没人叫的群聊也按兴趣交给她挑'),
-              h('option', { value: 'mention' }, 'mention —— 只把被叫到的消息交给她挑'),
+              h('option', { style: S.option, value: 'auto' }, 'auto —— 没人叫的群聊也按兴趣交给她挑'),
+              h('option', { style: S.option, value: 'mention' }, 'mention —— 只把被叫到的消息交给她挑'),
             ),
             '两种模式都只挑她感兴趣的、由她决定回不回；不是被叫必回，mention 更省、更安静。',
           ),
