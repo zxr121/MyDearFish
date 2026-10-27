@@ -77,17 +77,25 @@ const 段全体 = 模.解析消息段({
 报('消息段：@ 全体不算单独对某个人说', !段全体.at我 && !段全体.at别人 && 段全体.文字.includes('@全体成员'), JSON.stringify(段全体))
 const 叫人名表 = [{ 号: '777', 名们: ['我要吃美好时光海苔'] }, { 号: '888', 名们: ['群友888'] }]
 const 叫开头 = 模.拆呼叫段('群友888 我在啊', 叫人名表)
-报('呼叫人：开头直接写的名字换成 at 段', JSON.stringify(叫开头.段们) === '[{"type":"at","data":{"qq":"888","name":"群友888"}},{"type":"text","data":{"text":" 我在啊"}}]' && 叫开头.显示 === '@群友888 我在啊' && 叫开头.提到.join() === '888', JSON.stringify(叫开头))
+报('呼叫人：开头直接写的名字换成 at 段', JSON.stringify(叫开头.段们) === '[{"type":"at","data":{"qq":"888"}},{"type":"text","data":{"text":"我在啊"}}]' && 叫开头.显示 === '@群友888 我在啊' && 叫开头.提到.join() === '888', JSON.stringify(叫开头))
 const 叫标记 = 模.拆呼叫段('[@群友888] 我在啊', 叫人名表)
-报('呼叫人：[@名字] 标记换成 at 段', JSON.stringify(叫标记.段们) === '[{"type":"at","data":{"qq":"888","name":"群友888"}},{"type":"text","data":{"text":" 我在啊"}}]', JSON.stringify(叫标记))
+报('呼叫人：[@名字] 标记换成 at 段', JSON.stringify(叫标记.段们) === '[{"type":"at","data":{"qq":"888"}},{"type":"text","data":{"text":"我在啊"}}]', JSON.stringify(叫标记))
 const 叫艾特 = 模.拆呼叫段('@群友888 我在啊', 叫人名表)
-报('呼叫人：直接写的 @名字 也换成 at 段', JSON.stringify(叫艾特.段们) === '[{"type":"at","data":{"qq":"888","name":"群友888"}},{"type":"text","data":{"text":" 我在啊"}}]', JSON.stringify(叫艾特))
+报('呼叫人：直接写的 @名字 也换成 at 段', JSON.stringify(叫艾特.段们) === '[{"type":"at","data":{"qq":"888"}},{"type":"text","data":{"text":"我在啊"}}]', JSON.stringify(叫艾特))
+const 叫句中 = 模.拆呼叫段('我觉得 @群友888 说得对', 叫人名表)
+报('呼叫人：句子中间的 @名字 也换成 at 段', JSON.stringify(叫句中.段们) === '[{"type":"text","data":{"text":"我觉得 "}},{"type":"at","data":{"qq":"888"}},{"type":"text","data":{"text":"说得对"}}]', JSON.stringify(叫句中))
+const 叫连写 = 模.拆呼叫段('@群友888在吗', 叫人名表)
+报('呼叫人：@ 后面紧接正文也认得出名字', JSON.stringify(叫连写.段们) === '[{"type":"at","data":{"qq":"888"}},{"type":"text","data":{"text":"在吗"}}]', JSON.stringify(叫连写))
 const 叫短名 = 模.拆呼叫段('美好时光海苔 米饭就米饭', 叫人名表)
-报('呼叫人：名字里够长的一截也认得出', 叫短名.段们[0]?.type === 'at' && 叫短名.段们[0]?.data.qq === '777' && 叫短名.段们[1]?.data.text === ' 米饭就米饭', JSON.stringify(叫短名))
+报('呼叫人：名字里够长的一截也认得出', 叫短名.段们[0]?.type === 'at' && 叫短名.段们[0]?.data.qq === '777' && 叫短名.段们[1]?.data.text === '米饭就米饭', JSON.stringify(叫短名))
 const 叫重名 = 模.拆呼叫段('群友888 你好', [{ 号: '888', 名们: ['群友888'] }, { 号: '889', 名们: ['群友888'] }])
 报('呼叫人：同名不猜，原样留着不发假 @', 叫重名.段们.length === 1 && 叫重名.段们[0].type === 'text' && 叫重名.段们[0].data.text === '群友888 你好' && 叫重名.提到.length === 0, JSON.stringify(叫重名))
 const 叫查无 = 模.拆呼叫段('[@查无此人] 你好', 叫人名表)
 报('呼叫人：认不出的人只留名字，不发假 @', 叫查无.段们.length === 1 && 叫查无.段们[0].type === 'text' && 叫查无.段们[0].data.text === '查无此人 你好', JSON.stringify(叫查无))
+const 叫假艾特 = 模.拆呼叫段('@查无此人 你好', 叫人名表)
+报('呼叫人：开头认不出的 @ 也不当文字发出去', 叫假艾特.段们.length === 1 && 叫假艾特.段们[0].type === 'text' && 叫假艾特.段们[0].data.text === '查无此人 你好' && 叫假艾特.提到.length === 0, JSON.stringify(叫假艾特))
+const 叫邮箱 = 模.拆呼叫段('a@群友888.com 是邮箱', 叫人名表)
+报('呼叫人：邮箱里的 @ 不当成叫人', 叫邮箱.提到.length === 0 && 叫邮箱.段们[0]?.data?.text === 'a@群友888.com 是邮箱', JSON.stringify(叫邮箱))
 报('游戏话题：游戏名、玩法、开黑都算',
   模.像游戏话题('今晚开黑吗') && 模.像游戏话题('原神新版本') && 模.像游戏话题('打排位') && 模.像游戏话题('steam 夏促'))
 报('游戏话题：日常词不误伤', !模.像游戏话题('今天吃鸡蛋') && !模.像游戏话题('周末去海边') && !模.像游戏话题('今天风挺大'))
@@ -800,10 +808,10 @@ await 收到回复('session-qq-social-group-1092', '群友888 我在啊[@群友7
 const 呼叫发们 = 发的.slice(呼叫前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1092)
 报('群里叫人的名字换成 QQ 真正的 @', 呼叫发们.length === 1
   && JSON.stringify(呼叫发们[0].体.message) === JSON.stringify([
-    { type: 'at', data: { qq: '888', name: '群友888' } },
-    { type: 'text', data: { text: ' 我在啊' } },
-    { type: 'at', data: { qq: '777', name: '群友777' } },
-    { type: 'text', data: { text: ' 你也来' } },
+    { type: 'at', data: { qq: '888' } },
+    { type: 'text', data: { text: '我在啊' } },
+    { type: 'at', data: { qq: '777' } },
+    { type: 'text', data: { text: '你也来' } },
   ]), JSON.stringify(呼叫发们.map((x) => x.体)))
 报('@ 记进她自己的日志里', (await 日志文本()).includes('@群友888 我在啊@群友777 你也来'))
 
