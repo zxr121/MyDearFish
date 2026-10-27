@@ -397,7 +397,14 @@ const 假llm = {
     yield { type: 'finish', reason: { kind: 'stop' } }
   },
   async listProviders() { return [{ id: 'fake', name: 'Fake 提供方' }] },
-  async listModels(id) { return id === 'fake' ? [{ id: 'cheap', name: '便宜模型' }, { id: 'chat', name: '聊天模型' }] : [] },
+  async listModels(id) {
+    return id === 'fake'
+      ? [
+          { id: 'cheap', name: '便宜模型', inputModalities: ['text', 'image'] },
+          { id: 'chat', name: '聊天模型', inputModalities: ['text'] },
+        ]
+      : []
+  },
 }
 
 const 保存的图 = new Map()
@@ -911,6 +918,21 @@ const 图轮 = 图轮s.at(-1)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人'))
 报('图片编号跟着发送者那一行', 图轮 && String(图轮.message.content[0].text).split('\n').some((line) => line.includes('主人：[图片]') && line.includes('[图 1]')), String(图轮?.message?.content?.[0]?.text).slice(0, 400))
+const 图判 = 判断调用.at(-1)
+const 图判文 = String(图判?.messages?.[0]?.content?.[0]?.text || '')
+报('判断模型也拿到图片本身', !!(图判 && 图判.messages[0].content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId)), JSON.stringify(图判 && 图判.messages[0].content.map((b) => b.type)))
+报('判断提示里的图号跟着消息行', 图判文.split('\n').some((line) => line.includes('主人：[图片]') && line.includes('[图 1]')), 图判文.slice(0, 400))
+报('判断提示里带图片图注', 图判文.includes('【本批附来的图片】') && 图判文.includes('图 1·主人'), 图判文.slice(0, 400))
+// 判断模型是纯文本时，不把图片塞进判断请求，免得整轮调用被模型拒掉
+写配置({ 群: ['1031'], 判断模型: 'fake/chat' })
+群消息表.set(1031, [一条带图群消息(1810, { 是主人: true })])
+设判断(['1810'], true, 0.9, '看图')
+const 纯文判前 = 判断调用.length
+await 轮询社交()
+await 等()
+const 纯文判 = 判断调用.at(-1)
+报('纯文本判断模型不硬塞图片', 判断调用.length === 纯文判前 + 1 && 纯文判.model === 'chat' && !纯文判.messages[0].content.some((b) => b.type === 'image'), `判断=${判断调用.length - 纯文判前} 模型=${纯文判?.model} ${JSON.stringify(纯文判 && 纯文判.messages[0].content.map((b) => b.type))}`)
+报('纯文本回复模型收到图会提醒', String(await 日志文本()).includes('纯文本模型'))
 
 // 看中的表情才收藏；收藏后聊天时能发出去
 await 收到回复('session-qq-social-group-1016', '[存表情:图1:测试表情] 这张好笑')
@@ -2012,6 +2034,8 @@ const 造请求 = (body, 选项 = {}) => {
 }
 await 路由.get('/dsh-qq-bridge/models')(造请求(undefined, { method: 'GET' }), fakeRes)
 报('/models 列出 provider 和模型', 存储.at(-1)?.ok === true && 存储.at(-1).providers[0].models.some((m) => m.id === 'chat'), JSON.stringify(存储.at(-1)))
+const 模型表 = 存储.at(-1).providers[0].models
+报('/models 标出哪些模型能看图', 模型表.find((m) => m.id === 'cheap')?.images === true && 模型表.find((m) => m.id === 'chat')?.images === false, JSON.stringify(模型表))
 await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 群: ['2001'], 关注上限: 5, 被叫直接回: true } }), fakeRes)
 const 存盘 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('/save 深层合并社交配置', 存盘.社交.启用 === true && 存盘.社交.模式 === 'auto' && 存盘.社交.群[0] === '2001' && 存盘.社交.关注上限 === 5, JSON.stringify(存盘.社交))
@@ -2024,6 +2048,7 @@ const 存盘2 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
+报('/state 标出回复和判断模型能不能看图', 状态.社交.看图 && 状态.社交.看图.回复 === false && 状态.社交.看图.判断 === true, JSON.stringify(状态.社交.看图))
 
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/people')(造请求(undefined, { method: 'GET' }), fakeRes)

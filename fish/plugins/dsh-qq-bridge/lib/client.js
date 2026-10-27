@@ -166,6 +166,7 @@ window.__ModuleLoader__.load({
       const 补 = (x) => String(x).padStart(2, '0')
       return 补(d.getMonth() + 1) + '-' + 补(d.getDate()) + ' ' + 补(d.getHours()) + ':' + 补(d.getMinutes())
     }
+    const 能看图说 = (v) => (v === true ? '能看图' : v === false ? '仅文本，看不到图' : '未知')
 
     function Section() {
       const [态, 设态] = React.useState(null)
@@ -427,7 +428,11 @@ window.__ModuleLoader__.load({
       const 模型选项 = []
       for (const p of 模型们) {
         for (const m of (Array.isArray(p.models) ? p.models : [])) {
-          模型选项.push({ value: String(p.id) + '/' + String(m.id), label: String(p.name || p.id) + ' · ' + String(m.name || m.id) })
+          模型选项.push({
+            value: String(p.id) + '/' + String(m.id),
+            label: String(p.name || p.id) + ' · ' + String(m.name || m.id) + (m.images === false ? '（仅文本）' : ''),
+            仅文本: m.images === false,
+          })
         }
       }
       const 模型选择 = (值, onChange, 默认词) => {
@@ -442,10 +447,16 @@ window.__ModuleLoader__.load({
           })
         }
         const 列表里没有 = 当前 !== '' && !模型选项.some((o) => o.value === 当前)
-        return h('select', { style: S.input, value: 当前, onChange: (e) => onChange(e.target.value) },
-          h('option', { value: '' }, 默认词),
-          ...(列表里没有 ? [h('option', { value: 当前 }, 当前 + '（当前配置）')] : []),
-          ...模型选项.map((o) => h('option', { key: o.value, value: o.value }, o.label)),
+        const 仅文本 = !!(当前 !== '' && (模型选项.find((o) => o.value === 当前) || {}).仅文本)
+        return h('div', null,
+          h('select', { style: S.input, value: 当前, onChange: (e) => onChange(e.target.value) },
+            h('option', { value: '' }, 默认词),
+            ...(列表里没有 ? [h('option', { value: 当前 }, 当前 + '（当前配置）')] : []),
+            ...模型选项.map((o) => h('option', { key: o.value, value: o.value }, o.label)),
+          ),
+          仅文本
+            ? h('div', { style: { ...S.hint, color: '#c0392b' } }, '这个模型只收文字：QQ 图片会被换成占位文字，她看不到图里的内容。')
+            : null,
         )
       }
 
@@ -883,10 +894,10 @@ window.__ModuleLoader__.load({
             ),
             '整批都没兴趣时，左边秒数里最多挑一条没见过的看看（0 = 不探索）；零花钱低于右边就不探索。',
           ),
-          行('判断模型', 模型选择(社交.判断模型, (v) => 改社交('判断模型', v), '（跟当前主会话的模型走）'), '最好选便宜的小模型；每次只判断她感不感兴趣、要不要接，不生成回复。'),
+          行('判断模型', 模型选择(社交.判断模型, (v) => 改社交('判断模型', v), '（跟当前主会话的模型走）'), '最好选便宜的小模型；每次只判断她感不感兴趣、要不要接，不生成回复。判断模型也要能看图（选带图片输入的模型），否则图片消息只能按“有张图”判断。'),
           行('判断冷却秒', 数框(社交.判断冷却秒, (v) => 改社交('判断冷却秒', v), 1, 0, 3600), '同一目标两次判断的最小间隔（默认 0 秒 = 每轮都判）；调大可以把消息攒起来一起判，省判断费。'),
           行('判断阈值', 数框(社交.判断阈值, (v) => 改社交('判断阈值', v), 0.05, 0.1, 1), '她“感兴趣且想说”的把握低于这个数就不接；只看不回不受影响（0.1 ~ 1）。'),
-          行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认）'), '社交会话本身用哪个模型。'),
+          行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认）'), '社交会话本身用哪个模型；要能看图（如 deepseek-flash），否则 QQ 图片里的内容她看不到。'),
         ),
 
         // —— 社交状态 ——
@@ -899,6 +910,16 @@ window.__ModuleLoader__.load({
               '｜登录号：' + (自己 ? 自己.昵称 + '（' + 自己.号 + '）' : '还没探到') +
               '｜今天已接：' + (社态.今日已接 || 0) +
               (社态.在静音 ? '｜现在静音中' : ''),
+          ),
+          h('div', {
+            style: {
+              ...S.dim,
+              marginTop: 4,
+              ...((社态.看图 && (社态.看图.回复 === false || 社态.看图.判断 === false)) ? { color: '#c0392b' } : {}),
+            },
+          },
+            '看图：回复模型 ' + 能看图说(社态.看图 && 社态.看图.回复) + ' · 判断模型 ' + 能看图说(社态.看图 && 社态.看图.判断) +
+              (社态.看图 && 社态.看图.回复模型 ? '（' + 社态.看图.回复模型 + '）' : ''),
           ),
           h('div', { style: { ...S.dim, marginTop: 4 } },
             '人物志：' + ((社态.人物 && 社态.人物.认识) || 0) + ' 个人' +
