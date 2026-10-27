@@ -2198,6 +2198,64 @@ await 等()
 const 开群态 = await 目标状态('group:1190')
 报('重新勾上：群恢复看不看、接不接', 开群态 && 开群态.允许 === true && 判断调用.length === 判断前开 + 1, JSON.stringify(开群态))
 
+// ---------- 21r 只听不说：照常看和学，一句都不发 ----------
+写配置({ 群: ['1192'], 只听: ['group:1192'], 快判: false, 判断冷却秒: 0 })
+群消息表.set(1192, [一条群消息('大肥鱼 你觉得这个咋样', { atSelf: true, id: 970501 })])
+设判断(['970501'], true, 0.9, '想接一句')
+const 判断前听 = 判断调用.length
+const 回合前听 = 回合.length
+const 注入前听 = 注入们.length
+await 轮询社交()
+await 等()
+const 听群态 = await 目标状态('group:1192')
+报('只听不说：照常判断、照常进待看，但不开回合',
+  判断调用.length === 判断前听 + 1 && 回合.length === 回合前听 && 听群态 && 听群态.允许 === true && 听群态.能说 === false,
+  JSON.stringify({ 判断: 判断调用.length - 判断前听, 回合: 回合.length - 回合前听, 态: 听群态 }))
+报('只听不说：消息照常进她的社交会话（学了）',
+  注入们.length === 注入前听 + 1 && String(注入们.at(-1).message.content[0].text).includes('你觉得这个咋样'),
+  String(注入们.at(-1)?.message?.content?.[0]?.text || '').slice(0, 160))
+报('只听不说：日志写清楚不开口', (await 日志文本()).includes('只听不说：看了 1/1 条，不开口'))
+
+// 主人点名叫她也照样不接；主人这条不交兴趣判断，直接记下。
+写配置({ 群: ['1193'], 只听: ['group:1193'], 快判: false, 判断冷却秒: 0 })
+群消息表.set(1193, [一条群消息('大肥鱼 在吗', { atSelf: true, id: 970502, 是主人: true })])
+const 判断前听主 = 判断调用.length
+const 注入前听主 = 注入们.length
+await 轮询社交()
+await 等()
+报('只听不说：主人点名叫她也不接、不判断，只记下',
+  判断调用.length === 判断前听主 &&
+    回合.filter((r) => r.sid === 'session-qq-social-group-1193').length === 0 &&
+    注入们.length === 注入前听主 + 1 && String(注入们.at(-1).message.content[0].text).includes('在吗'),
+  JSON.stringify({ 判断: 判断调用.length - 判断前听主, 注入: 注入们.length - 注入前听主 }))
+
+// 静音只管出声；只听不说的屋子夜里照常学。
+写配置({ 群: ['1194'], 只听: ['group:1194'], 静音: '00:00-23:59', 快判: false, 判断冷却秒: 0 })
+群消息表.set(1194, [一条群消息('夜里也在聊', { id: 970503 })])
+设判断(['970503'], false, 0.2, '先看看')
+const 判断前听静 = 判断调用.length
+const 注入前听静 = 注入们.length
+await 轮询社交()
+await 等()
+报('只听不说不受静音时段拦住：夜里照常学',
+  判断调用.length === 判断前听静 + 1 && 注入们.length === 注入前听静 + 1 && (await 目标状态('group:1194')).待看 === 0,
+  JSON.stringify({ 判断: 判断调用.length - 判断前听静, 注入: 注入们.length - 注入前听静 }))
+
+// 正在想的那一轮，切到只听不说后不落地
+写配置({ 群: ['1195'], 快判: false, 判断冷却秒: 0 })
+群消息表.set(1195, [一条群消息('鱼又浮上来了', { id: 970504 })])
+设判断(['970504'], true, 0.9, '接一句')
+await 轮询社交()
+await 等()
+报('准备接话：待发已挂上（切只听前）', (await 目标状态('group:1195')).待发 === true)
+const 听发前 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1195).length
+写配置({ 群: ['1195'], 快判: false, 判断冷却秒: 0, 只听: ['group:1195'] })
+await 收到回复('session-qq-social-group-1195', '这句话不该发出去')
+报('切到只听不说时正在想的一轮也拦住，不落地',
+  发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1195).length === 听发前 &&
+    (await 日志文本()).includes('只听不说，这轮不发'),
+  (await 日志文本()).slice(-200))
+
 // ---------- 22 /models 与 /save 深层合并 ----------
 写配置({ 群: ['1019'], 快判: false })
 const fakeRes = { statusCode: 200, setHeader: () => {}, end: (s) => { 存储.push(JSON.parse(s)) } }
@@ -2232,6 +2290,21 @@ const 开关状态 = (await 宿主.概况()).社交.目标
 await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 好友: [] } }), fakeRes)
 const 存盘4 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('名单里删掉的房间，开关跟着忘掉', JSON.stringify(存盘4.社交.关掉) === JSON.stringify(['group:2001']), JSON.stringify(存盘4.社交.关掉))
+await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: {
+  群: ['2001', '2002'], 好友: ['3003'], 关掉: ['group:2001'],
+  只听: ['group:2001', 'group:2002', 'friend:3003', 'group:9999', 'x'],
+} }), fakeRes)
+const 存盘5 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+报('/save 只留合法的只听房间键，关掉优先',
+  JSON.stringify(存盘5.社交.只听) === JSON.stringify(['group:2002', 'friend:3003']) &&
+    JSON.stringify(存盘5.社交.关掉) === JSON.stringify(['group:2001']),
+  JSON.stringify({ 只听: 存盘5.社交.只听, 关掉: 存盘5.社交.关掉 }))
+const 听开关状态 = (await 宿主.概况()).社交.目标
+报('/state 回出每一间能不能说',
+  听开关状态.find((t) => t.key === 'group:2001')?.允许 === false && 听开关状态.find((t) => t.key === 'group:2001')?.能说 === true &&
+    听开关状态.find((t) => t.key === 'group:2002')?.允许 === true && 听开关状态.find((t) => t.key === 'group:2002')?.能说 === false &&
+    听开关状态.find((t) => t.key === 'friend:3003')?.能说 === false,
+  JSON.stringify(听开关状态.map((t) => [t.key, t.允许, t.能说])))
 
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/people')(造请求(undefined, { method: 'GET' }), fakeRes)

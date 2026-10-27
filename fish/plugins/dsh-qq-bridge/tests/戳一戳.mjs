@@ -1,11 +1,11 @@
 // 「通到 QQ」戳一戳冒烟测试 —— 假 ctx + 本机 HTTP 收报口，验：
 //   1) 只认“别人戳她”：自己戳别人、别人互戳、非戳事件都不算
 //   2) 私聊戳 → 转进主人桥目标会话；连戳两下合成一条
-//   3) 群戳（主群没接管时）→ 进社交待看；主人戳她时直接开一轮
+//   3) 群戳（主群没接管时）→ 进社交待看；主人戳她时直接开一轮；只听不说的屋子只记不接
 //   4) /state 带出收报地址、在听状态和收到的数量
 // 跑法： node tests/戳一戳.mjs
 
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,11 +60,13 @@ const 群戳 = 模.解析戳一戳({ post_type: 'notice', notice_type: 'notify',
 
 // ---------- 假 ctx ----------
 const 转进 = []
+const 注入们 = []
 const 登记的会话 = new Map()
 const 收摊们 = []
 const 造agent = (sid) => ({
   id: sid,
   followup: (m) => 转进.push({ sid, m }),
+  inject: (m) => 注入们.push({ sid, m }),
   session: { id: sid, header: { cwd: 'D:/fake' } },
 })
 登记的会话.set('session-X', 造agent('session-X'))
@@ -138,6 +140,19 @@ await 等(1700)
 报('群戳进社交会话，主人戳她不走兴趣判断', 社群的().length === 前群 + 1 && 文本(社群的().at(-1)).includes('拍了拍你'), 文本(社群的().at(-1)).slice(0, 300))
 报('群戳带上“被叫”标记', 文本(社群的().at(-1)).includes('[说到你]'), 文本(社群的().at(-1)).slice(0, 300))
 
+// ③b 只听不说：戳她也不开回合，只把这一下记进社交会话
+const 原配置 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  ...原配置,
+  社交: { ...原配置.社交, 只听: ['group:555'] },
+}, null, 2), 'utf8')
+const 听前群 = 社群的().length
+const 听注入前 = 注入们.length
+await 推({ post_type: 'notice', notice_type: 'notify', sub_type: 'poke', self_id: 10001, group_id: 555, user_id: 123, target_id: 10001, action: '拍了拍', suffix: '你的小脑袋' })
+await 等(1700)
+报('只听不说：被戳也不开回合', 社群的().length === 听前群, `回合=${社群的().length - 听前群}`)
+报('只听不说：被戳只记进她的社交会话', 注入们.filter((x) => x.sid === 'session-qq-social-group-555').length === 听注入前 + 1 && 文本(注入们.at(-1)).includes('你的小脑袋'), 文本(注入们.at(-1) || {}).slice(0, 200))
+
 // ④ 别人互戳 / 非戳事件都不转
 const 前主 = 主人的().length
 const 前社 = 社群的().length
@@ -147,7 +162,7 @@ await 等(1500)
 报('戳别人 / 非戳事件不转', 主人的().length === 前主 && 社群的().length === 前社)
 
 const 状态1 = await 宿主.概况()
-报('收到数量只计被戳到她的', 状态1.戳一戳.收到 === 4, String(状态1.戳一戳.收到))
+报('收到数量只计被戳到她的', 状态1.戳一戳.收到 === 5, String(状态1.戳一戳.收到))
 报('最近一条戳有记录', String(状态1.戳一戳.最近).includes('123'), 状态1.戳一戳.最近)
 
 for (const 收 of 收摊们) { try { 收 && 收() } catch (error) {} }

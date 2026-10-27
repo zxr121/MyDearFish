@@ -474,17 +474,37 @@ window.__ModuleLoader__.load({
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
       const 关掉们 = Array.isArray(社交.关掉) ? 社交.关掉 : []
-      const 房间开关 = (key, 叫) => h('label', {
-        key,
-        style: { display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 14, whiteSpace: 'nowrap' },
-      },
-        h('input', {
-          type: 'checkbox',
-          checked: !关掉们.includes(key),
-          onChange: (e) => 改社交('关掉', e.target.checked ? 关掉们.filter((k) => k !== key) : [...关掉们, key]),
-        }),
-        '允许在「' + 叫 + '」说话',
-      )
+      const 只听们 = Array.isArray(社交.只听) ? 社交.只听 : []
+      const 房间开关 = (key, 叫) => {
+        const 值 = 关掉们.includes(key) ? 'off' : 只听们.includes(key) ? 'listen' : 'normal'
+        const 切 = (v) => {
+          if (v === 'normal') {
+            改社交('关掉', 关掉们.filter((k) => k !== key))
+            改社交('只听', 只听们.filter((k) => k !== key))
+          } else if (v === 'listen') {
+            改社交('关掉', 关掉们.filter((k) => k !== key))
+            改社交('只听', 只听们.includes(key) ? 只听们 : [...只听们, key])
+          } else {
+            改社交('关掉', 关掉们.includes(key) ? 关掉们 : [...关掉们, key])
+            改社交('只听', 只听们.filter((k) => k !== key))
+          }
+        }
+        return h('label', {
+          key,
+          style: { display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 14, whiteSpace: 'nowrap' },
+        },
+          h('span', null, 叫),
+          h('select', {
+            style: { ...S.small, marginLeft: 4, padding: '3px 6px' },
+            value: 值,
+            onChange: (e) => 切(e.target.value),
+          },
+            h('option', { value: 'normal' }, '正常'),
+            h('option', { value: 'listen' }, '只听不说'),
+            h('option', { value: 'off' }, '关掉'),
+          ),
+        )
+      }
       const 可开房间 = [
         ...(社交.群 || []).map((号) => ({ key: 'group:' + 号, 叫: '群 ' + 号 })),
         ...(社交.好友 || [])
@@ -852,7 +872,7 @@ window.__ModuleLoader__.load({
                 ? h('span', { style: S.dim }, '先在「群号」「好友 QQ」里填好，这里会给每一间出一个开关。')
                 : 可开房间.map(({ key, 叫 }) => 房间开关(key, 叫)),
             ),
-            '勾掉 = 这一间她既不接话也不看消息，戳一戳也不理；群 / 好友清单和聊天记录都留着，重新勾上就接着用。改完记得保存。',
+            '正常 = 看、学、说；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。改完记得保存。',
           ),
           行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 2, 3600), '同一目标两次开口的成熟期基础间隔（默认 15 秒）；实际会按兴致走指数曲线，想接时几秒就能开口。'),
           行('冷却曲线',
@@ -967,6 +987,7 @@ window.__ModuleLoader__.load({
                 h('div', null,
                   t.叫 + '（' + 短id(t.会话id) + '）· ' +
                     (t.允许 === false ? '已单独关掉（不看、不说） · ' : '') +
+                    (t.允许 !== false && t.能说 === false ? '只听不说（照常看和学，不开口） · ' : '') +
                     (t.活着 ? '会话活着' : '等它第一次开口') +
                     (t.待看 ? ' · 待看 ' + t.待看 + ' 条' : '') +
                     (t.待发 ? ' · 正在想' : '') +
