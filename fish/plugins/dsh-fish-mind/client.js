@@ -4,6 +4,7 @@
  * 这一页给主人看完整的一条鱼：
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
  *   · 性格人设：整段人设前缀，保存后热应用；
+ *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
  *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼。
@@ -243,6 +244,8 @@ window.__ModuleLoader__.load({
       const [msgKind, setMsgKind] = React.useState('')
       const [grantDraft, setGrantDraft] = React.useState(null)
       const [grantBusy, setGrantBusy] = React.useState(false)
+      const [phraseForm, setPhraseForm] = React.useState(null)
+      const [phraseBusy, setPhraseBusy] = React.useState(false)
       const [ttsPanelBusy, setTtsPanelBusy] = React.useState(false)
       const [restartPrompt, setRestartPrompt] = React.useState(null)
       const fileRef = React.useRef(null)
@@ -282,6 +285,12 @@ window.__ModuleLoader__.load({
                   name: (item && item.name) || '',
                   relation: (item && item.relation) || '',
                 })),
+              }
+            : current))
+          setPhraseForm((current) => (current === null && next && next.phrases
+            ? {
+                privateDodge: next.phrases.privateDodge || '',
+                budgetBlock: next.phrases.budgetBlock || '',
               }
             : current))
         } catch (error) {
@@ -442,6 +451,41 @@ window.__ModuleLoader__.load({
           flash('保存失败：' + String((error && error.message) || error), 'error')
         }
         setGrantBusy(false)
+      }
+
+      const savePhrases = async (values) => {
+        if (phraseBusy) return
+        const privateDodge = String((values && values.privateDodge) || '').replace(/\s+/g, ' ').trim()
+        const budgetBlock = String((values && values.budgetBlock) || '').replace(/\s+/g, ' ').trim()
+        if (privateDodge === '') {
+          flash('私事兜底那句话不能为空', 'error')
+          return
+        }
+        if (budgetBlock === '') {
+          flash('额度兜底那句话不能为空', 'error')
+          return
+        }
+        setPhraseBusy(true)
+        try {
+          const result = await postJson(API + '/phrases', { privateDodge, budgetBlock })
+          const saved = (result && result.phrases) || { privateDodge, budgetBlock }
+          setPhraseForm({ privateDodge: saved.privateDodge, budgetBlock: saved.budgetBlock })
+          await load()
+          flash('自定义话术已保存，下一轮就按你写的说')
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        }
+        setPhraseBusy(false)
+      }
+
+      const resetPhrases = async () => {
+        if (phraseBusy) return
+        if (!window.confirm('把这两句话恢复成出厂版本？')) return
+        const defaults = data.phraseDefaults || {}
+        await savePhrases({
+          privateDodge: defaults.privateDodge || '',
+          budgetBlock: defaults.budgetBlock || '',
+        })
       }
 
       const exportFish = async () => {
@@ -696,6 +740,40 @@ window.__ModuleLoader__.load({
                       disabled: busy !== '',
                       onClick: resetPersona,
                     }, busy === 'persona-reset' ? '恢复中…' : '恢复出厂人设')))),
+
+        h(Section, {
+          title: '自定义话术',
+          note: '这两句由你写；该带过、该停下来的时候她照旧，隐私、安全和额度规则不受影响。',
+        },
+          phraseForm === null
+            ? h('div', { 'data-fishm-note': '' }, '正在读自定义话术…')
+            : h('div', {},
+                h(Field, {
+                  label: '被问到私事细节时',
+                  hint: '在 QQ 群 / 好友里被追问本机、账号、住址这类细节时，她用这句话带过去。默认「这个我不方便细说」。',
+                  value: phraseForm.privateDodge,
+                  maxLength: data.phraseLimit || 200,
+                  onChange: (value) => setPhraseForm((current) => ({ ...(current || {}), privateDodge: value })),
+                }),
+                h(Field, {
+                  label: '零花钱用完时',
+                  hint: '账本拦住这一轮时，她不再发起模型请求，只在本地把这句话回给你。默认「今天我这边有点转不动了，先歇一会儿，明天再找你。」',
+                  value: phraseForm.budgetBlock,
+                  maxLength: data.phraseLimit || 200,
+                  onChange: (value) => setPhraseForm((current) => ({ ...(current || {}), budgetBlock: value })),
+                }),
+                h('div', { 'data-fishm-actions': '' },
+                  h('button', {
+                    'data-fishm-btn': '',
+                    'data-primary': '',
+                    disabled: phraseBusy,
+                    onClick: () => savePhrases(phraseForm),
+                  }, phraseBusy ? '保存中…' : '保存话术'),
+                  h('button', {
+                    'data-fishm-btn': '',
+                    disabled: phraseBusy,
+                    onClick: resetPhrases,
+                  }, '恢复默认')))),
 
         h(Section, {
           title: '记忆',

@@ -127,7 +127,7 @@ test('插件挂着就能写经历，默认就是完整功能', async () => {
   apply(ctx)
   const mind = ctx.get('fishMind')
   assert.ok(mind)
-  for (const method of ['observe', 'recall', 'state', 'sessions', 'claimDelivery', 'deliveryOwner', 'budget', 'redactOutbound', 'privacy', 'rebuild', 'markAutonomous', 'unmarkAutonomous', 'permissions', 'reload', 'chapters', 'chapterTree', 'chapter', 'relations', 'organize']) {
+  for (const method of ['observe', 'recall', 'state', 'sessions', 'claimDelivery', 'deliveryOwner', 'budget', 'phrases', 'redactOutbound', 'privacy', 'rebuild', 'markAutonomous', 'unmarkAutonomous', 'permissions', 'reload', 'chapters', 'chapterTree', 'chapter', 'relations', 'organize']) {
     assert.equal(typeof mind[method], 'function', method)
   }
   // 对话和插件都不能直接改核心或记忆；写入只经过 observe 追加的经历流。
@@ -412,6 +412,31 @@ test('零花钱用完：主人会话给本地回复，内部调用给不可重�
   assert.equal(internalChunks.length, 1)
   assert.equal(internalChunks[0].reason.kind, 'error')
   assert.equal(internalChunks[0].reason.failure.code, 'FISH_BUDGET_EXHAUSTED')
+  ctx.dispose()
+})
+
+test('零花钱用完时用设置里自定义的那一句', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { phrases: { budgetBlock: '今天先不聊了，我歇一会儿。' } })
+  const ctx = fakeContext()
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+  assert.equal(mind.phrases().budgetBlock, '今天先不聊了，我歇一会儿。')
+  assert.equal(mind.phrases().privateDodge, '这个我不方便细说')
+
+  const drain = await ctx.emit('llm/stream', { sessionId: 'session-1', messages: [] }, async function* () {
+    yield { type: 'usage', usage: { outputTokens: 10_000_000 } }
+  })
+  for await (const _chunk of drain) { /* 只为把账花超 */ }
+  assert.ok(mind.budget().walletCny < 0)
+
+  const owner = await ctx.emit('llm/stream', { sessionId: 'session-1', messages: [] }, async function* () {
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })
+  const chunks = []
+  for await (const chunk of owner) chunks.push(chunk)
+  assert.ok(chunks.some((chunk) => chunk.type === 'text-delta' && chunk.text === '今天先不聊了，我歇一会儿。'))
   ctx.dispose()
 })
 

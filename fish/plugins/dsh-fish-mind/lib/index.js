@@ -22,7 +22,7 @@ import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPendi
 import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, resetIdentity, saveIdentity, syncMoodNames } from './birth.js'
 import { createBiliQuota } from './bili-quota.js'
 import { localDay, openBudget } from './budget.js'
-import { loadConfig } from './config.js'
+import { DEFAULT_PHRASES, PHRASE_LIMIT, loadConfig, savePhrases } from './config.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
 import { humorPrompt, humorTone } from './humor.js'
 import { createMemeWiki } from './memes.js'
@@ -54,8 +54,6 @@ const DIAG_MAX_BYTES = 1024 * 1024
 const METRICS_WINDOW = 200
 const HEALTH_INTERVAL = 6 * 60 * 60 * 1000
 const BALANCE_TICK = 60 * 1000
-// 被账本拦住时，对外只说这一句；不透露钱、余额或额度。
-const BUDGET_BLOCK_TEXT = '今天我这边有点转不动了，先歇一会儿，明天再找你。'
 // 社交通道的来源：主人私下的对话不能跟着这些会话走，短期窗口也一样要挡。
 const SOCIAL_SOURCE_KINDS_LIST = ['qq-group', 'qq-friend']
 
@@ -1231,11 +1229,12 @@ export function apply(ctx) {
         yield { type: 'finish', reason: { kind: 'stop' } }
       })()
     }
-    // 面向主人的对话给一句本地回复，不发起模型请求，也不提钱。
+    // 面向主人的对话给一句本地回复（可在设置里改写），不发起模型请求，也不提钱。
+    const text = config.phrases.budgetBlock
     return (async function* () {
       yield { type: 'block-start', index: 0, blockType: 'text' }
-      yield { type: 'text-delta', index: 0, text: BUDGET_BLOCK_TEXT }
-      yield { type: 'block-end', index: 0, block: { type: 'text', text: BUDGET_BLOCK_TEXT } }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text } }
       yield { type: 'finish', reason: { kind: 'stop' } }
     })()
   }
@@ -1496,6 +1495,8 @@ export function apply(ctx) {
     },
     /** 私密零花钱账本；这是本机只读状态，不要把返回内容转发到外部通道。 */
     budget: () => budget.status(),
+    /** 设置页写的两句自定义话术；QQ 桥拼社交提示时读 privateDodge。 */
+    phrases: () => ({ ...config.phrases }),
     /**
      * 对外脱敏：QQ、B 站评论/私信等离开本机的内容必须先过这里。
      * 先擦本机身份和凭据，再擦余额与额度；调用方拿不到结果时应当拒发，而不是按原文发。
@@ -1616,6 +1617,9 @@ export function apply(ctx) {
             phase: snapshot.phase,
           }),
           inner: snapshot.inner,
+          phrases: { ...config.phrases },
+          phraseDefaults: { ...DEFAULT_PHRASES },
+          phraseLimit: PHRASE_LIMIT,
         })
       })
 
@@ -1670,6 +1674,35 @@ export function apply(ctx) {
           diag(`budget: 主人把每日额度从 ${formatCny(result.previousCny)} 改成 ${formatCny(result.dailyGrantCny)}，余额 ${formatCny(status.availableCny)}`)
         }
         sendJson(res, 200, { ok: true, ...result, status })
+      })
+
+      route('/dsh-fish-mind/phrases', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        const sentence = (value, label) => {
+          const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+          if (text === '') {
+            const failure = new Error(`${label}不能为空`)
+            failure.statusCode = 400
+            throw failure
+          }
+          if (text.length > PHRASE_LIMIT) {
+            const failure = new Error(`${label}最多 ${PHRASE_LIMIT} 字`)
+            failure.statusCode = 400
+            throw failure
+          }
+          return text
+        }
+        const saved = savePhrases({
+          dshHome,
+          phrases: {
+            privateDodge: sentence(body && body.privateDodge, '私事兜底那句话'),
+            budgetBlock: sentence(body && body.budgetBlock, '额度兜底那句话'),
+          },
+          diag,
+        })
+        config.phrases = saved
+        sendJson(res, 200, { ok: true, phrases: { ...saved }, defaults: { ...DEFAULT_PHRASES } })
       })
 
       route('/dsh-fish-mind/memes', async (req, res) => {

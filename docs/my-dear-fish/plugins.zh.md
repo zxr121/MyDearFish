@@ -547,6 +547,7 @@ B 站插件让“大肥鱼”在谷时自己去刷视频、读字幕、翻评论
 | 想改什么 | 改哪里 | 影响 |
 | --- | --- | --- |
 | 人设、默认语气 | 设置 →「大肥鱼 → 性格人设」；写入活动 profile 的 `cordis.patch.yml`。出厂文案在 `fish/bundle/cordis.patch.yml` 的 `personaPrefix` | 保存后热应用，下一轮生效，影响所有会话；名字和称呼仍在出生设定 |
+| 私事托词、额度用完时回主人那句 | 设置 →「大肥鱼 → 自定义话术」；存在 `fish-mind/config.json` 的 `phrases` | 保存后当场生效；QQ 场景提示每轮现取，已经在聊的房间也不用重启 |
 | 鱼脑记不记、召不召回 | `dsh-fish-mind` 的 `mode`、`inject` 与 `episodes` / `recall` / `chapters` 参数 | 影子模式改了不影响对话；`live` + `inject` 才注入工作台 |
 | 梗百科预查、社交使用和工具 | 设置 →「梗百科」；开关存在 `fish-mind/memes.json` | 总开关同时停掉预查和工具；群里只加本群语境的预查；工具始终只对主人会话开放，设置也改不了 |
 | 每天零花钱额度、累计和价格 | `lib/budget.js` 的 `BIRTH_DAILY_GRANT_CNY`；价格在 `config.json` 的 `budget.prices`，峰谷日程加 `offPeak` / `peakHours` / `peakDays` | 改代码额度会影响之后所有发放；价目表版本落后时启动会按当前价重算旧账，多扣的差额退回钱包 |
@@ -567,7 +568,7 @@ B 站插件让“大肥鱼”在谷时自己去刷视频、读字幕、翻评论
 | 现象 | 先看哪里 |
 | --- | --- |
 | 感觉鱼脑什么都没记住 | 可能被关成了影子模式或 `inject: false`；看 `fish-mind/experience.jsonl` 有没有新经历、`mind.sqlite` 有没有情景和章节、`fish-mind/diag.log` 有没有写入或召回失败 |
-| 她突然只说“今天有点转不动了” | 零花钱可能花完了：看 `fish-mind/budget.json` 的 `walletCny`、`fish-mind/budget-ledger.jsonl` 最近的 `blocked`、以及 `diag.log` 里的预算拦截记录 |
+| 她突然只说“今天有点转不动了”（或你在「自定义话术」里写的那句） | 零花钱可能花完了：看 `fish-mind/budget.json` 的 `walletCny`、`fish-mind/budget-ledger.jsonl` 最近的 `blocked`、以及 `diag.log` 里的预算拦截记录 |
 | 心情一直不变 | 心情设置里的目标会话是否收窄到了别的会话；`feiyu-mood/diag.log` 是否有判断失败 |
 | 梗百科一直不触发 | 鱼脑是不是 `live` 且 `inject`；梗百科总开关和自动预查有没有打开；这一轮是不是明确问梗，而不是普通两字词顺带出现；`fish-mind/diag.log` 有没有词库加载或覆盖层告警 |
 | 从来不主动搭话 | 总开关、试运行、安静时段；没有勾目标时会自动挑最近活跃的会话；看 `speak-up` 设置页的最近日志 |

@@ -548,6 +548,7 @@ The feature switches ship enabled: the fish brain records, encodes, organizes ch
 | What to change | Where | Effect |
 | --- | --- | --- |
 | Persona, default tone | Settings → “Big Fat Fish → Persona”; writes the active profile's `cordis.patch.yml`. Factory text is `personaPrefix` in `fish/bundle/cordis.patch.yml` | Hot-applied on save and effective from the next turn in every session; names and forms of address remain in birth identity |
+| The private-detail deflection and the line she sends when pocket money runs out | Settings → “Big Fat Fish → Custom phrases”; stored under `phrases` in `fish-mind/config.json` | Effective immediately; QQ scene prompts read it per turn, so rooms already in use do not need a restart |
 | Whether the fish brain records or recalls | `mode`, `inject`, and the `episodes` / `recall` / `chapters` settings in `dsh-fish-mind` | Shadow mode changes do not affect conversation; only `live` + `inject` injects the workspace |
 | Meme wiki pre-lookup, social use, and tool | Settings → “Meme Wiki”; switches are stored in `fish-mind/memes.json` | Master switch stops both lookup and the tool; social use only adds room-scoped pre-lookup; the tool stays owner-session-only regardless of settings |
 | Daily allowance, rollover, and prices | `BIRTH_DAILY_GRANT_CNY` in `lib/budget.js`; prices under `budget.prices` in `config.json`, with `offPeak` / `peakHours` / `peakDays` for peak scheduling | Changing the code amount affects all later grants; a stale pricing version reprices past days at current prices and refunds the difference to the wallet |
@@ -568,7 +569,7 @@ Configuration covers most ways of raising the fish; only code changes alter the 
 | Symptom | Where to look first |
 | --- | --- |
 | The fish brain seems to remember nothing | It may have been switched to shadow mode or `inject: false`; check whether `fish-mind/experience.jsonl` gains experiences, whether `mind.sqlite` gains episodes and chapters, and whether `fish-mind/diag.log` shows write or recall failures |
-| She suddenly only says “I cannot move today” | The allowance may be exhausted: check `walletCny` in `fish-mind/budget.json`, recent `blocked` entries in `fish-mind/budget-ledger.jsonl`, and budget blocks in `diag.log` |
+| She suddenly only says “I cannot move today” (or the line you wrote under Custom phrases) | The allowance may be exhausted: check `walletCny` in `fish-mind/budget.json`, recent `blocked` entries in `fish-mind/budget-ledger.jsonl`, and budget blocks in `diag.log` |
 | Mood never changes | Whether the mood target was narrowed to another session; whether `feiyu-mood/diag.log` shows a failed judgement |
 | The meme wiki never triggers | Whether the fish brain is `live` with `inject`, whether the meme wiki master switch and auto-lookup are on, whether the turn is a clear term question rather than an ordinary two-character word, and whether `fish-mind/diag.log` shows a load or overlay warning |
 | Never speaks first | Master switch, dry run, quiet hours; with no target it picks the most recently active session; recent log on the `speak-up` settings page |

@@ -80,6 +80,26 @@ test('幽默层可以单独关掉，坏值退回默认', () => {
   assert.equal(normalizeConfig({ humor: [] }, { dshHome: home }).humor.inject, true)
 })
 
+test('自定义话术：默认两句，坏值退回默认，多行压成一行', () => {
+  const home = tempHome()
+  const defaults = buildDefaults(home)
+  assert.deepEqual(defaults.phrases, {
+    privateDodge: '这个我不方便细说',
+    budgetBlock: '今天我这边有点转不动了，先歇一会儿，明天再找你。',
+  })
+
+  const config = normalizeConfig({
+    phrases: { privateDodge: '  这个我\n回头单独讲  ', budgetBlock: '' },
+  }, { dshHome: home })
+  assert.equal(config.phrases.privateDodge, '这个我 回头单独讲')
+  assert.equal(config.phrases.budgetBlock, defaults.phrases.budgetBlock)
+
+  const lines = []
+  const bad = normalizeConfig({ phrases: 'nope' }, { dshHome: home, diag: (line) => lines.push(line) })
+  assert.deepEqual(bad.phrases, defaults.phrases)
+  assert.ok(lines.some((line) => line.includes('phrases 不是对象')))
+})
+
 test('外部 MCP 只读白名单：默认只认读类动作，配置里的首尾空格去掉', () => {
   const home = tempHome()
   assert.deepEqual(buildDefaults(home).permissions.mcpReadOnlyTools, [

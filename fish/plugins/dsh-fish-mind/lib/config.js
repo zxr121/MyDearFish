@@ -4,12 +4,21 @@
 //   1) 坏配置永远退回默认值，并把原因写进 diag.log —— 插件不能因为一个手滑的逗号就不启动。
 //   2) 权限是默认拒绝的。配置只能把口子开大，不能把默认的护栏整个拿掉。
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 import { DEFAULT_BILI_SHARE, DEFAULT_PRICE, normalizePrice, normalizePriceEntry, officialPrices } from './budget.js'
 
 const MODES = new Set(['off', 'shadow', 'live'])
+
+/** 自定义话术每句最多这么多字；设置页按同一上限校验。 */
+export const PHRASE_LIMIT = 200
+
+/** 出厂话术：私事被追问时的托词、零花钱被账本拦住时本地回主人的一句。 */
+export const DEFAULT_PHRASES = Object.freeze({
+  privateDodge: '这个我不方便细说',
+  budgetBlock: '今天我这边有点转不动了，先歇一会儿，明天再找你。',
+})
 
 /** 敏感文件：命中任意一条就交给权限策略处理，不看路径在哪。 */
 const DEFAULT_NAME_PATTERNS = [
@@ -128,6 +137,8 @@ export function buildDefaults(dshHome) {
     humor: {
       inject: true,
     },
+    // 她遇到两种情况时说的原话；设置页「大肥鱼 → 自定义话术」可以改写。
+    phrases: { ...DEFAULT_PHRASES },
     // 每日额度默认 ¥10，存在 budget.json，由设置页「大肥鱼 → 零花钱」写入；这里不提供修改项。
     budget: {
       enabled: true,
@@ -166,6 +177,13 @@ function isPlainObject(value) {
 /** @param {unknown} value @param {string} fallback @returns {string} */
 function pickString(value, fallback) {
   return typeof value === 'string' && value.trim() !== '' ? value : fallback
+}
+
+/** 一句话压成单行、去掉首尾空白；空值和坏值退回默认。 */
+function pickPhrase(value, fallback) {
+  if (typeof value !== 'string') return fallback
+  const text = value.replace(/\s+/g, ' ').trim()
+  return text === '' ? fallback : text.slice(0, PHRASE_LIMIT)
 }
 
 /** @param {unknown} value @param {boolean} fallback @returns {boolean} */
@@ -322,6 +340,13 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     diag('config: humor 不是对象，使用默认值')
   }
 
+  if (isPlainObject(raw.phrases)) {
+    config.phrases.privateDodge = pickPhrase(raw.phrases.privateDodge, config.phrases.privateDodge)
+    config.phrases.budgetBlock = pickPhrase(raw.phrases.budgetBlock, config.phrases.budgetBlock)
+  } else if (raw.phrases !== undefined) {
+    diag('config: phrases 不是对象，使用默认值')
+  }
+
   if (isPlainObject(raw.budget)) {
     const b = raw.budget
     config.budget.enabled = pickBoolean(b.enabled, config.budget.enabled)
@@ -408,6 +433,43 @@ export function loadConfig({ dshHome, diag = () => {} }) {
     return buildDefaults(dshHome)
   }
   return normalizeConfig(raw, { dshHome, diag })
+}
+
+/**
+ * 只改 `phrases` 两项并原子写回 config.json；其它字段和注释外的内容原样保留。
+ * 原文件不是合法 JSON 时抛 400，不动它。
+ * @param {object} options - `{ dshHome, phrases, diag }`。
+ * @returns {{ privateDodge: string, budgetBlock: string }} 归一后的两句话。
+ */
+export function savePhrases({ dshHome, phrases, diag = () => {} }) {
+  const path = join(dshHome, 'fish-mind', 'config.json')
+  let raw = {}
+  if (existsSync(path)) {
+    try {
+      raw = JSON.parse(readFileSync(path, 'utf8'))
+    } catch (error) {
+      const failure = new Error(`config.json 不是合法 JSON（${String((error && error.message) || error)}），先修好再保存`)
+      failure.statusCode = 400
+      throw failure
+    }
+  }
+  if (!isPlainObject(raw)) {
+    const failure = new Error('config.json 内容不是对象，先修好再保存')
+    failure.statusCode = 400
+    throw failure
+  }
+  const fallback = isPlainObject(raw.phrases) ? raw.phrases : DEFAULT_PHRASES
+  const saved = {
+    privateDodge: pickPhrase(phrases && phrases.privateDodge, pickPhrase(fallback.privateDodge, DEFAULT_PHRASES.privateDodge)),
+    budgetBlock: pickPhrase(phrases && phrases.budgetBlock, pickPhrase(fallback.budgetBlock, DEFAULT_PHRASES.budgetBlock)),
+  }
+  raw.phrases = saved
+  mkdirSync(dirname(path), { recursive: true })
+  const temp = `${path}.tmp`
+  writeFileSync(temp, JSON.stringify(raw, null, 2) + '\n', 'utf8')
+  renameSync(temp, path)
+  diag(`config: 自定义话术已保存（私事兜底 ${saved.privateDodge.length} 字，额度兜底 ${saved.budgetBlock.length} 字）`)
+  return saved
 }
 
 /** 把配置里的 `~` 和 `$DSH_HOME` 展开成绝对路径。 */

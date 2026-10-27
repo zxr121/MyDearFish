@@ -2,7 +2,7 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, the current self prompt, memory, mood, relationships, channels, pocket money, and fixed boundaries all appear on one page; birth identity and persona are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
+The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, and fixed boundaries all appear on one page; birth identity, persona, and custom phrases are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
 
 ## Overview
 
@@ -12,6 +12,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | --- | --- | --- |
 | Birth identity | Name, species, appearance, how she addresses the owner, origin, extra speaking habits, free-form relationships | Yes |
 | Persona | The whole persona prefix injected by the deployment layer; hot-applied on save and effective from the next turn | Yes |
+| Custom phrases | The line used when asked for private details, and the local reply to the owner when pocket money runs out | Yes |
 | Self prompt | The full private-setting text currently injected, including fixed rules | No |
 | Memory | Experience, episode, fact, and today counts; recent facts and recent experiences | No |
 | Mood | Current value, label, latest reason, tail of the timeline | No |
@@ -41,6 +42,15 @@ The persona is the whole persona prefix of the deployment layer: the `system-pro
 Saving goes through the host's existing `configEditor`: it validates the complete candidate config in memory, atomically writes the active profile's `cordis.patch.yml`, and hands it to Loader for a hot apply. No restart is needed, and the next turn speaks with the new persona. Other config and comments in the file are left alone. “Reset to factory persona” deletes the override rather than copying the factory text in, so later changes to the shipped persona still flow through.
 
 Names, species, appearance, and owner-defined relationships are not here; they remain in birth identity. Privacy, legal rules, prompt-injection defense, AI honesty, the pocket-money grant, and the `sealed.fish-mind` permission rule are not here either; code still fixes them. QQ sessions include only the deployment persona, the QQ scene sections, and fish-brain memory; the persona still uses the same `deployment:persona-prefix` section, so changing it does not alter the QQ section filter.
+
+## Custom phrases
+
+Settings → “Big Fat Fish → Custom phrases” edits two local lines that used to be hardcoded:
+
+- **When asked for private details**: the line the QQ group and friend scene prompts teach her to use as a deflection. The bridge reads it each time it assembles the prompt, so rooms already in use pick up the new line on the next turn without a restart.
+- **When pocket money runs out**: the local reply to the owner when the ledger blocks the turn; no model request is made. Group rooms still stay silently on `[不接话]`, and internal calls still return `FISH_BUDGET_EXHAUSTED`; neither is affected by this line.
+
+Both live under `phrases` in `fish-mind/config.json`, up to 200 characters each. Line breaks and runs of whitespace collapse to a single space, leading and trailing whitespace is trimmed, and a blank value falls back to the factory line. “Reset to factory” writes both factory lines back. Saving touches only `phrases`, leaves the rest of the config intact, and takes effect immediately without a restart or `reload()`.
 
 ## What travels and what does not
 

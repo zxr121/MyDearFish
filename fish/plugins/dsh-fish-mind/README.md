@@ -21,6 +21,7 @@
 - 零花钱账本：监听全局 `llm/stream`，每次模型调用前预留、调用后按实际用量结算。默认每天 ¥10、用不完累计；每日额度可在设置页「大肥鱼 → 零花钱」按元调整，对话、工具和 `config.json` 都改不了。余额只进本地上下文，QQ、B 站等对外通道在代码层再做一道脱敏。
 - 出生设定：名字、物种、外形、对主人的称呼、来历、说话习惯和自由填写的群友关系存在 `identity.json`，由设置里的「大肥鱼」页原子写入；每个会话用当前身份拼出注入提示。工具写不了鱼脑目录，所以对话、记忆、心情、自我成长、配置和外部内容都改不了它。她仍知道自己是 AI 伙伴，不声称现实世界里有一具生物身体。
 - 性格人设：`system-prompt` 的整段 `personaPrefix` 在设置里的「大肥鱼 → 性格人设」读写；没有自定义时显示出厂人设。保存经宿主 `configEditor` 写入活动 profile 的 `cordis.patch.yml` 并热应用，下一轮生效；恢复出厂会删掉覆盖，而不是抄回出厂文案。最多 12000 字，不能写 `{{变量}}`。
+- 自定义话术：设置 →「大肥鱼 → 自定义话术」能改两句本地话——被问到主人私事细节时的托词（QQ 群/好友每轮现取，改完下一轮就生效，旧房间不用重启），和零花钱被账本拦住时她回主人的那句本地回复。句子存在 `config.json` 的 `phrases`，每句最多 200 字，空白压成单行；留空退回出厂那句。
 
 设计背景见 [认知方案](../../../docs/my-dear-fish/cognition.zh.md)，阶段清单见 [开发计划](../../../docs/my-dear-fish/development-plan.zh.md)。
 
@@ -67,6 +68,7 @@
 | 零花钱额度和累计规则 | 代码写死，用户只能直接改 `budget.json` | `lib/budget.js` 的 `BIRTH_DAILY_GRANT_CNY` |
 | 名字、物种、外形、称呼、来历、说话习惯和群友关系 | 主人 | 设置 →「大肥鱼」；写入 `identity.json` |
 | 性格人设（整段语气和说话方式） | 主人 | 设置 →「大肥鱼 → 性格人设」；写入活动 profile 的 `cordis.patch.yml` |
+| 私事托词和额度拦截时说的话 | 主人 | 设置 →「大肥鱼 → 自定义话术」；写入 `config.json` 的 `phrases` |
 | 记忆编码、事实抽取、价值与身份更新 | 鱼脑内部固化流程 | 没有对话或工具入口 |
 | 查看核心和记忆 | 用户 | 直接打开 `$DSH_HOME/fish-mind/` |
 | 彻底删除 | 用户 | 停止应用后删除文件 |
@@ -80,7 +82,7 @@
 
 ## 设置页与搬迁
 
-`client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格人设、自我提示、记忆、心情、人物志、通道、零花钱和边界；QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
+`client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/phrases`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格人设、自我提示、记忆、心情、人物志、通道、零花钱和边界；QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
 
 导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；不导出配置、账本、审计、日志、SQLite、通道配置或凭据。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），只进空鱼（0 条经历、0 人、0 条心情），先暂存 `.import-pending/`，重启时在打开 SQLite 前应用并备份；格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
 
@@ -240,7 +242,7 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 
 被额度拦住时：
 
-- 主人正在聊的会话给一句本地回复（“今天我这边有点转不动了……”），不发模型请求，也不提钱。
+- 主人正在聊的会话给一句本地回复（默认“今天我这边有点转不动了……”，可在设置页「大肥鱼 → 自定义话术」改写），不发模型请求，也不提钱。
 - 内部调用（无会话 id、子代理、压缩、标题）返回不可重试的 `FISH_BUDGET_EXHAUSTED`，不会触发重试循环。
 
 预留是估算、结算才是实际，所以账本最多会被最后一笔调用超出一次；下一次预留立刻收口。
@@ -322,6 +324,10 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
     "maxTokens": 600,
     "tickSeconds": 60
   },
+  "phrases": {
+    "privateDodge": "这个我不方便细说",
+    "budgetBlock": "今天我这边有点转不动了，先歇一会儿，明天再找你。"
+  },
   "capture": {
     "user": true,
     "assistant": true,
@@ -365,6 +371,7 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 - `chapters`：章节树。`enabled` 关掉后不再自动整理，已有章节仍能读；手动 `organize()` 仍可补一次。`tickMinutes`（1–1440）是检查间隔，`summaryChars`（80–2000）是日章节摘要的字数上限。
 - `working`：短期层。`enabled` 关整层，`inject` 只关注入（仍转长期），`consolidate` 只关提炼（仍注入短期窗口）。`ttlMinutes` 1–1440、`rows` 2–60、`chars` 200–4000 决定当场想得起多少；`idleMinutes` 1–1440、`maxRows` 2–200、`minRows` 1–20 决定什么时候转长期；`maxFacts` 1–20、`maxTokens` 128–4096、`tickSeconds` 10–3600 是每次提炼的上限和检查频率。载入时会把 `minRows` 压到不超过 `maxRows`——门槛比窗口还高的话提炼永远攒不够，会静默死掉。
 - `humor.inject`：幽默层开关，默认开。关掉后 `fish-mind-humor` 整段不注入，其它提示和记忆不受影响。
+- `phrases.privateDodge` / `phrases.budgetBlock`：两句本地话，默认“这个我不方便细说”和“今天我这边有点转不动了，先歇一会儿，明天再找你。”。前者用在 QQ 群/好友的场景提示里，后者是额度拦住主人这一轮时直接发出去的本地回复。每句最多 200 字，空白压成单行后再存；留空或坏值退回默认。设置页写的就是这里，保存后当场生效，不用 `reload()`。
 - 梗百科的 `enabled`、`inject`、`socialInject`、`autoInject`、`tool` 不在 `config.json`，而是和覆盖词条一起放在 `fish-mind/memes.json`，由设置页的「梗百科」页写入。`inject` 与 `autoInject` 都在打开时才预查；`tool` 只影响主人会话。
 - `budget.enabled`：关掉后不预留、不计量、不拦截，模型调用全部放行。只在排障时关。
 - `budget.inject`：关掉后系统提示里不再出现私密账本，她仍然受额度硬拦。

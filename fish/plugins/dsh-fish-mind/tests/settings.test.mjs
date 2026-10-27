@@ -118,7 +118,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 13)
+  assert.equal(routes.length, 14)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -138,6 +138,9 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.equal(initial.json.ok, true)
   assert.equal(initial.json.identity.name, '大肥鱼')
   assert.equal(initial.json.archive.pending, false)
+  assert.equal(initial.json.phrases.privateDodge, '这个我不方便细说')
+  assert.equal(initial.json.phraseDefaults.budgetBlock, '今天我这边有点转不动了，先歇一会儿，明天再找你。')
+  assert.equal(initial.json.phraseLimit, 200)
 
   const saved = await call(routes, '/dsh-fish-mind/birth', {
     method: 'POST',
@@ -183,6 +186,34 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
 
   const grantedByGet = await call(routes, '/dsh-fish-mind/budget', { method: 'GET' })
   assert.equal(grantedByGet.res.status, 405)
+
+  const phrases = await call(routes, '/dsh-fish-mind/phrases', {
+    method: 'POST',
+    body: { privateDodge: '这个我私下讲', budgetBlock: '今天先到这儿，改天再聊。' },
+  })
+  assert.equal(phrases.res.status, 200)
+  assert.equal(phrases.json.phrases.privateDodge, '这个我私下讲')
+  assert.equal(phrases.json.defaults.privateDodge, '这个我不方便细说')
+  const afterPhrases = await call(routes, '/dsh-fish-mind/overview')
+  assert.equal(afterPhrases.json.phrases.budgetBlock, '今天先到这儿，改天再聊。')
+  const savedConfig = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'config.json'), 'utf8'))
+  assert.equal(savedConfig.phrases.privateDodge, '这个我私下讲')
+  assert.equal(savedConfig.phrases.budgetBlock, '今天先到这儿，改天再聊。')
+  assert.equal(savedConfig.mode, 'live', '只改 phrases，其它配置原样保留')
+
+  const blankPhrase = await call(routes, '/dsh-fish-mind/phrases', {
+    method: 'POST',
+    body: { privateDodge: '  ', budgetBlock: 'x' },
+  })
+  assert.equal(blankPhrase.res.status, 400)
+  assert.match(blankPhrase.json.error, /不能为空/)
+  const longPhrase = await call(routes, '/dsh-fish-mind/phrases', {
+    method: 'POST',
+    body: { privateDodge: '长'.repeat(201), budgetBlock: 'x' },
+  })
+  assert.equal(longPhrase.res.status, 400)
+  assert.match(longPhrase.json.error, /最多 200 字/)
+  assert.equal((await call(routes, '/dsh-fish-mind/phrases', { method: 'GET' })).res.status, 405)
 
   const rejected = await call(routes, '/dsh-fish-mind/birth', {
     method: 'POST',
@@ -239,7 +270,7 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 13)
+  assert.equal(routes.length, 14)
 
   const search = await call(routes, '/dsh-fish-mind/memes', {
     url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&page=1&pageSize=5',
