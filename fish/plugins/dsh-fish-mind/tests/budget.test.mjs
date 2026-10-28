@@ -16,6 +16,7 @@ import {
   officialPrices,
   openBudget,
   resolvePrice,
+  resolvePricing,
 } from '../lib/budget.js'
 
 function tempDir() {
@@ -268,6 +269,90 @@ test('价格按 provider/model → model → provider → 默认价找', () => {
     { input: 3, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 },
   )
   assert.deepEqual(resolvePrice({}, fallback, 'p', 'm'), fallback)
+})
+
+test('出厂价按模型挂价：API Key 和账号登录两条路由同价，缺价时 key 为空', () => {
+  const prices = officialPrices()
+  const fallback = { input: 9, cacheRead: 9, cacheWrite: 9, output: 9, reasoning: 9 }
+  const peak = new Date(2026, 9, 21, 10, 0, 0).getTime()
+  const idle = new Date(2026, 9, 24, 10, 0, 0).getTime()
+  const official = { input: 2, cacheRead: 0.04, cacheWrite: 2, output: 8, reasoning: 0 }
+  const offPeak = { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4, reasoning: 0 }
+  for (const provider of ['deepseek-official', 'deepseek-account']) {
+    assert.deepEqual(
+      resolvePricing(prices, fallback, provider, 'deepseek-flash', peak),
+      { price: official, key: 'deepseek-flash' },
+    )
+    assert.deepEqual(
+      resolvePricing(prices, fallback, provider, 'deepseek-flash', idle),
+      { price: offPeak, key: 'deepseek-flash' },
+    )
+  }
+  assert.deepEqual(
+    resolvePricing(prices, fallback, 'deepseek-account', 'deepseek-v4-pro', peak),
+    { price: fallback, key: '' },
+  )
+})
+
+test('没配价的模型落默认价时，流水标 pricingMiss，diag 每个组合只提醒一次', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const lines = []
+  const budget = openBudget({
+    dir,
+    config: baseConfig({ prices: officialPrices() }),
+    now: () => clock,
+    diag: (line) => lines.push(line),
+  })
+
+  const known = budget.reserve({ provider: 'deepseek-account', model: 'deepseek-flash', maxTokens: 8 })
+  assert.equal(known.reservation.pricingMiss, false)
+  budget.settle(known.reservation, { inputTokens: 1000 })
+
+  const unknown = budget.reserve({ provider: 'deepseek-account', model: 'deepseek-v4-pro', maxTokens: 8 })
+  assert.equal(unknown.reservation.pricingMiss, true)
+  budget.settle(unknown.reservation, { inputTokens: 1000 })
+  budget.settle(budget.reserve({ provider: 'deepseek-account', model: 'deepseek-v4-pro', maxTokens: 8 }).reservation, { inputTokens: 1000 })
+
+  const spends = readLedger(dir).filter((entry) => entry.type === 'spend')
+  assert.equal(spends[0].pricingMiss, undefined)
+  assert.equal(spends[1].pricingMiss, true)
+  assert.equal(spends[2].pricingMiss, true)
+  assert.equal(lines.filter((line) => line.includes('没有配价')).length, 1)
+  assert.ok(lines.some((line) => line.includes('deepseek-account/deepseek-v4-pro')))
+})
+
+test('账号登录路由的旧账按官方价重算，多扣的退回钱包', () => {
+  const dir = tempDir()
+  const day = '2026-10-21'
+  const at = new Date(2026, 9, 21, 10, 0, 0).getTime()
+  // 旧账把 14 万缓存读按 ¥1/百万记成 ¥0.158452。
+  writeFileSync(join(dir, 'budget.json'), JSON.stringify({
+    version: 1,
+    createdAt: new Date(at).toISOString(),
+    createdAtDay: day,
+    dailyGrantCny: 10,
+    walletCny: 9.841548,
+    lastGrantDay: day,
+    days: { [day]: { spentCny: 0.158452, calls: 1, unmetered: 0, biliSpentCny: 0, biliCalls: 0 } },
+    pricingVersion: 2,
+  }) + '\n', 'utf8')
+  writeFileSync(join(dir, 'budget-ledger.jsonl'), JSON.stringify({
+    type: 'spend',
+    at,
+    day,
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    costCny: 0.158452,
+    usage: { inputTokens: 4493, cacheReadTokens: 140032, outputTokens: 28 },
+  }) + '\n', 'utf8')
+
+  const budget = openBudget({ dir, config: baseConfig({ prices: officialPrices() }), now: () => at })
+  assert.equal(budget.status().spentTodayCny, 0.0148)
+  assert.equal(budget.status().walletCny, 9.9852)
+  const calibrate = readLedger(dir).filter((entry) => entry.type === 'calibrate')
+  assert.equal(calibrate.length, 1)
+  assert.equal(calibrate[0].deltaCny, 0.143641)
 })
 
 test('价格归一：缺项补 0，负数和垃圾值不收', () => {

@@ -159,7 +159,8 @@ export function buildDefaults(dshHome) {
       inject: true,
       // B 站巡检最多花当天出生额度的这个比例；0 = 不让她刷，1 = 不单独限制。
       biliShare: DEFAULT_BILI_SHARE,
-      // 她自己的路由出厂按官方价结算；这里写空对象也保留出厂价，按路由覆盖才改价。
+      // 她的 deepseek-flash 出厂按官方价结算，价挂在模型名上，两条路由都命中；
+      // 这里写空对象也保留出厂价，按模型或路由覆盖才改价。
       prices: officialPrices(),
       defaultPrice: { ...DEFAULT_PRICE },
       defaultMaxOutputTokens: 8192,

@@ -5,9 +5,11 @@
 //   · 每一次模型调用都算花钱：说话、思考、判断心情、刷 B 站、压缩上下文，全部经过 llm/stream 结算。
 //   · 账户余额只给她自己看；对外通道（QQ、B 站评论/私信）在代码层再做一道脱敏。
 //
-// 价格：她自己的路由（deepseek-official/deepseek-flash）出厂就按 DeepSeek 官方峰谷价结算，
-// 钱包余额才对得上真实账单；没配到的路由仍用偏高的 DEFAULT_PRICE，宁可提前停，
-// 也不要把主人的钱花超。价目表版本变化时，旧账本按当前价重算一次，多扣的退回钱包。
+// 价格：她的 deepseek-flash 不论走 API Key（deepseek-official）还是账号登录
+// （deepseek-account），出厂都按 DeepSeek 官方峰谷价结算，钱包余额才对得上真实账单；
+// 没配到价的模型仍用偏高的 DEFAULT_PRICE，宁可提前停，也不要把主人的钱花超，
+// 但会在流水里标 pricingMiss、在 diag 里报一次，不再静默算错。
+// 价目表版本变化时，旧账本按当前价重算一次，多扣的退回钱包。
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,16 +20,20 @@ export const MAX_DAILY_GRANT_CNY = 10000
 export const DEFAULT_BILI_SHARE = 0.25
 export const DEFAULT_PRICE = Object.freeze({ input: 4, cacheRead: 1, cacheWrite: 4, output: 16, reasoning: 0 })
 // 账本按哪一版价目表结算过；旧账本缺这个字段时补算一次差额。
-export const PRICING_VERSION = 2
+// v3：价目表改按模型名挂价，账号登录路由（deepseek-account）不再落默认价。
+export const PRICING_VERSION = 3
 
 /**
  * 出厂价目表：deepseek-flash 用 DeepSeek 官方价（每百万 token 人民币），
  * 工作日 09–12、14–18 为高峰，其余时段和周末按谷时价。
+ * 价挂在模型名上而不是路由名上：同一个模型无论从 API Key（deepseek-official）
+ * 还是账号登录（deepseek-account）进来都按这张价结算；要给某条路由单独定价，
+ * 在配置里写 `provider/model`，它的优先级高于模型键。
  * @returns {object} `budget.prices` 的默认内容。
  */
 export function officialPrices() {
   return {
-    'deepseek-official/deepseek-flash': {
+    'deepseek-flash': {
       input: 2,
       cacheRead: 0.04,
       cacheWrite: 2,
@@ -147,20 +153,33 @@ function isPeakAt(at, entry) {
  * @param {string} provider - provider 路由名。
  * @param {string} model - 模型名。
  * @param {number} [at] - 判断高峰用的时间戳，默认当前时间。
- * @returns {{input:number,cacheRead:number,cacheWrite:number,output:number,reasoning:number}} 每百万 token 的人民币价。
+ * @returns {{price:{input:number,cacheRead:number,cacheWrite:number,output:number,reasoning:number}, key:string}} 每百万 token 的人民币价，以及命中的价目表键；落到默认价时 `key` 为空串。
  */
-export function resolvePrice(prices, fallback, provider, model, at = Date.now()) {
+export function resolvePricing(prices, fallback, provider, model, at = Date.now()) {
   const table = isPlainObject(prices) ? prices : {}
   for (const key of [`${provider}/${model}`, model, provider]) {
     if (typeof key !== 'string' || key === '') continue
     const entry = normalizePriceEntry(table[key])
     if (entry === null) continue
     if (entry.offPeak !== undefined) {
-      return flatPrice(isPeakAt(at, entry) ? entry : entry.offPeak)
+      return { price: flatPrice(isPeakAt(at, entry) ? entry : entry.offPeak), key }
     }
-    return flatPrice(entry)
+    return { price: flatPrice(entry), key }
   }
-  return normalizePrice(fallback) || { ...DEFAULT_PRICE }
+  return { price: normalizePrice(fallback) || { ...DEFAULT_PRICE }, key: '' }
+}
+
+/**
+ * 同 `resolvePricing`，只要价。需要知道这次是不是落了默认价时用前者。
+ * @param {object} prices - 配置里的 `budget.prices`。
+ * @param {object} fallback - 配置里的 `budget.defaultPrice`。
+ * @param {string} provider - provider 路由名。
+ * @param {string} model - 模型名。
+ * @param {number} [at] - 判断高峰用的时间戳，默认当前时间。
+ * @returns {{input:number,cacheRead:number,cacheWrite:number,output:number,reasoning:number}} 每百万 token 的人民币价。
+ */
+export function resolvePrice(prices, fallback, provider, model, at = Date.now()) {
+  return resolvePricing(prices, fallback, provider, model, at).price
 }
 
 function textOfContent(content) {
@@ -404,8 +423,20 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     return currentConfig.enabled !== false
   }
 
+  // 没配价的 provider/model 只提醒一次，免得一天 1000 多次调用刷满 diag.log；
+  // 配置热更新重载价目表后再重新提醒。
+  const warnedPricing = new Set()
+
   function priceFor(provider, model, at = now()) {
-    return resolvePrice(currentConfig.prices, currentConfig.defaultPrice, provider, model, at)
+    const looked = resolvePricing(currentConfig.prices, currentConfig.defaultPrice, provider, model, at)
+    if (looked.key === '' && (provider !== '' || model !== '')) {
+      const tag = `${provider}/${model}`
+      if (!warnedPricing.has(tag)) {
+        warnedPricing.add(tag)
+        diag(`budget: ${tag} 没有配价，按默认价结算；对不上账单就把它加进 budget.prices`)
+      }
+    }
+    return looked
   }
 
   /**
@@ -440,7 +471,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       const bucket = totals.get(entry.day) || { calls: 0, spentCny: 0, biliSpentCny: 0 }
       bucket.calls += 1
       if (isPlainObject(entry.usage)) {
-        const price = priceFor(String(entry.provider || ''), String(entry.model || ''), Number(entry.at) || now())
+        const { price } = priceFor(String(entry.provider || ''), String(entry.model || ''), Number(entry.at) || now())
         const cost = round(costOfUsage(entry.usage, price), 6)
         bucket.spentCny = round(bucket.spentCny + cost, 6)
         if (entry.scope === 'bili') bucket.biliSpentCny = round(bucket.biliSpentCny + cost, 6)
@@ -572,7 +603,9 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     const provider = String(options && options.provider ? options.provider : '')
     const model = String(options && options.model ? options.model : '')
     const tag = scope === 'bili' ? 'bili' : ''
-    const price = priceFor(provider, model)
+    const looked = priceFor(provider, model)
+    const price = looked.price
+    const pricingMiss = looked.key === ''
     const defaultOutput = Math.max(1, Number(currentConfig.defaultMaxOutputTokens) || 8192)
     // 模型目录把 maxTokens 报到 25.6 万，按整段输出预留会把一次群聊估成四块多，
     // 实际只花一毛。预留只按默认上限封顶输出，结算仍按真实 usage。
@@ -591,6 +624,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
         scope: tag || undefined,
         walletCny: round(state.walletCny, 6),
         neededCny: estimatedCny,
+        pricingMiss: pricingMiss || undefined,
       })
       return { ok: false, reason: 'insufficient', walletCny: round(state.walletCny, 4), neededCny: round(estimatedCny, 4) }
     }
@@ -612,6 +646,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
           spentCny: spent,
           walletCny: round(state.walletCny, 6),
           neededCny: estimatedCny,
+          pricingMiss: pricingMiss || undefined,
         })
         return {
           ok: false,
@@ -634,6 +669,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
         scope: tag || undefined,
         estimatedCny,
         price,
+        pricingMiss,
       },
     }
   }
@@ -665,6 +701,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       scope: reservation.scope,
       estimatedCny: reservation.estimatedCny,
       costCny,
+      pricingMiss: reservation.pricingMiss === true ? true : undefined,
       walletAfterCny: state.walletCny,
       usage: usage && typeof usage === 'object'
         ? {
@@ -784,6 +821,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
 
   function setConfig(next) {
     currentConfig = next && isPlainObject(next) ? next : {}
+    warnedPricing.clear()
   }
 
   if (reset) {

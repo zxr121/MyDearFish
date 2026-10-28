@@ -115,7 +115,7 @@ QQ 桥会给每个群、每个好友放成独立的社交会话（`session-qq-so
 - 账本坏了就失败关闭：宁可这一轮不花钱，也不把额度漏出去。主人正在聊的会话只收到一句本地回复；内部调用返回不可重试的 `FISH_BUDGET_EXHAUSTED`。
 - 账户余额通过宿主服务 `deepseekAccount.getBalance()` 读取，默认每 15 分钟刷新；读不到只记录尝试结果，不影响聊天。
 - 余额只注入本机系统提示，让她自己判断可选动作值不值得做；QQ 和 B 站外发前再过一道 `redactOutbound`，带额度/余额的句子和精确金额会被拦下，B 站命中时整条拒发。
-- 她自己的路由 `deepseek-official/deepseek-flash` 出厂就带 DeepSeek 官方峰谷价，钱包里的余额对应真实账单；`prices` 写空或只写部分路由时出厂价继续生效，没配到的其他路由仍用偏高的默认价，可能花超。基础五项是高峰价；`offPeak`、`peakHours`、`peakDays` 齐全时按本机时钟切换峰谷价，日程写坏就退回高峰价。账本的价目表版本落后时，升级后第一次启动会按当前价重算每一天的花费，把多扣的差额退回钱包并写一条 `calibrate` 流水。
+- 她的 `deepseek-flash` 出厂就带 DeepSeek 官方峰谷价，按模型名挂价、不认路由名：API Key 路由 `deepseek-official` 和账号登录路由 `deepseek-account` 同价结算，钱包里的余额对应真实账单；`prices` 写空或只写部分模型时出厂价继续生效。没配到价的模型仍用偏高的默认价，可能花超；这类流水会带 `pricingMiss: true`，每个 provider/model 组合在日志里提醒一次。基础五项是高峰价；`offPeak`、`peakHours`、`peakDays` 齐全时按本机时钟切换峰谷价，日程写坏就退回高峰价。账本的价目表版本落后时，升级后第一次启动会按当前价重算每一天的花费，把多扣的差额退回钱包并写一条 `calibrate` 流水。
 
 ### 文件与可见性
 
@@ -551,7 +551,7 @@ B 站插件让“大肥鱼”在谷时自己去刷视频、读字幕、翻评论
 | 鱼脑记不记、召不召回 | `dsh-fish-mind` 的 `mode`、`inject` 与 `episodes` / `recall` / `chapters` 参数 | 影子模式改了不影响对话；`live` + `inject` 才注入工作台 |
 | 自动备份放哪、多久一次、留几份 | 设置 →「大肥鱼 → 自动备份」；存在 `fish-mind/config.json` 的 `backup` | 备份落在 `<DSH_HOME>/fish-backups`（打包版就是安装目录的 `data`）；最多留最新 5 份，最旧的先删；开关和 1–720 小时间隔当场生效 |
 | 梗百科预查、社交使用和工具 | 设置 →「梗百科」；开关存在 `fish-mind/memes.json` | 总开关同时停掉预查和工具；群里只加本群语境的预查；工具始终只对主人会话开放，设置也改不了 |
-| 每天零花钱额度、累计和价格 | `lib/budget.js` 的 `BIRTH_DAILY_GRANT_CNY`；价格在 `config.json` 的 `budget.prices`，峰谷日程加 `offPeak` / `peakHours` / `peakDays` | 改代码额度会影响之后所有发放；价目表版本落后时启动会按当前价重算旧账，多扣的差额退回钱包 |
+| 每天零花钱额度、累计和价格 | `lib/budget.js` 的 `BIRTH_DAILY_GRANT_CNY`；价格在 `config.json` 的 `budget.prices`，按模型名或 `provider/model` 挂价，峰谷日程加 `offPeak` / `peakHours` / `peakDays` | 改代码额度会影响之后所有发放；价目表版本落后时启动会按当前价重算旧账，多扣的差额退回钱包 |
 | 心情的维度、判断频率、判断模型 | 心情设置页与 `lib/index.js` 的维度表和判定链 | 改维度会改变注入文案和表情档位 |
 | 主动搭话的频率和时段 | 搭话设置页的命中线、间隔、安静时段 | 试运行只控制真发还是只记账（出厂关 = 真发）；改命中线比改代码安全 |
 | 朗读的触发范围 | 朗读设置页的收听会话、自动朗读开关 | 留空听所有会话；点一个会收窄；需要扩展和 DeepSeek 页面配合 |
