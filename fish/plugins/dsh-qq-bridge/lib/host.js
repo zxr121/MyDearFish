@@ -2377,6 +2377,79 @@ export function 拆连发项(文字) {
   return 项.filter((x) => x.文字 !== undefined || (x.表情 !== undefined && ++表情数 <= 连发表情上限) || x.戳人 !== undefined)
 }
 
+const 引用标记式 = /\[引用\s*[:：]\s*([^\]\r\n]{0,200})\]/gu
+const 引用标点 = /[\s，,。.！!？?：:；;、~～…"'‘’“”（）()【】\[\]「」『』]/gu
+
+/** 对原话用的归一：去掉引用前缀、图片占位、@ 和标点，只留能认出是哪一句的字。 */
+function 归一引用文字(文字) {
+  return String(文字 || '')
+    .replace(/\[引用[^\]]*\]/gu, ' ')
+    .replace(/\[(?:图片|动画表情|表情|转发消息[^\]\n]{0,40}|聊天记录[^\]\n]{0,40})\]/gu, ' ')
+    .replace(/@你/gu, ' ')
+    .replace(引用标点, '')
+    .toLowerCase()
+}
+
+/**
+ * 从她要发的话里摘出引用标记：`[引用:原话]` 按原话对，`[引用:#消息id]` 直接认编号。
+ * 只认第一个标记；其余标记和写了一半的标记都剥掉，绝不能跟着正文发进 QQ。
+ * @param {string} 文字 - 这一轮准备发出去的正文。
+ * @returns {{ 文字: string, 引用: { id: string, 原文: string } | null }} 剥掉标记后的正文和引用目标。
+ */
+export function 摘引用标记(文字) {
+  const 原 = String(文字 || '')
+  let 引用 = null
+  for (const m of 原.matchAll(引用标记式)) {
+    if (引用) continue
+    const 净 = String((m && m[1]) || '').trim()
+    const 号 = 净.match(/^#?\s*(\d{3,20})$/u)
+    引用 = 号 ? { id: 号[1], 原文: '' } : { id: '', 原文: 净.slice(0, 200) }
+  }
+  const 剩 = 原
+    .replace(引用标记式, ' ')
+    .replace(/\[引用\s*[:：][^\]\r\n]*$/u, '')
+    .replace(/\[引用\s*$/u, '')
+    .trim()
+  return { 文字: 剩, 引用 }
+}
+
+/**
+ * 在她看得到的最近消息里找引用标记指向的那一条：编号优先，其次是原话。
+ * @param {object[]} 记录们 - 带 id / 文字（或 原话）/ at 的最近消息。
+ * @param {{ id: string, 原文: string }} 引用 - 摘出来的引用目标。
+ * @returns {string} 命中的消息 id；对不上就是空串。
+ */
+export function 找引用消息(记录们, 引用) {
+  const 列 = (Array.isArray(记录们) ? 记录们 : [])
+    .filter((m) => m && /^\d{3,20}$/.test(String(m.id || '')))
+  if (引用 && 引用.id !== '') {
+    let 命中 = null
+    for (const m of 列) {
+      if (String(m.id) !== 引用.id) continue
+      if (!命中 || (Number(m.at) || 0) >= (Number(命中.at) || 0)) 命中 = m
+    }
+    return 命中 ? String(命中.id) : ''
+  }
+  const 原 = 归一引用文字(引用 && 引用.原文)
+  if (原 === '') return ''
+  let 命中 = null
+  let 档 = 0
+  for (const m of 列) {
+    const 文 = 归一引用文字(m.原话 || m.文字)
+    if (文 === '') continue
+    const 本次 = 文 === 原 ? 3
+      : (原.length >= 2 && 文.includes(原)) ? 2
+        : (文.length >= 4 && 原.includes(文)) ? 1 : 0
+    if (本次 === 0) continue
+    const at = Number(m.at) || 0
+    if (!命中 || 本次 > 档 || (本次 === 档 && at >= (Number(命中.at) || 0))) {
+      命中 = m
+      档 = 本次
+    }
+  }
+  return 命中 ? String(命中.id) : ''
+}
+
 export function apply(ctx) {
   // ---------- 状态 ----------
 
@@ -2386,6 +2459,7 @@ export function apply(ctx) {
   // 主人桥这一轮带进来的图：回话里的 [存表情:图N] / [发表情:图N] 要靠它对上号，发完就清掉。
   const 入站图批 = new Map() // 会话 id → { at, 图们 }
   const 已转消息 = new Set() // 已经转发进 DSH 的 QQ 消息 id（防重复转）
+  const 主人最近消息 = new Map() // 'private:号' / 'group:号' → 最近 80 条（含她发的），回引用时对原话用
   const 引用缓存 = new Map() // 被引用消息 id → { 标记, 自己, 到期? }：同一条引用不反复回查
   let 引用失败记At = 0 // 回查失败时别每条引用都刷一条日志
   let 上次私聊时间 = Math.floor(Date.now() / 1000) // 从这一刻起只认新消息，不补旧的
@@ -5124,7 +5198,7 @@ export function apply(ctx) {
       '- 有人问“这张像不像你 / 这是你吗”：先直接说像或不像、是不是，再最多补一句哪里像或哪里不像；别把图里的颜色、衣服、配饰、眼睛一项项数出来，那像在念图。',
       '- 别人发图、发表情包，接的是这张图的意思，不是让你念图：看懂表情和气氛就一句短话说中（“这是哈气吧”“凶巴巴的”“好家伙”），拿不准就短问一句“这是啥表情”，或只说你看懂的那一点；别报发色、配色、耳朵、眼睛形状这些画面细节，也别替一张静图编正在发生的动作（“喊破嗓子”“急出来的”）。对方明确问图里的细节（什么颜色、几个人、写的什么字）时照问照答，别绕开。',
       '- 别人说你认错图了，就一句“我看岔了”带过，照他指的那张重答；拿不准是哪张就问“你说的是 xx 发的那张吗”，别自己换一张图接着猜。',
-      '- 别人让你“引用一下”“指一下是哪张/哪条”时，用话说清是谁发的、什么画面或哪句原话；别写 [#编号] 这种编号当引用，群里没有这种引用格式。',
+      '- 想引用某一句原话（别人让你“引用一下”“指一下是哪句”，或你想接住某条话说）就写 [引用:那句原话]，桥会挂上 QQ 原生引用，标记本身不会发出去；原话带上能认出是哪一句的字就行，照抄整句最稳，别写 [#编号] 当引用。',
       '- 兴趣只决定你会不会主动开新话题，不决定你能不能回：不感兴趣也可以短接一句，只是别主动把话题带到你不感兴趣的方向；有人 @ 你、叫你的名字、回复你，或者好友私聊你，至少要回一句，不能装没看见。',
       不聊行,
       '- 有人问你怎么看主人、你俩是什么关系、你是谁养大的：这也是在问你，可以说感受、吐槽、打岔，也可以只说“他啊，还行吧”；不想细讲就轻轻带过，但别用 [不接话]。',
@@ -6095,6 +6169,7 @@ export function apply(ctx) {
       '- 不知道就说不知道，别硬编；拿不准的事实、最近才有的事，先上网查一下再答，查完只说结论，不贴来源列表；私事、本机信息、账号密码不拿去搜。',
       '- 别人发图、发表情，接的是这张图的意思：看懂就说中那个意思，拿不准就短问一句；别报发色、配色、耳朵、眼睛这些画面细节，也别替静图编动作；他明确问细节就照答。有人发图问“这张像不像你 / 这是不是你”：先直接答像或不像，再最多补一句。认错图就认一句，照他指的那张重答；拿不准是哪张就问是哪张。',
       '- 表情收藏和发送按提示里的图注来：标着“你收藏的 #编号”的才是存过的；让你存或发回哪张，就写对应的 [存表情:图N] / [发表情:图N]，没写成标记就别在话里说“存好了/发出去了”。',
+      '- 想引用他某句话（他说“你引用我试试”也算）就写 [引用:那句原话]，桥会挂上 QQ 原生引用，标记本身不会发出去；别把标记原样当话发出去。',
       '- 意见不一样就说一句，他不认就算了；不追着讲理、不争输赢。',
       '- 节奏跟着对方走：他短你也短，他认真说一段就接住再回；话没断、你也来劲时可以自然问一句，别连着追问；聊差不多就收，不硬找新话题。',
       '- 工具结果自己消化，只回结论；不要把长输出、路径、日志贴进 QQ。',
@@ -7136,6 +7211,15 @@ export function apply(ctx) {
         文本 = 剩
       }
     }
+    // 她想引用哪一句：标记剥掉、对到这间屋最近的消息就挂原生 reply 段；对不上就只发正文。
+    const 引 = 摘引用标记(文本)
+    文本 = 引.文字
+    let 引用id = String(回复id || '')
+    if (引.引用) {
+      const 对上 = 找引用消息(近时缓冲(目标), 引.引用)
+      if (对上 !== '') 引用id = 对上
+      else 记账(`${目标.叫}：想引用「${引.引用.原文 || `#${引.引用.id}`}」但没对上最近的消息，这条只发正文`)
+    }
     if (文本.length > 1200) 文本 = `${文本.slice(0, 1200)}…`
     if (文本 === '') {
       if (存果.存了.length > 0) return 记账(`${目标.叫}：只收藏了表情，没有回话`)
@@ -7184,8 +7268,8 @@ export function apply(ctx) {
       if (项.文字 !== undefined) {
         const 呼叫 = 拆呼叫段(项.文字, 名表)
         const 段们 = 呼叫.段们.slice()
-        if (回复id !== '' && !已带回复) {
-          段们.unshift({ type: 'reply', data: { id: 回复id } })
+        if (引用id !== '' && !已带回复) {
+          段们.unshift({ type: 'reply', data: { id: 引用id } })
           已带回复 = true
         }
         const 体 = 目标.类型 === 'group'
@@ -7359,8 +7443,38 @@ export function apply(ctx) {
     return 发一个(配置.NapCat, action, 体)
   }
 
+  /** 记一条最近消息（主人口 / 群口各自一条线），回引用时按 id 或原话对。 */
+  function 记主人最近消息(key, 记) {
+    const 列 = 主人最近消息.get(key) || []
+    列.push(记)
+    if (列.length > 80) 列.splice(0, 列.length - 80)
+    主人最近消息.set(key, 列)
+  }
+
+  /** 把引用标记对上主人私聊 / 群里的最近消息；两个口都像时取更新的那条。 */
+  function 找主人引用(配置, 引用) {
+    const 候选 = []
+    const 私聊号 = String(配置.私聊QQ || '').trim()
+    const 群号 = String(配置.群号 || '').trim()
+    if (私聊号 !== '') 候选.push({ 场景: 'private', 号: 私聊号, 列: 主人最近消息.get(`private:${私聊号}`) || [] })
+    if (群号 !== '') 候选.push({ 场景: 'group', 号: 群号, 列: 主人最近消息.get(`group:${群号}`) || [] })
+    let 命中 = null
+    for (const c of 候选) {
+      const id = 找引用消息(c.列, 引用)
+      if (id === '') continue
+      const 条 = c.列.find((m) => String(m.id) === id)
+      const at = Number(条 && 条.at) || 0
+      if (!命中 || at >= 命中.at) 命中 = { id, 场景: c.场景, at }
+    }
+    return 命中 ? { id: 命中.id, 场景: 命中.场景 } : null
+  }
+
   /** 把这一轮要发的东西按写下的顺序送到该发的地方（私聊 / 群）：文字一条条连发，表情包混在中间也按序发。 */
   async function 发到QQ(配置, 文字, 落空key = '') {
+    const 引 = 摘引用标记(文字)
+    文字 = 引.文字
+    const 引用 = 引.引用 ? 找主人引用(配置, 引.引用) : null
+    if (引.引用 && !引用) 记账(`想引用「${引.引用.原文 || `#${引.引用.id}`}」但没对上最近的消息，这条只发正文`)
     const 出 = []
     const 项们 = 拆连发项(文字)
       .map((项) => (项.文字 === undefined ? 项 : { ...项, 文字: 收句号(项.文字) }))
@@ -7369,6 +7483,7 @@ export function apply(ctx) {
     if (配置.转私聊 && 配置.私聊QQ) 目标们.push({ 类型: 'private', 号: Number(配置.私聊QQ) })
     if (配置.转群 && 配置.群号) 目标们.push({ 类型: 'group', 号: Number(配置.群号) })
     const 发段延迟 = 450 // 每段之间隔一下，像真人一条条发
+    let 已带引用 = false
 
     for (let i = 0; i < 项们.length; i++) {
       const 项 = 项们[i]
@@ -7377,7 +7492,16 @@ export function apply(ctx) {
           const 体 = 目标.类型 === 'private' ? 私人消息体(项.文字) : 群消息体(项.文字)
           if (目标.类型 === 'private') 体.user_id = 目标.号
           else 体.group_id = 目标.号
-          出.push(await 发一个(配置.NapCat, 目标.类型 === 'private' ? 'send_private_msg' : 'send_group_msg', 体))
+          if (引用 && !已带引用 && 目标.类型 === 引用.场景) {
+            体.message.unshift({ type: 'reply', data: { id: 引用.id } })
+            已带引用 = true
+          }
+          const r = await 发一个(配置.NapCat, 目标.类型 === 'private' ? 'send_private_msg' : 'send_group_msg', 体)
+          出.push(r)
+          const mid = r.ok && r.数据 && r.数据.data ? r.数据.data.message_id : undefined
+          if (mid !== undefined && mid !== null) {
+            记主人最近消息(`${目标.类型}:${目标.号}`, { id: String(mid), 文字: 项.文字, at: Math.floor(Date.now() / 1000) })
+          }
         } else {
           const 贴纸 = 表情们.find((x) => x.id === 项.表情)
           if (贴纸) 出.push(await 发QQ表情(配置, 目标.类型, 目标.号, 贴纸))
@@ -8520,6 +8644,7 @@ export function apply(ctx) {
     }
     const 条转文字 = async (条) => {
       const 段 = 解析消息段(条, '')
+      const 原始 = 段.文字.replace(/\s+/g, ' ').trim().slice(0, 200)
       const 补 = await 补上转发(配置, 段.文字, 段.转发们, 配置.私聊QQ)
       段.文字 = 补.文字
       段.图片们.push(...补.图片们)
@@ -8528,7 +8653,7 @@ export function apply(ctx) {
       const 文字 = 段.文字.length > 单条入站上限
         ? `${段.文字.slice(0, 单条入站上限)}…（这条太长，后面省略）`
         : 段.文字
-      return { 文字, 图片们: 段.图片们 }
+      return { 文字, 原始, 图片们: 段.图片们 }
     }
 
     /** 主人明确说“存这个 / 存下来”时，不等她开口，先在进模型的这一轮把图存进 QQ。 */
@@ -8573,6 +8698,7 @@ export function apply(ctx) {
         上次私聊时间 = 条.time || 上次私聊时间
         已转消息.add(条.message_id) // 展开转发要等网络，先记掉，下一轮别再拉同一条
         const 段 = await 条转文字(条)
+        if (段.原始 !== '') 记主人最近消息(`private:${她的号}`, { id: String(条.message_id), 文字: 段.原始, at: Number(条.time) || 0 })
         if (段.文字) {
           新消息.push(段.文字)
           主人消息们.push({
@@ -8612,6 +8738,7 @@ export function apply(ctx) {
         上次群时间 = 条.time || 上次群时间
         已转消息.add(条.message_id) // 展开转发要等网络，先记掉，下一轮别再拉同一条
         const 段 = await 条转文字(条)
+        if (段.原始 !== '') 记主人最近消息(`group:${配置.群号}`, { id: String(条.message_id), 文字: 段.原始, at: Number(条.time) || 0 })
         if (段.文字) 新消息.push(段.文字)
         if (段.图片们.length > 0 && 本轮图片 < 图片单条上限) {
           const 存 = await 收QQ图片(段.图片们, 图片单条上限 - 本轮图片)

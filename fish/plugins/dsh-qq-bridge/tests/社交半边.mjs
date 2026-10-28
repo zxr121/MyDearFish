@@ -747,7 +747,7 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
 报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('你说的是 xx 发的那张吗'))
-报('场景提示教她引用哪张用话说清、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('别写 [#编号] 这种编号当引用'))
+报('场景提示教她引用哪句用标记、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('[引用:那句原话]') && 社交文字.includes('别写 [#编号] 当引用'))
 报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
 报('场景提示要求接图的意思而不是念图', 社交文字.includes('不是让你念图') && 社交文字.includes('别报发色、配色、耳朵、眼睛') && 社交文字.includes('照问照答'))
 报('场景提示禁止自导自演', 社交文字.includes('别自导自演') && 社交文字.includes('没有前文支撑'))
@@ -1408,6 +1408,44 @@ const 主动戳 = 发的.slice(戳前).find((x) => x.url.endsWith('/group_poke')
 const 戳后文字 = 发的.slice(戳前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
 报('她说 [戳人:QQ号] → 调 group_poke 戳那个人', 主动戳 && 主动戳.体.group_id === 1012 && 主动戳.体.user_id === 123456, JSON.stringify(主动戳))
 报('戳人标记本身不进群聊', 戳后文字.length === 1 && !JSON.stringify(戳后文字[0].体.message).includes('戳人'), JSON.stringify(戳后文字))
+
+// 她写 [引用:原话] → 回话挂 QQ 原生 reply 段，不是把标记当正文发出去
+时间偏移 += 11_000
+群消息表.set(1012, [
+  一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
+  一条群消息('引用这句话试试', { atSelf: true, id: 2751 }),
+])
+设判断([], false, 0.1, '不想接')
+await 轮询社交()
+await 等()
+const 她引用前 = 发的.length
+await 收到回复('session-qq-social-group-1012', '[引用:引用这句话试试] 这不就引上了哦')
+await new Promise((r) => setTimeout(r, 600))
+const 标记回 = 发的.slice(她引用前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
+报('她说 [引用:原话] → 第一条文字挂原生 reply 段，标记不进正文',
+  标记回.length === 1 && 标记回[0].体.message[0]?.type === 'reply' &&
+    标记回[0].体.message[0]?.data?.id === '2751' &&
+    标记回[0].体.message[1]?.type === 'text' && 标记回[0].体.message[1]?.data?.text === '这不就引上了哦',
+  JSON.stringify(标记回.map((x) => x.体.message)))
+
+// 引用的原话对不上 → 不硬挂引用，标记也不漏进群聊
+时间偏移 += 11_000
+群消息表.set(1012, [
+  一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
+  一条群消息('再随便说一句', { atSelf: true, id: 2752 }),
+])
+设判断([], false, 0.1, '不想接')
+await 轮询社交()
+await 等()
+const 落空前 = 发的.length
+await 收到回复('session-qq-social-group-1012', '[引用:没人说过的原话] 嗯嗯')
+await new Promise((r) => setTimeout(r, 600))
+const 落空回 = 发的.slice(落空前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
+报('引用的原话对不上 → 不硬挂引用，标记也不漏进群聊',
+  落空回.length === 1 && 落空回[0].体.message.every((b) => b.type !== 'reply') &&
+    落空回[0].体.message[0]?.data?.text === '嗯嗯' &&
+    !JSON.stringify(落空回[0].体.message).includes('引用:'),
+  JSON.stringify(落空回.map((x) => x.体.message)))
 
 // ---------- 13b 引用别人 / @ 别人：不插话；直接叫到她时才带上被引用的原话 ----------
 写配置({ 群: ['1044'], 冷却秒: 0, 判断冷却秒: 0, 旁听: true })
