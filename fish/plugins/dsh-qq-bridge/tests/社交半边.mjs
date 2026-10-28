@@ -1337,6 +1337,11 @@ await 等()
   String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '').includes('[引用你：吱]') &&
     String(回合.at(-1)?.message.content[0].text || '').includes('[引用你：吱]'))
 await 收到回复('session-qq-social-group-1012', '怎么啦')
+const 回复前一发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012).at(-1)
+报('回带引用的消息：第一条文字挂原生 reply 段',
+  回复前一发 && Array.isArray(回复前一发.体.message) && 回复前一发.体.message[0]?.type === 'reply' &&
+    回复前一发.体.message[0]?.data?.id === '4242' && 回复前一发.体.message[1]?.data?.text === '怎么啦',
+  JSON.stringify(回复前一发))
 
 时间偏移 += 11_000
 群消息表.set(1012, [
@@ -1365,6 +1370,44 @@ await 等()
 报('被 @ 判断不想接也必须回', 判断调用.length === 判断之前13c + 1 && 回合.length === 之前13 + 3, '回合=' + (回合.length - 之前13))
 报('被 @ 的消息带进了回话批次', String(回合.at(-1)?.message.content[0].text || '').includes('再说一句'))
 await 收到回复('session-qq-social-group-1012', '嗯嗯')
+
+// 连发多条时 reply 段只挂第一条
+时间偏移 += 11_000
+群消息表.set(1012, [
+  一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
+  一条群消息('回复一下这条', { replyId: 4242, id: 2302 }),
+  一条群消息('没人叫她的新消息', { id: 2304 }),
+  一条群消息('大肥鱼 再回这条', { atSelf: true, id: 2305 }),
+  一条群消息('这条也回复', { replyId: 4242, id: 2601 }),
+])
+设判断([], false, 0.1, '不想接')
+await 轮询社交()
+await 等()
+const 多前 = 发的.length
+await 收到回复('session-qq-social-group-1012', '怎么啦\n\n还有一句')
+await new Promise((r) => setTimeout(r, 600))
+const 多回 = 发的.slice(多前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
+报('连发多条：reply 段只在第一条',
+  多回.length === 2 && 多回[0].体.message[0]?.type === 'reply' && 多回[0].体.message[0]?.data?.id === '4242' &&
+    多回[1].体.message.every((b) => b.type !== 'reply'),
+  JSON.stringify(多回.map((x) => x.体.message)))
+
+// 她写 [戳人:QQ号] → 调 group_poke 戳那个人，标记本身不进群聊
+时间偏移 += 11_000
+群消息表.set(1012, [
+  一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
+  一条群消息('大肥鱼 戳我一下', { atSelf: true, uid: 123456, id: 2602 }),
+])
+设判断([], false, 0.1, '不想接')
+await 轮询社交()
+await 等()
+const 戳前 = 发的.length
+await 收到回复('session-qq-social-group-1012', '在呢 [戳人:123456]')
+await new Promise((r) => setTimeout(r, 600))
+const 主动戳 = 发的.slice(戳前).find((x) => x.url.endsWith('/group_poke'))
+const 戳后文字 = 发的.slice(戳前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
+报('她说 [戳人:QQ号] → 调 group_poke 戳那个人', 主动戳 && 主动戳.体.group_id === 1012 && 主动戳.体.user_id === 123456, JSON.stringify(主动戳))
+报('戳人标记本身不进群聊', 戳后文字.length === 1 && !JSON.stringify(戳后文字[0].体.message).includes('戳人'), JSON.stringify(戳后文字))
 
 // ---------- 13b 引用别人 / @ 别人：不插话；直接叫到她时才带上被引用的原话 ----------
 写配置({ 群: ['1044'], 冷却秒: 0, 判断冷却秒: 0, 旁听: true })

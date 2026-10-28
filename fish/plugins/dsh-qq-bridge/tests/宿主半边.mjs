@@ -182,6 +182,9 @@ const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('
 报('拆连发项：纯表情也算一轮', JSON.stringify(模.拆连发项('[发表情:#7]')) === '[{"表情":7}]', JSON.stringify(模.拆连发项('[发表情:#7]')))
 报('拆连发项：只写 [#N] 的短写也按表情发，编号不进正文', JSON.stringify(模.拆连发项('aibo 存下的这就发 [#18]')) === '[{"文字":"aibo 存下的这就发"},{"表情":18}]', JSON.stringify(模.拆连发项('aibo 存下的这就发 [#18]')))
 报('拆连发项：被截断的半个 [# 不发出去', JSON.stringify(模.拆连发项('来了[#18')) === '[{"文字":"来了"}]', JSON.stringify(模.拆连发项('来了[#18')))
+报('拆连发项：[戳人:QQ号] 按戳人排进队列', JSON.stringify(模.拆连发项('在呢 [戳人:123456]')) === '[{"文字":"在呢"},{"戳人":"123456"}]', JSON.stringify(模.拆连发项('在呢 [戳人:123456]')))
+报('拆连发项：一轮只留第一个戳，多写的不进正文', JSON.stringify(模.拆连发项('[戳人:123456] 戳你 [戳人:654321]')) === '[{"戳人":"123456"},{"文字":"戳你"}]', JSON.stringify(模.拆连发项('[戳人:123456] 戳你 [戳人:654321]')))
+报('拆连发项：号码太短的 [戳人:] 不当标记', JSON.stringify(模.拆连发项('[戳人:123]')) === '[{"文字":"[戳人:123]"}]', JSON.stringify(模.拆连发项('[戳人:123]')))
 报('收句号：句尾收掉、句中变空格', 模.收句号('今天好累。我先睡啦。') === '今天好累 我先睡啦', JSON.stringify(模.收句号('今天好累。我先睡啦。')))
 报('收句号：问号、感叹号、省略号不动', 模.收句号('真的吗？好耶！等我……') === '真的吗？好耶！等我……')
 报('收句号：引号前的句号也收', 模.收句号('他说「好。」') === '他说「好」', JSON.stringify(模.收句号('他说「好。」')))
@@ -486,6 +489,29 @@ await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET', s
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/save')(造请求({ 总开关: true }, { method: 'GET' }), fakeRes)
 报('/save 只收 POST', 存储[0] && 存储[0].ok === false && String(存储[0].说).includes('POST'), JSON.stringify(存储[0]))
+
+// ⑧a2 /poke：私聊 / 群聊各走 OneBot 的 friend_poke / group_poke，号码不对不发
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
+}, null, 2), 'utf8')
+const 戳前 = 发了.length
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/poke')(造请求({ 场景: 'private', 号: '123456' }), fakeRes)
+const 私戳 = 发了.slice(戳前).at(-1)
+报('/poke：私聊戳走 friend_poke', 存储[0] && 存储[0].ok === true && 私戳 && 私戳.url.endsWith('/friend_poke') && 私戳.体.user_id === 123456, JSON.stringify({ 回: 存储[0], 发: 私戳 }))
+const 戳前群 = 发了.length
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/poke')(造请求({ 场景: 'group', 号: '123456', 群号: '200100' }), fakeRes)
+const 群戳 = 发了.slice(戳前群).at(-1)
+报('/poke：群聊戳走 group_poke', 存储[0] && 存储[0].ok === true && 群戳 && 群戳.url.endsWith('/group_poke') && 群戳.体.user_id === 123456 && 群戳.体.group_id === 200100, JSON.stringify({ 回: 存储[0], 发: 群戳 }))
+const 戳前坏 = 发了.length
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/poke')(造请求({ 场景: 'private', 号: 'abc' }), fakeRes)
+报('/poke：号码不对不发', 存储[0] && 存储[0].ok === false && 发了.length === 戳前坏, JSON.stringify(存储[0]))
+const 戳前空群 = 发了.length
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/poke')(造请求({ 场景: 'group', 号: '123456' }), fakeRes)
+报('/poke：群聊缺群号不发', 存储[0] && 存储[0].ok === false && 发了.length === 戳前空群, JSON.stringify(存储[0]))
 
 // ⑧b 手动测试句也走脱敏：服务不可用就不发
 鱼脑状态.可用 = false
