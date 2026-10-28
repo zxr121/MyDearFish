@@ -18,6 +18,8 @@ Status: implemented
 
 DeepSeek 把投影后的更新转换为 system 角色的 `tool_addition` 和 `tool_removal` 块以及 `defer_loading` 声明，在存在更新块时发送工具变更 beta 请求头。默认 `deepseek-flash` 条目声明 `addition-only`；pi-ai 不声明模式。Chat 和 Trajectory 将 developer 消息显示为上下文节点，工具变更使用本地化通知：单项变更显示工具名，多项变更显示数量及可展开的名称列表。
 
+模型拒绝全部延迟的声明列表，因此全延迟的投影会把第一个有效声明提升为立即可用，并停止应用该工具已记录的添加和移除。没有有效工具时，则丢弃延迟声明及其更新块。
+
 ## Alternatives considered
 
 **在请求头存储提供方声明。** 为提供方保留的已移除定义不是有效工具。混合两种含义会使持久更新依赖能力，并破坏变更检测。

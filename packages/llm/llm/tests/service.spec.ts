@@ -239,8 +239,9 @@ describe('LlmRuntime', () => {
         tools: [search],
         toolHistory: { tools: [], updates: [{ messageId: added.id, additions: [search] }] },
       }))
-      expect(adapter.lastOptions?.tools).toEqual([{ ...search, deferLoading: true }])
-      expect(adapter.lastOptions?.messages).toEqual([added])
+      // A series with no immediately available tool promotes the first active declaration.
+      expect(adapter.lastOptions?.tools).toEqual([search])
+      expect(adapter.lastOptions?.messages).toEqual([])
 
       const afterRemoval = await ctx.llm.prepareCall({ provider: 'test-provider', model: 'test-model' })
       await collect(afterRemoval.stream({
@@ -252,13 +253,9 @@ describe('LlmRuntime', () => {
           { messageId: removed.id, additions: [] },
         ] },
       }))
-      if (mode === 'in-history') {
-        expect(adapter.lastOptions?.tools).toEqual([{ ...search, deferLoading: true }])
-        expect(adapter.lastOptions?.messages).toEqual([added, removed])
-      } else {
-        expect(adapter.lastOptions?.tools).toEqual([])
-        expect(adapter.lastOptions?.messages).toEqual([])
-      }
+      // Without an active tool, the deferred retained declaration and its updates are dropped.
+      expect(adapter.lastOptions?.tools).toEqual([])
+      expect(adapter.lastOptions?.messages).toEqual([])
     } finally {
       await ctx.fiber.dispose()
     }

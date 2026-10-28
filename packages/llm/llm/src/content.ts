@@ -415,9 +415,38 @@ function toolDeclarations(
 }
 
 /**
+ * Make the first active declaration immediately available when the projection
+ * would defer every declared tool, a list providers reject. A series with no
+ * active tool cannot offer one, so its retained declarations are dropped.
+ * @param declarations - projected declarations, mutated in place.
+ * @param tools - currently active tool schemas, in model presentation order.
+ * @returns the promoted tool, whose recorded additions and removals must stop applying.
+ */
+function promoteImmediateTool(
+  declarations: Map<string, ToolSchema>,
+  tools: readonly ToolSchema[] | undefined,
+): string | undefined {
+  if (declarations.size === 0) return undefined
+  for (const tool of declarations.values()) {
+    if (tool.deferLoading !== true) return undefined
+  }
+  for (const tool of tools ?? []) {
+    const declared = declarations.get(tool.name)
+    if (declared === undefined) continue
+    const { deferLoading: _deferred, ...immediate } = declared
+    declarations.set(tool.name, immediate)
+    return tool.name
+  }
+  declarations.clear()
+  return undefined
+}
+
+/**
  * Construct provider declarations from session-folded history without changing logged active tools.
  * Unsupported routes and incomplete history use current declarations without developer updates.
  * Explicitly deferred baseline tools become available only after their first retained addition.
+ * An entirely deferred series promotes its first active declaration, because providers
+ * reject a tool list without an immediately available entry.
  * @param messages - complete request inputs, or the prefix selected for an auxiliary call.
  * @param tools - currently active tool schemas.
  * @param toolUpdate - the resolved route's update mode.
@@ -450,9 +479,12 @@ export function projectToolUpdates(
   }
 
   const declarations = toolDeclarations(tools, toolUpdate, history)
+  const promoted = promoteImmediateTool(declarations, tools)
   const updateIds = new Set(history.updates.map(update => update.messageId))
   // Deferred baseline tools still need their first addition to become available.
   const offered = new Set(history.tools.filter(tool => !tool.deferLoading).map(tool => tool.name))
+  // A promoted tool is offered from the start; its recorded changes no longer apply.
+  if (promoted !== undefined) offered.add(promoted)
   const projectedMessages: RequestMessage[] = []
   for (const message of messages) {
     if (message.role !== 'developer') {
@@ -472,6 +504,8 @@ export function projectToolUpdates(
         case 'tool-removal':
           // Addition-only routes cannot deactivate a tool through history.
           if (toolUpdate !== 'in-history') return false
+          // A promoted tool stays available; its removals have no declaration change to undo.
+          if (block.toolName === promoted) return false
           return offered.delete(block.toolName)
         default:
           // Other core and plugin-defined blocks retain their content and order.

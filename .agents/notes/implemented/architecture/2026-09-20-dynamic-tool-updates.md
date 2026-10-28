@@ -18,6 +18,8 @@ Loop and compaction requests carry this snapshot as `GenerateOptions.toolHistory
 
 DeepSeek translates projected updates into system-role `tool_addition` and `tool_removal` blocks and `defer_loading` declarations, sending the tool-changes beta header when update blocks occur. The default `deepseek-flash` entry declares `addition-only`; pi-ai declares no mode. Chat and Trajectory display developer messages as context nodes, using localized tool-change notices: single changes show the tool name; multiple changes show counts and expandable name lists.
 
+Because models reject a declaration list that defers every tool, an all-deferred projection promotes its first active declaration and stops applying that tool's recorded additions and removals. With no active tool it drops the deferred declarations and their update blocks.
+
 ## Alternatives considered
 
 **Store provider declarations in headers.** Retained removed definitions are not active tools. Mixing those meanings makes durable updates capability-dependent and breaks change detection.

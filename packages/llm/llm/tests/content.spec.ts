@@ -453,19 +453,59 @@ describe('projectToolUpdates', () => {
     const duplicate = developer([{ type: 'tool-addition', toolName: 'search' }])
     const removed = developer([{ type: 'tool-removal', toolName: 'search' }])
     const restored = developer([{ type: 'tool-addition', toolName: 'search' }])
-    const history: ToolHistory = { tools: [deferred], updates: [
+    const history: ToolHistory = { tools: [fetch, deferred], updates: [
       { messageId: added.id, additions: [deferred] },
       { messageId: duplicate.id, additions: [deferred] },
       { messageId: removed.id, additions: [] },
       { messageId: restored.id, additions: [deferred] },
     ] }
 
-    const projected = projectToolUpdates([prompt, added, duplicate, removed, restored], [deferred], mode, history)
+    const projected = projectToolUpdates([prompt, added, duplicate, removed, restored], [fetch, deferred], mode, history)
 
-    expect(projected.tools).toEqual([deferred])
+    expect(projected.tools).toEqual([fetch, deferred])
     expect(projected.messages).toEqual(mode === 'in-history'
       ? [prompt, added, removed, restored]
       : [prompt, added])
+  })
+
+  it.each(['addition-only', 'in-history'] as const)('offers the first active addition when every declaration is deferred on %s routes', (mode) => {
+    const added = developer([{ type: 'tool-addition', toolName: 'search' }, { type: 'tool-addition', toolName: 'fetch' }])
+    const history: ToolHistory = { tools: [], updates: [{ messageId: added.id, additions: [search, fetch] }] }
+
+    const projected = projectToolUpdates([prompt, added, prompt], [search, fetch], mode, history)
+
+    expect(projected.tools).toEqual([search, { ...fetch, deferLoading: true }])
+    expect(roles(projected.messages)).toEqual([[{ type: 'tool-addition', toolName: 'fetch' }]])
+  })
+
+  it('keeps a promoted tool available across its recorded removals', () => {
+    const added = developer([{ type: 'tool-addition', toolName: 'fetch' }])
+    const removed = developer([{ type: 'tool-removal', toolName: 'fetch' }])
+    const restored = developer([{ type: 'tool-addition', toolName: 'fetch' }])
+    const history: ToolHistory = { tools: [], updates: [
+      { messageId: added.id, additions: [fetch] },
+      { messageId: removed.id, additions: [] },
+      { messageId: restored.id, additions: [fetch] },
+    ] }
+
+    const projected = projectToolUpdates([prompt, added, prompt, removed, prompt, restored, prompt], [fetch], 'in-history', history)
+
+    expect(projected.tools).toEqual([fetch])
+    expect(projected.messages).toEqual([prompt, prompt, prompt, prompt])
+  })
+
+  it('drops an entirely deferred retained declaration list when no tool is active', () => {
+    const added = developer([{ type: 'tool-addition', toolName: 'fetch' }, { type: 'text', text: 'keep me' }])
+    const removed = developer([{ type: 'tool-removal', toolName: 'fetch' }])
+    const history: ToolHistory = { tools: [], updates: [
+      { messageId: added.id, additions: [fetch] },
+      { messageId: removed.id, additions: [] },
+    ] }
+
+    const projected = projectToolUpdates([prompt, added, prompt, removed, prompt], [], 'in-history', history)
+
+    expect(projected.tools).toEqual([])
+    expect(roles(projected.messages)).toEqual([[{ type: 'text', text: 'keep me' }]])
   })
 
   it('uses current declarations without updates when history is missing or the prefix omits an update', () => {
@@ -518,9 +558,9 @@ describe('projectToolUpdates', () => {
     expect(projected.tools).toEqual([])
     expect(projected.messages).toEqual([prompt, prompt, prompt])
     const partial = projectToolUpdates([prompt, swapped, prompt], [fetch], 'addition-only', { tools: [search], updates: [history.updates[0]!] })
-    expect(partial.tools).toEqual([{ ...fetch, deferLoading: true }])
-    expect(partial.messages[1]).not.toBe(swapped)
-    expect(roles(partial.messages)).toEqual([[{ type: 'tool-addition', toolName: 'fetch' }]])
+    // Omitting every inactive declaration leaves nothing immediately available, so fetch is promoted.
+    expect(partial.tools).toEqual([fetch])
+    expect(partial.messages).toEqual([prompt, prompt])
   })
 
   it('re-offers an unchanged restored tool through its recorded blocks', () => {
