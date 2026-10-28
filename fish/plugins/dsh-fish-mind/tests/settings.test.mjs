@@ -118,7 +118,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 16)
+  assert.equal(routes.length, 17)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -219,6 +219,31 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.equal(longPhrase.res.status, 400)
   assert.match(longPhrase.json.error, /最多 200 字/)
   assert.equal((await call(routes, '/dsh-fish-mind/phrases', { method: 'GET' })).res.status, 405)
+
+  const badDeveloper = await call(routes, '/dsh-fish-mind/developer', {
+    method: 'POST',
+    body: { enabled: 'yes' },
+  })
+  assert.equal(badDeveloper.res.status, 400)
+  assert.match(badDeveloper.json.error, /enabled/)
+  assert.equal((await call(routes, '/dsh-fish-mind/developer', { method: 'GET' })).res.status, 405)
+  const developerOn = await call(routes, '/dsh-fish-mind/developer', {
+    method: 'POST',
+    body: { enabled: true },
+  })
+  assert.equal(developerOn.res.status, 200)
+  assert.equal(developerOn.json.developer.enabled, true)
+  assert.equal(developerOn.json.permissions.developer.enabled, true)
+  assert.equal((await call(routes, '/dsh-fish-mind/overview')).json.boundaries.permissions.developer, true)
+  const savedDeveloper = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'config.json'), 'utf8'))
+  assert.equal(savedDeveloper.developer.enabled, true)
+  assert.equal(savedDeveloper.phrases.privateDodge, '这个我私下讲', '只改 developer，其它配置原样保留')
+  const developerOff = await call(routes, '/dsh-fish-mind/developer', {
+    method: 'POST',
+    body: { enabled: false },
+  })
+  assert.equal(developerOff.res.status, 200)
+  assert.equal(developerOff.json.permissions.developer.enabled, false)
 
   const badBackupEnabled = await call(routes, '/dsh-fish-mind/backup/config', {
     method: 'POST',
@@ -330,7 +355,7 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 16)
+  assert.equal(routes.length, 17)
 
   const search = await call(routes, '/dsh-fish-mind/memes', {
     url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&page=1&pageSize=5',

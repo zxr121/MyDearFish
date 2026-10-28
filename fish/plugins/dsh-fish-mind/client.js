@@ -5,6 +5,7 @@
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
  *   · 性格人设：整段人设前缀，保存后热应用；
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
+ *   · 开发者模式：只读查看本机调试资料的开关，以及一个创造模式调试会话的入口；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
  *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼；
@@ -243,7 +244,7 @@ window.__ModuleLoader__.load({
           : null)
     }
 
-    function Panel() {
+    function Panel({ close, openDevSession }) {
       const [data, setData] = React.useState(null)
       const [form, setForm] = React.useState(null)
       const [persona, setPersona] = React.useState(null)
@@ -256,6 +257,7 @@ window.__ModuleLoader__.load({
       const [phraseBusy, setPhraseBusy] = React.useState(false)
       const [backupForm, setBackupForm] = React.useState(null)
       const [backupBusy, setBackupBusy] = React.useState('')
+      const [devBusy, setDevBusy] = React.useState(false)
       const [ttsPanelBusy, setTtsPanelBusy] = React.useState(false)
       const [restartPrompt, setRestartPrompt] = React.useState(null)
       const fileRef = React.useRef(null)
@@ -336,6 +338,36 @@ window.__ModuleLoader__.load({
         } finally {
           setTtsPanelBusy(false)
         }
+      }
+
+      const toggleDeveloper = async (next) => {
+        if (devBusy) return
+        setDevBusy(true)
+        try {
+          await postJson(API + '/developer', { enabled: next === true })
+          await load()
+          flash(next === true ? '开发者模式已打开：她现在可以只读查看 DSH 目录' : '开发者模式已关闭')
+        } catch (error) {
+          flash('没改成：' + String((error && error.message) || error), 'error')
+        } finally {
+          setDevBusy(false)
+        }
+      }
+
+      // 创造模式会话由宿主组合：新开一个空白会话，预设换成 cordis，鱼的人设和记忆照常跟着。
+      const startDevSession = () => {
+        let opened = false
+        try {
+          opened = typeof openDevSession === 'function' && openDevSession() === true
+        } catch (error) {
+          flash('建会话没成功：' + String((error && error.message) || error), 'error')
+          return
+        }
+        if (!opened) {
+          flash('这个宿主没有打开会话的入口，没法新建创造模式会话', 'error')
+          return
+        }
+        if (typeof close === 'function') close()
       }
 
       React.useEffect(() => {
@@ -661,6 +693,34 @@ window.__ModuleLoader__.load({
             h('div', { 'data-fishm-name': '' }, identity.name || '大肥鱼'),
             h('div', { 'data-fishm-sub': '' }, `${identity.species || '鲸鱼娘'} · 出生设定更新于 ${when(identity.updatedAt)}`)),
           h('div', { 'data-fishm-phase': '' }, data.phase || '')),
+
+        h(Section, {
+          title: '开发者模式',
+          note: '给她一条只读的调试通道：在你自己的会话里查看 DSH 目录里的日志、配置和会话记录。凭据、身份文件、写入、shell 和群聊会话仍然拒绝，每次读取都记进审计。',
+        },
+          h('label', { 'data-fishm-check': '' },
+            h('input', {
+              type: 'checkbox',
+              checked: permissions.developer === true,
+              disabled: devBusy,
+              onChange: () => toggleDeveloper(permissions.developer !== true),
+            }),
+            devBusy
+              ? '正在切换…'
+              : permissions.developer === true
+                ? '已打开：她自己的前台会话可以只读查看 DSH 目录'
+                : '关着：她读不了 DSH 目录'),
+          h('div', { 'data-fishm-actions': '' },
+            h('button', {
+              'data-fishm-btn': '',
+              'data-primary': '',
+              type: 'button',
+              onClick: startDevSession,
+            }, '用创造模式开一个调试会话'),
+            h('span', { 'data-fishm-note': '' },
+              '新会话会换成创造模式，她的性格和记忆照常带着；排查完记得把开发者模式关掉。')),
+          h('div', { 'data-fishm-note': '' },
+            '创造模式自带的改代码、写文件能力来自宿主预设，不受这个开关限制；这个开关只管她能不能读 DSH 里的调试资料。')),
 
         h(Section, {
           title: '出生设定',
@@ -1020,6 +1080,7 @@ window.__ModuleLoader__.load({
           h('summary', {}, '边界'),
           h('div', { 'data-fishm-sec': '' },
             h(Row, { label: '权限层', value: `${permissions.enabled ? '开' : '关'} · 急停 ${permissions.emergencyStop ? '已按下' : '未按'} · 后台会话 ${permissions.autonomous ? '放行' : '全拒'}` }),
+            h(Row, { label: '开发者模式', value: permissions.developer ? '开 · 仅主人前台会话只读 DSH 目录' : '关' }),
             h(Row, { label: '受保护路径', value: `只读 ${num(permissions.protectedReadPaths)} 处 · 只写 ${num(permissions.protectedWritePaths)} 处 · 鱼脑封存 ${num(permissions.sealedPaths)} 处` }),
             h(Row, { label: '外部 MCP', value: `${num(permissions.mcpReadOnlyTools)} 类只读动作；其他默认拒绝` }),
             h(Row, { label: '硬拒绝', value: hardText.join(' · ') || '—' }),
@@ -1722,7 +1783,15 @@ window.__ModuleLoader__.load({
 
         slots.inject('settings.section', () => slots.register(
           { name: 'settings.section', id: 'fish', order: 20, label: '大肥鱼' },
-          () => h(Panel),
+          (props) => h(Panel, {
+            close: props && props.close,
+            openDevSession: () => {
+              const workspace = typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined
+              if (!workspace || typeof workspace.startSession !== 'function') return false
+              workspace.startSession(undefined, { clearPreviousDraft: false, agentPreset: 'cordis' })
+              return true
+            },
+          }),
         ))
         slots.inject('settings.section', () => slots.register(
           { name: 'settings.section', id: 'fish-memes', order: 22, label: '梗百科' },

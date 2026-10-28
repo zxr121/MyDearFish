@@ -1121,6 +1121,45 @@ test('社交会话只挂记忆提示，不注册记忆工具', async () => {
   ctx.dispose()
 })
 
+test('开发者模式提示只挂主人会话，群聊和关着时都不注入', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true, developer: { enabled: true } })
+  const ctx = fakeContext()
+  const entries = []
+  ctx.set('systemPrompt', {
+    context(entry) {
+      entries.push(entry)
+      return () => {}
+    },
+  })
+  ctx.set('tools', { register() { return () => {} } })
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+
+  const owner = { session: session('session-owner'), ctx }
+  agents.push(owner)
+  await ctx.emit('agent/created', { agent: owner })
+  const devEntry = entries.find((entry) => entry.name === 'fish-mind-developer')
+  assert.ok(devEntry)
+  assert.equal(devEntry.order, 933)
+  assert.ok(devEntry.text().includes(home), '提示里给出 DSH 目录，她才知道去哪读')
+  assert.ok(devEntry.text().includes('只读查看'))
+
+  const before = entries.length
+  const social = { session: session('session-qq-social-group-7'), ctx }
+  agents.push(social)
+  await ctx.emit('agent/created', { agent: social })
+  const socialDev = entries.slice(before).find((entry) => entry.name === 'fish-mind-developer')
+  assert.equal(socialDev.text(), '', '群聊会话不注入开发者模式')
+
+  writeConfig(home, { mode: 'live', inject: true, developer: { enabled: false } })
+  ctx.get('fishMind').reload()
+  assert.equal(devEntry.text(), '', '关掉开关后下一轮就不再注入')
+  ctx.dispose()
+})
+
 test('梗百科按语境预查：主人聊天里认梗，社交会话用群里的说法，难过时不插', async () => {
   const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   process.env.DSH_HOME = home

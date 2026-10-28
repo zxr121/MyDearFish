@@ -12,9 +12,20 @@ function makeBroker(overrides = {}) {
   const config = buildDefaults(dshHome)
   Object.assign(config.permissions, overrides.permissions || {})
   if (overrides.autonomous) Object.assign(config.permissions.autonomous, overrides.autonomous)
+  if (typeof overrides.developer === 'boolean') config.developer.enabled = overrides.developer
   const audits = []
   const privacy = createPrivacyGuard({ dshHome })
-  const broker = createBroker({ config, dshHome, audit: (entry) => audits.push(entry), privacy })
+  const broker = createBroker({
+    config,
+    dshHome,
+    audit: (entry) => audits.push(entry),
+    privacy,
+    isOwnerSession: (exec) => {
+      const session = exec && exec.agent && exec.agent.session
+      if (!session) return false
+      return !String(session.id).startsWith('qq-social-')
+    },
+  })
   return { broker, config, dshHome, audits }
 }
 
@@ -214,6 +225,74 @@ test('后台即使放行 read，也不能读 .env', () => {
   const verdict = broker.evaluate(exec('read', { file_path: join(workspace, '.env') }, { sessionId: 'life-1' }))
   assert.equal(verdict.decision, 'deny')
   assert.equal(verdict.rule, 'private.credential-file')
+})
+
+test('开发者模式默认关着，DSH 目录照旧拒绝', () => {
+  const { broker, dshHome } = makeBroker()
+  const verdict = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }))
+  assert.equal(verdict.decision, 'deny')
+  assert.equal(verdict.rule, 'private.dsh-home')
+  assert.equal(broker.describe().developer.enabled, false)
+})
+
+test('开发者模式打开后，主人前台会话可以只读 DSH 目录，并留审计', () => {
+  const { broker, dshHome, audits } = makeBroker({ developer: true })
+  assert.equal(broker.describe().developer.enabled, true)
+  const call = exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') })
+  const verdict = broker.evaluate(call)
+  assert.equal(verdict.decision, 'allow')
+  assert.equal(verdict.rule, 'developer.read')
+  broker.record(call, verdict)
+  assert.equal(audits.length, 1)
+  assert.equal(audits[0].rule, 'developer.read')
+  assert.equal(audits[0].session, 'session-1')
+
+  const grep = broker.evaluate(exec('grep', { pattern: 'error', path: join(dshHome, 'fish-mind', 'diag.log') }))
+  assert.equal(grep.decision, 'allow')
+  assert.equal(grep.rule, 'developer.read')
+
+  // 读 DSH 目录以外的普通文件仍走普通前台放行，不冒充开发者读取。
+  const normal = broker.evaluate(exec('read', { file_path: join(process.cwd(), 'README.md') }))
+  assert.equal(normal.rule, 'foreground.allow')
+})
+
+test('开发者模式不放行写入、shell、凭据和身份文件', () => {
+  const { broker, dshHome } = makeBroker({ developer: true })
+  const write = broker.evaluate(exec('write', { file_path: join(dshHome, 'storages', 'x.json'), content: 'x' }))
+  assert.equal(write.decision, 'deny')
+  assert.equal(write.rule, 'private.dsh-home')
+
+  const edit = broker.evaluate(exec('edit', { file_path: join(dshHome, 'notes.txt'), old_string: 'a', new_string: 'b' }))
+  assert.equal(edit.decision, 'deny')
+  assert.equal(edit.rule, 'private.dsh-home')
+
+  const credentials = broker.evaluate(exec('read', { file_path: join(dshHome, '.credentials.yaml') }))
+  assert.equal(credentials.decision, 'deny')
+  assert.equal(credentials.rule, 'private.credential-store')
+
+  const env = broker.evaluate(exec('read', { file_path: join(dshHome, '.env') }))
+  assert.equal(env.decision, 'deny')
+  assert.equal(env.rule, 'private.credential-file')
+
+  const shell = broker.evaluate(exec('bash', { command: `cat "${join(dshHome, 'storages', 'x.json')}"` }))
+  assert.equal(shell.decision, 'deny')
+  assert.equal(shell.rule, 'private.command')
+
+  const anonymous = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { agent: false }))
+  assert.equal(anonymous.decision, 'deny')
+  assert.equal(anonymous.rule, 'private.dsh-home')
+})
+
+test('开发者模式不覆盖群聊和后台会话', () => {
+  const { broker, dshHome } = makeBroker({ developer: true })
+  const social = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { sessionId: 'qq-social-group-1' }))
+  assert.equal(social.decision, 'deny')
+  assert.equal(social.rule, 'private.dsh-home')
+
+  broker.markAutonomous('life-1')
+  const autonomous = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { sessionId: 'life-1' }))
+  assert.equal(autonomous.decision, 'deny')
+  assert.equal(autonomous.rule, 'private.dsh-home')
 })
 
 test('外部 MCP 的只读工具放行，但要在审计里留痕', () => {

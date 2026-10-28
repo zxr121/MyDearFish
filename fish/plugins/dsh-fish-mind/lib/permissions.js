@@ -5,6 +5,8 @@
 //   · 外部 MCP 工具只有只读白名单里的能放行；发送、撤回、群管理一律硬拒绝。
 //   · 用户自己开的会话 —— 正常放行；但 DSH 目录、凭据目录、身份文件、
 //     探测本机的命令、不可逆的危险命令，以及参数里夹带真凭据的调用，一律拒绝。
+//   · 开发者模式（主人从设置页打开）—— 她自己的前台会话可以用读类工具只读查看
+//     DSH 目录里的日志、配置和会话；凭据、身份文件、写入、shell 和群聊会话照旧拒绝。
 //   · 她自己在后台开的会话 —— 默认全拒，只放行显式 allowTools，而且只能碰鱼脑目录。
 //   · 紧急停止 —— 所有工具调用全拒，聊天本身还在。
 //
@@ -20,6 +22,8 @@ import { summarize } from './sanitize.js'
 
 const SHELL_TOOLS = new Set(['bash', 'pwsh'])
 const WRITE_TOOLS = new Set(['write', 'edit'])
+// 开发者模式只放行这些纯读工具；shell、编辑器一类能改东西的工具不走这个口子。
+const READ_TOOLS = new Set(['read', 'glob', 'grep', 'read_image'])
 const PATH_KEYS = [
   'file_path',
   'path',
@@ -191,10 +195,18 @@ function collectStrings(value, out, depth = 0) {
 
 /**
  * 权限判定器。构造时把配置里的路径展开、规范化一次。
- * @param {object} options - `{ config, dshHome, audit, diag }`。
+ * @param {object} options - `{ config, dshHome, audit, diag, privacy, isOwnerSession }`；
+ *   `isOwnerSession(exec)` 判断这次调用是不是主人自己的前台会话（非群聊、非子代理）。
  * @returns {object} 判定器。
  */
-export function createBroker({ config, dshHome, audit = () => {}, diag = () => {}, privacy = null }) {
+export function createBroker({
+  config,
+  dshHome,
+  audit = () => {},
+  diag = () => {},
+  privacy = null,
+  isOwnerSession = () => false,
+}) {
   const readRoots = config.permissions.protectedReadPaths
     .map((value) => expandPath(value, { dshHome }))
     .map(fold)
@@ -258,6 +270,23 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
     if (target === homeRoot) return 'private.home-root'
     if (protectedRoots.some((root) => isInside(target, root))) return 'private.credential-store'
     // `.azure`、`.config/gcloud` 是目录，里面的文件同样算身份凭据。
+    for (const identity of identityPaths) {
+      if (isInside(target, identity)) return 'private.identity-file'
+    }
+    const name = basename(target)
+    if (namePatterns.some((item) => item.regex.test(name))) return 'private.credential-file'
+    const raw = String(pathValue).replace(/\\/g, '/').toLowerCase()
+    if (SYSTEM_IDENTITY_FILES.some((file) => raw === file.replace(/\\/g, '/').toLowerCase())) return 'private.identity-file'
+    return ''
+  }
+
+  /**
+   * 开发者模式下 DSH 目录里的路径按只读放行，但凭据、身份文件和敏感文件名照旧拒绝。
+   * 返回规则名；空串表示可以当作普通调试资料读取。
+   */
+  function developerPathRule(pathValue) {
+    const target = fold(pathValue)
+    if (protectedRoots.some((root) => isInside(target, root))) return 'private.credential-store'
     for (const identity of identityPaths) {
       if (isInside(target, identity)) return 'private.identity-file'
     }
@@ -353,11 +382,17 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
     const strings = []
     collectStrings(args, strings)
     const write = WRITE_TOOLS.has(exec?.name) || SHELL_TOOLS.has(exec?.name)
+    // 开发者模式只给主人自己的前台会话开一条只读缝：群聊、子代理、后台会话都不算。
+    const developerRead = config.developer.enabled === true
+      && READ_TOOLS.has(exec?.name)
+      && originOf(exec) === 'foreground'
+      && isOwnerSession(exec) === true
 
     let privatePath = null
     let privateRule = ''
     for (const pathValue of paths) {
-      const rule = privatePathRule(pathValue)
+      let rule = privatePathRule(pathValue)
+      if (rule === 'private.dsh-home' && developerRead) rule = developerPathRule(pathValue)
       if (rule !== '') {
         privatePath = pathValue
         privateRule = rule
@@ -376,10 +411,12 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
 
     const sealedPath = write ? paths.find((pathValue) => sealedRoots.some((root) => isInside(fold(pathValue), root))) : undefined
     const sealedCommand = commands.find((command) => sealedRoots.some((root) => shellTouchesRoot(command, root)))
+    const developer = developerRead && paths.some((pathValue) => isInside(fold(pathValue), dshRoot))
     return {
       paths,
       commands,
       write,
+      developer,
       private: privateRule !== '',
       privatePath,
       privateCommand,
@@ -475,6 +512,15 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
       return { ...base, decision: 'allow', reason: `外部服务「${mcp[1]}」的只读工具`, rule: 'external.mcp.read' }
     }
 
+    if (inspection.developer) {
+      return {
+        ...base,
+        decision: 'allow',
+        reason: '开发者模式：只读查看 DSH 目录里的日志、配置和会话；凭据、身份文件和写入仍然拒绝。',
+        rule: 'developer.read',
+      }
+    }
+
     return { ...base, decision: 'allow', reason: '用户会话正常放行', rule: 'foreground.allow' }
   }
 
@@ -492,9 +538,9 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
     return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`
   }
 
-  /** 记录一次判定；前台普通 allow 不记，避免审计被正常操作淹没，但从外部服务取数据要留痕。 */
+  /** 记录一次判定；前台普通 allow 不记，避免审计被正常操作淹没，但从外部服务取数据或开发者模式读调试资料要留痕。 */
   function record(exec, verdict, downstream = 'allow') {
-    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read'
+    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read' || verdict.rule === 'developer.read'
     if (verdict.decision === 'allow' && !notable) return
     audit({
       at: Date.now(),
@@ -531,9 +577,10 @@ export function createBroker({ config, dshHome, audit = () => {}, diag = () => {
         protectedWritePaths: config.permissions.protectedWritePaths,
         protectedNamePatterns: config.permissions.protectedNamePatterns,
         mcpReadOnlyTools: [...config.permissions.mcpReadOnlyTools],
+        developer: { enabled: config.developer.enabled === true },
         sealedWritePaths: sealedRoots,
         hard: {
-          dshHome: true,
+          dshHome: config.developer.enabled !== true,
           credentialStores: protectedRoots.length,
           identityFiles: identityPaths.size + SYSTEM_IDENTITY_FILES.length,
           machineProbes: true,

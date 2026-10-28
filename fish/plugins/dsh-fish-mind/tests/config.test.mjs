@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildDefaults, expandPath, loadConfig, normalizeConfig, saveBackup, BACKUP_INTERVAL_MAX, BACKUP_INTERVAL_MIN } from '../lib/config.js'
+import { buildDefaults, expandPath, loadConfig, normalizeConfig, saveBackup, saveDeveloper, BACKUP_INTERVAL_MAX, BACKUP_INTERVAL_MIN } from '../lib/config.js'
 
 function tempHome() {
   return mkdtempSync(join(tmpdir(), 'fish-mind-config-'))
@@ -324,6 +324,34 @@ test('~ 和 $DSH_HOME 会展开', () => {
   assert.equal(expandPath('~/x', { dshHome: home }), join(homedir(), 'x'))
   assert.equal(expandPath('$DSH_HOME/x', { dshHome: home }), join(home, 'x'))
   assert.equal(expandPath('${DSH_HOME}/x', { dshHome: home }), join(home, 'x'))
+})
+
+test('开发者模式默认关，坏值退回默认，保存只改这一项', () => {
+  const home = tempHome()
+  assert.deepEqual(buildDefaults(home).developer, { enabled: false })
+  assert.equal(normalizeConfig({ developer: { enabled: true } }, { dshHome: home }).developer.enabled, true)
+  assert.equal(normalizeConfig({ developer: { enabled: 'yes' } }, { dshHome: home }).developer.enabled, false)
+  const lines = []
+  assert.equal(normalizeConfig({ developer: [] }, { dshHome: home, diag: (line) => lines.push(line) }).developer.enabled, false)
+  assert.ok(lines.some((line) => line.includes('developer 不是对象')))
+
+  mkdirSync(join(home, 'fish-mind'), { recursive: true })
+  const path = join(home, 'fish-mind', 'config.json')
+  writeFileSync(path, JSON.stringify({ mode: 'shadow', developer: { enabled: false, note: 'keep' }, private: true }), 'utf8')
+  assert.deepEqual(saveDeveloper({ dshHome: home, enabled: true }), { enabled: true })
+  const raw = JSON.parse(readFileSync(path, 'utf8'))
+  assert.equal(raw.mode, 'shadow')
+  assert.equal(raw.private, true)
+  assert.equal(raw.developer.enabled, true)
+  assert.equal(raw.developer.note, 'keep')
+
+  writeFileSync(path, '{ 坏 JSON', 'utf8')
+  assert.throws(() => saveDeveloper({ dshHome: home, enabled: false }), (error) => {
+    assert.equal(error.statusCode, 400)
+    assert.match(error.message, /不是合法 JSON/)
+    return true
+  })
+  assert.equal(readFileSync(path, 'utf8'), '{ 坏 JSON')
 })
 
 test('自动备份默认开、默认 24 小时，坏值退回或夹到边界', () => {

@@ -252,6 +252,7 @@ function boundariesOverview(permissions, privacy, injection) {
       protectedWritePaths: Array.isArray(permissionInfo.protectedWritePaths) ? permissionInfo.protectedWritePaths.length : 0,
       sealedPaths: Array.isArray(permissionInfo.sealedWritePaths) ? permissionInfo.sealedWritePaths.length : 0,
       mcpReadOnlyTools: Array.isArray(permissionInfo.mcpReadOnlyTools) ? permissionInfo.mcpReadOnlyTools.length : 0,
+      developer: isPlainObject(permissionInfo.developer) ? permissionInfo.developer.enabled === true : false,
       autonomous: isPlainObject(permissionInfo.autonomous) ? permissionInfo.autonomous.enabled === true : false,
       hard: isPlainObject(permissionInfo.hard) ? permissionInfo.hard : {},
     },

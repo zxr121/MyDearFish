@@ -2,7 +2,7 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, and automatic backup are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
+The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, developer mode, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, automatic backup, and the developer-mode switch are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and when the format is wrong or the fish already has experiences, mood, or people, no file is written.
 
 ## Overview
 
@@ -20,11 +20,20 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; a closed voice card can be shown again here; addresses, tokens, and login state are not shown | Card visibility only |
 | Pocket money | Daily grant, available balance, spent today, and call count; Bilibili patrol spend today and its quarter-of-the-grant cap | No |
 | Automatic backup | Whether the whole fish is packed on a schedule, the interval (1–720 hours), the latest and next backup, and the five retained files; a backup can also be taken immediately | Yes |
+| Developer mode | Whether she may read local debugging material; the adjacent button opens a Creator-mode debugging session | Yes |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
 
 Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.
 
 The overview exists only in the local settings UI. Its routes register on the DSH `webServer` and decide whether a request comes from the local UI by checking Host, `Sec-Fetch-Site`, and Origin. They establish no identity and cannot replace the owner's local file permissions.
+
+## Developer mode
+
+Developer mode is off by default. While it is off, tools reading anything under `$DSH_HOME` are refused outright as `private.dsh-home`. When it is on, she may use read-only tools in the owner's own foreground session to inspect logs, configuration, and session records in the DSH directory for troubleshooting; credential files (`.env`, `.credentials.yaml`, `~/.ssh`, and the like), identity files, writes, and shell commands are still refused, as are group/friend sessions, subagents, and background sessions. Every allowed read is recorded in the audit log as `developer.read`.
+
+The “Open a debugging session in Creator mode” button in the same block starts a new blank session with the Creator (`cordis`) preset while keeping the fish persona and memory; Creator mode's own ability to edit code and write files comes from the host preset and is not governed by this switch. Turn the switch off after troubleshooting and the next tool call returns to the hard refusal.
+
+The switch is stored as `developer.enabled` in `$DSH_HOME/fish-mind/config.json` and is writable only from the settings page; chat, model tools, and QQ cannot change it.
 
 ## Birth identity
 

@@ -15,7 +15,7 @@
 - 幽默层：给的是可执行的小动作——字面接歪、夸张一小步、反高潮、回扣，以及只拿自己开刀的自嘲；一句就够，不解释笑点，对方没接就收。自伤、暴力、重病、失去、冲突、求助、隐私、安全、法律和明确的正事整段留空；低落和压力只有对方先笑了才轻接一句。群聊和好友只在对方已经开玩笑时给收敛版，不拿在场的人开涮、不接黄腔、不影射不在场的人。判断只做正则，不调模型。
 - 梗百科：随包带 6,660 条网络梗、流行语和黑话，来自 cnmeme.wiki、经 astrbot_plugin_memewiki 整理（MIT）。聊天里像在问梗、整句就是一个词条或命中长标题时，只把用法和出处当资料带进那一轮；难过、冲突、求助和正事语气不插。主人会话另有只读的 `search_meme` 工具；群聊和好友会话不注册工具，只吃本群语境的预查。设置页可全字段搜索、增删改、恢复内置词条和分页浏览。
 - 完整原文与热路径分开：正文按 `archiveChars`（默认 20 万字）存档；FTS、实体、显著性、召回摘要和工作台只读前 `maxTextChars`（默认 4000 字）。机器存储足够大，细节留在本地，热路径不为一次超长粘贴变慢。
-- Capability Broker：每次工具调用前过一遍权限判定。DSH 目录、凭据目录、身份文件、本机探测命令和夹带凭据的参数直接拒绝；危险命令在权限开关之前硬拒绝；她自己在后台开的会话默认全拒；紧急停止时所有工具全拒；鱼脑目录只读。
+- Capability Broker：每次工具调用前过一遍权限判定。DSH 目录、凭据目录、身份文件、本机探测命令和夹带凭据的参数直接拒绝；危险命令在权限开关之前硬拒绝；她自己在后台开的会话默认全拒；紧急停止时所有工具全拒；鱼脑目录只读。主人从设置页打开开发者模式后，他自己的前台会话可以用读类工具只读查看 DSH 目录里的日志、配置和会话；凭据、写入、shell 和群聊会话仍然硬拒，每次放行都记入审计。
 - 隐私护栏：主机名、用户名、域、主目录、内网地址、MAC、部署路径，以及账号、密码、密钥、令牌、Cookie、身份证、银行卡、手机号、邮箱、住址，都按绝对私密处理。工具结果、模型输出、经历捕获和对外通道各有一道清洗，出口不可用时失败关闭。
 - 注入防护：网页、B 站、QQ、文件、工具输出、MCP 和记忆都只是资料；外部工具结果带标记，可疑指令加警示，固定提示写明不照做、也不改变隐私、法律、权限和零花钱规则。
 - 零花钱账本：监听全局 `llm/stream`，每次模型调用前预留、调用后按实际用量结算。默认每天 ¥10、用不完累计；每日额度可在设置页「大肥鱼 → 零花钱」按元调整，对话、工具和 `config.json` 都改不了。余额只进本地上下文，QQ、B 站等对外通道在代码层再做一道脱敏。
@@ -86,7 +86,9 @@
 
 ## 设置页与搬迁
 
-`client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/phrases`、`POST /dsh-fish-mind/backup/config`、`POST /dsh-fish-mind/backup/now`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格人设、自我提示、记忆、心情、人物志、通道、零花钱、自动备份和边界；QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
+`client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/phrases`、`POST /dsh-fish-mind/developer`、`POST /dsh-fish-mind/backup/config`、`POST /dsh-fish-mind/backup/now`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格人设、自我提示、记忆、心情、人物志、通道、零花钱、自动备份和边界；QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
+
+「大肥鱼」页顶部的开发者模式区读 `boundaries.permissions.developer`，开关写 `POST /dsh-fish-mind/developer`；旁边的按钮调用客户端的 `uiWorkspace.startSession(undefined, { agentPreset: 'cordis' })` 新开一个创造模式会话，然后关掉设置页。鱼的人设和记忆照常挂载；创造模式自带的改代码、写文件能力来自宿主预设，不受这个开关限制。
 
 导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；不导出配置、账本、审计、日志、SQLite、通道配置或凭据。自动备份复用同一条打包路径，只是把文件写进 `$DSH_HOME/fish-backups/` 而不是交给浏览器下载。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），只进空鱼（0 条经历、0 人、0 条心情），先暂存 `.import-pending/`，重启时在打开 SQLite 前应用并备份；格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
 
@@ -336,6 +338,9 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
     "enabled": true,
     "intervalHours": 24
   },
+  "developer": {
+    "enabled": false
+  },
   "capture": {
     "user": true,
     "assistant": true,
@@ -381,6 +386,7 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 - `humor.inject`：幽默层开关，默认开。关掉后 `fish-mind-humor` 整段不注入，其它提示和记忆不受影响。
 - `phrases.privateDodge` / `phrases.budgetBlock`：两句本地话，默认“这个我不方便细说”和“今天我这边有点转不动了，先歇一会儿，明天再找你。”。前者用在 QQ 群/好友的场景提示里，后者是额度拦住主人这一轮时直接发出去的本地回复。每句最多 200 字，空白压成单行后再存；留空或坏值退回默认。设置页写的就是这里，保存后当场生效，不用 `reload()`。
 - `backup.enabled` / `backup.intervalHours`：自动备份开关和间隔，默认开、24 小时，范围 1–720 小时。备份目录固定为 `$DSH_HOME/fish-backups/`，保留份数固定 5 份；设置页写这两项，保存后当场生效。间隔改小后，下一分钟的检查就会按新间隔判断是否到期。
+- `developer.enabled`：开发者模式，默认关。打开后，主人自己的前台会话可以用 `read`、`glob`、`grep`、`read_image` 只读查看 `$DSH_HOME` 里的日志、配置和会话；凭据（`.env`、`.credentials.yaml`、`~/.ssh` 等）、身份文件、写入、shell、群聊/好友会话和后台会话仍然拒绝。每次放行都以 `developer.read` 记入审计。设置页的开关写这一项并当场 `reload()`，对话和模型工具碰不到它。
 - 梗百科的 `enabled`、`inject`、`socialInject`、`autoInject`、`tool` 不在 `config.json`，而是和覆盖词条一起放在 `fish-mind/memes.json`，由设置页的「梗百科」页写入。`inject` 与 `autoInject` 都在打开时才预查；`tool` 只影响主人会话。
 - `budget.enabled`：关掉后不预留、不计量、不拦截，模型调用全部放行。只在排障时关。
 - `budget.inject`：关掉后系统提示里不再出现私密账本，她仍然受额度硬拦。
@@ -400,9 +406,12 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 | 来源 | 普通调用 | 私密路径 / 本机探测 / 凭据参数 | 未放行的工具 |
 | --- | --- | --- | --- |
 | 用户会话 | 放行 | 直接拒绝，不弹审批 | 放行 |
+| 开发者模式（主人前台） | 放行；DSH 目录只读查看 | 凭据、身份文件、写入和 shell 仍拒绝 | 放行 |
 | 后台自主会话 | 只在 `allowTools` 内放行 | 直接拒绝 | 拒绝 |
 
 鱼脑目录 `$DSH_HOME/fish-mind/` 和鱼脑自己的 `lib/` 源码是**只读**的：`write`、`edit` 指向这里，或 shell 命令里出现这个路径，都会被直接拒绝，规则名 `sealed.fish-mind`。预算、配置、经历、账本和以后的核心只能由主人直接改文件；出生设定和每日额度只由设置页写入。她想花更多钱不能靠改 `budget.json`，想换形象也不能靠改源码。`$DSH_HOME` 下的其他内容（配置、凭据、会话和历史）读写都走 `private.dsh-home` 硬拒绝。
+
+开发者模式是这条硬拒绝的唯一例外：只有主人从设置页打开、且调用来自主人自己的前台会话（不是群聊/好友会话、不是子代理、不是后台会话）时，`read`、`glob`、`grep`、`read_image` 才能读 `$DSH_HOME` 里的文件，规则名 `developer.read` 并写入审计。凭据目录、身份文件、敏感文件名、写入和 shell 一律不跟着放行；模型在提示里被告知这些读取只是调试资料，不进记忆、不外发。关掉开关后下一次调用立刻回到 `private.dsh-home`。
 
 `permissions.enabled` 和 `ask` 只影响普通工具的下游策略；硬拒绝不看这个开关，危险命令也一样。外部 MCP 工具归硬拒绝那一类：默认全拒，只有名字命中 `permissions.mcpReadOnlyTools` 的读才放行，并且放行的每一条都进审计。权限检查自身出错时失败关闭。
 

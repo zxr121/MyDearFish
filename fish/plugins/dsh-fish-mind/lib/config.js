@@ -80,6 +80,11 @@ export function buildDefaults(dshHome) {
   return {
     mode: 'live',
     inject: true,
+    // 开发者模式：主人从设置页打开后，她自己的前台会话可以只读查看 DSH 目录里的
+    // 日志、配置和会话，用来排查问题；凭据、身份文件、写入和群聊会话仍然硬拒。
+    developer: {
+      enabled: false,
+    },
     retentionDays: 90,
     maxTextChars: 4000,
     archiveChars: 200000,
@@ -236,6 +241,11 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     else diag(`config: mode=${JSON.stringify(raw.mode)} 不认识（只认 off/shadow/live），用 shadow`)
   }
   config.inject = pickBoolean(raw.inject, config.inject)
+  if (isPlainObject(raw.developer)) {
+    config.developer.enabled = pickBoolean(raw.developer.enabled, config.developer.enabled)
+  } else if (raw.developer !== undefined) {
+    diag('config: developer 不是对象，使用默认值')
+  }
   config.retentionDays = pickNumber(raw.retentionDays, config.retentionDays, 1, 3650)
   config.maxTextChars = pickNumber(raw.maxTextChars, config.maxTextChars, 200, 20000)
   config.archiveChars = pickNumber(raw.archiveChars, config.archiveChars, 200, 2000000)
@@ -533,6 +543,40 @@ export function saveBackup({ dshHome, backup, diag = () => {} }) {
   writeFileSync(temp, JSON.stringify(raw, null, 2) + '\n', 'utf8')
   renameSync(temp, path)
   diag(`config: 自动备份${saved.enabled ? '开' : '关'}，间隔 ${saved.intervalHours} 小时`)
+  return saved
+}
+
+/**
+ * 只改开发者模式开关并原子写回 config.json；其它字段原样保留。
+ * 原文件不是合法 JSON 时抛 400，不动它。
+ * @param {object} options - `{ dshHome, enabled, diag }`。
+ * @returns {{ enabled: boolean }} 归一后的开关。
+ */
+export function saveDeveloper({ dshHome, enabled, diag = () => {} }) {
+  const path = join(dshHome, 'fish-mind', 'config.json')
+  let raw = {}
+  if (existsSync(path)) {
+    try {
+      raw = JSON.parse(readFileSync(path, 'utf8'))
+    } catch (error) {
+      const failure = new Error(`config.json 不是合法 JSON（${String((error && error.message) || error)}），先修好再保存`)
+      failure.statusCode = 400
+      throw failure
+    }
+  }
+  if (!isPlainObject(raw)) {
+    const failure = new Error('config.json 内容不是对象，先修好再保存')
+    failure.statusCode = 400
+    throw failure
+  }
+  const current = isPlainObject(raw.developer) ? raw.developer : {}
+  const saved = { enabled: pickBoolean(enabled, pickBoolean(current.enabled, false)) }
+  raw.developer = { ...current, ...saved }
+  mkdirSync(dirname(path), { recursive: true })
+  const temp = `${path}.tmp`
+  writeFileSync(temp, JSON.stringify(raw, null, 2) + '\n', 'utf8')
+  renameSync(temp, path)
+  diag(`config: 开发者模式${saved.enabled ? '开' : '关'}`)
   return saved
 }
 
