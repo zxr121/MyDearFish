@@ -2338,9 +2338,10 @@ export function 拆条目(文字) {
 const 连发文字上限 = 3
 const 连发表情上限 = 24
 
-/** 她这一轮要发的东西，按写的先后排好：{文字} 是一条消息，{表情} 是一张 [发表情:#N]。
+/** 她这一轮要发的东西，按写的先后排好：{文字} 是一条消息，{表情} 是一张 [发表情:#N]，{戳人} 是戳一下 [戳人:QQ号]。
  * 文字条不超 连发文字上限，超了并进最后一条；表情不超 连发表情上限，超出的丢弃；
- * [存表情:…] 是收藏指令不是发送内容，直接剥掉；只写 [#N] 的短写也按表情发，别把编号当正文发出去。 */
+ * [存表情:…] 是收藏指令不是发送内容，直接剥掉；只写 [#N] 的短写也按表情发，别把编号当正文发出去；
+ * [戳人:QQ号] 是主动戳一下，只留第一个，后面的当正文发出去。 */
 export function 拆连发项(文字) {
   const 原文 = String(文字 || '')
     .replace(/\[存表情:\s*图\s*\d{1,3}(?:\s*:\s*[^\]\r\n]{0,40})?\]/g, '')
@@ -2349,10 +2350,18 @@ export function 拆连发项(文字) {
     .replace(/\[#\s*\d{0,9}$/, '') // 被截断的半个 [#18 也不发出去
   const 项 = []
   let 游 = 0
-  for (const m of 原文.matchAll(/\[发表情:\s*#?(\d{1,9})\s*\]|\[#\s*(\d{1,9})\s*\]/g)) {
+  let 已带戳 = false
+  for (const m of 原文.matchAll(/\[发表情:\s*#?(\d{1,9})\s*\]|\[#\s*(\d{1,9})\s*\]|\[戳人:\s*(\d{5,12})\s*\]/g)) {
     for (const 段 of 拆条目(原文.slice(游, m.index))) 项.push({ 文字: 段 })
-    const 编号 = Number(m[1] ?? m[2])
-    if (Number.isFinite(编号) && 编号 > 0) 项.push({ 表情: 编号 })
+    if (m[3] !== undefined) {
+      if (!已带戳) {
+        项.push({ 戳人: m[3] })
+        已带戳 = true
+      }
+    } else {
+      const 编号 = Number(m[1] ?? m[2])
+      if (Number.isFinite(编号) && 编号 > 0) 项.push({ 表情: 编号 })
+    }
     游 = m.index + m[0].length
   }
   for (const 段 of 拆条目(原文.slice(游))) 项.push({ 文字: 段 })
@@ -2365,7 +2374,7 @@ export function 拆连发项(文字) {
     for (let k = 文字位.length - 1; k >= 连发文字上限; k--) 项.splice(文字位[k], 1)
   }
   let 表情数 = 0
-  return 项.filter((x) => x.文字 !== undefined || (x.表情 !== undefined && ++表情数 <= 连发表情上限))
+  return 项.filter((x) => x.文字 !== undefined || (x.表情 !== undefined && ++表情数 <= 连发表情上限) || x.戳人 !== undefined)
 }
 
 export function apply(ctx) {
@@ -5106,7 +5115,8 @@ export function apply(ctx) {
       '- 接话前先看对方这句是在同意、补理由，还是在反对你：对方补的理由要是正好支持你刚说的，就顺着认下来（“对，我就是这个意思”），别再把上一句辩解一遍；对方说的和你上一句对不上时，先说清你指的是哪件事，别一边坚持自己没错，一边又同意和它相反的话。',
       '- 你只会看到自己挑出来的消息；没挑中的就当你没看见，不要提“还有别的消息”。',
       '- 别自导自演：不要把群里的人写进你看不见的场景，也不要用没有前文支撑的“又/这回”；心情、状态和日常小事可以带，但别编成对着别人演的小剧场，也别把当次没被接住的比喻隔一阵又翻出来。',
-      '- 被戳一戳先短应一声（“在呢”“干嘛”“戳我做什么”），别把戳改写成门铃、敲门、有人上门这类别的场景。',
+      '- 被戳一戳先短应一声（”在呢””干嘛””戳我做什么”），别把戳改写成门铃、敲门、有人上门这类别的场景。',
+      '- 想轻轻提醒别人、或者接不上话但想表示“我在”时，可以戳对方一下（用 [戳人:QQ号] 标记）；群聊里戳最近说话的那个人，私聊就戳对方。别连着戳，一轮最多戳一次。',
       '- 这间屋里最近一小时聊过的事你都记得：接着聊时自然接上，别把几分钟前说过的当成没听过，也不用复述“我记得”。',
       '- 表情只认编号和“你收藏的”标注：别人发的表情标着“你收藏的 #编号”才是同一张，让你发时就发那个编号；没标就是没收藏，不要说存过，也不要把另一张表情说成同一张。',
       '- 收藏表情是你自己的小动作：存了就存了，不用在群里汇报，也别 @ 主人说“我把谁的图存起来了”；被问起再照实认，清单里没有的别顺口说存了。',
@@ -6566,7 +6576,8 @@ export function apply(ctx) {
       .filter((m) => m && !m.自己 && !m.上下文)
       .map((m) => String(m.uid || ''))
       .filter((号) => /^\d{3,20}$/.test(号)))]
-    const 待 = { 目标, 文本: '', 轮号: -1, 发起At: Date.now(), 图片们: 拼好.图片们, 对象们, 复读: 复读候选 }
+    const 回复id = (批.find((m) => m && !m.上下文 && m.回复id) || {}).回复id || ''
+    const 待 = { 目标, 文本: '', 轮号: -1, 发起At: Date.now(), 图片们: 拼好.图片们, 对象们, 复读: 复读候选, 回复id }
     加待发(sid, 待)
     const 线 = 选的.分线号 > 0 ? `·分线${选的.分线号}` : ''
     记账(`准备接话（${目标.叫}${线}）：${理由}；看了 ${批.length} 条${复读候选 ? `；可复读「${复读候选.文字}」` : ''}`)
@@ -6623,6 +6634,7 @@ export function apply(ctx) {
         前.主人 = 前.主人 || m.主人
         前.对别人说 = !!(前.对别人说 || m.对别人说)
         前.不聊 = [...new Set([...(前.不聊 || []), ...(m.不聊 || [])])]
+        前.回复id = 前.回复id || m.回复id || ''
         前.at = Math.max(前.at, m.at)
       } else {
         合.push({ ...m, 首at: m.at })
@@ -6956,7 +6968,7 @@ export function apply(ctx) {
       // 只 @ 了一下、正文在下一句：先把这条扣住，别单独判成“只有 @、没内容”。
       const 纯叫 = 段.at我 && 段.图片们.length === 0 && 段.文字.replace(/@你/g, '').trim() === ''
       if (纯叫) {
-        const 消息 = { id, at, 说话人, uid, 主人, 文字: 段.文字, 被叫原因: 被叫原因 || '有人 @ 你', 图片: [] }
+        const 消息 = { id, at, 说话人, uid, 主人, 文字: 段.文字, 被叫原因: 被叫原因 || '有人 @ 你', 图片: [], 回复id: 段.回复id || '' }
         记一次人见(配置, 目标, 消息)
         记自认账号(配置, 目标, 消息)
         待续叫.set(叫键, { 目标, 消息, at })
@@ -7024,7 +7036,7 @@ export function apply(ctx) {
         )
         本轮图片 += 图片.length
       }
-      const 消息 = { id, at, 说话人, uid, 文字: 段.文字, 主人, 被叫原因: 本次被叫, 图片, 对别人说, 不聊 }
+      const 消息 = { id, at, 说话人, uid, 文字: 段.文字, 主人, 被叫原因: 本次被叫, 图片, 对别人说, 不聊, 回复id: 段.回复id || '' }
       记一次人见(配置, 目标, 消息)
       记自认账号(配置, 目标, 消息)
       新消息.push(消息)
@@ -7094,7 +7106,7 @@ export function apply(ctx) {
   }
 
   /** 社交会话说完一轮：把话发回那个群/好友；顺手收藏/发送她选的表情包。 */
-  async function 社交落地(目标, sid, 文字, 轮号, 批次图们 = [], 对象们 = [], 复读候选 = null) {
+  async function 社交落地(目标, sid, 文字, 轮号, 批次图们 = [], 对象们 = [], 复读候选 = null, 回复id = '') {
     const 配置 = 读配置()
     const 原文 = String(文字 || '').trim()
     // 先收藏她看中的表情（写进 QQ 账号收藏）。这一步和这轮发不发得出去无关。
@@ -7166,14 +7178,19 @@ export function apply(ctx) {
     let 真发出 = false
     const 发出的表情 = []
     const 发出文字们 = []
+    let 已带回复 = false
     for (let i = 0; i < 项们.length; i++) {
       const 项 = 项们[i]
       if (项.文字 !== undefined) {
         const 呼叫 = 拆呼叫段(项.文字, 名表)
+        const 段们 = 呼叫.段们.slice()
+        if (回复id !== '' && !已带回复) {
+          段们.unshift({ type: 'reply', data: { id: 回复id } })
+          已带回复 = true
+        }
         const 体 = 目标.类型 === 'group'
-          ? { group_id: Number(目标.号), message: 呼叫.段们 }
-          : 私人消息体(呼叫.显示)
-        if (目标.类型 !== 'group') 体.user_id = Number(目标.号)
+          ? { group_id: Number(目标.号), message: 段们 }
+          : { user_id: Number(目标.号), message: 段们 }
         发出文字们.push(呼叫.显示)
         const r = await 发一个(配置.NapCat, action, 体)
         if (r.ok) {
@@ -7208,16 +7225,27 @@ export function apply(ctx) {
             记账(`⚠ 在 ${目标.叫} 发表情包失败：#${贴纸.id} ${贴纸.label}`)
           }
         }
+      } else if (项.戳人 !== undefined) {
+        const r = await 发戳一戳(配置, 目标.类型, 项.戳人, 目标.类型 === 'group' ? 目标.号 : '')
+        if (r.ok) {
+          真发出 = true
+          记账(`✅ 在 ${目标.叫} 戳了 ${项.戳人}`)
+        } else {
+          全过 = false
+          记账(`⚠ 在 ${目标.叫} 戳 ${项.戳人} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)
+        }
       }
       if (i < 项们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
     }
     const 文字条数 = 项们.filter((x) => x.文字 !== undefined).length
+    const 戳人数 = 项们.filter((x) => x.戳人 !== undefined).length
     const 发出文字 = 发出文字们.filter(Boolean).join(' ')
     if (项们.length > 0) {
-      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? (要复读 ? '跟着群友复读了一句' : `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}）`) : '开口有问题'}：「${发出文字.slice(0, 50)}${发出文字.length > 50 ? '…' : ''}」`)
-      记思绪('开口', `${全过 ? '在' : '在（有问题）'} ${目标.叫} ${要复读 ? '复读了一句' : `说了 ${文字条数} 条`}${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}`, {
+      记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? (要复读 ? '跟着群友复读了一句' : `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}${戳人数 > 0 ? ` + 戳了 ${戳人数} 下` : ''}）`) : '开口有问题'}：「${发出文字.slice(0, 50)}${发出文字.length > 50 ? '…' : ''}」`)
+      记思绪('开口', `${全过 ? '在' : '在（有问题）'} ${目标.叫} ${要复读 ? '复读了一句' : `说了 ${文字条数} 条`}${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}${戳人数 > 0 ? ` + 戳了 ${戳人数} 下` : ''}`, {
         原文: 项们.filter((x) => x.文字 !== undefined).map((x) => x.文字),
         表情: 发出的表情.map((x) => `#${x.id} ${x.label}`),
+        戳人: 项们.filter((x) => x.戳人 !== undefined).map((x) => x.戳人),
         全过,
         复读: 要复读,
       }, 目标.叫)
@@ -7302,7 +7330,7 @@ export function apply(ctx) {
       }
       const 文 = 待.文本
       移待发(sid, 待)
-      void 社交落地(待.目标, sid, 文, d.turn, 待.图片们, 待.对象们, 待.复读 || null)
+      void 社交落地(待.目标, sid, 文, d.turn, 待.图片们, 待.对象们, 待.复读 || null, 待.回复id || '')
       void 冲刷会话(session)
     }
   }
@@ -7319,6 +7347,16 @@ export function apply(ctx) {
     } catch (error) {
       return { action, ok: false, 数据: { 错: String((error && error.message) || error) } }
     }
+  }
+
+  /** 主动戳别人：私聊用 friend_poke，群聊用 group_poke。 */
+  async function 发戳一戳(配置, 场景, 号, 群号 = '') {
+    if (!配置.总开关) return { ok: false, 说: '总开关关着' }
+    const action = 场景 === 'group' ? 'group_poke' : 'friend_poke'
+    const 体 = 场景 === 'group'
+      ? { group_id: Number(群号), user_id: Number(号) }
+      : { user_id: Number(号) }
+    return 发一个(配置.NapCat, action, 体)
   }
 
   /** 把这一轮要发的东西按写下的顺序送到该发的地方（私聊 / 群）：文字一条条连发，表情包混在中间也按序发。 */
@@ -8613,6 +8651,21 @@ export function apply(ctx) {
     记账(`手动测试：${全过 ? '✅ 已发' : '⚠ 有问题'}「${文字}」`)
     for (const r of 结果) if (!r.ok) 记账(`   ${r.action} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)
     回(res, { ok: 全过, 说: 全过 ? '测试句已经发到 QQ 了' : '有一步没发出去（看下面的记录）', 记录: 日志 })
+  })
+
+  // 主动戳一戳：从面板按下去，调 OneBot 的 friend_poke / group_poke。
+  路线(`${路由前缀}/poke`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    const 配置 = 读配置()
+    const 场景 = 来 && 来.场景 === 'group' ? 'group' : 'private'
+    const 号 = String((来 && 来.号) || '').trim()
+    const 群号 = String((来 && 来.群号) || '').trim()
+    if (!/^\d{5,12}$/.test(号)) return 回(res, { ok: false, 说: 'QQ 号格式不对' })
+    if (场景 === 'group' && !/^\d{5,12}$/.test(群号)) return 回(res, { ok: false, 说: '群号格式不对' })
+    const r = await 发戳一戳(配置, 场景, 号, 群号)
+    记账(`手动戳一戳：${场景 === 'group' ? `群 ${群号} 的 ${号}` : `私聊 ${号}`} → ${r.ok ? '✅ 戳了' : '⚠ 没戳成'}`)
+    回(res, { ok: !!r.ok, 说: r.ok ? '戳出去了' : (r.数据 && r.数据.错 ? r.数据.错 : 'OneBot 返回了失败') })
   })
 
   // ---------- 挂监听 ----------

@@ -391,6 +391,22 @@ window.__ModuleLoader__.load({
           return { ...旧, 配置: { ...配置, 目标会话 }, 社交: { ...社交, 目标, 私聊: 主人私聊 } }
         })
       }
+      const 戳一个 = async (t) => {
+        if (!t) return
+        const 场景 = t.类型 === 'group' ? 'group' : 'private'
+        const 群号 = t.类型 === 'group' ? String(t.号 || '') : ''
+        const 目标号 = 场景 === 'group'
+          ? (t.人来回 && t.人来回.length > 0 && /^\d{5,12}$/.test(String(t.人来回[0].号)) ? String(t.人来回[0].号) : '')
+          : String(t.号 || '')
+        if (场景 === 'group' && !目标号) {
+          设说('群聊戳人需要先有人说话；等群里有人发言后再按')
+          return
+        }
+        设忙(true)
+        const s = await post('/poke', { 场景, 号: 目标号, 群号 })
+        设忙(false)
+        设说((s && s.说) || '没反应')
+      }
       // 导入的进度单独刷：整页 /state 会把没保存的表单值冲掉（令牌、白名单都会没）。
       const 拉导入 = async () => {
         const s = await get('/import-state')
@@ -1296,6 +1312,7 @@ window.__ModuleLoader__.load({
                 h('div', { style: { marginTop: 3, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
                   按钮('重置这个聊天', () => 重置聊天(t), false, 忙),
                   t.重置 ? h('span', { style: S.dim }, '上次重置于 ' + 时间短(t.重置.重置At) + '，旧会话还留着') : null,
+                  按钮('戳一下', () => 戳一个(t), false, 忙),
                 ),
               )),
           社态.私聊
