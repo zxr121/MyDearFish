@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for approach-update-mirror.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/approach-update-mirror.md
+/update-mirror-self-updates-on-a-blocked-network:
+  en: 6b2ceea8fc5b67f1
+  zh: 7d77580b27dd33cf
+/update-mirror-self-updates-on-a-blocked-network/current-state:
+  en: ed95d9ef93df0a49
+  zh: 9c4005b159168a22
+/update-mirror-self-updates-on-a-blocked-network/goal:
+  en: a5d152f49dff1e74
+  zh: 6faf3331e5829f85
+/update-mirror-self-updates-on-a-blocked-network/approach:
+  en: 2b8a48c854567c7f
+  zh: 2f0a42778d118327
+/update-mirror-self-updates-on-a-blocked-network/why-not-a-public-github-proxy:
+  en: 47c9dfe649becb72
+  zh: e630181dc6231526
+/update-mirror-self-updates-on-a-blocked-network/one-time-manual-steps-owner:
+  en: 4f9f1e5c2dc39e5f
+  zh: 76e7970b3272e18c
+/update-mirror-self-updates-on-a-blocked-network/cost:
+  en: 235129658d78c75f
+  zh: c9c5674f57e928ff
+/update-mirror-self-updates-on-a-blocked-network/code-changes:
+  en: 9f8a285cbea86f44
+  zh: bf703da72147eeed
+/update-mirror-self-updates-on-a-blocked-network/acceptance:
+  en: c09cfd76e8c665a2
+  zh: c08b3acbc1bf2c65
+/update-mirror-self-updates-on-a-blocked-network/rollback:
+  en: 4810e9b7c7dfcab2
+  zh: 93583a4bbc8aafde

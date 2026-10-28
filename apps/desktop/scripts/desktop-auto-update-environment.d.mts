@@ -29,6 +29,8 @@ export interface DesktopUnsignedUpdateFeed {
   readonly channel: 'nightly' | 'latest'
   readonly publicUrl: string
   readonly downloadPage?: string
+  /** Ordered mirrors checked before `publicUrl`; absent keeps the packaged feed alone. */
+  readonly sources?: readonly string[]
 }
 
 /** Public updater URL and private COS destination for one upload target. */

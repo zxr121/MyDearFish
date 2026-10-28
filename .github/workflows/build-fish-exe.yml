@@ -50,15 +50,37 @@ jobs:
             process.stdout.write('version=' + desktopCiVersion(process.env, product) + '\n')
           " >> "$GITHUB_OUTPUT"
 
+      - name: Check update mirror settings
+        if: vars.FISH_MIRROR_COS_BUCKET != ''
+        shell: bash
+        env:
+          SECRET_ID: ${{ secrets.FISH_MIRROR_COS_SECRET_ID }}
+          SECRET_KEY: ${{ secrets.FISH_MIRROR_COS_SECRET_KEY }}
+        run: |
+          if [ -z "$SECRET_ID" ] || [ -z "$SECRET_KEY" ]; then
+            echo "FISH_MIRROR_COS_BUCKET is set, so FISH_MIRROR_COS_SECRET_ID and FISH_MIRROR_COS_SECRET_KEY are required"
+            exit 1
+          fi
+
       - name: Write local packaging settings
         shell: bash
+        env:
+          MIRROR_BUCKET: ${{ vars.FISH_MIRROR_COS_BUCKET }}
         run: |
+          github_url="https://github.com/${GITHUB_REPOSITORY}/releases/latest"
+          download_page="$github_url"
+          mirror=""
+          if [ -n "$MIRROR_BUCKET" ]; then
+            mirror="https://${MIRROR_BUCKET}.cos.ap-beijing.myqcloud.com/fish/win-x64/"
+            download_page="${mirror}get/latest.exe"
+          fi
           cat > apps/desktop/.env.windows <<EOF
           DSH_DESKTOP_APP_ID=com.deepseek.harness
-          DSH_DESKTOP_UPDATE_FEED_URL=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/
-          DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE=https://github.com/${GITHUB_REPOSITORY}/releases/latest
+          DSH_DESKTOP_UPDATE_FEED_URL=${github_url}/download/
+          DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE=$download_page
           DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY=4
           EOF
+          if [ -n "$mirror" ]; then echo "DSH_DESKTOP_UPDATE_FEED_MIRRORS=$mirror" >> apps/desktop/.env.windows; fi
 
       - name: Package Windows installer
         run: pnpm run package:desktop:win:x64:unsigned -- --build-version ${{ steps.version.outputs.version }}
@@ -67,6 +89,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          MIRROR_BUCKET: ${{ vars.FISH_MIRROR_COS_BUCKET }}
         run: |
           artifacts=apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts
           installer="$artifacts/deepseek-harness-$VERSION-win-x64-unsigned.exe"
@@ -79,6 +102,12 @@ jobs:
           notes="$artifacts/win-unpacked/resources/update-notes.json"
           test -f "$notes" || { echo "missing release file: $notes"; exit 1; }
           grep -q "\"version\": \"$VERSION\"" "$notes"
+          if [ -n "$MIRROR_BUCKET" ]; then
+            asar="$artifacts/win-unpacked/resources/app.asar"
+            grep -a -q 'dshDesktopUpdateSources' "$asar" || { echo "packaged manifest has no update sources"; exit 1; }
+            grep -a -q "${MIRROR_BUCKET}.cos.ap-beijing.myqcloud.com/fish/win-x64/" "$asar" \
+              || { echo "packaged manifest has no mirror source"; exit 1; }
+          fi
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -88,6 +117,19 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish update mirror
+        if: vars.FISH_MIRROR_COS_BUCKET != ''
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          FISH_MIRROR_COS_BUCKET: ${{ vars.FISH_MIRROR_COS_BUCKET }}
+          FISH_MIRROR_COS_SECRET_ID: ${{ secrets.FISH_MIRROR_COS_SECRET_ID }}
+          FISH_MIRROR_COS_SECRET_KEY: ${{ secrets.FISH_MIRROR_COS_SECRET_KEY }}
+        run: |
+          pnpm exec tsx apps/desktop/scripts/publish-fish-mirror.ts \
+            --artifacts apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts \
+            --version "$VERSION"
 
       - name: Publish latest GitHub release
         shell: bash

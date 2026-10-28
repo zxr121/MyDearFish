@@ -34,7 +34,7 @@ import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } fro
 import { readDeviceInfo } from './device-info.ts'
 import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
-import { desktopUpdateChannel, desktopUpdateDownloadPage } from './update-channel.ts'
+import { desktopUpdateChannel, desktopUpdateDownloadPage, desktopUpdateSources } from './update-channel.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
@@ -550,7 +550,7 @@ async function main(): Promise<void> {
   const copyUpdateDiagnostics = async (): Promise<void> => {
     if (journalDirectory === undefined) return
     const { files, text } = readDesktopUpdateJournals(journalDirectory)
-    clipboard.writeText([
+    await clipboard.writeText([
       'DSH desktop update diagnostics',
       `generated: ${new Date().toISOString()}`,
       `app: ${app.getVersion()}`,
@@ -667,6 +667,7 @@ async function main(): Promise<void> {
   const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
   const updateChannel = desktopUpdateChannel(manifest)
   const updateDownloadPage = desktopUpdateDownloadPage(manifest)
+  const updateSources = desktopUpdateSources(manifest)
   const updates = new DesktopUpdateCoordinator(
     publishUpdate,
     async () => {
@@ -721,6 +722,7 @@ async function main(): Promise<void> {
     undefined, undefined, undefined,
     (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
     updateChannel,
+    updateSources,
   )
 
   const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))

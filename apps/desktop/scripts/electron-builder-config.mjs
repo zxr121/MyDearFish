@@ -117,6 +117,9 @@ export function createElectronBuilderConfig(
     extraMetadata: {
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
+      ...(update === undefined || !('sources' in update) || update.sources === undefined
+        ? {}
+        : { dshDesktopUpdateSources: update.sources }),
       ...(update === undefined || !('downloadPage' in update) || update.downloadPage === undefined
         ? {}
         : { dshDesktopUpdateDownloadPage: update.downloadPage }),

@@ -11,6 +11,9 @@ export const DESKTOP_UPDATE_FEED_URL_ENV = 'DSH_DESKTOP_UPDATE_FEED_URL'
 /** Environment variable that supplies the public download page offered when a self-update fails. */
 export const DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV = 'DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE'
 
+/** Environment variable that supplies ordered HTTPS mirrors checked before the packaged feed. */
+export const DESKTOP_UPDATE_FEED_MIRRORS_ENV = 'DSH_DESKTOP_UPDATE_FEED_MIRRORS'
+
 /**
  * Resolve the channel embedded in the installer; omitted local settings retain nightly.
  * @param {NodeJS.ProcessEnv} env Packaging or upload settings.
@@ -167,19 +170,25 @@ function httpsPublicUrl(value, name, directory) {
 /**
  * Resolve the generic feed an unsigned build checks instead of the signed release deployment.
  * @param {NodeJS.ProcessEnv} env - Packaging environment.
- * @returns {{ channel: 'nightly' | 'latest', publicUrl: string, downloadPage?: string } | undefined} Feed settings, or undefined when no feed is configured.
- * @throws {Error} When a configured feed or download page is not a public HTTPS URL.
+ * @returns {{ channel: 'nightly' | 'latest', publicUrl: string, downloadPage?: string, sources?: string[] } | undefined} Feed settings, or undefined when no feed is configured.
+ * @throws {Error} When a configured feed, mirror, or download page is not a public HTTPS URL.
  */
 export function resolveDesktopUnsignedUpdateFeed(env) {
   const feed = env[DESKTOP_UPDATE_FEED_URL_ENV]?.trim()
   if (feed === undefined || feed === '') return undefined
   const downloadPage = env[DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV]?.trim()
+  const publicUrl = httpsPublicUrl(feed, DESKTOP_UPDATE_FEED_URL_ENV, true)
+  const mirrors = env[DESKTOP_UPDATE_FEED_MIRRORS_ENV]?.trim()
+  const sources = mirrors === undefined || mirrors === ''
+    ? undefined
+    : [...new Set([...mirrors.split(',').map(mirror => httpsPublicUrl(mirror.trim(), DESKTOP_UPDATE_FEED_MIRRORS_ENV, true)), publicUrl])]
   return {
     channel: resolveDesktopUpdateChannel(env),
-    publicUrl: httpsPublicUrl(feed, DESKTOP_UPDATE_FEED_URL_ENV, true),
+    publicUrl,
     ...(downloadPage === undefined || downloadPage === '' ? {} : {
       downloadPage: httpsPublicUrl(downloadPage, DESKTOP_UPDATE_DOWNLOAD_PAGE_ENV, false),
     }),
+    ...(sources === undefined ? {} : { sources }),
   }
 }
 

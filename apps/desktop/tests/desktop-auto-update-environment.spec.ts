@@ -149,6 +149,34 @@ describe('desktop auto-update environment', () => {
     })).toThrow(/channel/u)
   })
 
+  it('orders configured mirrors before the generic feed', () => {
+    expect(resolveDesktopUnsignedUpdateFeed({
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download',
+      DSH_DESKTOP_UPDATE_FEED_MIRRORS: 'https://mirror.example.com/fish/win-x64/, https://mirror2.example.com/fish/win-x64',
+    })).toEqual({
+      channel: 'nightly',
+      publicUrl: 'https://github.com/example/fish/releases/latest/download/',
+      sources: ['https://mirror.example.com/fish/win-x64/', 'https://mirror2.example.com/fish/win-x64/',
+        'https://github.com/example/fish/releases/latest/download/'],
+    })
+    expect(resolveDesktopUnsignedUpdateFeed({
+      DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/releases/latest/download/',
+      DSH_DESKTOP_UPDATE_FEED_MIRRORS: 'https://github.com/example/fish/releases/latest/download',
+    })?.sources).toEqual(['https://github.com/example/fish/releases/latest/download/'])
+  })
+
+  it('rejects malformed mirror lists', () => {
+    const feed = { DSH_DESKTOP_UPDATE_FEED_URL: 'https://github.com/example/fish/download/' }
+    expect(() => resolveDesktopUnsignedUpdateFeed({ ...feed, DSH_DESKTOP_UPDATE_FEED_MIRRORS: 'http://mirror.example.com/' }))
+      .toThrow(/HTTPS URL/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({ ...feed, DSH_DESKTOP_UPDATE_FEED_MIRRORS: 'https://mirror.example.com/, ' }))
+      .toThrow(/HTTPS URL/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({ ...feed, DSH_DESKTOP_UPDATE_FEED_MIRRORS: 'https://user:pass@mirror.example.com/' }))
+      .toThrow(/credentials/u)
+    expect(() => resolveDesktopUnsignedUpdateFeed({ ...feed, DSH_DESKTOP_UPDATE_FEED_MIRRORS: 'https://mirror.example.com/?q=1' }))
+      .toThrow(/query/u)
+  })
+
   it('uses Nightly metadata for stable and prerelease Desktop versions', () => {
     expect(desktopUpdateMetadataFilename('1.2.3', 'darwin')).toBe('nightly-mac.yml')
     expect(desktopUpdateMetadataFilename('1.2.3-alpha.4', 'darwin')).toBe('nightly-mac.yml')

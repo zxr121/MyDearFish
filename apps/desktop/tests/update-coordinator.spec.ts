@@ -47,7 +47,8 @@ describe('desktop release metadata', () => {
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture(channel: 'nightly' | 'latest' = 'nightly', version = '1.1.0-alpha.1', enabled = true) {
+function fixture(channel: 'nightly' | 'latest' = 'nightly', version = '1.1.0-alpha.1', enabled = true,
+  sources: readonly string[] = []) {
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async () => ({
     isUpdateAvailable: true,
@@ -60,16 +61,19 @@ function fixture(channel: 'nightly' | 'latest' = 'nightly', version = '1.1.0-alp
     return ['verified-package']
   })
   const quitAndInstall = vi.fn()
+  const setFeedURL = vi.fn()
   const beforeRestart = vi.fn(async () => true)
   const downloadResult = vi.fn()
   const states: DesktopUpdateState[] = []
-  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall }) as unknown as AppUpdater
+  const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall, setFeedURL }) as unknown as AppUpdater
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
-    beforeRestart, updater, () => enabled, () => version, downloadResult, channel,
+    beforeRestart, updater, () => enabled, () => version, downloadResult, channel, sources,
   )
   coordinators.push(coordinator)
-  return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall, beforeRestart, downloadResult }
+  return {
+    coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall, setFeedURL, beforeRestart, downloadResult,
+  }
 }
 
 describe('desktop update coordinator', () => {
@@ -175,6 +179,42 @@ describe('desktop update coordinator', () => {
     await Promise.all([f.coordinator.check(), f.coordinator.check(true)])
     expect(f.states).toEqual([expect.objectContaining({ phase: 'error', failedOperation: 'check' })])
     expect(f.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('tries packaged update sources in order and keeps the first reachable feed', async () => {
+    const sources = ['https://mirror.example.com/feed/', 'https://github.com/example/fish/releases/latest/download/']
+    const f = fixture('nightly', '1.1.0-alpha.1', true, sources)
+    f.checkForUpdates.mockRejectedValueOnce(new Error('mirror offline'))
+    expect(await f.coordinator.check(true)).toEqual({ phase: 'available', version: '1.1.0-rc.2' })
+    expect(f.setFeedURL.mock.calls).toEqual([
+      [{ provider: 'generic', url: sources[0], channel: 'nightly' }],
+      [{ provider: 'generic', url: sources[1], channel: 'nightly' }],
+    ])
+    expect(f.checkForUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports only the last source failure after every packaged source fails', async () => {
+    const sources = ['https://mirror.example.com/feed/', 'https://github.com/example/fish/releases/latest/download/']
+    const f = fixture('nightly', '1.1.0-alpha.1', true, sources)
+    f.checkForUpdates.mockRejectedValueOnce(new Error('mirror offline')).mockRejectedValueOnce(new Error('github offline'))
+    expect(await f.coordinator.check(true)).toMatchObject({ phase: 'error', failedOperation: 'check', message: 'github offline' })
+    expect(f.setFeedURL).toHaveBeenCalledTimes(2)
+    expect(f.checkForUpdates).toHaveBeenCalledTimes(2)
+    expect(f.states).toEqual([expect.objectContaining({ phase: 'error', failedOperation: 'check' })])
+  })
+
+  it('keeps the first reachable source when it reports no update', async () => {
+    const sources = ['https://mirror.example.com/feed/', 'https://github.com/example/fish/releases/latest/download/']
+    const f = fixture('nightly', '1.1.0-rc.2', true, sources)
+    expect(await f.coordinator.check(true)).toEqual({ phase: 'idle' })
+    expect(f.setFeedURL).toHaveBeenCalledOnce()
+    expect(f.checkForUpdates).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the packaged feed when the build carries no source list', async () => {
+    const f = fixture()
+    expect((await f.coordinator.check()).phase).toBe('available')
+    expect(f.setFeedURL).not.toHaveBeenCalled()
   })
 
   it('reports no update instead of a failed check when the build has no packaged update source', async () => {

@@ -28,3 +28,26 @@ export function desktopUpdateDownloadPage(manifest: unknown): string | undefined
   if (typeof page !== 'string' || !page.startsWith('https://')) throw new Error('desktop update: invalid packaged download page')
   return page
 }
+
+/**
+ * Read ordered update sources; absent keeps the feed embedded in app-update.yml.
+ * @param manifest Parsed application manifest.
+ * @returns Validated HTTPS source directory URLs in check order.
+ */
+export function desktopUpdateSources(manifest: unknown): readonly string[] {
+  if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop update: invalid application manifest')
+  if (!('dshDesktopUpdateSources' in manifest)) return []
+  const sources = manifest.dshDesktopUpdateSources
+  if (!Array.isArray(sources) || sources.length === 0) throw new Error('desktop update: invalid packaged update sources')
+  return sources.map((source) => {
+    if (typeof source !== 'string') throw new Error('desktop update: invalid packaged update source')
+    let url: URL
+    try { url = new URL(source) } catch { throw new Error('desktop update: invalid packaged update source') }
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== ''
+      || url.search !== '' || url.hash !== '') {
+      throw new Error('desktop update: invalid packaged update source')
+    }
+    const path = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`
+    return `${url.origin}${path}`
+  })
+}

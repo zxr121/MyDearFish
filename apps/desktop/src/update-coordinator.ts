@@ -47,6 +47,7 @@ export class DesktopUpdateCoordinator {
    * @param currentVersion - Actual installed application version.
    * @param channel - Installed package channel; omitted test/local callers retain nightly.
    * @param downloadResult - Once per completed download attempt, including platform preparation failures.
+   * @param sources - Ordered feed base URLs; empty keeps the feed embedded in app-update.yml.
    */
   constructor(
     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
@@ -56,6 +57,7 @@ export class DesktopUpdateCoordinator {
     private readonly currentVersion: () => string = () => app.getVersion(),
     private readonly downloadResult?: (success: boolean, reason?: string) => void,
     private readonly channel: 'nightly' | 'latest' = 'nightly',
+    private readonly sources: readonly string[] = [],
   ) {
     if (updater === autoUpdater) {
       // electron-updater omits this internal transport property from its public declarations.
@@ -182,19 +184,25 @@ export class DesktopUpdateCoordinator {
   }
 
   private async doCheck(): Promise<DesktopUpdateState> {
-    try {
-      this.assertLive()
-      // No packaged source means this build has no release feed, which is a build property rather than a failed check.
-      if (!this.enabled()) return this.setState({ phase: 'idle' })
-      const result = await this.updater.checkForUpdates()
-      if (result === null) throw new Error('desktop update: no check result was returned')
-      const version = result.updateInfo.version
-      if (valid(version) === null) throw new Error('desktop update: feed version is invalid')
-      if (this.channel === 'latest' && version.includes('-')) throw new Error('desktop update: latest feed contains a prerelease')
-      this.candidate = result.isUpdateAvailable && gt(version, this.currentVersion()) ? version : undefined
-      return this.setState(this.candidate === undefined ? { phase: 'idle' } : { phase: 'available', version })
-    } catch (error) {
-      return this.failure(error, 'check')
+    // No packaged source means this build has no release feed, which is a build property rather than a failed check.
+    if (!this.enabled()) return this.setState({ phase: 'idle' })
+    const candidates: readonly (string | undefined)[] = this.sources.length === 0 ? [undefined] : this.sources
+    let lastError: unknown
+    for (const source of candidates) {
+      try {
+        this.assertLive()
+        if (source !== undefined) this.updater.setFeedURL({ provider: 'generic', url: source, channel: this.channel })
+        const result = await this.updater.checkForUpdates()
+        if (result === null) throw new Error('desktop update: no check result was returned')
+        const version = result.updateInfo.version
+        if (valid(version) === null) throw new Error('desktop update: feed version is invalid')
+        if (this.channel === 'latest' && version.includes('-')) throw new Error('desktop update: latest feed contains a prerelease')
+        this.candidate = result.isUpdateAvailable && gt(version, this.currentVersion()) ? version : undefined
+        return this.setState(this.candidate === undefined ? { phase: 'idle' } : { phase: 'available', version })
+      } catch (error) {
+        lastError = error
+      }
     }
+    return this.failure(lastError, 'check')
   }
 }
