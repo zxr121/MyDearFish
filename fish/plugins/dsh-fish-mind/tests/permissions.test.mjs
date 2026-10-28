@@ -256,7 +256,29 @@ test('开发者模式打开后，主人前台会话可以只读 DSH 目录，并
   assert.equal(normal.rule, 'foreground.allow')
 })
 
-test('开发者模式不放行写入、shell、凭据和身份文件', () => {
+test('开发者模式打开后，主人前台会话可以用只读 shell 查看 DSH 和鱼脑目录，并留审计', () => {
+  const { broker, dshHome, audits } = makeBroker({ developer: true })
+  const mind = join(dshHome, 'fish-mind')
+  const listing = exec('pwsh', {
+    command: `Get-ChildItem '${mind}' -File | Sort-Object LastWriteTime -Descending | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize; "now: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"`,
+    description: 'List live fish-mind data files',
+  })
+  const verdict = broker.evaluate(listing)
+  assert.equal(verdict.decision, 'allow')
+  assert.equal(verdict.rule, 'developer.read')
+  broker.record(listing, verdict)
+  assert.equal(audits.at(-1).rule, 'developer.read')
+
+  const content = broker.evaluate(exec('pwsh', { command: `Get-Content '${join(mind, 'diag.log')}' -Tail 20` }))
+  assert.equal(content.decision, 'allow')
+  assert.equal(content.rule, 'developer.read')
+
+  const bash = broker.evaluate(exec('bash', { command: `ls -la '${mind}' | grep diag` }))
+  assert.equal(bash.decision, 'allow')
+  assert.equal(bash.rule, 'developer.read')
+})
+
+test('开发者模式不放行写入、凭据和身份文件', () => {
   const { broker, dshHome } = makeBroker({ developer: true })
   const write = broker.evaluate(exec('write', { file_path: join(dshHome, 'storages', 'x.json'), content: 'x' }))
   assert.equal(write.decision, 'deny')
@@ -274,13 +296,41 @@ test('开发者模式不放行写入、shell、凭据和身份文件', () => {
   assert.equal(env.decision, 'deny')
   assert.equal(env.rule, 'private.credential-file')
 
-  const shell = broker.evaluate(exec('bash', { command: `cat "${join(dshHome, 'storages', 'x.json')}"` }))
-  assert.equal(shell.decision, 'deny')
-  assert.equal(shell.rule, 'private.command')
+  const shellWrite = broker.evaluate(exec('pwsh', { command: `Set-Content '${join(dshHome, 'storages', 'x.json')}' -Value 'x'` }))
+  assert.equal(shellWrite.decision, 'deny')
+  assert.equal(shellWrite.rule, 'private.command')
 
   const anonymous = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { agent: false }))
   assert.equal(anonymous.decision, 'deny')
   assert.equal(anonymous.rule, 'private.dsh-home')
+})
+
+test('开发者模式的只读 shell 不放行重定向、脚本块、子命令和凭据路径', () => {
+  const { broker, dshHome } = makeBroker({ developer: true })
+  const mind = join(dshHome, 'fish-mind')
+  const denied = [
+    ['pwsh', `Set-Content '${join(mind, 'config.json')}' -Value '{}'`],
+    ['pwsh', `Get-ChildItem '${mind}' | Remove-Item`],
+    ['pwsh', `Get-ChildItem '${mind}' > '${join(dshHome, 'out.txt')}'`],
+    ['pwsh', `Get-ChildItem '${mind}' | ForEach-Object { Remove-Item $_ }`],
+    ['pwsh', `Get-ChildItem '${mind}' | Select-Object @{ n='x'; e={ Set-Content '${join(mind, 'x')}' 'y' } }`],
+    ['pwsh', `Get-Content $(Remove-Item '${join(mind, 'budget.json')}')`],
+    ['bash', `cat '${join(mind, 'budget.json')}' | tee '${join(dshHome, 'copy.json')}'`],
+    ['bash', `cat '${join(mind, 'budget.json')}' > '${join(dshHome, 'copy.json')}'`],
+    ['pwsh', `Get-Content '${join(dshHome, '.env')}'`],
+    ['pwsh', `Get-Content '${join(dshHome, '.credentials.yaml')}'`],
+  ]
+  for (const [name, command] of denied) {
+    const verdict = broker.evaluate(exec(name, { command }))
+    assert.equal(verdict.decision, 'deny', command)
+  }
+})
+
+test('开发者模式关着时，只读 shell 查鱼脑目录仍然拒绝', () => {
+  const { broker, dshHome } = makeBroker()
+  const verdict = broker.evaluate(exec('pwsh', { command: `Get-ChildItem '${join(dshHome, 'fish-mind')}'` }))
+  assert.equal(verdict.decision, 'deny')
+  assert.equal(verdict.rule, 'sealed.fish-mind')
 })
 
 test('开发者模式不覆盖群聊和后台会话', () => {
@@ -288,6 +338,10 @@ test('开发者模式不覆盖群聊和后台会话', () => {
   const social = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { sessionId: 'qq-social-group-1' }))
   assert.equal(social.decision, 'deny')
   assert.equal(social.rule, 'private.dsh-home')
+
+  const socialShell = broker.evaluate(exec('pwsh', { command: `Get-ChildItem '${join(dshHome, 'fish-mind')}'` }, { sessionId: 'qq-social-group-1' }))
+  assert.equal(socialShell.decision, 'deny')
+  assert.equal(socialShell.rule, 'sealed.fish-mind')
 
   broker.markAutonomous('life-1')
   const autonomous = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { sessionId: 'life-1' }))

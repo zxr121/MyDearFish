@@ -29,7 +29,7 @@ The overview exists only in the local settings UI. Its routes register on the DS
 
 ## Developer mode
 
-Developer mode is off by default. While it is off, tools reading anything under `$DSH_HOME` are refused outright as `private.dsh-home`. When it is on, she may use read-only tools in the owner's own foreground session to inspect logs, configuration, and session records in the DSH directory for troubleshooting; credential files (`.env`, `.credentials.yaml`, `~/.ssh`, and the like), identity files, writes, and shell commands are still refused, as are group/friend sessions, subagents, and background sessions. Every allowed read is recorded in the audit log as `developer.read`.
+Developer mode is off by default. While it is off, tools reading anything under `$DSH_HOME` are refused outright as `private.dsh-home`. When it is on, she may use read-only tools and read-only shell commands (directory listings, file reads, and searches) in the owner's own foreground session to inspect logs, configuration, and session records in the DSH directory for troubleshooting; credential files (`.env`, `.credentials.yaml`, `~/.ssh`, and the like), identity files, writes, and write-capable commands are still refused, as are group/friend sessions, subagents, and background sessions. Every allowed read is recorded in the audit log as `developer.read`.
 
 The “Open a debugging session in Creator mode” button in the same block starts a new blank session with the Creator (`cordis`) preset while keeping the fish persona and memory; Creator mode's own ability to edit code and write files comes from the host preset and is not governed by this switch. Turn the switch off after troubleshooting and the next tool call returns to the hard refusal.
 

@@ -5,8 +5,8 @@
 //   · 外部 MCP 工具只有只读白名单里的能放行；发送、撤回、群管理一律硬拒绝。
 //   · 用户自己开的会话 —— 正常放行；但 DSH 目录、凭据目录、身份文件、
 //     探测本机的命令、不可逆的危险命令，以及参数里夹带真凭据的调用，一律拒绝。
-//   · 开发者模式（主人从设置页打开）—— 她自己的前台会话可以用读类工具只读查看
-//     DSH 目录里的日志、配置和会话；凭据、身份文件、写入、shell 和群聊会话照旧拒绝。
+//   · 开发者模式（主人从设置页打开）—— 她自己的前台会话可以用读类工具和只读 shell
+//     命令查看 DSH 目录里的日志、配置和会话；凭据、身份文件、写入和群聊会话照旧拒绝。
 //   · 她自己在后台开的会话 —— 默认全拒，只放行显式 allowTools，而且只能碰鱼脑目录。
 //   · 紧急停止 —— 所有工具调用全拒，聊天本身还在。
 //
@@ -22,8 +22,31 @@ import { summarize } from './sanitize.js'
 
 const SHELL_TOOLS = new Set(['bash', 'pwsh'])
 const WRITE_TOOLS = new Set(['write', 'edit'])
-// 开发者模式只放行这些纯读工具；shell、编辑器一类能改东西的工具不走这个口子。
+// 开发者模式放行这些纯读工具；shell 另行走下面的只读命令白名单，编辑器一类不走这个口子。
 const READ_TOOLS = new Set(['read', 'glob', 'grep', 'read_image'])
+// 开发者模式里额外放行的只读 shell：命令名必须在白名单里，重定向、脚本块、
+// 调用运算符、方法调用和未知子命令一律算写入。只能挡住正常写法，挡不住刻意混淆。
+const PWSH_READ_COMMANDS = new Set([
+  'get-childitem', 'gci', 'ls', 'dir', 'tree',
+  'get-content', 'gc', 'cat', 'type',
+  'get-item', 'gi',
+  'select-string', 'sls', 'findstr',
+  'get-filehash', 'get-date',
+  'sort-object', 'select-object',
+  'format-table', 'ft', 'format-list', 'fl', 'format-wide', 'fw',
+  'out-string', 'measure-object', 'measure', 'where-object', 'group-object', 'compare-object',
+  'test-path', 'resolve-path', 'get-location', 'pwd',
+  'write-output', 'write-host', 'echo',
+])
+const BASH_READ_COMMANDS = new Set([
+  'ls', 'cat', 'head', 'tail', 'wc', 'stat', 'du',
+  'grep', 'findstr', 'cut', 'tree',
+  'pwd', 'echo', 'printf', 'realpath', 'readlink', 'md5sum', 'sha1sum', 'sha256sum',
+])
+const READ_COMMANDS = new Map([
+  ['pwsh', PWSH_READ_COMMANDS],
+  ['bash', BASH_READ_COMMANDS],
+])
 const PATH_KEYS = [
   'file_path',
   'path',
@@ -170,6 +193,165 @@ function compileNamePattern(pattern) {
   return new RegExp(`^${escaped}$`, process.platform === 'win32' ? 'i' : '')
 }
 
+/** 取一段 shell 的命令名；空串表示这一段不是命令（整段都在引号里）。 */
+function shellVerbOf(segment) {
+  const match = /^\S+/.exec(segment)
+  if (match === null) return ''
+  const token = match[0].toLowerCase()
+  if (token.includes('/') || token.includes('\\') || token.includes(':') || token.startsWith('$') || token.startsWith('%')) return ''
+  return token.replace(/\.exe$/, '')
+}
+
+/** 从 `$(` 的括号开始找配对的 `)`；找不到返回 null。 */
+function extractSubcommand(command, openIndex) {
+  let depth = 1
+  let quote = ''
+  let index = openIndex + 1
+  const start = index
+  while (index < command.length) {
+    const char = command[index]
+    if (quote === "'") {
+      if (char === "'") quote = ''
+      index += 1
+      continue
+    }
+    if (quote === '"') {
+      if (char === '"') quote = ''
+      else if (char === '`') index += 1
+      index += 1
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      index += 1
+      continue
+    }
+    if (char === '(') {
+      depth += 1
+      index += 1
+      continue
+    }
+    if (char === ')') {
+      depth -= 1
+      if (depth === 0) return { inner: command.slice(start, index), next: index + 1 }
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return null
+}
+
+/**
+ * 把 shell 命令拆成可检查的段；引号里的文字不算命令，`$(...)` 和反引号里的内容单独递归检查。
+ * 返回 null 表示写法不对或包含不安全的结构。
+ */
+function shellSegments(command, shell, depth) {
+  const segments = []
+  let bare = ''
+  let quote = ''
+  let index = 0
+  const push = () => {
+    const segment = bare.trim()
+    if (segment !== '') segments.push(segment)
+    bare = ''
+  }
+  while (index < command.length) {
+    const char = command[index]
+    if (quote === "'") {
+      if (char === "'") {
+        quote = ''
+        bare += ' '
+      }
+      index += 1
+      continue
+    }
+    if (quote === '"') {
+      if (char === '"') {
+        quote = ''
+        bare += ' '
+        index += 1
+        continue
+      }
+      if (char === '`') {
+        if (shell === 'pwsh') {
+          index += 2
+          continue
+        }
+        const end = command.indexOf('`', index + 1)
+        if (end < 0 || !isReadOnlyShellCommand(command.slice(index + 1, end), shell, depth + 1)) return null
+        index = end + 1
+        continue
+      }
+      if (char === '$' && command[index + 1] === '(') {
+        const sub = extractSubcommand(command, index + 1)
+        if (sub === null || !isReadOnlyShellCommand(sub.inner, shell, depth + 1)) return null
+        index = sub.next
+        continue
+      }
+      index += 1
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      index += 1
+      continue
+    }
+    if (char === '`') {
+      if (shell === 'pwsh') {
+        index += 2
+        continue
+      }
+      const end = command.indexOf('`', index + 1)
+      if (end < 0 || !isReadOnlyShellCommand(command.slice(index + 1, end), shell, depth + 1)) return null
+      index = end + 1
+      continue
+    }
+    if (char === '$' && command[index + 1] === '(') {
+      const sub = extractSubcommand(command, index + 1)
+      if (sub === null || !isReadOnlyShellCommand(sub.inner, shell, depth + 1)) return null
+      index = sub.next
+      continue
+    }
+    if (char === ';' || char === '\n' || char === '\r' || char === '|') {
+      push()
+      index += char === '|' && command[index + 1] === '|' ? 2 : 1
+      continue
+    }
+    if (char === '&') {
+      if (command[index + 1] === '&') {
+        push()
+        index += 2
+        continue
+      }
+      return null
+    }
+    if (char === '>' || char === '<' || char === '{' || char === '}' || char === '(' || char === ')') return null
+    bare += char
+    index += 1
+  }
+  if (quote !== '') return null
+  push()
+  return segments
+}
+
+/** 判断一条 shell 命令是不是只有白名单里的读取命令和它们之间的管道。 */
+function isReadOnlyShellCommand(command, shell, depth = 0) {
+  if (typeof command !== 'string' || command.trim() === '') return false
+  if (depth > 8) return false
+  const allowed = READ_COMMANDS.get(shell)
+  if (allowed === undefined) return false
+  const segments = shellSegments(command, shell, depth)
+  if (segments === null) return false
+  for (const segment of segments) {
+    const verb = shellVerbOf(segment)
+    if (!allowed.has(verb)) return false
+    // GNU sort / tree 的 -o 会把结果写进文件；这两个命令只放行不带输出的写法。
+    if ((verb === 'sort' || verb === 'tree') && /(?:^|\s)(?:-o|--output)(?:\s|=|$)/i.test(segment)) return false
+  }
+  return true
+}
+
 const MCP_TOOL_PREFIX = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/
 
 /** `mcp__tulpa__get_messages` → `{ server: 'tulpa', tool: 'get_messages' }`；不是 MCP 工具返回 null。 */
@@ -230,6 +412,10 @@ export function createBroker({
   // 工具写进去就等于她可以改自己的额度和记忆，必须硬拒，不能只弹审批。
   const sealedRoots = [mindRoot, sourceRoot]
   const dshRoot = fold(dshHome)
+  // 这些探针只代表“命令提到了 DSH 目录本身”；开发者模式的只读命令可以放过它们，
+  // 凭据、身份文件和敏感文件名的探针仍然照常拒绝。
+  const dshProbes = new Set([dshRoot, dshRoot.split(sep).join('/'), dshRoot.split('/').join(sep)])
+  if (basename(dshRoot).startsWith('.')) dshProbes.add(basename(dshRoot))
   const homeRoot = fold(homedir())
   const protectedRoots = [...new Set([...readRoots, ...writeRoots])]
   const identityPaths = new Set(HOME_IDENTITY_FILES.map((file) => fold(join(homedir(), file))))
@@ -300,7 +486,7 @@ export function createBroker({
   function privateReasonOf(rule) {
     switch (rule) {
       case 'private.dsh-home':
-        return 'DSH 目录里有配置、凭据和会话，工具不能读也不能写。要查看请主人自己打开文件。'
+        return 'DSH 目录里有配置、凭据和会话，工具不能读也不能写。要查看请主人在设置里打开开发者模式，或自己打开文件。'
       case 'private.home-root':
         return '不能列出主人主目录；要做什么就指定具体文件。'
       case 'private.credential-store':
@@ -329,19 +515,20 @@ export function createBroker({
     return false
   }
 
-  function shellTouchesPrivate(command) {
+  function shellTouchesPrivate(command, ignoreDshHome = false) {
     if (typeof command !== 'string' || command === '') return false
     const windows = process.platform === 'win32'
     const haystack = windows ? command.toLowerCase() : command
     for (const probe of hardProbes) {
+      if (ignoreDshHome && dshProbes.has(probe)) continue
       if (probe.length > 3 && haystack.includes(windows ? probe.toLowerCase() : probe)) return true
     }
     return false
   }
 
-  function isPrivateCommand(command) {
+  function isPrivateCommand(command, ignoreDshHome = false) {
     if (typeof command !== 'string' || command === '') return false
-    if (shellTouchesPrivate(command)) return true
+    if (shellTouchesPrivate(command, ignoreDshHome)) return true
     const segments = command
       .split(/(?:&&|\|\||[;|\n]|\$\(|`)/)
       .map((segment) => segment.trim())
@@ -387,6 +574,15 @@ export function createBroker({
       && READ_TOOLS.has(exec?.name)
       && originOf(exec) === 'foreground'
       && isOwnerSession(exec) === true
+    // shell 也只放行白名单里的读取命令，而且必须确实在查 DSH 或鱼脑目录；
+    // 写入型命令继续走 sealed / private 硬拒绝。
+    const developerShellRead = config.developer.enabled === true
+      && SHELL_TOOLS.has(exec?.name)
+      && originOf(exec) === 'foreground'
+      && isOwnerSession(exec) === true
+      && commands.length > 0
+      && commands.every((command) => isReadOnlyShellCommand(command, exec.name))
+      && commands.some((command) => shellTouchesRoot(command, dshRoot) || sealedRoots.some((root) => shellTouchesRoot(command, root)))
 
     let privatePath = null
     let privateRule = ''
@@ -399,7 +595,7 @@ export function createBroker({
         break
       }
     }
-    const privateCommand = commands.find((command) => isPrivateCommand(command)) || null
+    const privateCommand = commands.find((command) => isPrivateCommand(command, developerShellRead)) || null
     const dangerousCommand = commands.find((command) => isDangerousCommand(command)) || null
     const credentialArgument = privacy !== null && typeof privacy.hasCredential === 'function'
       ? strings.find((text) => privacy.hasCredential(text)) || null
@@ -410,8 +606,8 @@ export function createBroker({
     }
 
     const sealedPath = write ? paths.find((pathValue) => sealedRoots.some((root) => isInside(fold(pathValue), root))) : undefined
-    const sealedCommand = commands.find((command) => sealedRoots.some((root) => shellTouchesRoot(command, root)))
-    const developer = developerRead && paths.some((pathValue) => isInside(fold(pathValue), dshRoot))
+    const sealedCommand = commands.find((command) => !developerShellRead && sealedRoots.some((root) => shellTouchesRoot(command, root)))
+    const developer = (developerRead && paths.some((pathValue) => isInside(fold(pathValue), dshRoot))) || developerShellRead
     return {
       paths,
       commands,
@@ -459,7 +655,7 @@ export function createBroker({
       return {
         ...base,
         decision: 'deny',
-        reason: '鱼脑目录和鱼脑自己的代码是只读的：预算、配置、经历、账本、私设和权限规则只能由主人直接改文件，不能通过工具改。要改额度请主人直接打开 budget.json。',
+        reason: '鱼脑目录和鱼脑自己的代码是只读的：预算、配置、经历、账本、私设和权限规则只能由主人直接改文件，不能通过工具改。开发者模式下主人可以用只读命令查看；要改额度请主人直接打开 budget.json。',
         rule: 'sealed.fish-mind',
       }
     }
