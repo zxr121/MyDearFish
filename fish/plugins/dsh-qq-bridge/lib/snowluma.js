@@ -169,8 +169,13 @@ export function 写OneBot配置(文件, 事件地址, 端口 = 默认OneBot端�
   if (客户端位 >= 0) 客户端们[客户端位] = 客户端
   else 客户端们.push(客户端)
 
+  // SnowLuma 2.x 默认开着群里的 #sl 状态指令，会在群里冒一张机器人口径的状态卡；
+  // 状态在鱼的设置页看，装好 / 升级后都保持关闭。
+  const 状态指令 = 源.statusCommand && typeof 源.statusCommand === 'object' && !Array.isArray(源.statusCommand) ? 源.statusCommand : {}
+
   写JSON(文件, {
     ...源,
+    statusCommand: { ...状态指令, enabled: false },
     networks: { ...网, httpServers: 服务器们, httpClients: 客户端们 },
   })
   return 文件

@@ -64,6 +64,7 @@ try {
       httpClients: [{ name: '别的客户端', url: 'http://x', enabled: true }],
       wsServers: [{ name: '不动我' }],
     },
+    statusCommand: { enabled: true, swallow: true, cooldownSeconds: 9, trigger: '#sl' },
     别的键: { 保留: true },
   }, null, 2), 'utf8')
   写OneBot配置(单文件, 事件地址, 3002)
@@ -75,11 +76,15 @@ try {
   报('事件 httpClient 指向 DSH 收报口', 客户端 && 客户端.url === 事件地址 && 客户端.enabled === true, JSON.stringify(客户端))
   报('不留下旧的 accessToken', 服务 && !('accessToken' in 服务) && !('accessToken' in 客户端))
   报('保留别的键和别的客户端', 网.别的键 && 网.别的键.保留 === true && 网.networks.httpClients.some((x) => x.name === '别的客户端') && 网.networks.wsServers[0].name === '不动我')
+  报('自带 #sl 状态指令一律关掉，触发词和冷却原样保留',
+    网.statusCommand && 网.statusCommand.enabled === false && 网.statusCommand.trigger === '#sl' &&
+      网.statusCommand.cooldownSeconds === 9 && 网.statusCommand.swallow === true, JSON.stringify(网.statusCommand))
 
   // ---------- 全局 + per-UIN ----------
   writeFileSync(join(安装目录, 'config', 'onebot_2514029319.json'), JSON.stringify({
     mode: 'snapshot',
     networks: { httpServers: [{ name: 'http-default', port: 3000, host: '127.0.0.1', path: '/', enableWebSocket: false, messageFormat: 'array', reportSelfMessage: false }], httpClients: [] },
+    statusCommand: { enabled: true, swallow: false, cooldownSeconds: 5, trigger: '#sl' },
   }, null, 2), 'utf8')
   writeFileSync(join(安装目录, 'config', 'runtime.json'), JSON.stringify({ webuiPort: 6099, hookAutoLoad: false }, null, 2), 'utf8')
   const 写了 = 写SnowLuma配置(安装目录, 事件地址, 3002)
@@ -89,6 +94,8 @@ try {
   报('per-UIN 快照也写同一端口并加事件上报',
     账号.mode === 'snapshot' && 账号.networks.httpServers.some((x) => x.name === 'http-default' && x.port === 3002) &&
       (账号.networks.httpClients || []).some((x) => x.name === 'dsh-event' && x.url === 事件地址))
+  报('per-UIN 快照里的 #sl 状态指令也关掉', 账号.statusCommand && 账号.statusCommand.enabled === false && 账号.statusCommand.trigger === '#sl',
+    JSON.stringify(账号.statusCommand))
   报('配置写到了这些文件', 写了.length >= 3 && 写了.every((x) => existsSync(x)), JSON.stringify(写了.map((x) => x.split(/[\\/]/).pop())))
 
   // ---------- 目录识别 / 候选 ----------
