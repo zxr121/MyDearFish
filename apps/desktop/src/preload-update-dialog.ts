@@ -4,7 +4,8 @@ import { UPDATE_DIALOG_IPC, type UpdateDialogApi, type UpdateDialogView } from '
 
 const api: UpdateDialogApi = {
   status: () => ipcRenderer.invoke(UPDATE_DIALOG_IPC.status) as Promise<UpdateDialogView | null>,
-  respond: (revision, index) => ipcRenderer.invoke(UPDATE_DIALOG_IPC.respond, revision, index) as Promise<void>,
+  respond: (revision, index, checkboxChecked) => ipcRenderer
+    .invoke(UPDATE_DIALOG_IPC.respond, revision, index, checkboxChecked) as Promise<void>,
   subscribe: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, view: UpdateDialogView | null): void => { listener(view) }
     ipcRenderer.on(UPDATE_DIALOG_IPC.changed, receive)

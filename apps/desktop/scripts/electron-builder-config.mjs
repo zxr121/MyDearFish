@@ -36,6 +36,7 @@ import {
   verifyMacOSAppUpdateConfig,
   writeMacOSAppUpdateConfig,
 } from './macos-app-update-config.mjs'
+import { UPDATE_NOTES_FILENAME } from './release-notes.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -165,6 +166,8 @@ export function createElectronBuilderConfig(
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      // Written by package-target.ts just before this build runs; the shell shows these once per version.
+      { from: join(buildPaths.root, UPDATE_NOTES_FILENAME), to: UPDATE_NOTES_FILENAME },
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),

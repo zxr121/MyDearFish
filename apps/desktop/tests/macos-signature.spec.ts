@@ -57,9 +57,11 @@ describe('desktop macOS release signature', () => {
       'com.apple.security.cs.disable-library-validation', 'com.apple.security.device.audio-input']) {
       expect(entitlements).toContain(`<key>${key}</key>\n    <true/>`)
     }
-    expect(config.extraResources).toHaveLength(2)
+    expect(config.extraResources).toHaveLength(3)
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
+    const notes = config.extraResources.find(resource => resource.to === 'update-notes.json')
+    expect(portablePath(notes?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/update-notes.json')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {
       throw new Error('desktop DSH resources must use electron-builder file mappings')

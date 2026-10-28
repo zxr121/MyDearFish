@@ -24,6 +24,7 @@ import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
 import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
+import { collectReleaseNotes, writeReleaseNotes } from './release-notes.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -131,6 +132,32 @@ function packageVersion(path: string, label: string): string {
     throw new Error(`desktop package: ${label} has no version`)
   }
   return manifest.version
+}
+
+/**
+ * Bake this build's user-facing changes into the resources the shell reads after an update.
+ * @param environment Packaging environment carrying the build version.
+ * @param buildPaths Target paths electron-builder copies the notes from.
+ */
+function writeBuildUpdateNotes(
+  environment: NodeJS.ProcessEnv,
+  buildPaths: ReturnType<typeof desktopTargetBuildPaths>,
+): void {
+  const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+  const version = resolveDesktopBuildVersion(environment, productVersion)
+  try {
+    const notes = collectReleaseNotes(REPOSITORY_ROOT, version)
+    writeReleaseNotes(buildPaths.root, notes)
+    if (notes.notes.length === 0) {
+      console.warn('desktop package: no user-facing commits since the previous release; the update popup stays hidden')
+    }
+  } catch (error) {
+    // Packaging still has to produce a usable application when history is unavailable; an empty
+    // document keeps the popup hidden instead of shipping stale notes.
+    writeReleaseNotes(buildPaths.root, { schemaVersion: 1, version, notes: [] })
+    console.warn(`desktop package: update notes unavailable; the update popup stays hidden: ${
+      error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 function writeReleaseRecord(
@@ -499,6 +526,7 @@ export async function packageTarget(
   await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)
   if (signPrimaryRuntime) await execute(['run', 'sign:primary-runtime', '--dsh'], electronBuilderEnv)
   if (invocation.prepareOnly) return
+  writeBuildUpdateNotes(environment, buildPaths)
   if (target.platform === 'darwin' && !invocation.unsigned && !invocation.skipNotarization && !invocation.directory) {
     await execute([
       ...desktopElectronBuilderArguments(target, true),

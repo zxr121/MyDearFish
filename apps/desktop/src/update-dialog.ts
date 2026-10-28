@@ -19,6 +19,8 @@ export interface UpdateDialogView {
   readonly closeLabel: string
   readonly technicalDetails: string
   readonly technicalDetailsLabel: string
+  readonly checkboxLabel: string
+  readonly checkboxChecked: boolean
 }
 
 /** Electron message options with separately expandable, main-owned diagnostics. */
@@ -29,12 +31,14 @@ export interface UpdateDialogOptions extends MessageBoxOptions {
 /** The document can select only a displayed response index. */
 export interface UpdateDialogApi {
   status(): Promise<UpdateDialogView | null>
-  respond(revision: number, index: number): Promise<void>
+  respond(revision: number, index: number, checkboxChecked?: boolean): Promise<void>
   subscribe(listener: (view: UpdateDialogView | null) => void): () => void
 }
 
 // main.ts's protocol.handle shell route serves this document and its renderer assets; the modal requires that route.
 const page = 'dsh-app://shell/update-dialog.html'
+
+type FinishUpdateDialog = (index: number, retain?: boolean, checkboxChecked?: boolean) => void
 
 /** One fading backdrop with replaceable confirmation content; aborted checks and mandatory policy cancel ordinary prompts. */
 export class DesktopUpdateDialog {
@@ -43,7 +47,7 @@ export class DesktopUpdateDialog {
   private window: BrowserWindow | undefined
   private parent: BrowserWindow | undefined
   private closing: ReturnType<typeof setTimeout> | undefined
-  private active: { window: BrowserWindow; view: UpdateDialogView; finish: (index: number, retain?: boolean) => void } | undefined
+  private active: { window: BrowserWindow; view: UpdateDialogView; finish: FinishUpdateDialog } | undefined
 
   /** Focus the current explanation or confirmation without replacing it or granting permission. */
   focus(): void { this.active?.window.focus() }
@@ -59,7 +63,7 @@ export class DesktopUpdateDialog {
   constructor(private readonly preload: string, private readonly locale: DesktopLocale | (() => DesktopLocale),
     private readonly overlays: Pick<DesktopUpdateOverlays, 'create'>) {
     ipcMain.handle(UPDATE_DIALOG_IPC.status, (event) => { this.owned(event); return this.active?.view ?? null })
-    ipcMain.handle(UPDATE_DIALOG_IPC.respond, (event, revision: unknown, index: unknown) => {
+    ipcMain.handle(UPDATE_DIALOG_IPC.respond, (event, revision: unknown, index: unknown, checkboxChecked: unknown) => {
       this.owned(event)
       const active = this.active
       if (active === undefined || revision !== active.view.revision) throw new Error('desktop update: stale dialog response')
@@ -67,7 +71,10 @@ export class DesktopUpdateDialog {
         || (index !== active.view.cancelId && (index < 0 || index >= active.view.buttons.length))) {
         throw new Error('desktop update: invalid dialog response')
       }
-      active.finish(index)
+      if (checkboxChecked !== undefined && typeof checkboxChecked !== 'boolean') {
+        throw new Error('desktop update: invalid dialog checkbox state')
+      }
+      active.finish(index, false, active.view.checkboxLabel !== '' && checkboxChecked === true)
     })
   }
 
@@ -93,10 +100,11 @@ export class DesktopUpdateDialog {
     this.parent = parent
     const view: UpdateDialogView = { revision: ++this.revision, locale: locale.id, title: options.title ?? '', message: options.message,
       detail: options.detail ?? '', buttons, cancelId, closeLabel: locale.messages.updateClose,
-      technicalDetails: options.technicalDetails ?? '', technicalDetailsLabel: locale.messages.updateTechnicalDetails }
+      technicalDetails: options.technicalDetails ?? '', technicalDetailsLabel: locale.messages.updateTechnicalDetails,
+      checkboxLabel: options.checkboxLabel ?? '', checkboxChecked: options.checkboxChecked === true }
     return new Promise((resolve) => {
       const abort = (): void => { finish(cancelId) }
-      const finish = (response: number, retain = false): void => {
+      const finish = (response: number, retain = false, checkboxChecked = false): void => {
         if (this.active?.view !== view) return
         this.active = undefined
         options.signal?.removeEventListener('abort', abort)
@@ -104,7 +112,7 @@ export class DesktopUpdateDialog {
           window.webContents.send(UPDATE_DIALOG_IPC.changed, null)
           this.closing = setTimeout(() => { this.close() }, 150)
         }
-        resolve({ response, checkboxChecked: false })
+        resolve({ response, checkboxChecked })
       }
       this.active = { window, view, finish }
       options.signal?.addEventListener('abort', abort, { once: true })

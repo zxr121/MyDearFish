@@ -20,6 +20,8 @@ unsigned Windows 构建随包携带 `resources/app-update.yml`，更新源是本
 
 检查更新失败时，失败对话框提供“手动下载”按钮，打开 `https://github.com/<owner>/<repo>/releases/latest`；手动运行安装包会得到同样的覆盖安装。
 
+每个构建还会把它相对上一个 `fish-release-*` 标签的提交摘要写入 `resources/update-notes.json`。应用进入工作区后，如果随包说明对应正在运行的版本、而且这个版本还没有确认过，就弹出一次“更新说明”窗口；勾选窗口里的“不再显示更新说明”后永久生效。说明只包含本次构建的内容，跳过多个版本的用户也不会看到累积列表。
+
 ## 本机构建
 
 本机打包需要 Node 24、仓库固定的 pnpm 版本、Git、PowerShell、tar、Python、Visual C++ Build Tools，以及提供 `vswhere.exe` 的 Windows SDK。安装依赖和准备运行时还需要访问 npm、GitHub release 资源与 nodejs.org。

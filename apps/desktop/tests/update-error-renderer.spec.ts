@@ -28,7 +28,8 @@ it.each(['en', 'zh-CN'])('keeps ordinary diagnostics folded, text-only, and keyb
   const state: UpdateDialogView = { revision: 1, locale: locale.id, title: locale.messages.updateFailedTitle,
     message: locale.messages.updateStopFailed, detail: '', buttons: [locale.messages.updateAcknowledge], cancelId: 0,
     closeLabel: locale.messages.updateClose, technicalDetailsLabel: locale.messages.updateTechnicalDetails,
-    technicalDetails: '<img src=x onerror="window.compromised=true">\nexit 0; shutdown acknowledged false' }
+    technicalDetails: '<img src=x onerror="window.compromised=true">\nexit 0; shutdown acknowledged false',
+    checkboxLabel: '', checkboxChecked: false }
   const respond = vi.fn(async () => {})
   let publish!: (view: UpdateDialogView | null) => void
   const api: UpdateDialogApi = { status: async () => state, respond, subscribe: (listener) => { publish = listener; return () => {} } }
@@ -55,7 +56,7 @@ it.each(['en', 'zh-CN'])('keeps ordinary diagnostics folded, text-only, and keyb
   expect(disclosure.open).toBe(false)
   expect(respond).not.toHaveBeenCalled()
   p.document.dispatchEvent(new p.dom.window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
-  expect(respond).toHaveBeenCalledWith(1, 0)
+  expect(respond).toHaveBeenCalledWith(1, 0, false)
   const backdrop = p.document.body
   const dialog = p.element('dialog')
   dialog.scrollTop = 170

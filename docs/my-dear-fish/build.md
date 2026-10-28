@@ -20,6 +20,8 @@ An unsigned Windows build carries `resources/app-update.yml`, whose feed is `htt
 
 When an update check fails, the failure dialog offers **Download manually**, which opens `https://github.com/<owner>/<repo>/releases/latest`; running the installer by hand performs the same in-place replacement.
 
+Each build also writes commit summaries since the previous `fish-release-*` tag into `resources/update-notes.json`. After the workspace opens, the app shows them once when they match the running version and it has not been acknowledged; the dialog's **Don’t show update notes again** checkbox disables them permanently. The notes describe only that build, so an installation that skipped releases never sees a cumulative list.
+
 ## Local build
 
 Local packaging needs Node 24, the repository's pnpm version, Git, PowerShell, tar, Python, Visual C++ Build Tools, and a Windows SDK that provides `vswhere.exe`. Dependency installation and runtime preparation also need access to npm, GitHub release assets, and nodejs.org.

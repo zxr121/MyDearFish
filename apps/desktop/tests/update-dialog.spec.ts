@@ -80,6 +80,22 @@ it('accepts only a displayed choice from its own main frame and retains cancella
   expect((await next).response).toBe(0)
 })
 
+it('reports the optional checkbox with the accepted response', async () => {
+  const f = setup()
+  const pending = dialogs!.show(f.parent as unknown as BrowserWindow, {
+    message: '更新内容', buttons: ['确定'], cancelId: 0, checkboxLabel: '不再显示更新说明',
+  })
+  expect(f.invoke(UPDATE_DIALOG_IPC.status)).toMatchObject({ checkboxLabel: '不再显示更新说明', checkboxChecked: false })
+  expect(() => f.invoke(UPDATE_DIALOG_IPC.respond, 0, 'yes')).toThrow(/checkbox/)
+  f.invoke(UPDATE_DIALOG_IPC.respond, 0, true)
+  expect(await pending).toEqual({ response: 0, checkboxChecked: true })
+
+  const silent = dialogs!.show(f.parent as unknown as BrowserWindow, { message: '没有复选框', buttons: ['确定'] })
+  expect(f.invoke(UPDATE_DIALOG_IPC.status)).toMatchObject({ checkboxLabel: '', checkboxChecked: false })
+  f.invoke(UPDATE_DIALOG_IPC.respond, 0, true)
+  expect(await silent).toEqual({ response: 0, checkboxChecked: false })
+})
+
 it('releases visible Windows modality before destroying a dismissed dialog', async () => {
   vi.useFakeTimers()
   const f = setup()

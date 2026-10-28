@@ -1,6 +1,7 @@
 /** Select isolated qualification inputs without weakening the ordinary Windows installer or signing hooks. */
 import { join } from 'node:path'
 import { createElectronBuilderConfig } from './electron-builder-config.mjs'
+import { UPDATE_NOTES_FILENAME } from './release-notes.mjs'
 import { readInstalledUpdateRun } from './installed-update-qualification.ts'
 import { verifyInstalledUpdateApplication } from './prepare-installed-update-application.ts'
 import { verifyDesktopRuntime } from '../src/runtime-tree.ts'
@@ -28,6 +29,8 @@ export async function createInstalledUpdateBuilderConfig(manifest: string, versi
     productName: run.productName,
     directories: { ...config.directories, output: join(run.root, version, 'installer') },
     extraMetadata: { ...config.extraMetadata, name: `dsh-update-test-${run.id}`, version, main: 'qualification-bootstrap.mjs' },
+    // Qualification builds do not prepare release notes for their rewritten version.
+    extraResources: config.extraResources.filter((resource: { to?: string }) => resource.to !== UPDATE_NOTES_FILENAME),
     files: [
       { from: application, to: '.', filter: ['lib/*.js', 'lib/*.cjs', 'renderer/**/*', 'qualification-bootstrap.mjs', 'installed-update-identity.mjs'] },
       'package.json',

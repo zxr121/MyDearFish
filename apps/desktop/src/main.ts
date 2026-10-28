@@ -55,6 +55,7 @@ import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { readDesktopSettings } from './settings.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
+import { readUpdateNotes, readUpdateNotesState, shouldShowUpdateNotes, writeUpdateNotesState } from './update-notes.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { installDesktopShortcuts } from './keyboard.ts'
@@ -374,6 +375,7 @@ async function main(): Promise<void> {
   let mainWindow: BrowserWindow | undefined
   let welcomeWindow: BrowserWindow | undefined
   let enteredWorkspace = false
+  let updateNotesOffered = false
   // NSIS passes --updated when it launches the application after installation.
   let raiseAfterUpdate = process.platform === 'win32' && process.argv.includes('--updated')
   let shellInstallerOwnsQuit = false
@@ -1205,6 +1207,43 @@ async function main(): Promise<void> {
     })
     return window
   }
+  /**
+   * Offer the changes baked into this build once per version. A mandatory policy can abort the
+   * prompt like any ordinary dialog, which leaves the version unacknowledged for the next launch.
+   */
+  const offerUpdateNotes = async (): Promise<void> => {
+    if (updateNotesOffered || quitting || !app.isPackaged || isMandatory()) return
+    const notes = readUpdateNotes(process.resourcesPath)
+    const userData = app.getPath('userData')
+    if (notes === undefined || !shouldShowUpdateNotes(notes, readUpdateNotesState(userData), app.getVersion())) {
+      updateNotesOffered = true
+      return
+    }
+    const parent = currentDialogWindow()
+    if (parent === undefined || parent.isDestroyed() || !parent.isVisible() || updateDialog.isOpen) return
+    updateNotesOffered = true
+    const controller = new AbortController()
+    ordinaryDialogs.add(controller)
+    try {
+      const result = await updateDialog.show(parent, {
+        type: 'info',
+        title: locale.messages.updateNotesTitle,
+        message: formatDesktopMessage(locale.messages.updateNotesMessage, { version: notes.version }),
+        detail: notes.notes.map(note => `• ${note}`).join('\n'),
+        buttons: [locale.messages.updateAcknowledge],
+        cancelId: 0,
+        checkboxLabel: locale.messages.updateNotesCheckbox,
+        signal: controller.signal,
+      })
+      if (!controller.signal.aborted && result.response === 0) {
+        writeUpdateNotesState(userData, { version: notes.version, disabled: result.checkboxChecked })
+      }
+    } catch (error) {
+      console.warn(`desktop update notes: ${desktopErrorState(error).message}`)
+    } finally {
+      ordinaryDialogs.delete(controller)
+    }
+  }
   const enterWorkspace = async ({ activate = true }: { activate?: boolean } = {}): Promise<void> => {
     if (quitting) return
     const window = mainWindow ?? createMainWindow()
@@ -1226,6 +1265,7 @@ async function main(): Promise<void> {
     if (activate && development && process.env.DSH_DESKTOP_OPEN_DEVTOOLS !== '0') {
       window.webContents.openDevTools({ mode: 'detach' })
     }
+    void offerUpdateNotes()
   }
   let openingWelcome: Promise<void> | undefined
   const showWelcome = (): Promise<void> => {

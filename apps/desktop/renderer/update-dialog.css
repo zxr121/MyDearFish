@@ -23,6 +23,9 @@ button:focus-visible, summary:focus-visible, pre:focus-visible { outline: 2px so
 details { margin-top: 12px; font-size: 13px; line-height: 20px; }
 summary { cursor: pointer; color: #5b6472; }
 pre { margin: 8px 0 0; padding: 10px; max-height: min(180px, 30vh); overflow: auto; border-radius: 8px; background: #f5f5f5; font: 12px/18px monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#checkbox { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; line-height: 20px; color: #5b6472; cursor: pointer; }
+#checkbox input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: #0f1115; cursor: pointer; }
+#checkbox:not([hidden]) + #actions { margin-top: 14px; }
 button:disabled { opacity: 0.5; cursor: default; }
 [hidden] { display: none !important; }
 body.update-dialog { opacity: 0; transition: opacity 150ms ease; }

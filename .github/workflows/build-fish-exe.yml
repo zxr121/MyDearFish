@@ -19,6 +19,10 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The update popup summarizes commits since the previous release tag.
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: pnpm/action-setup@v4
         with:
@@ -72,6 +76,9 @@ jobs:
           grep -q 'provider: generic' "$artifacts/win-unpacked/resources/app-update.yml"
           grep -q 'releases/latest/download/' "$artifacts/win-unpacked/resources/app-update.yml"
           grep -q "$(basename "$installer")" "$artifacts/nightly.yml"
+          notes="$artifacts/win-unpacked/resources/update-notes.json"
+          test -f "$notes" || { echo "missing release file: $notes"; exit 1; }
+          grep -q "\"version\": \"$VERSION\"" "$notes"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

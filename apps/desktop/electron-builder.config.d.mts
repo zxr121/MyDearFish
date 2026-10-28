@@ -19,6 +19,7 @@ export interface DesktopElectronBuilderConfig {
     { readonly from: string, readonly to: 'runtime' },
     { readonly from: string, readonly to: 'icon.png' },
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
+    { readonly from: string, readonly to: 'update-notes.json' },
   ]
   readonly mac: {
     readonly extendInfo: { readonly NSMicrophoneUsageDescription: string }

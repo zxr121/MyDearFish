@@ -5,13 +5,13 @@ let responding = false
 function respond(index) {
   if (responding || view === undefined) return
   responding = true
-  void api.respond(view.revision, index).catch(() => { responding = false })
+  void api.respond(view.revision, index, document.getElementById('checkbox-input').checked).catch(() => { responding = false })
 }
 document.getElementById('close').addEventListener('click', () => { respond(view.cancelId) })
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && view !== undefined) { event.preventDefault(); respond(view.cancelId) }
   if (event.key !== 'Tab') return
-  const controls = [...document.querySelectorAll('button, details:not([hidden]) > summary, details[open]:not([hidden]) > pre')]
+  const controls = [...document.querySelectorAll('button, details:not([hidden]) > summary, details[open]:not([hidden]) > pre, #checkbox:not([hidden]) > input')]
   const current = controls.indexOf(document.activeElement)
   const next = current < 0 ? (event.shiftKey ? controls.length - 1 : 0)
     : (current + (event.shiftKey ? -1 : 1) + controls.length) % controls.length
@@ -37,6 +37,9 @@ function render(state) {
   document.getElementById('technical-details-label').textContent = state.technicalDetailsLabel
   document.getElementById('technical-details-content').textContent = state.technicalDetails
   document.getElementById('technical-details').open = false
+  document.getElementById('checkbox').hidden = state.checkboxLabel === ''
+  document.getElementById('checkbox-input').checked = state.checkboxChecked === true
+  document.getElementById('checkbox-label').textContent = state.checkboxLabel
   document.getElementById('actions').replaceChildren()
   for (const [index, label] of state.buttons.entries()) {
     const button = document.createElement('button')
