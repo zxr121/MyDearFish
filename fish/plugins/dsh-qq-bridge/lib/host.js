@@ -645,6 +645,69 @@ export function 主人QQ会话id(号) {
   return `${主人QQ会话前缀}${String(号)}`
 }
 
+/**
+ * 主人只填一个号时，先把它认成群还是好友。
+ * 输入可以带“群”“QQ”等字样，但只能有一个号；全角数字按半角算。
+ * 名单里都没有时返回 `没在名单: true`，由调用方再问 OneBot 是不是没拉进群的群。
+ * @param {string} 输入 - 群号 / QQ 号
+ * @param {{自己?: string, 群们?: Array<{号: string, 名?: string}>, 友们?: Array<{号: string, 名?: string}>}} [已知] - OneBot 读到的名单
+ * @returns {{ok: boolean, 类型: 'group'|'private'|'', 号: string, 名: string, 说: string, 没在名单: boolean}} 认出来的目标
+ */
+export function 解析快捷目标(输入, 已知 = {}) {
+  const 文本 = String(输入 === undefined || 输入 === null ? '' : 输入)
+    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+  const 号们 = [...new Set(文本.match(/\d{4,20}/g) || [])]
+  if (号们.length === 0) return { ok: false, 类型: '', 号: '', 名: '', 说: '填一个 QQ 群号或 QQ 号（4–20 位数字）', 没在名单: false }
+  if (号们.length > 1) {
+    return { ok: false, 类型: '', 号: '', 名: '', 说: `一次只填一个号：这次看到 ${号们.join('、')}`, 没在名单: false }
+  }
+  const 号 = 号们[0]
+  const 自己 = String(已知.自己 || '').trim()
+  if (自己 !== '' && 号 === 自己) {
+    return { ok: false, 类型: '', 号, 名: '', 说: '这是鱼自己的 QQ 号：填你自己的号，或者要她说话的群号', 没在名单: false }
+  }
+  const 群们 = Array.isArray(已知.群们) ? 已知.群们 : []
+  const 友们 = Array.isArray(已知.友们) ? 已知.友们 : []
+  const 群 = 群们.find((x) => String((x && x.号) || '') === 号)
+  if (群) return { ok: true, 类型: 'group', 号, 名: String(群.名 || ''), 说: '', 没在名单: false }
+  const 友 = 友们.find((x) => String((x && x.号) || '') === 号)
+  if (友) return { ok: true, 类型: 'private', 号, 名: String(友.名 || ''), 说: '', 没在名单: false }
+  return { ok: false, 类型: '', 号, 名: '', 说: '', 没在名单: true }
+}
+
+/**
+ * 把一个认出来的号写进配置：群写进「社交 → 群」，QQ 写进「私聊」并打开转私聊；
+ * 同时松开这间屋的「关掉 / 只听不说 / 少掺和」，别的设置原样保留。
+ * @param {object} 配置 - 已归一化的配置
+ * @param {'group'|'private'} 类型 - 认出来的目标类型
+ * @param {string} 号 - 群号或 QQ 号
+ * @param {string} [名] - 群名 / 好友备注；只用在说明文字里
+ * @returns {{配置: object, 解开: string[], 说: string}} 新配置、松开的规矩和人话说明
+ */
+export function 套用快捷目标(配置, 类型, 号, 名 = '') {
+  const 是群 = 类型 === 'group'
+  const 键 = `${是群 ? 'group' : 'friend'}:${号}`
+  const 社 = 配置.社交 || {}
+  const 列表 = (值) => (Array.isArray(值) ? [...值] : [])
+  const 规则们 = ['关掉', '只听', '少掺和']
+  const 解开 = 规则们.filter((名) => 列表(社[名]).includes(键))
+  const 社交 = { ...社 }
+  for (const 名 of 规则们) 社交[名] = 列表(社[名]).filter((x) => x !== 键)
+  社交.群 = 列表(社.群).filter((x) => x !== 号)
+  社交.好友 = 列表(社.好友).filter((x) => x !== 号)
+  if (是群) 社交.群 = [...社交.群, 号]
+  const 新 = 是群
+    ? { ...配置, 总开关: true, 群号: 号, 社交 }
+    : { ...配置, 总开关: true, 私聊QQ: 号, 转私聊: true, 社交 }
+  const 标的 = String(名 || '').trim() === '' ? 号 : `${号}（${String(名).trim()}）`
+  const 说 = 是群
+    ? `已接通群 ${标的}：她会在群里听消息、按兴趣接话`
+    : `已接通 QQ ${标的}：私聊她就能聊，你在工作台说的话也会转到这个私聊`
+  const 规矩 = { 关掉: '关掉', 只听: '只听不说', 少掺和: '少掺和' }
+  const 松 = 解开.length > 0 ? `；顺手松开了「${解开.map((x) => 规矩[x]).join('、')}」` : ''
+  return { 配置: 新, 解开, 说: 说 + 松 }
+}
+
 // QQ 房间里只留人格、场景和鱼脑的记忆；编码助手的工具说明、交付格式、
 // 源码目录和 Web GUI 说明都留在工作台，不跟到聊天窗里。
 const 聊天提示段 = new Set([
@@ -4904,12 +4967,12 @@ export function apply(ctx) {
   let 房间名在取 = null
 
   /** 问一次本机 OneBot 的只读接口；连不上、不是 OneBot 或超时都当作没读到。 */
-  async function 问OneBot(配置, action) {
+  async function 问OneBot(配置, action, 体 = {}) {
     try {
       const r = await fetch(`${配置.NapCat}/${action}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify(体 || {}),
         signal: AbortSignal.timeout(1200),
       })
       const j = await r.json()
@@ -9509,6 +9572,59 @@ export function apply(ctx) {
     回(res, { ...(await 概况()), 说: '保存好了' })
   })
 
+  // 只填一个号：认成群还是好友，写进对应的名单，并把这条线的收发都打开。
+  // 名单以鱼 QQ 自己看到的为准；不在名单里就直说差哪一步（拉群 / 加好友）。
+  路线(`${路由前缀}/quick-target`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    const 配置 = 读配置()
+    const 自己 = await 取自己()
+    if (自己.号 === '') {
+      return 回(res, { ok: false, 说: '还没连上鱼 QQ：先在上一张卡里装好 SnowLuma、登录鱼 QQ，再回来填这个号' })
+    }
+    const [群们, 友们] = await Promise.all([
+      问OneBot(配置, 'get_group_list'),
+      问OneBot(配置, 'get_friend_list'),
+    ])
+    if (!Array.isArray(群们) && !Array.isArray(友们)) {
+      return 回(res, { ok: false, 说: 'OneBot 没给出群 / 好友名单：确认 SnowLuma 已经登录鱼 QQ，再试一次' })
+    }
+    const 名单 = {
+      自己: 自己.号,
+      群们: (Array.isArray(群们) ? 群们 : []).map((x) => ({
+        号: String((x && x.group_id) === undefined ? '' : x.group_id),
+        名: String((x && (x.group_name || x.group_remark)) || ''),
+      })),
+      友们: (Array.isArray(友们) ? 友们 : []).map((x) => ({
+        号: String((x && x.user_id) === undefined ? '' : x.user_id),
+        名: String((x && (x.remark || x.nickname)) || ''),
+      })),
+    }
+    const 认 = 解析快捷目标(来 && 来.号, 名单)
+    if (!认.ok && 认.没在名单) {
+      const 群 = await 问OneBot(配置, 'get_group_info', { group_id: Number(认.号) })
+      if (群 && String(群.group_id === undefined ? '' : 群.group_id) === 认.号) {
+        const 群名 = String(群.group_name || 认.号)
+        return 回(res, { ok: false, 说: `「${群名}」还没把鱼拉进群：先在 QQ 里把 ${自己.号} 加进这个群，再回来填一次` })
+      }
+      return 回(res, { ok: false, 说: `QQ ${认.号} 还没加鱼为好友：先在 QQ 里加 ${自己.号} 为好友，再回来填一次（或者填一个她在的群号）` })
+    }
+    if (!认.ok) return 回(res, { ok: false, 说: 认.说 })
+    const 结果 = 套用快捷目标(配置, 认.类型, 认.号, 认.名)
+    if (!写配置(归一化(结果.配置))) return 回(res, { ok: false, 说: `写不进配置文件：${配置文件}` })
+    try {
+      if (typeof 戳服务重开 === 'function') 戳服务重开()
+    } catch (error) {}
+    记账(`只填一个号：${认.类型 === 'group' ? '群' : '私聊'} ${认.号}${认.名 ? `（${认.名}）` : ''} 已接通${结果.解开.length > 0 ? `；松开 ${结果.解开.join('、')}` : ''}`)
+    回(res, {
+      ...(await 概况()),
+      类型: 认.类型,
+      号: 认.号,
+      名: 认.名,
+      说: 结果.说 + (配置.试运行 ? '（试运行还开着：只记账、不会真发；想真说话就去关掉它）' : ''),
+    })
+  })
+
   // 主人点「重置这个聊天」：换一间新会话，旧档原样留在磁盘上，不删不搬。
   路线(`${路由前缀}/session-reset`, async (req, res) => {
     if (!要方法(req, 'POST', res)) return
@@ -10035,7 +10151,9 @@ export function apply(ctx) {
     const 脱敏 = 对外脱敏('（小贝壳：DSH → QQ 这条桥通了）')
     if (!脱敏.ok) return 回(res, { ok: false, 说: '脱敏服务不可用，测试句没有发出去', 记录: 日志 })
     const 文字 = 脱敏.text
-    const 结果 = await 发到QQ(配置, 文字)
+    // 测试就是看“这条线通不通”：转私聊 / 转群关着也照样往填了号的口发一条，只影响这一发。
+    const 试 = { ...配置, 转私聊: String(配置.私聊QQ || '').trim() !== '', 转群: String(配置.群号 || '').trim() !== '' }
+    const 结果 = await 发到QQ(试, 文字)
     const 全过 = 结果.length > 0 && 结果.every((r) => r.ok)
     记账(`手动测试：${全过 ? '✅ 已发' : '⚠ 有问题'}「${文字}」`)
     for (const r of 结果) if (!r.ok) 记账(`   ${r.action} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)

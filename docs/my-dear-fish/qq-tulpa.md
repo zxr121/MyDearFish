@@ -6,7 +6,7 @@ Tulpa is an external MIT-licensed desktop program that auto-configures a QQ OneB
 
 | Item | Content |
 | --- | --- |
-| Status | Route B is implemented on this branch (2026-10-21); Route A's install, configure, and auto-start path has landed, and since 0.2.100 it detects an existing local install and adopts it |
+| Status | Route B is implemented on this branch (2026-10-21); Route A's install, configure, and auto-start path has landed, since 0.2.100 it detects an existing local install and adopts it, and since 0.2.101 a single group number or QQ number enables sending and receiving once SnowLuma is connected |
 | Scope | Read-only Tulpa history import in `dsh-qq-bridge`, the fish-mind external-tool rule, the `通到 QQ` settings panel |
 | Impact | One import module, one owner-level overlay, four local routes, one hard permission rule; the shipped profile still mounts no MCP client |
 | Order | Route B chosen; Route A deferred; Route C rejected |

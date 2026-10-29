@@ -82,6 +82,12 @@ globalThis.fetch = async (url, 选项) => {
       }),
     }
   }
+  if (u.endsWith('/get_group_info')) {
+    if (Number(体.group_id) === 2999) {
+      return { json: async () => ({ status: 'ok', retcode: 0, data: { group_id: 2999, group_name: '还没进的群' } }) }
+    }
+    return { json: async () => ({ status: 'failed', retcode: 100, data: null }) }
+  }
   if (u.includes('get_friend_msg_history')) {
     return {
       json: async () => ({
@@ -268,6 +274,54 @@ const 自己选 = 模.串上下文(自己账本, [{ id: '952', 说话人: '乙',
 报('发段间隔：同样长度也会抖一下', 模.发段间隔('好的呀', 0) !== 模.发段间隔('好的呀', 0.9))
 报('是修复信号：？、你说啥、没听清、再说一遍都算', ['？', '?', '？？？', '啊？', '你说啥', '你说的啥', '你说什么', '你在说什么', '说啥呢', '没听清', '没听懂', '再说一遍', '什么意思', '啥意思啊'].every((x) => 模.是修复信号(x)))
 报('是修复信号：正常的话和带内容的句子不算', ['好的', '你在干嘛？', '这个什么意思，我是说刚才那张图', '嗯嗯', ''].every((x) => !模.是修复信号(x)))
+
+// 只填一个号：群 / 好友按鱼 QQ 自己的名单认，输入里夹着字也行、全角数字也认。
+const 快捷名单 = {
+  自己: '10001',
+  群们: [{ 号: '2001', 名: '摸鱼小分队' }, { 号: '2002', 名: '' }],
+  友们: [{ 号: '3004', 名: '鱿鱼' }],
+}
+const 认群 = 模.解析快捷目标('群 2001', 快捷名单)
+报('解析快捷目标：群号在群名单里 → group + 群名', 认群.ok === true && 认群.类型 === 'group' && 认群.号 === '2001' && 认群.名 === '摸鱼小分队', JSON.stringify(认群))
+const 认友 = 模.解析快捷目标('3004', 快捷名单)
+报('解析快捷目标：QQ 在好友名单里 → private + 备注', 认友.ok === true && 认友.类型 === 'private' && 认友.号 === '3004' && 认友.名 === '鱿鱼', JSON.stringify(认友))
+const 认自己 = 模.解析快捷目标('10001', 快捷名单)
+报('解析快捷目标：填成鱼自己的号 → 拒绝并说明', 认自己.ok === false && 认自己.说.includes('鱼自己'), JSON.stringify(认自己))
+const 认全角 = 模.解析快捷目标('２００２', 快捷名单)
+报('解析快捷目标：全角数字也认', 认全角.ok === true && 认全角.号 === '2002' && 认全角.类型 === 'group', JSON.stringify(认全角))
+报('解析快捷目标：一次填两个号 → 拒绝', 模.解析快捷目标('2001 和 3004', 快捷名单).ok === false)
+报('解析快捷目标：太短 / 没有号 → 拒绝', 模.解析快捷目标('123', 快捷名单).ok === false && 模.解析快捷目标('小鱼', 快捷名单).ok === false)
+报('解析快捷目标：名单里都没有 → 没在名单（交给 OneBot 再认）', 模.解析快捷目标('2999', 快捷名单).没在名单 === true)
+
+const 群配置 = 模.套用快捷目标({
+  总开关: false,
+  目标会话: '',
+  私聊QQ: '',
+  群号: '',
+  转私聊: true,
+  转群: false,
+  社交: { 群: [], 好友: ['2001'], 关掉: ['group:2001'], 只听: ['group:2001'], 少掺和: [] },
+}, 'group', '2001')
+报('套用快捷目标：群写进社交群、总开关打开、从好友里挪走',
+  群配置.配置.群号 === '2001' && 群配置.配置.总开关 === true &&
+    群配置.配置.社交.群.join() === '2001' && !群配置.配置.社交.好友.includes('2001'),
+  JSON.stringify(群配置.配置))
+报('套用快捷目标：松开这间屋的关掉 / 只听', 群配置.解开.join() === '关掉,只听' &&
+  群配置.配置.社交.关掉.length === 0 && 群配置.配置.社交.只听.length === 0, JSON.stringify(群配置.解开))
+const 私聊配置 = 模.套用快捷目标({
+  总开关: true,
+  目标会话: 'session-X',
+  私聊QQ: '123',
+  群号: '2001',
+  转私聊: false,
+  转群: false,
+  社交: { 群: ['2001'], 好友: ['3004'], 关掉: ['friend:3004'], 只听: [], 少掺和: [] },
+}, 'private', '3004')
+报('套用快捷目标：QQ 写进私聊、打开转私聊、从好友里挪走，群和别的不动',
+  私聊配置.配置.私聊QQ === '3004' && 私聊配置.配置.转私聊 === true &&
+    私聊配置.配置.群号 === '2001' && !私聊配置.配置.社交.好友.includes('3004') &&
+    私聊配置.配置.目标会话 === 'session-X' && 私聊配置.配置.社交.关掉.length === 0,
+  JSON.stringify(私聊配置.配置))
 
 // ---------- 假 ctx ----------
 const 监听 = []
@@ -598,6 +652,51 @@ const 之前8b = 发了.length
 await 路由.get('/dsh-qq-bridge/test-send')(造请求({}, { method: 'POST' }), fakeRes)
 报('/test-send：脱敏不可用 → 拒绝、不真发', 存储[0] && 存储[0].ok === false && 发了.length === 之前8b, JSON.stringify(存储[0] && { ok: 存储[0].ok, 说: 存储[0].说 }))
 鱼脑状态.可用 = true
+
+// ⑧c 只填一个号：群 / QQ 自动认，写进对应名单，收发都打开
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: '', 私聊QQ: '', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
+}, null, 2), 'utf8')
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/quick-target')(造请求({ 号: '群 2001' }, { method: 'POST' }), fakeRes)
+const 接群 = 存储[0]
+报('/quick-target：群号自动认成群、写进社交群并打开总开关',
+  接群 && 接群.ok === true && 接群.类型 === 'group' && 接群.配置.群号 === '2001' &&
+   接群.配置.社交.群.includes('2001') && 接群.配置.总开关 === true,
+  JSON.stringify(接群 && { ok: 接群.ok, 类型: 接群.类型, 群号: 接群.配置 && 接群.配置.群号, 群: 接群.配置 && 接群.配置.社交 && 接群.配置.社交.群 }))
+const 群发前 = 发了.length
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/test-send')(造请求({}, { method: 'POST' }), fakeRes)
+const 群测试 = 发了.slice(群发前).find((x) => x.url.endsWith('/send_group_msg'))
+报('/test-send：只填了群号、转群没开也能真发到群', 存储[0] && 存储[0].ok === true && 群测试 && Number(群测试.体.group_id) === 2001,
+  JSON.stringify({ 回: 存储[0] && { ok: 存储[0].ok, 说: 存储[0].说 }, 发: 群测试 && 群测试.体 }))
+
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/quick-target')(造请求({ 号: '3004' }, { method: 'POST' }), fakeRes)
+const 接友 = 存储[0]
+报('/quick-target：好友 QQ 自动认成私聊、打开转私聊、从好友名单里挪走',
+  接友 && 接友.ok === true && 接友.类型 === 'private' && 接友.配置.私聊QQ === '3004' &&
+   接友.配置.转私聊 === true && !接友.配置.社交.好友.includes('3004') &&
+   接友.配置.群号 === '2001',
+  JSON.stringify(接友 && { ok: 接友.ok, 类型: 接友.类型, 私聊QQ: 接友.配置 && 接友.配置.私聊QQ, 好友: 接友.配置 && 接友.配置.社交 && 接友.配置.社交.好友 }))
+const 私发前 = 发了.length
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/test-send')(造请求({}, { method: 'POST' }), fakeRes)
+const 私测试 = 发了.slice(私发前).find((x) => x.url.endsWith('/send_private_msg'))
+报('/test-send：私聊 QQ 也真发', 存储[0] && 存储[0].ok === true && 私测试 && Number(私测试.体.user_id) === 3004, JSON.stringify(私测试 && 私测试.体))
+
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/quick-target')(造请求({ 号: '10001' }, { method: 'POST' }), fakeRes)
+报('/quick-target：填成鱼自己的号 → 拒绝', 存储[0] && 存储[0].ok === false && String(存储[0].说).includes('鱼自己'), JSON.stringify(存储[0]))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/quick-target')(造请求({ 号: '2999' }, { method: 'POST' }), fakeRes)
+报('/quick-target：是群但鱼没进群 → 说清要先拉群', 存储[0] && 存储[0].ok === false && String(存储[0].说).includes('还没把鱼拉进群'), JSON.stringify(存储[0]))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/quick-target')(造请求({ 号: '888888' }, { method: 'POST' }), fakeRes)
+报('/quick-target：既不是群也不是好友 → 说清要先加好友', 存储[0] && 存储[0].ok === false && String(存储[0].说).includes('加鱼为好友'), JSON.stringify(存储[0]))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/quick-target')(造请求({ 号: '小鱼' }, { method: 'POST' }), fakeRes)
+报('/quick-target：不是号 → 拒绝', 存储[0] && 存储[0].ok === false && String(存储[0].说).includes('群号或 QQ 号'), JSON.stringify(存储[0]))
 
 // ⑨ QQ → DSH：/receive 把她说的话转进目标会话（followup）
 const 收 = (body, 选项 = {}) => {

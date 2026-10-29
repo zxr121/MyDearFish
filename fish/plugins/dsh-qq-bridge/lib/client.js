@@ -193,6 +193,9 @@ window.__ModuleLoader__.load({
       const [雪说, 设雪说] = React.useState('')
       const [雪忙, 设雪忙] = React.useState(false)
       const 雪初化 = React.useRef(false)
+      const [目标号, 设目标号] = React.useState('')
+      const [目标忙, 设目标忙] = React.useState(false)
+      const [目标说, 设目标说] = React.useState('')
       const [人物态, 设人物态] = React.useState(null)
       const [人物载, 设人物载] = React.useState(false)
       const [人物错, 设人物错] = React.useState('')
@@ -304,6 +307,29 @@ window.__ModuleLoader__.load({
       const 拉雪 = async () => {
         const s = await get('/snowluma')
         吃雪(s)
+      }
+      // 只填一个号：宿主按鱼 QQ 自己的名单认成群还是好友；页面不猜。
+      const 接目标 = async () => {
+        if (脏) {
+          设目标说('下面还有改动没保存：先点「保存设置」，再接这个号')
+          return
+        }
+        const 号 = 目标号.trim()
+        if (号 === '') {
+          设目标说('先填一个群号或 QQ 号')
+          return
+        }
+        设目标忙(true)
+        设目标说('')
+        const s = await post('/quick-target', { 号 })
+        设目标忙(false)
+        if (s && s.ok) {
+          吃状态(s)
+          设目标号('')
+          设目标说(String(s.说 || '接通了'))
+        } else {
+          设目标说((s && s.说) || '没接通：看下面的记录')
+        }
       }
       React.useEffect(() => {
         if (!态 || 雪初化.current) return
@@ -495,6 +521,13 @@ window.__ModuleLoader__.load({
       const 雪OneBot = String(雪.OneBot || 配置.NapCat || 'http://127.0.0.1:3000')
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
+      const 现有私聊 = String(配置.私聊QQ || '').trim()
+      const 现有群 = Array.isArray(社交.群) ? 社交.群 : []
+      const 现有好友 = (Array.isArray(社交.好友) ? 社交.好友 : []).filter((号) => 号 !== 现有私聊)
+      const 现有目标 = []
+      if (现有私聊 !== '') 现有目标.push('私聊 ' + 现有私聊)
+      if (现有群.length > 0) 现有目标.push('群 ' + 现有群.join('、'))
+      if (现有好友.length > 0) 现有目标.push('好友 ' + 现有好友.join('、'))
       const 关掉们 = Array.isArray(社交.关掉) ? 社交.关掉 : []
       const 只听们 = Array.isArray(社交.只听) ? 社交.只听 : []
       const 少掺和们 = Array.isArray(社交.少掺和) ? 社交.少掺和 : []
@@ -909,6 +942,7 @@ window.__ModuleLoader__.load({
         h('div', { style: S.dim },
           '固定用 SnowLuma 把 QQ 接到这里：它在 DSH 里说完一整轮，就把那句原文发到 QQ；你在 QQ 里说的话也会转进来。' +
             '下面的社交模式里，它只会挑自己感兴趣的消息看，再决定要不要接；能回答、被 @、群里热闹都不是理由。' +
+            '第一次接通只要三步：装好 SnowLuma（本机已有的会自动认出来）→ 登录鱼 QQ → 在下面填一个群号或 QQ 号。' +
             '版本 ' + String(态.版本 || '?') + '｜配置文件：' + String(态.配置文件 || ''),
         ),
 
@@ -1039,6 +1073,37 @@ window.__ModuleLoader__.load({
           ),
 
           雪说 ? h('div', { style: { ...S.ok, marginTop: 8 } }, 雪说) : null,
+        ),
+
+        // —— 她在哪里说话：装好、登录之后只填这一个 ——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 6px' } }, '她在哪里说话（只填一个号）'),
+          h('div', { style: S.dim },
+            '填一个群号 = 她在这个群里听消息、按兴趣接话；填一个 QQ 号 = 和你私聊聊天。' +
+              '群 / 好友身份按鱼 QQ 自己的名单自动认，OneBot、事件上报和戳一戳都已经配好，不用再填别的。',
+          ),
+          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 } },
+            h('input', {
+              type: 'text',
+              style: { ...S.input, flex: '1 1 260px', width: 'auto' },
+              value: 目标号,
+              placeholder: 'QQ 群号，或一个 QQ 号',
+              onChange: (e) => 设目标号(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === 'Enter') void 接目标()
+              },
+            }),
+            按钮('接通这个号', 接目标, true, 目标忙 || !雪连上),
+          ),
+          雪连上
+            ? null
+            : h('div', { style: S.hint }, '先在上面的「第一次接通 QQ」里装好并登录鱼 QQ；连上之后才能确认这个号是群还是好友。'),
+          目标说
+            ? h('div', { style: { ...(目标说.includes('已接通') ? S.ok : S.未保存), marginTop: 6, fontWeight: 400 } }, 目标说)
+            : null,
+          h('div', { style: { ...S.dim, marginTop: 6 } },
+            现有目标.length > 0 ? '现在会说话：' + 现有目标.join('；') : '现在还没填：填一个号就行。',
+          ),
         ),
 
         h('div', { style: 脏 ? S.未保存 : S.已同步 },

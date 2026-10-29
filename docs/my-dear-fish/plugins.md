@@ -53,7 +53,7 @@ None of the six plugins is a standalone application; each attaches to the DSH ag
 | `dsh-feiyu-mood` | `feiyu-mood/state.json`, `config.json`, `diag.log` | Mounted with automatic judging; an empty target means all sessions |
 | `dsh-speak-up` | `speak-up-config.json` | Master switch on, dry run off (a roll that hits sends for real), target empty (picks the most recently active session) |
 | `dsh-tts-bridge` | `tts-bridge.json` | Auto speech on; an empty watch list means all live sessions |
-| `dsh-qq-bridge` | `qq-bridge-config.json` | Master switch on, dry run off, target empty (follows the most recently active session); social bridge on with its dry run off; private QQ / group / friend lists still empty; history import on (buttons refuse while the token is missing) |
+| `dsh-qq-bridge` | `qq-bridge-config.json` | Master switch on, dry run off, target empty (follows the most recently active session); social bridge on with its dry run off; OneBot, event reporting, and poke are written by the one-click setup, and once SnowLuma is connected a single group number or QQ number enables sending and receiving (group vs friend is read from the fish QQ's own lists); history import on (buttons refuse while the token is missing) |
 | `dsh-bili-subagent` | Config, reports, logs, and credentials under `bili-duty/` | Automatic scans, auto comments, and auto replies all on; direct messages off; the @ name empty; manual `bili_scan` works |
 
 ## The fish brain: dsh-fish-mind

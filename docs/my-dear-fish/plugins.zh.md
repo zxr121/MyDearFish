@@ -53,7 +53,7 @@
 | `dsh-feiyu-mood` | `feiyu-mood/state.json`、`config.json`、`diag.log` | 挂载并自动判断；目标会话留空 = 所有会话 |
 | `dsh-speak-up` | `speak-up-config.json` | 总开关开、试运行关（掷中就真发）、目标会话为空（自动挑最近活跃的会话） |
 | `dsh-tts-bridge` | `tts-bridge.json` | 自动朗读开，收听清单为空 = 所有活着的会话 |
-| `dsh-qq-bridge` | `qq-bridge-config.json` | 总开关开、试运行关、目标会话为空（自动跟随最近活跃会话）；社交开、社交试运行关；私聊 QQ / 群号 / 好友仍为空；历史导入开（缺令牌时按钮拒绝） |
+| `dsh-qq-bridge` | `qq-bridge-config.json` | 总开关开、试运行关、目标会话为空（自动跟随最近活跃会话）；社交开、社交试运行关；OneBot、事件上报和戳一戳由一键安装写好，SnowLuma 连上后只填一个群号或 QQ 号就能收发（群 / 好友按鱼 QQ 名单自动认）；历史导入开（缺令牌时按钮拒绝） |
 | `dsh-bili-subagent` | `bili-duty/` 下的配置、报告、日志、凭证 | 自动刷、自动评论、自动回复都开；私信投递关；@ 谁留空；手动 `bili_scan` 可用 |
 
 ## 鱼脑：dsh-fish-mind
