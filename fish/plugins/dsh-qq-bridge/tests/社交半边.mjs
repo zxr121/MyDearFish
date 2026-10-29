@@ -3530,6 +3530,131 @@ await 收到回复('session-qq-social-group-1416', '我说的是五加三，一�
 await 等到(() => 发的.slice(修前发).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1416))
 报('修复回合：重说的话真发回群里', 发的.slice(修前发).some((x) => x.url.endsWith('/send_group_msg') && JSON.stringify(x.体.message).includes('五加三')), JSON.stringify(发的.slice(修前发).map((x) => ({ url: x.url, 体: x.体 })).slice(-2)))
 
+// ---------- 39 主动搭话：speak-up 不经过开社交一轮，完整回合也要发回 QQ ----------
+const 送主动轮 = (sid, 轮号, 文本, { 重复消息 = false, 重复结束 = false } = {}) => {
+  监听[0]({ id: sid }, { type: 'turn/start', data: { turn: 轮号 } })
+  const 主动消息 = { type: 'user/message', data: { id: 'speak-' + 轮号, role: 'user', source: { kind: 'speak-up' }, content: [{ type: 'text', text: 'TRIGGER MUST NEVER BE SENT' }] } }
+  监听[0]({ id: sid }, 主动消息)
+  if (重复消息) 监听[0]({ id: sid }, 主动消息)
+  监听[0]({ id: sid }, { type: 'assistant/message', data: { turn: 轮号, step: 1, interrupted: false, message: { content: [{ type: 'text', text: 文本 }] } } })
+  监听[0]({ id: sid }, { type: 'turn/end', data: { turn: 轮号, reason: { kind: 'completed' } } })
+  if (重复结束) 监听[0]({ id: sid }, { type: 'turn/end', data: { turn: 轮号, reason: { kind: 'completed' } } })
+}
+const 私聊发 = (自) => 发的.slice(自).filter((x) => x.url.endsWith('/send_private_msg'))
+const 群聊发 = (自) => 发的.slice(自).filter((x) => x.url.endsWith('/send_group_msg'))
+const 调重置 = async (体) => {
+  const handler = 路由.get('/dsh-qq-bridge/session-reset')
+  let 回文 = ''
+  const req = { method: 'POST', headers: {}, async *[Symbol.asyncIterator]() { yield JSON.stringify(体) } }
+  const res = { setHeader() {}, end: (x) => { 回文 = String(x) } }
+  await handler(req, res)
+  return JSON.parse(回文 || '{}')
+}
+
+写配置({ 好友: ['10001'] })
+const 好友主动前 = 发的.length
+送主动轮('session-qq-social-friend-10001', 41, '主动问候验证')
+const 好友到 = await 等到(() => 私聊发(好友主动前).length >= 1)
+报('主动搭话：好友完整回合结束后发回 QQ', 好友到 && 私聊发(好友主动前).length === 1
+  && 私聊发(好友主动前)[0].体.user_id === 10001
+  && 私聊发(好友主动前)[0].体.message[0].data.text === '主动问候验证', JSON.stringify(私聊发(好友主动前).map((x) => x.体)))
+报('主动搭话：触发提示不发出去', !JSON.stringify(私聊发(好友主动前)).includes('TRIGGER MUST NEVER BE SENT'))
+
+写配置({ 群: ['2001'] })
+const 群主动前 = 发的.length
+送主动轮('session-qq-social-group-2001', 42, '群里主动一句')
+const 群主动到 = await 等到(() => 群聊发(群主动前).length >= 1)
+报('主动搭话：群里用 send_group_msg，群号对', 群主动到 && 群聊发(群主动前).length === 1
+  && 群聊发(群主动前)[0].体.group_id === 2001
+  && 群聊发(群主动前)[0].体.message[0].data.text === '群里主动一句', JSON.stringify(群聊发(群主动前).map((x) => x.体)))
+
+const 重复前 = 发的.length
+送主动轮('session-qq-social-group-2001', 43, '只发一次', { 重复消息: true, 重复结束: true })
+await 等到(() => 群聊发(重复前).length >= 1)
+await 等(150)
+报('主动搭话：重复消息和重复结束事件只发一次', 群聊发(重复前).length === 1
+  && 群聊发(重复前)[0].体.message[0].data.text === '只发一次', JSON.stringify(群聊发(重复前).map((x) => x.体)))
+
+写配置({ 群: ['2002'], 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 低信号跳过: false, 主动每时: 10 })
+群消息表.set(2002, [一条群消息('大肥鱼 在吗', { atSelf: true, id: 79901 })])
+设判断(['79901'], true, 0.9, '接一句')
+const 排队前回合 = 回合.length
+await 轮询社交()
+const 排上 = await 等到(async () => 回合.length === 排队前回合 + 1)
+const 混前发 = 发的.length
+送主动轮('session-qq-social-group-2002', 51, '主动插一句')
+await 等到(() => 群聊发(混前发).length >= 1)
+await 等(100)
+监听[0]({ id: 'session-qq-social-group-2002' }, { type: 'assistant/message', data: { turn: 52, step: 1, interrupted: false, message: { content: [{ type: 'text', text: '普通接话一句' }] } } })
+监听[0]({ id: 'session-qq-social-group-2002' }, { type: 'turn/end', data: { turn: 52, reason: { kind: 'completed' } } })
+await 等到(() => 群聊发(混前发).some((x) => JSON.stringify(x.体.message).includes('普通接话一句')))
+const 混发 = 群聊发(混前发).map((x) => x.体.message[0].data.text)
+报('主动搭话和普通回话各领各的回合，不串轮', 排上 && 混发.length === 2 && 混发[0] === '主动插一句' && 混发[1] === '普通接话一句', JSON.stringify(混发))
+
+const 旧前 = 发的.length
+送主动轮('session-qq-social-group-2999', 53, '不该发')
+await 等(120)
+报('主动搭话：没有对应当前目标时不转', 群聊发(旧前).length === 0 && (await 日志文本()).includes('主动搭话没有对应的当前 QQ 群/好友'))
+const 分线前 = 发的.length
+送主动轮('session-qq-social-group-2002-p2', 54, '分线里说的')
+await 等到(() => 群聊发(分线前).length >= 1)
+报('主动搭话：合法分线按主屋目标发回', 群聊发(分线前).length === 1 && 群聊发(分线前)[0].体.group_id === 2002, JSON.stringify(群聊发(分线前).map((x) => x.体)))
+const 坏线前 = 发的.length
+送主动轮('session-qq-social-group-2002-px', 55, '坏线')
+await 等(120)
+报('主动搭话：非数字分线不转', 群聊发(坏线前).length === 0)
+
+ctx.workspaceRegistry.archivedSessionIds.push('session-qq-social-group-2002')
+const 归档前 = 发的.length
+送主动轮('session-qq-social-group-2002', 56, '归档了不该发')
+await 等(120)
+报('主动搭话：会话归档后不转', 群聊发(归档前).length === 0 && (await 日志文本()).includes('已经归档，主动搭话不转'))
+ctx.workspaceRegistry.archivedSessionIds.length = 0
+
+写配置({ 好友: ['10001'] })
+const 失败前 = 发的.length
+监听[0]({ id: 'session-qq-social-friend-10001' }, { type: 'turn/start', data: { turn: 57 } })
+监听[0]({ id: 'session-qq-social-friend-10001' }, { type: 'user/message', data: { source: { kind: 'speak-up' }, content: [] } })
+监听[0]({ id: 'session-qq-social-friend-10001' }, { type: 'assistant/message', data: { turn: 57, message: { content: [{ type: 'text', text: '失败前写了一半' }] } } })
+监听[0]({ id: 'session-qq-social-friend-10001' }, { type: 'turn/end', data: { turn: 57, reason: { kind: 'error', error: { message: 'boom' } } } })
+await 等(120)
+报('主动搭话：失败的一轮不发', 私聊发(失败前).length === 0)
+送主动轮('session-qq-social-friend-10001', 58, '失败之后还能发')
+await 等到(() => 私聊发(失败前).length >= 1)
+报('主动搭话：失败之后下一轮照发', 私聊发(失败前).length === 1 && 私聊发(失败前)[0].体.message[0].data.text === '失败之后还能发', JSON.stringify(私聊发(失败前).map((x) => x.体)))
+
+const 重置果 = await 调重置({ key: 'friend:10001' })
+const 新屋id = String(重置果.会话id || '')
+const 旧屋前 = 发的.length
+送主动轮('session-qq-social-friend-10001', 59, '旧屋不该发')
+await 等(120)
+报('主动搭话：重置前的旧会话不转', 新屋id !== '' && 私聊发(旧屋前).length === 0, JSON.stringify(重置果))
+送主动轮(新屋id, 60, '新屋主动一句')
+await 等到(() => 私聊发(旧屋前).length >= 1)
+报('主动搭话：重置后的新会话照常发回', 私聊发(旧屋前).length === 1 && 私聊发(旧屋前)[0].体.user_id === 10001
+  && 私聊发(旧屋前)[0].体.message[0].data.text === '新屋主动一句', JSON.stringify(私聊发(旧屋前).map((x) => x.体)))
+
+写配置({ 好友: ['10001'], 试运行: true })
+const 试前 = 发的.length
+送主动轮(新屋id, 61, '试运行不该真发')
+await 等(150)
+报('主动搭话：试运行只记账不发', 私聊发(试前).length === 0 && (await 日志文本()).includes('试运行：本来要发回'))
+
+写配置({ 好友: ['10001'], 启用: false })
+const 关前 = 发的.length
+送主动轮(新屋id, 62, '关了不该发')
+await 等(150)
+报('主动搭话：生成时关掉社交开关，落地前仍会拦住', 私聊发(关前).length === 0 && (await 日志文本()).includes('总开关或社交开关已经关掉'))
+
+写配置({ 好友: ['10001'] })
+const 普通前 = 发的.length
+监听[0]({ id: 新屋id }, { type: 'turn/start', data: { turn: 63 } })
+监听[0]({ id: 新屋id }, { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '普通人打字' }] } })
+监听[0]({ id: 新屋id }, { type: 'assistant/message', data: { turn: 63, message: { content: [{ type: 'text', text: '不该自动转发' }] } } })
+监听[0]({ id: 新屋id }, { type: 'turn/end', data: { turn: 63, reason: { kind: 'completed' } } })
+await 等(150)
+报('主动搭话：别的来源没有桥接待发项时不转', 私聊发(普通前).length === 0)
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

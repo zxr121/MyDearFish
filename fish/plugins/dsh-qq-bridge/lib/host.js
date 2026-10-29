@@ -4436,6 +4436,8 @@ export function apply(ctx) {
   const 复读记录 = new Map() // 'group:123' → { 上次At, 同句: Map<归一化句子, 时间> }
   const 待续叫 = new Map() // 'group:123:uid' → { 目标, 消息, at }：只 @ 了一下、正文还没发的消息先扣住
   const 社交待发 = new Map() // sessionId → 待收回的回合数组（同一间屋可能排着多轮）
+  const 社交当前轮 = new Map() // sessionId → 本回合号；user/message 不带 turn，靠 turn/start 对上主动搭话
+  const 社交已完主动轮 = new Set() // `${sid}:${turn}`：主动搭话结束过，防重放的结束事件领走下一轮排队的回话
   const 社交计数 = new Map() // 'group:123' → { 本小时: number[], 日: 'YYYY-MM-DD', 今日: number }
   const 社交判断At = new Map() // 'group:123' → 上次问小模型的时间（判断也要省着花）
   const 不聊余温 = new Map() // 'group:123' → { 词们, at, 人们 }：刚才在聊她不来的话题，参与的人接着说的也别接
@@ -8128,7 +8130,39 @@ export function apply(ctx) {
   /** 社交会话的事件：按回合收回最后一句；一整轮 completed 才发。 */
   function 收到社交事件(session, event) {
     const sid = String(session && session.id)
+    if (event && event.type === 'turn/start') {
+      社交当前轮.set(sid, event.data && event.data.turn)
+      return
+    }
+    if (event && event.type === 'user/message' && event.data && event.data.source && event.data.source.kind === 'speak-up') {
+      const 轮号 = 社交当前轮.get(sid)
+      if (!Number.isSafeInteger(轮号) || 轮号 < 0) return
+      const 标准id = (id) => String(id || '').replace(/^session-/, '')
+      const 配置 = 读配置()
+      // 只认当前配置的主屋/分线；重置前的旧会话、已移除的目标不往 QQ 发。
+      const 目标 = 社交目标们(配置).find((t) => {
+        const 当前id = 标准id(t.会话id)
+        const 本id = 标准id(sid)
+        return 本id === 当前id || (本id.startsWith(`${当前id}-p`) && /^\d+$/.test(本id.slice(当前id.length + 2)))
+      })
+      if (!目标) return 记账('主动搭话没有对应的当前 QQ 群/好友，这轮不转')
+      let 归档 = new Set()
+      try {
+        const 登记 = ctx.workspaceRegistry || ctx.get('workspaceRegistry')
+        归档 = new Set((((登记 && 登记.archivedSessionIds) || [])).map(标准id))
+      } catch (error) {}
+      if (归档.has(标准id(sid)) || 归档.has(标准id(目标.会话id))) return 记账(`${目标.叫} 的会话已经归档，主动搭话不转`)
+      if (待发列(sid).some((x) => x.轮号 === 轮号) || 社交已完主动轮.has(`${sid}:${轮号}`)) return
+      // speak-up 直接 followup，不经过 开社交一轮：这里补登记出口并绑定实际 turn，
+      // 否则回复只留在 DSH，或被同屋排队的另一轮 QQ 回话抢走。
+      加待发(sid, { 目标, 文本: '', 轮号, 发起At: Date.now(), 图片们: [], 对象们: 目标.类型 === 'friend' ? [目标.号] : [], 主动搭话: true })
+      记账(`已接上主动搭话（${目标.叫}）：完成后发回 QQ`)
+      return
+    }
+    const 事件轮 = event && event.data && event.data.turn
+    if (社交已完主动轮.has(`${sid}:${事件轮}`)) return
     const 列 = 待发列(sid)
+    if (event && event.type === 'turn/end') 社交当前轮.delete(sid)
     if (列.length === 0) return
     // 刚提交的回合先认领事件里的 turn 号；同一间屋排着多轮时按提交顺序对上。
     const 认领 = (turn) => 列.find((x) => x.轮号 === turn) || 列.find((x) => x.轮号 === -1)
@@ -8159,6 +8193,10 @@ export function apply(ctx) {
       const d = event.data || {}
       const 完成 = !!(d.reason && d.reason.kind === 'completed')
       const 待 = 认领(d.turn)
+      if (待 && 待.主动搭话) {
+        if (社交已完主动轮.size >= 300) 社交已完主动轮.clear()
+        社交已完主动轮.add(`${sid}:${d.turn}`)
+      }
       if (!完成) {
         // 失败的一轮可能连 assistant/message 都没有，不能靠轮号对表，否则会一直挂到超时。
         if (待) 移待发(sid, 待)
@@ -9077,6 +9115,7 @@ export function apply(ctx) {
     } else {
       社交句柄.delete(旧id)
       社交待发.delete(旧id)
+      社交当前轮.delete(旧id)
       // 分线也一起放掉；旧档留在磁盘上，下一次忙起来会按新 id 重新开分线。
       for (const sid of [...社交句柄.keys()]) {
         if (!String(sid).startsWith(旧id + '-p')) continue
@@ -9090,6 +9129,7 @@ export function apply(ctx) {
         }
         社交句柄.delete(sid)
         社交待发.delete(sid)
+        社交当前轮.delete(sid)
       }
       社交待看.delete(key)
       社交缓冲.delete(key)
