@@ -3655,6 +3655,154 @@ const 普通前 = 发的.length
 await 等(150)
 报('主动搭话：别的来源没有桥接待发项时不转', 私聊发(普通前).length === 0)
 
+// ---------- 40 留话头：被冷却/额度拦下的话先挂住，屋子安静了再补一句 ----------
+const 日志从 = async (旧) => {
+  const 旧集 = new Set(旧.map((x) => x.时间 + x.文本))
+  return (await 宿主.概况()).日志.filter((x) => !旧集.has(x.时间 + x.文本)).map((x) => x.文本).join('\n')
+}
+const 群发到 = (群, 自) => 发的.slice(自).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 群)
+const 新回合从 = (n, sid) => 回合.slice(n).some((t) => t.sid === sid)
+
+写配置({ 群: ['1199'], 冷却秒: 60, 冷却最短秒: 5, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 低信号跳过: false, 探索间隔秒: 0, 迟到分钟: 10, 挂起上限: 3, 主动每时: 10 })
+群消息表.set(1199, [一条群消息('今晚的海面特别蓝', { uid: 888, id: 4041, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['4041'], true, 0.9, '海的话题想说')
+const 话头前1 = 回合.length
+const 话头发前 = 发的.length
+await 轮询社交()
+const 开了海轮 = await 等到(async () => 新回合从(话头前1, 'session-qq-social-group-1199'))
+报('留话头：第一批照常开一轮', 开了海轮, String(回合.filter((t) => t.sid === 'session-qq-social-group-1199').at(-1)?.message.content[0].text || '').slice(0, 160))
+await 收到回复('session-qq-social-group-1199', '我也觉得，蓝得发亮', 71)
+await 等到(() => 群发到(1199, 话头发前).length >= 1)
+
+// 刚说完还在冷却：想接也先挂住
+群消息表.set(1199, [...群消息表.get(1199), 一条群消息('码头今天来了条大鱼', { uid: 777, id: 4042, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['4042'], true, 0.9, '想接')
+const 拦前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+const 拦前回合 = 回合.length
+await 轮询社交()
+await 等(50)
+const 拦后日志 = await 日志从(拦前日志)
+const 态挂 = await 目标状态('group:1199')
+报('留话头：冷却拦下的先记成悬着的话', 态挂.悬着 === 1, JSON.stringify({ 悬着: 态挂.悬着, 日志: 拦后日志.slice(0, 260) }))
+报('留话头：日志说明先挂住和原因', 拦后日志.includes('先挂住 1 条话头') && 拦后日志.includes('冷却'), 拦后日志.slice(0, 260))
+报('留话头：挂住的话不进待看，也不开这一轮', !新回合从(拦前回合, 'session-qq-social-group-1199') && (态挂.待看 || 0) === 0)
+
+// 过一会儿、屋子安静了：一次便宜判断后补一句
+时间偏移 += 11 * 60_000
+设判断(['4042'], true, 0.9, '隔了一会儿还是想补一句')
+const 补前回合 = 回合.length
+const 补前发 = 发的.length
+await 轮询社交()
+const 开了补轮 = await 等到(async () => 新回合从(补前回合, 'session-qq-social-group-1199'))
+const 补文 = String(回合.filter((t) => t.sid === 'session-qq-social-group-1199').at(-1)?.message.content[0].text || '')
+报('留话头：安静下来后开一轮补话', 开了补轮, String(补文).slice(0, 200))
+报('留话头：提示带上原话和迟到标记', 补文.includes('【刚看到、晚一点才回】') && 补文.includes('码头今天来了条大鱼'), String(补文).slice(-420))
+报('留话头：提示要求别问在吗、别追问、别复述', 补文.includes('不单独问“在吗/在不在”') && 补文.includes('不追问') && 补文.includes('不复读'), String(补文).slice(-420))
+await 收到回复('session-qq-social-group-1199', '刚看到，那条鱼大不大', 72)
+await 等到(() => 群发到(1199, 补前发).length >= 1)
+报('留话头：补的话真发回群里', 群发到(1199, 补前发).some((x) => JSON.stringify(x.体.message).includes('那条鱼大不大')), JSON.stringify(群发到(1199, 补前发).map((x) => x.体.message)))
+const 态补完 = await 目标状态('group:1199')
+报('留话头：补完就放下，状态记了上次回头时间', 态补完.悬着 === 0 && 态补完.迟到回头At > 0, JSON.stringify({ 悬着: 态补完.悬着, 回头: 态补完.迟到回头At }))
+
+// 回头只想出一句“在吗”：不发
+群消息表.set(1199, [...群消息表.get(1199), 一条群消息('你们说这条鱼是不是很大只', { uid: 888, id: 4043, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['4043'], true, 0.9, '想接')
+await 轮询社交()
+await 等(50)
+报('留话头：补完话又冷却，新的想接也先挂住', (await 目标状态('group:1199')).悬着 === 1)
+时间偏移 += 11 * 60_000
+设判断(['4043'], true, 0.9, '还是想补')
+const 在吗前回合 = 回合.length
+const 在吗前发 = 发的.length
+const 在吗前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+const 开了在吗轮 = await 等到(async () => 新回合从(在吗前回合, 'session-qq-social-group-1199'))
+await 收到回复('session-qq-social-group-1199', '在吗？', 73)
+await 等(200)
+const 在吗日志 = await 日志从(在吗前日志)
+报('留话头：回头只憋出“在吗”就不发', 开了在吗轮 && 群发到(1199, 在吗前发).length === 0 && 在吗日志.includes('不单独发这一句'), JSON.stringify({ 发了: 群发到(1199, 在吗前发).map((x) => x.体.message), 日志: 在吗日志.slice(-240) }))
+
+// 回头判断说不用补：不开轮，也不再挂着
+群消息表.set(1199, [...群消息表.get(1199), 一条群消息('明天要不要一起去看海', { uid: 888, id: 4044, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['4044'], true, 0.9, '想接')
+await 轮询社交()
+await 等(50)
+报('留话头：攒第二条话头', (await 目标状态('group:1199')).悬着 === 1)
+时间偏移 += 11 * 60_000
+设判断([], false, 0.1, '隔了太久，不用补')
+const 不用前回合 = 回合.length
+const 不用前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+const 不用日志 = await 日志从(不用前日志)
+报('留话头：回头判断说不用补，就不开这一轮', !新回合从(不用前回合, 'session-qq-social-group-1199') && (await 目标状态('group:1199')).悬着 === 0)
+报('留话头：日志记下回头看过、这轮不用补', 不用日志.includes('回头看了') && 不用日志.includes('这轮不用补'), 不用日志.slice(-260))
+
+// 每屋上限、别人已答、关掉迟到回话、只听不说、过期
+写配置({ 群: ['1198'], 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 低信号跳过: false, 探索间隔秒: 0, 主动每时: 1, 主动每日: 0, 迟到分钟: 10, 挂起上限: 3 })
+群消息表.set(1198, [一条群消息('有人看海吗', { uid: 888, id: 4021, time: Math.floor(Date.now() / 1000) + 200 })])
+设判断(['4021'], true, 0.9, '想问一句')
+const 话头前2 = 回合.length
+await 轮询社交()
+await 等到(async () => 新回合从(话头前2, 'session-qq-social-group-1198'))
+await 收到回复('session-qq-social-group-1198', '我在', 74)
+await 等(200)
+
+群消息表.set(1198, [...群消息表.get(1198),
+  一条群消息('今天风好大', { uid: 801, id: 4022, time: Math.floor(Date.now() / 1000) + 200 }),
+  一条群消息('海边是不是要下雨', { uid: 802, id: 4023, time: Math.floor(Date.now() / 1000) + 200 }),
+  一条群消息('我看到一只白鹭', { uid: 803, id: 4024, time: Math.floor(Date.now() / 1000) + 200 }),
+  一条群消息('傍晚应该会出太阳', { uid: 804, id: 4025, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+const 上限前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+const 上限日志 = await 日志从(上限前日志)
+报('留话头：额度用完时整批挂住，但每屋只留上限条', (await 目标状态('group:1198')).悬着 === 3 && 上限日志.includes('超过 3 条，挤掉最早的 1 条'), JSON.stringify({ 悬着: (await 目标状态('group:1198')).悬着, 日志: 上限日志.slice(0, 300) }))
+
+设判断([], false, 0.1, '不接')
+群消息表.set(1198, [...群消息表.get(1198), 一条群消息('这条鱼我认识', { uid: 899, 是主人: true, replyId: 4024, id: 4026, time: Math.floor(Date.now() / 1000) + 200 })])
+const 已答前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+const 已答日志 = await 日志从(已答前日志)
+报('留话头：别人已经接过的话头不再补', (await 目标状态('group:1198')).悬着 === 2 && 已答日志.includes('别人已经回了'), JSON.stringify({ 悬着: (await 目标状态('group:1198')).悬着, 日志: 已答日志.slice(-260) }))
+
+写配置({ 群: ['1198'], 冷却秒: 0, 判断冷却秒: 0, 连说上限: 0, 低信号跳过: false, 主动每时: 1, 主动每日: 0, 迟到: false })
+const 关掉前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+报('留话头：关掉迟到回话就放下手里的话头', (await 目标状态('group:1198')).悬着 === 0 && (await 日志从(关掉前日志)).includes('迟到回话关着'), (await 日志从(关掉前日志)).slice(-240))
+
+写配置({ 群: ['1198'], 冷却秒: 0, 判断冷却秒: 0, 连说上限: 0, 低信号跳过: false, 主动每时: 1, 主动每日: 0, 迟到分钟: 10, 挂起上限: 3 })
+群消息表.set(1198, [...群消息表.get(1198),
+  一条群消息('今晚的浪大吗', { uid: 805, id: 4027, time: Math.floor(Date.now() / 1000) + 200 }),
+  一条群消息('明天退潮几点', { uid: 806, id: 4028, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+await 轮询社交()
+await 等(50)
+报('留话头：重新打开后新来的又挂住', (await 目标状态('group:1198')).悬着 === 2)
+写配置({ 群: ['1198'], 冷却秒: 0, 判断冷却秒: 0, 主动每时: 1, 主动每日: 0, 迟到分钟: 10, 挂起上限: 3, 只听: ['group:1198'] })
+const 只听前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+报('留话头：只听不说的屋子不补话', (await 目标状态('group:1198')).悬着 === 0 && (await 日志从(只听前日志)).includes('这间屋只听不说'), (await 日志从(只听前日志)).slice(-240))
+
+写配置({ 群: ['1198'], 冷却秒: 0, 判断冷却秒: 0, 连说上限: 0, 低信号跳过: false, 主动每时: 1, 主动每日: 0, 迟到分钟: 10, 挂起上限: 3 })
+群消息表.set(1198, [...群消息表.get(1198),
+  一条群消息('海风有点咸', { uid: 807, id: 4029, time: Math.floor(Date.now() / 1000) + 200 }),
+  一条群消息('礁石上全是贝壳', { uid: 808, id: 4030, time: Math.floor(Date.now() / 1000) + 200 }),
+])
+await 轮询社交()
+await 等(50)
+报('留话头：能开口后新来的重新挂住', (await 目标状态('group:1198')).悬着 === 2)
+时间偏移 += 31 * 60_000
+const 过期前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+const 过期日志 = await 日志从(过期前日志)
+报('留话头：挂过三倍时间或跨天就自己放掉', (await 目标状态('group:1198')).悬着 === 0 && 过期日志.includes('丢掉'), 过期日志.slice(-260))
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
