@@ -58,6 +58,7 @@ window.__ModuleLoader__.load({
 [data-fm-grow]{flex:1;min-width:180px;}
 [data-fm-label]{font-size:13px;}
 [data-fm-input]{padding:6px 9px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;min-width:120px;}
+select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);color:var(--dsw-alias-label-primary,inherit);}
 [data-fm-num]{width:88px;min-width:88px;}
 [data-fm-btn]{padding:6px 12px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;cursor:pointer;}
 [data-fm-btn]:hover{background:rgba(127,127,127,.12);}

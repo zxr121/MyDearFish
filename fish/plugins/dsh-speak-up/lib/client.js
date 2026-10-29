@@ -64,6 +64,11 @@ window.__ModuleLoader__.load({
         width: '100%',
         boxSizing: 'border-box',
       },
+      // 原生下拉的弹出层自己画白底、只继承字色：不给选项带底色，暗色主题下就是白底白字。
+      option: {
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+      },
       small: {
         border: '1px solid var(--dsw-alias-border-l2)',
         borderRadius: 6,
@@ -553,8 +558,8 @@ window.__ModuleLoader__.load({
               value: 配置.角色,
               onChange: (e) => 改('角色', e.target.value),
             },
-              h('option', { value: 'user' }, 'user（当前唯一跑得通的）'),
-              h('option', { value: 'developer' }, 'developer（当前 DSH 送不了）'),
+              h('option', { style: S.option, value: 'user' }, 'user（当前唯一跑得通的）'),
+              h('option', { style: S.option, value: 'developer' }, 'developer（当前 DSH 送不了）'),
             ),
             '选 developer 时本插件会主动拒发并记一条，不会去写坏会话日志。原因与证据见 README「做不到的地方」。',
           ),

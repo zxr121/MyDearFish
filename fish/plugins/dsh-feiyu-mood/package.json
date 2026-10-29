@@ -1,6 +1,6 @@
 {
   "name": "dsh-feiyu-mood",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "给 AI 伙伴一个会自己判断、你看得见的心情：每轮聊完自动判断涨跌，右下角挂饰点开看数值 + 情绪 + 时间线；称呼、会话、基线都能在设置里改。",
   "license": "MIT",
   "author": "Yuuyuko-uu (https://github.com/Yuuyuko-uu)",
