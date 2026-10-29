@@ -137,6 +137,8 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.equal(initial.res.status, 200)
   assert.equal(initial.json.ok, true)
   assert.equal(initial.json.identity.name, '大肥鱼')
+  assert.equal(initial.json.identity.ownerPronoun, '他')
+  assert.deepEqual(initial.json.identity.pronouns, ['他', '她', 'TA'])
   assert.equal(initial.json.archive.pending, false)
   assert.equal(initial.json.phrases.privateDodge, '这个我不方便细说')
   assert.equal(initial.json.phraseDefaults.budgetBlock, '今天我这边有点转不动了，先歇一会儿，明天再找你。')
@@ -154,6 +156,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
       species: '虎鲸娘',
       appearance: '黑白配色，短发。',
       ownerAddress: '船长',
+      ownerPronoun: '她',
       origin: '从一片海图里醒来。',
       style: '句子短一点。',
       relations: [{ name: '时光', relation: '妈妈' }],
@@ -161,14 +164,17 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   })
   assert.equal(saved.res.status, 200)
   assert.equal(saved.json.identity.name, '小鲸')
+  assert.equal(saved.json.identity.ownerPronoun, '她')
   assert.deepEqual(saved.json.identity.relations, [{ name: '时光', relation: '妈妈' }])
 
   const afterSave = await call(routes, '/dsh-fish-mind/overview')
   assert.equal(afterSave.json.identity.name, '小鲸')
   assert.deepEqual(afterSave.json.identity.relations, [{ name: '时光', relation: '妈妈' }])
   assert.ok(afterSave.json.selfPrompt.includes('时光：妈妈'))
+  assert.ok(afterSave.json.selfPrompt.includes('提到主人时用「她」'))
   const identityFile = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'identity.json'), 'utf8'))
   assert.equal(identityFile.name, '小鲸')
+  assert.equal(identityFile.ownerPronoun, '她')
   assert.deepEqual(identityFile.relations, [{ name: '时光', relation: '妈妈' }])
 
   const grant = await call(routes, '/dsh-fish-mind/budget', {
@@ -317,6 +323,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.match(exported.res.headers['content-disposition'], /filename="mydearfish-\d{4}-\d{2}-\d{2}\.zip"/)
   const bundle = parseFishArchive(exported.res.body)
   assert.equal(bundle.identity.name, '小鲸')
+  assert.equal(bundle.identity.ownerPronoun, '她')
   assert.deepEqual(bundle.identity.relations, [{ name: '时光', relation: '妈妈' }])
   assert.equal(bundle.experience.length, 0)
 

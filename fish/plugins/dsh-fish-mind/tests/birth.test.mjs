@@ -25,6 +25,7 @@ test('出生设定能保存、读回、重置；坏文件退回出厂值', () =>
     species: '虎鲸娘',
     appearance: '黑白配色，短发。',
     ownerAddress: '船长',
+    ownerPronoun: '她',
     origin: '从一片海图里醒来。',
     style: '句子短一点。',
     relations: [
@@ -35,12 +36,14 @@ test('出生设定能保存、读回、重置；坏文件退回出厂值', () =>
   }, 1234)
   assert.equal(saved.name, '小鲸')
   assert.equal(saved.ownerAddress, '船长')
+  assert.equal(saved.ownerPronoun, '她')
   assert.equal(saved.updatedAt, 1234)
   assert.deepEqual(saved.relations, [{ name: '时光', relation: '干妈' }])
 
   const onDisk = JSON.parse(readFileSync(join(dir, 'identity.json'), 'utf8'))
   assert.equal(onDisk.format, 'mydearfish.identity')
   assert.equal(onDisk.version, 1)
+  assert.equal(onDisk.ownerPronoun, '她')
   assert.deepEqual(onDisk.relations, [{ name: '时光', relation: '干妈' }])
   assert.equal(loadIdentity(dir).species, '虎鲸娘')
 
@@ -58,6 +61,7 @@ test('出生设定能保存、读回、重置；坏文件退回出厂值', () =>
   assert.ok(prompt.includes('虎鲸娘'))
   assert.ok(prompt.includes('黑白配色，短发。'))
   assert.ok(prompt.includes('船长'))
+  assert.ok(prompt.includes('提到主人时用「她」，不要用「他」'))
   assert.ok(prompt.includes('句子短一点。'))
   assert.ok(prompt.includes('时光：干妈'))
   assert.ok(prompt.includes('这些关系是固定的'))
@@ -86,6 +90,21 @@ test('群友关系只留填齐的条目，最多 12 条；出厂设定不写人�
   assert.deepEqual(normalized.relations[0], { name: '群友0', relation: '朋友' })
   assert.equal(normalized.relations.some((item) => item.name === '没填关系'), false)
   assert.equal(buildSelfPrompt(DEFAULT_IDENTITY).includes('你认下的人际关系'), false)
+})
+
+test('指代主人的代词只能是「他」「她」或「TA」；旧身份文件缺这一项时按「他」', () => {
+  const base = {
+    name: '大肥鱼',
+    species: '鲸鱼娘',
+    appearance: '蓝白色长发。',
+    ownerAddress: '主人',
+    origin: '',
+    style: '',
+  }
+  assert.equal(normalizeIdentityInput(base).ownerPronoun, '他')
+  assert.equal(normalizeIdentityInput({ ...base, ownerPronoun: 'TA' }).ownerPronoun, 'TA')
+  assert.throws(() => normalizeIdentityInput({ ...base, ownerPronoun: '它' }), /「他」「她」或「TA」/)
+  assert.ok(buildSelfPrompt({ ...base, ownerPronoun: 'TA' }).includes('提到主人时用「TA」'))
 })
 
 test('改出生设定会同步心情插件的名字，其他心情配置原样保留', () => {

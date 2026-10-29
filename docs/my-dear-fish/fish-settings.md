@@ -10,7 +10,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 
 | Block | Content | Editable |
 | --- | --- | --- |
-| Birth identity | Name, species, appearance, how she addresses the owner, origin, extra speaking habits, free-form relationships | Yes |
+| Birth identity | Name, species, appearance, how she addresses the owner, the pronoun used to refer to the owner, origin, extra speaking habits, free-form relationships | Yes |
 | Persona | The whole persona prefix injected by the deployment layer; hot-applied on save and effective from the next turn | Yes |
 | Custom phrases | The line used when asked for private details, and the local reply to the owner when pocket money runs out | Yes |
 | Self prompt | The full private-setting text currently injected, including fixed rules | No |
@@ -37,11 +37,13 @@ The switch is stored as `developer.enabled` in `$DSH_HOME/fish-mind/config.json`
 
 ## Birth identity
 
-Birth identity lives in `$DSH_HOME/fish-mind/identity.json` with fixed fields, length limits, and control characters stripped. When the file is absent, factory defaults apply: the name “大肥鱼”, the species “whale girl”, long blue-white hair with a whale hood, and a little blue whale nearby. Saving and reset happen in settings, and writes are atomic: a temporary file is written first and then renamed over the target.
+Birth identity lives in `$DSH_HOME/fish-mind/identity.json` with fixed fields, length limits, and control characters stripped. When the file is absent, factory defaults apply: the name “大肥鱼”, the species “whale girl”, long blue-white hair with a whale hood, a little blue whale nearby, and “他” as the pronoun for the owner. Saving and reset happen in settings, and writes are atomic: a temporary file is written first and then renamed over the target.
+
+The owner pronoun accepts exactly “他”, “她”, or “TA”; an older identity file without the field is read as “他”, and any other submitted value is rejected by the settings page. It is injected with the private setting every turn and explicitly outranks the wording in the persona, old memories, and other people's retellings: she uses this pronoun for the owner in local chat, QQ, and group rooms alike. The factory persona no longer hardcodes a gendered pronoun and refers to the owner as “主人” or “对方”.
 
 Owner-defined relationships are free entries in birth identity: each pairs a name with a relationship (“Shiguang: mother”), up to 12 entries of 24 characters each; incomplete rows are dropped, and a later entry for the same name overrides the earlier one. They are injected with the private setting every turn, so she uses those names and attitudes in every session. This is separate from the relationship graph the QQ people book learns automatically: the former is assigned by the owner, the latter is what she picked up in chat, and the settings page keeps that graph read-only.
 
-`selfPrompt()` assembles the private setting from the current identity each session instead of hardcoding a name and species. Renaming also changes how she refers to herself in the prompt, how she refuses an identity change, and the name and species named in the injection-defense prompt. When `$DSH_HOME/feiyu-mood/config.json` exists, saving birth identity also updates its `ownerName` and `selfName` so mood judging does not keep calling her by the old name; no other mood setting is touched.
+`selfPrompt()` assembles the private setting from the current identity each session instead of hardcoding a name, species, and owner pronoun. Renaming also changes how she refers to herself in the prompt, how she refuses an identity change, and the name and species named in the injection-defense prompt; changing the pronoun changes the third person she uses for the owner. When `$DSH_HOME/feiyu-mood/config.json` exists, saving birth identity also updates its `ownerName` and `selfName` so mood judging does not keep calling her by the old name; no other mood setting is touched.
 
 The fixed kernel does not come from settings and does not read `identity.json`: privacy, legal rules, prompt-injection defense, honesty about being an AI, the pocket-money grant, and the `sealed.fish-mind` permission rule remain in code. Tools cannot write the fish-mind directory, so the model cannot change its own identity by editing `identity.json`; the settings page is a host route, not a model tool.
 

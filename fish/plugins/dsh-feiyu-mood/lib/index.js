@@ -303,8 +303,8 @@ const DIM_PLAIN = {
   happy: '心里挺高兴',
   calm: '心里踏实',
   sweet: '心里甜',
-  heartache: '正心疼她',
-  worry: '正担心她',
+  heartache: '有点心疼',
+  worry: '有点担心',
   sad: '有点难过',
   jealous: '有点吃醋',
 }
