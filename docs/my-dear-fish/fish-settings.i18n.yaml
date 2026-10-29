@@ -3,17 +3,17 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/fish-settings.md
 /fish-settings-and-migration:
-  en: 827d6bb897c9ee64
-  zh: 24c54621a5cc072a
+  en: c973bf347e5b18b0
+  zh: df2626b462a225fd
 /fish-settings-and-migration/overview:
-  en: f5e5f3dbb015a92a
-  zh: 02e524f08556f930
+  en: 537cd72923748d68
+  zh: 2babb80de53ac6ac
 /fish-settings-and-migration/developer-mode:
   en: 701effad6394014a
   zh: 941223231d64eae7
 /fish-settings-and-migration/birth-identity:
-  en: 623b63ca600692d0
-  zh: 9ed980cd50c9c8f4
+  en: 0a600ce83c84e913
+  zh: 21d8cebc3c3fac9d
 /fish-settings-and-migration/persona:
   en: d81932b360c5cd47
   zh: 5938b955bb830842
@@ -24,11 +24,11 @@
   en: ba08998d5f7a6359
   zh: 5f0013165a1876e9
 /fish-settings-and-migration/what-travels-and-what-does-not:
-  en: 81011e34518f46b5
-  zh: 198fc1e0428fcae0
+  en: a8a140a7a27d29fb
+  zh: 96eaf32f8963c662
 /fish-settings-and-migration/strict-import:
-  en: 811c638f96bdfe30
-  zh: 6512dc94841d3812
+  en: 87471e4c61efdef3
+  zh: 300faee1e9dea2e0
 /fish-settings-and-migration/failure-and-recovery:
-  en: 58f0699992c7c589
-  zh: b54ed04077cff1b7
+  en: 61b09cccf6c820b9
+  zh: 280b7ac142fa5724

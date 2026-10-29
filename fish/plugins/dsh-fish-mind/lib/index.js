@@ -2042,8 +2042,8 @@ export function apply(ctx) {
       route('/dsh-fish-mind/import', async (req, res) => {
         if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
         const buffer = await readBodyLimited(req, IMPORT_BYTES_LIMIT)
-        const staged = stageFishImport({ dir, dshHome, store, buffer })
-        diag(`import: 已暂存 ${staged.counts.experiences} 条经历，等重启生效`)
+        const staged = stageFishImport({ dir, buffer })
+        diag(`import: 已暂存 ${staged.counts.experiences} 条经历，重启时覆盖现在这条鱼（先备份）`)
         sendJson(res, 200, { ...staged, restartRequired: true })
       })
     })

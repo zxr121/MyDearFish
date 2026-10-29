@@ -28,7 +28,7 @@ See [how the six plugins keep the fish](plugins.md) for each plugin's mechanism,
 
 ## Settings and migration
 
-The “Big Fat Fish” settings page shows birth identity, memory, mood, relationships, channels, pocket money, and fixed boundaries in one place; only birth identity is editable. A separate “Meme Wiki” page searches all 6,660 bundled entries by title, tags, usage, and origin and can add, edit, delete, restore, and paginate them; edits stay in the local fish-mind directory. The same “Big Fat Fish” page downloads a strictly validated archive and imports it on another machine; a wrong format or a fish that already has experiences, mood, or people is not written. See [fish settings and migration](fish-settings.md) for fields, archive contents, and import rules.
+The “Big Fat Fish” settings page shows birth identity, memory, mood, relationships, channels, pocket money, and fixed boundaries in one place; only birth identity is editable. A separate “Meme Wiki” page searches all 6,660 bundled entries by title, tags, usage, and origin and can add, edit, delete, restore, and paginate them; edits stay in the local fish-mind directory. The same “Big Fat Fish” page downloads a strictly validated archive and imports it on another machine; a wrong format writes nothing, and an import is always available: it replaces the current fish and backs it up in full first. See [fish settings and migration](fish-settings.md) for fields, archive contents, and import rules.
 
 ## Cognition plan
 

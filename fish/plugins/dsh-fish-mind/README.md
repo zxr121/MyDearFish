@@ -94,7 +94,7 @@
 
 「大肥鱼」页顶部的开发者模式区读 `boundaries.permissions.developer`，开关写 `POST /dsh-fish-mind/developer`；旁边的按钮调用客户端的 `uiWorkspace.startSession(undefined, { agentPreset: 'cordis' })` 新开一个创造模式会话，然后关掉设置页。鱼的人设和记忆照常挂载；创造模式自带的改代码、写文件能力来自宿主预设，不受这个开关限制。
 
-导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；本机设置按白名单收进 `manifest.configs`（`mydearfish.fish-configs` v1：鱼脑、倾向、自定义人设、心情、QQ、主动搭话、朗读、B 站），不新增 zip 条目，所以旧版本照样能导入、只是忽略这一段。凭据、账号/群号、目标会话、NapCat 地址、本机路径、零花钱账本、收藏的表情包、日志、SQLite 和审计不进包。自动备份复用同一条打包路径，只是把文件写进 `$DSH_HOME/fish-backups/` 而不是交给浏览器下载。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），只进空鱼（0 条经历、0 人、0 条心情），先暂存 `.import-pending/`，重启时在打开 SQLite 前应用并备份：先写配置，再写出生设定和心情称呼，对外通道强制先关（QQ 总开关关、社交停下试运行、主动搭话关、B 站不自动评论/回复/私信）；单份配置坏了只跳过并记警告，绝不阻断记忆导入。格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
+导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；本机设置按白名单收进 `manifest.configs`（`mydearfish.fish-configs` v1：鱼脑、倾向、自定义人设、心情、QQ、主动搭话、朗读、B 站），不新增 zip 条目，所以旧版本照样能导入、只是忽略这一段。凭据、账号/群号、目标会话、NapCat 地址、本机路径、零花钱账本、收藏的表情包、日志、SQLite 和审计不进包。自动备份复用同一条打包路径，只是把文件写进 `$DSH_HOME/fish-backups/` 而不是交给浏览器下载。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），随时可导入并覆盖现在这条鱼：先暂存 `.import-pending/`，重启时在打开 SQLite 前把整条鱼备份到 `import-backup-<时间>/` 再应用；包里没有的心情、人物志、提炼水位，以及只记由头编号的内心层水位一并清掉，先写配置，再写出生设定和心情称呼，对外通道强制先关（QQ 总开关关、社交停下试运行、主动搭话关、B 站不自动评论/回复/私信）；单份配置坏了只跳过并记警告，绝不阻断记忆导入。格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
 
 ## 主人倾向
 

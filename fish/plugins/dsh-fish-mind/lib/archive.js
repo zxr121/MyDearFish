@@ -1,4 +1,4 @@
-// 大肥鱼的搬家包：整条鱼导出成一个 zip，导入时严格验包、只进空鱼。
+// 大肥鱼的搬家包：整条鱼导出成一个 zip，导入时严格验包，随时可以覆盖现在这条鱼。
 //
 // 包里装的是「经历」：出生设定、经历流、长期事实、心情、QQ 人物志和短期提炼水位；
 // 另外把本机设置按白名单塞进 manifest.configs，旧版会忽略这一段、只导入记忆。
@@ -6,7 +6,9 @@
 // 这些跟这台机器、这个账号绑定，换一台机器要重新配。
 //
 // 导入分两步：设置页上传后先落到 .import-pending，重启时在打开 SQLite 之前应用。
-// 这样导入要么整包生效，要么原样退回；中途失败会留下备份和 import-report.json。
+// 应用前把现在的鱼整份备份到 import-backup-<时间>/，所以要么整包生效，要么从备份退回；
+// 中途失败会留下备份和 import-report.json。包里没有的部分（心情、人物志、提炼水位）
+// 会被清掉，导入完是新鱼的样子，不会和旧鱼混着过。
 // 配置先应用、身份后应用，避免旧称呼盖掉新身份；单份配置坏只跳过，不阻断记忆导入。
 
 import { createHash } from 'node:crypto'
@@ -17,7 +19,6 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
@@ -585,62 +586,12 @@ export function parseFishArchive(buffer) {
   }
 }
 
-function countExperienceLines(dir) {
-  const path = join(dir, 'experience.jsonl')
-  if (!existsSync(path)) return 0
-  const size = statSync(path).size
-  if (size === 0) return 0
-  if (size > 8 * 1024 * 1024) return 2
-  const text = readFileSync(path, 'utf8')
-  return text.split('\n').filter((line) => line.trim() !== '').length
-}
-
-function readPeopleCount(dshHome) {
-  const path = join(dshHome, 'qq-social-people.json')
-  if (!existsSync(path)) return 0
+function removeIfExists(path) {
   try {
-    const raw = readJson(path)
-    return isPlainObject(raw) && isPlainObject(raw.people) ? Object.keys(raw.people).length : 0
-  } catch {
-    return 0
+    rmSync(path, { force: true })
+  } catch (error) {
+    throw bad(`旧文件删不掉：${String((error && error.message) || error)}`, 500)
   }
-}
-
-function readMoodPoints(dshHome) {
-  const path = join(dshHome, 'feiyu-mood', 'state.json')
-  if (!existsSync(path)) return 0
-  try {
-    const raw = readJson(path)
-    return isPlainObject(raw) && Array.isArray(raw.timeline) ? raw.timeline.length : 0
-  } catch {
-    return 0
-  }
-}
-
-function inspectOccupancy({ dir, dshHome, store }) {
-  let experiences = countExperienceLines(dir)
-  if (store && typeof store.stats === 'function') {
-    try {
-      const stats = store.stats()
-      if (Number.isFinite(stats.total) && stats.total > experiences) experiences = stats.total
-    } catch {}
-  }
-  const people = readPeopleCount(dshHome)
-  const moodPoints = readMoodPoints(dshHome)
-  return {
-    empty: experiences === 0 && people === 0 && moodPoints === 0,
-    experiences,
-    people,
-    moodPoints,
-  }
-}
-
-function notEmptyMessage(occupancy) {
-  const parts = []
-  if (occupancy.experiences > 0) parts.push(`${occupancy.experiences} 段经历`)
-  if (occupancy.people > 0) parts.push(`${occupancy.people} 个人物`)
-  if (occupancy.moodPoints > 0) parts.push(`${occupancy.moodPoints} 条心情记录`)
-  return `当前这条鱼已经有${parts.join('、') || '记忆'}，不能直接导入覆盖。请先导出备份，或在一个全新的 profile 里导入。`
 }
 
 function pendingPath(dir) {
@@ -773,15 +724,13 @@ function readStaged(dir) {
 }
 
 /**
- * 验包并通过空鱼检查后，把包暂存到 `.import-pending`，等下次启动应用。
- * @param {object} options - `{ dir, dshHome, store, buffer, now }`。
+ * 验包后把包暂存到 `.import-pending`，等下次启动覆盖现在这条鱼。
+ * @param {object} options - `{ dir, buffer, now }`。
  * @returns {object} 暂存摘要。
  */
-export function stageFishImport({ dir, dshHome, store, buffer, now = Date.now() }) {
+export function stageFishImport({ dir, buffer, now = Date.now() }) {
   if (importIsPending(dir)) throw bad('已经有一个导入包在等重启生效，先重启完成它', 409)
   const parsed = parseFishArchive(buffer)
-  const occupancy = inspectOccupancy({ dir, dshHome, store })
-  if (!occupancy.empty) throw bad(notEmptyMessage(occupancy), 409)
   const root = pendingPath(dir)
   const temp = join(dir, `.import-pending.tmp-${process.pid}-${Date.now()}`)
   try {
@@ -827,6 +776,7 @@ function backupFiles({ dir, dshHome, backup }) {
   copyIfExists(join(dir, 'experience.jsonl'), join(backup, 'experience.jsonl'), '经历流')
   copyIfExists(join(dir, 'identity.json'), join(backup, 'identity.json'), '出生设定')
   copyIfExists(join(dir, 'working.json'), join(backup, 'working.json'), '短期提炼水位')
+  copyIfExists(join(dir, 'inner-life.json'), join(backup, 'inner-life.json'), '内心层水位')
   copyIfExists(join(dshHome, 'feiyu-mood', 'state.json'), join(backup, 'mood-state.json'), '心情状态')
   copyIfExists(join(dshHome, 'qq-social-people.json'), join(backup, 'qq-social-people.json'), '人物志')
   for (const entry of PORTABLE_CONFIGS) {
@@ -857,25 +807,34 @@ function applyStaged({ dir, dshHome, staged, backup, now, diag = () => {} }) {
   }
   const saved = saveIdentity(dir, staged.identity, Number.isFinite(staged.identity.updatedAt) ? staged.identity.updatedAt : now)
   syncMoodNames(dshHome, saved)
+  // 包里没有的部分一并清掉，导入后是包里那条鱼，不和旧鱼混着过。
   if (staged.working !== null) {
     writeAtomicJson(join(dir, 'working.json'), {
       lastConsolidatedAt: staged.working.lastConsolidatedAt,
       lastConsolidatedId: staged.working.lastConsolidatedId,
     })
+  } else {
+    removeIfExists(join(dir, 'working.json'))
   }
   if (staged.mood !== null) {
     writeAtomicJson(join(dshHome, 'feiyu-mood', 'state.json'), staged.mood)
+  } else {
+    removeIfExists(join(dshHome, 'feiyu-mood', 'state.json'))
   }
   if (staged.people !== null) {
     writeAtomicJson(join(dshHome, 'qq-social-people.json'), { version: 1, people: staged.people })
+  } else {
+    removeIfExists(join(dshHome, 'qq-social-people.json'))
   }
+  // 内心层只记「讲过哪条由头」，由头编号跟着经历一起换了，旧水位留着会认错日子。
+  removeIfExists(join(dir, 'inner-life.json'))
   writeAtomicJson(join(dir, IMPORT_FACTS_FILE), { format: 'mydearfish.facts.pending', version: 1, facts: staged.facts })
   return { backup, configs }
 }
 
 /**
- * 启动时调用：把重启前暂存的导入包落到磁盘。只在这里动 SQLite 和经历流，
- * 因为调用点必须早于 `openStore`。没有暂存包时返回 null。
+ * 启动时调用：把重启前暂存的导入包覆盖到磁盘，覆盖前先备份现在这条鱼。
+ * 只在这里动 SQLite 和经历流，因为调用点必须早于 `openStore`。没有暂存包时返回 null。
  * @param {object} options - `{ dir, dshHome, diag }`。
  * @returns {object|null} 导入报告。
  */
@@ -899,19 +858,6 @@ export function applyPendingImport({ dir, dshHome, diag = () => {} }) {
   let phase = 'backup'
   try {
     if (applyState === null || applyState.phase !== 'applying') {
-      const occupancy = inspectOccupancy({ dir, dshHome })
-      if (!occupancy.empty) {
-        const report = writeReport(dir, {
-          ok: false,
-          at: now,
-          stage: 'empty-check',
-          error: notEmptyMessage(occupancy),
-          counts: { experiences: occupancy.experiences, people: occupancy.people, moodPoints: occupancy.moodPoints },
-        })
-        rmSync(pendingPath(dir), { recursive: true, force: true })
-        diag(`import: 当前鱼已经不空，导入包已丢弃（${report.error}）`)
-        return report
-      }
       backup = join(dir, `import-backup-${stamp(new Date(now))}`)
       let suffix = 1
       while (existsSync(backup)) backup = join(dir, `import-backup-${stamp(new Date(now))}-${suffix++}`)

@@ -8,7 +8,7 @@
  *   · 开发者模式：只读查看本机调试资料的开关，以及一个创造模式调试会话的入口；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
- *   · 搬迁：导出整条鱼为一个 zip，导入只收合法的大肥鱼包，而且只进空鱼；
+ *   · 搬迁：导出整条鱼为一个 zip；导入只收合法的大肥鱼包，随时可用，覆盖前先整份备份；
  *   · 自动备份：按主人设的间隔把整条鱼写进安装目录，最多留 5 份。
  *
  * 总览里的记忆和人物志是资料，不是指令；页面不提供直接写库的按钮。
@@ -729,7 +729,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           flash('这个文件超过 64 MB，不是正常的大肥鱼记忆包', 'error')
           return
         }
-        if (!window.confirm(`导入「${file.name}」会替换这条鱼的全部记忆、心情和人物志，并恢复包里的设置；QQ 总开关会先关掉，社交先停在试运行。只允许导入到空鱼。继续？`)) return
+        if (!window.confirm(`导入「${file.name}」会把这条鱼现在的记忆、长期事实、心情和人物志整个换成包里的内容，包里没带的心情、人物志会清空；替换前先备份旧鱼，重启 DSH 后生效。QQ 总开关会先关掉，社交先停在试运行。继续？`)) return
         setBusy('import')
         try {
           const buffer = await file.arrayBuffer()
@@ -779,12 +779,11 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const injection = boundaries.injection || {}
       const hard = permissions.hard || {}
       const archive = data.archive || {}
-
-      const emptyFish = num(memory.total) === 0
-        && num(social.count) === 0
-        && (!mood.available || list(mood.timeline).length === 0)
       const pending = archive.pending === true
       const report = archive.report
+      const backupName = report && typeof report.backup === 'string' && report.backup !== ''
+        ? report.backup.split(/[\\/]/).filter(Boolean).pop()
+        : ''
 
       const hardLabels = {
         dshHome: 'DSH 目录',
@@ -1316,7 +1315,10 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                 h('div', { 'data-fishm-meta': '' }, `上次导入 · ${when(report.at)} · ${report.ok ? '成功' : '失败'}`),
                 report.ok
                   ? `经历 ${num(report.counts && report.counts.experiences)} 条 · 事实 ${num(report.counts && report.counts.facts)} 条 · 心情 ${num(report.counts && report.counts.moodPoints)} 条 · 人物 ${num(report.counts && report.counts.people)} 位${Number.isFinite(report.factsApplied) ? ` · 写回事实 ${num(report.factsApplied)} 条` : ''}${report.configs && report.configs.present ? ` · 配置 ${num(report.configs.applied)} 份${report.configs.skipped ? `（跳过 ${num(report.configs.skipped)}）` : ''}` : ' · 没带配置'}`
-                  : `卡在 ${report.stage || '未知步骤'}：${report.error || '没有留下原因'}`)
+                  : `卡在 ${report.stage || '未知步骤'}：${report.error || '没有留下原因'}`,
+                report.ok && backupName !== ''
+                  ? h('div', { 'data-fishm-note': '' }, `替换前的旧鱼备份在鱼脑目录的 ${backupName}/ 里`)
+                  : null)
             : null,
           h('div', { 'data-fishm-actions': '' },
             h('button', {
@@ -1333,14 +1335,12 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
             }),
             h('button', {
               'data-fishm-btn': '',
-              disabled: busy !== '' || pending || !emptyFish,
+              disabled: busy !== '' || pending,
               onClick: () => { if (fileRef.current) fileRef.current.click() },
             }, busy === 'import' ? '导入中…' : '导入记忆包（zip）')),
           h('div', { 'data-fishm-note': '' }, pending
             ? '包已经验过并暂存好了。重启 DSH 时会换上这条鱼，旧数据会先备份。'
-            : emptyFish
-              ? '只收大肥鱼自己的记忆包；格式、版本、校验和文件清单有一项不对就不会导入。导入只用于空鱼，导入后会恢复记忆、心情、人物志、性格倾向和设置；QQ 总开关会先关掉，社交先停在试运行，等你确认账号和群之后再打开。导入后需要重启。'
-              : '这条鱼已经有记忆、心情或人物志，不能再导入。导入只用于刚出生、还空着的那条鱼。')),
+            : '只收大肥鱼自己的记忆包；格式、版本、校验和文件清单有一项不对就不会导入。随时可以导入：这条鱼现在的记忆、长期事实、心情、人物志、出生设定、倾向和可搬的设置会被包里的内容整个换掉，包里没带的心情、人物志和短期水位会清空；替换前旧鱼先整份备份到鱼脑目录的 import-backup-<时间>/，需要回滚直接拷回去。凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不动；QQ 总开关会先关掉，社交先停在试运行，等你确认账号和群之后再打开。导入后需要重启。')),
 
         h(Section, {
           title: '自动备份',
@@ -1473,7 +1473,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                       ? `经历 ${num(restartPrompt.counts.experiences)} 条 · 事实 ${num(restartPrompt.counts.facts)} 条 · 心情 ${num(restartPrompt.counts.moodPoints)} 条 · 人物 ${num(restartPrompt.counts.people)} 位`
                       : '包已经验过并暂存好了。'),
                   h('div', { 'data-fishm-note': '' },
-                    '这些内容现在只是暂存，重启 DSH 后才会真正装进她脑子里。选「暂缓」的话，下次重启前都不会生效。')),
+                    '这些内容现在只是暂存，重启 DSH 后才会整个换上，旧鱼会先备份。选「暂缓」的话，下次重启前都不会生效。')),
                 h('div', { 'data-fishwd-foot': '' },
                   h('span', { 'data-fishm-note': '' }, canRestart
                     ? '重启会关掉当前窗口，再自动打开。'
@@ -1539,7 +1539,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系、说话风格和性格倾向；倾向会先预览再保存',
           '3. 主动搭话要先勾目标会话（出厂试运行关着，掷中就真发；想先只看记录就打开试运行）；到点掷骰子，安静时段不掷，刚聊过更难开口',
           '4. 隐私、法律红线和危险命令的硬规则改不了，改出生设定也改不了',
-          '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）；凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不在包里，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。导入只进空鱼，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',
+          '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）；凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不在包里，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。导入随时可用，会覆盖现在这条鱼、覆盖前先整份备份，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',
         ],
       },
     ]

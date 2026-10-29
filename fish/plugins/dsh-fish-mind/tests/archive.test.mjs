@@ -164,7 +164,7 @@ test('格式、校验、文件清单不对都拒绝导入', () => {
   assert.throws(() => createZip([{ name: 'C:/evil', data: 'x' }]), /绝对路径/)
 })
 
-test('失败的导入不动现有数据；非空鱼拒绝导入', () => {
+test('坏包不动现有数据；非空鱼也能导入，覆盖前先整份备份', () => {
   const source = writeSource()
   const bundle = buildFishArchive({
     dir: source.dir,
@@ -180,18 +180,85 @@ test('失败的导入不动现有数据；非空鱼拒绝导入', () => {
   const experience = join(dir, 'experience.jsonl')
   const line = JSON.stringify({ hash: 'a'.repeat(64), at: 1, kind: 'user/message', text: '原来的经历' }) + '\n'
   writeFileSync(experience, line)
+  mkdirSync(join(home, 'feiyu-mood'), { recursive: true })
+  writeFileSync(join(home, 'feiyu-mood', 'state.json'), JSON.stringify({
+    mood: 12,
+    timeline: [{ at: 1, mood: 12, delta: -3, reason: '旧心情' }],
+  }))
+  writeFileSync(join(home, 'qq-social-people.json'), JSON.stringify({ version: 1, people: { 'qq-old': { 名: '旧人' } } }))
+  writeFileSync(join(dir, 'working.json'), JSON.stringify({ lastConsolidatedAt: 111, lastConsolidatedId: 22 }))
+  writeFileSync(join(dir, 'inner-life.json'), JSON.stringify({ lastCueId: 9, spokenCues: [{ id: 9, at: 1 }] }))
 
-  assert.throws(() => stageFishImport({ dir, dshHome: home, buffer: Buffer.from('坏包') }), /不是有效的 zip/)
+  assert.throws(() => stageFishImport({ dir, buffer: Buffer.from('坏包') }), /不是有效的 zip/)
   assert.equal(readFileSync(experience, 'utf8'), line)
   assert.equal(importIsPending(dir), false)
 
-  assert.throws(() => stageFishImport({ dir, dshHome: home, buffer: bundle.buffer }), (error) => {
-    assert.equal(error.statusCode, 409)
-    assert.match(error.message, /不能直接导入覆盖/)
-    return true
-  })
-  assert.equal(importIsPending(dir), false)
-  assert.equal(readFileSync(experience, 'utf8'), line)
+  const staged = stageFishImport({ dir, buffer: bundle.buffer, now: 4500 })
+  assert.equal(staged.ok, true)
+  assert.equal(staged.pending, true)
+  assert.equal(readFileSync(experience, 'utf8'), line, '暂存阶段不碰现有数据')
+  assert.equal(JSON.parse(readFileSync(join(home, 'feiyu-mood', 'state.json'), 'utf8')).mood, 12)
+
+  const report = applyPendingImport({ dir, dshHome: home })
+  assert.equal(report.ok, true)
+  assert.ok(existsSync(report.backup))
+  assert.equal(readFileSync(join(report.backup, 'experience.jsonl'), 'utf8'), line, '覆盖前备份旧经历')
+  assert.equal(JSON.parse(readFileSync(join(report.backup, 'mood-state.json'), 'utf8')).mood, 12)
+  assert.equal(JSON.parse(readFileSync(join(report.backup, 'qq-social-people.json'), 'utf8')).people['qq-old'].名, '旧人')
+  assert.equal(JSON.parse(readFileSync(join(report.backup, 'working.json'), 'utf8')).lastConsolidatedId, 22)
+  assert.equal(existsSync(join(report.backup, 'inner-life.json')), true)
+
+  assert.equal(readFileSync(experience, 'utf8').includes('今天去看海了'), true)
+  assert.equal(JSON.parse(readFileSync(join(dir, 'identity.json'), 'utf8')).name, '小鲸')
+  assert.equal(JSON.parse(readFileSync(join(home, 'feiyu-mood', 'state.json'), 'utf8')).mood, 72)
+  assert.equal(JSON.parse(readFileSync(join(home, 'qq-social-people.json'), 'utf8')).people['qq-123456789'].名, '阿蓝')
+  assert.equal(existsSync(join(dir, 'working.json')), false, '包里没有水位就清掉旧水位')
+  assert.equal(existsSync(join(dir, 'inner-life.json')), false, '旧内心层水位跟着换鱼一起清掉')
+})
+
+test('包里没有心情和人物志时，导入会清掉本机旧的部分', () => {
+  const srcHome = mkdtempSync(join(tmpdir(), 'fish-archive-bare-src-'))
+  const srcDir = join(srcHome, 'fish-mind')
+  mkdirSync(srcDir, { recursive: true })
+  const srcStore = openStore({ dir: srcDir, config: buildDefaults(srcHome), diag: () => {} })
+  const identity = saveIdentity(srcDir, IDENTITY, 2000)
+  const hash = createHash('sha256').update('bare').digest('hex')
+  writeFileSync(join(srcDir, 'experience.jsonl'), JSON.stringify({
+    hash,
+    at: 2500,
+    kind: 'user/message',
+    text: '新鱼的第一句',
+  }) + '\n')
+  const bundle = buildFishArchive({ dir: srcDir, dshHome: srcHome, store: srcStore, identity })
+  srcStore.close()
+
+  const home = mkdtempSync(join(tmpdir(), 'fish-archive-bare-'))
+  const dir = join(home, 'fish-mind')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'experience.jsonl'), JSON.stringify({
+    hash: 'b'.repeat(64),
+    at: 1,
+    kind: 'user/message',
+    text: '旧经历',
+  }) + '\n')
+  mkdirSync(join(home, 'feiyu-mood'), { recursive: true })
+  writeFileSync(join(home, 'feiyu-mood', 'state.json'), JSON.stringify({
+    mood: 15,
+    timeline: [{ at: 1, mood: 15, delta: 0 }],
+  }))
+  writeFileSync(join(home, 'qq-social-people.json'), JSON.stringify({ version: 1, people: { 'qq-old': { 名: '旧人' } } }))
+  writeFileSync(join(dir, 'working.json'), JSON.stringify({ lastConsolidatedAt: 100, lastConsolidatedId: 3 }))
+
+  stageFishImport({ dir, buffer: bundle.buffer, now: 9000 })
+  const report = applyPendingImport({ dir, dshHome: home })
+  assert.equal(report.ok, true)
+  assert.equal(report.counts.moodPoints, 0)
+  assert.equal(report.counts.people, 0)
+  assert.equal(existsSync(join(home, 'feiyu-mood', 'state.json')), false)
+  assert.equal(existsSync(join(home, 'qq-social-people.json')), false)
+  assert.equal(existsSync(join(dir, 'working.json')), false)
+  assert.equal(readFileSync(join(dir, 'experience.jsonl'), 'utf8').includes('新鱼的第一句'), true)
+  assert.equal(readFileSync(join(report.backup, 'qq-social-people.json'), 'utf8').includes('旧人'), true)
 })
 
 test('导入到空鱼：验包、暂存、重启时应用、备份并写回事实', () => {
@@ -208,7 +275,7 @@ test('导入到空鱼：验包、暂存、重启时应用、备份并写回事�
   const dir = join(home, 'fish-mind')
   mkdirSync(dir, { recursive: true })
 
-  const staged = stageFishImport({ dir, dshHome: home, buffer: bundle.buffer, now: 5000 })
+  const staged = stageFishImport({ dir, buffer: bundle.buffer, now: 5000 })
   assert.equal(staged.ok, true)
   assert.equal(staged.pending, true)
   assert.deepEqual(staged.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1, configs: 3 })
@@ -368,7 +435,7 @@ test('旧包没有配置段：只导入记忆，提示这个包没带配置', ()
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(home, 'qq-bridge-config.json'), JSON.stringify({ 总开关: true, 私聊QQ: 'local-qq' }))
 
-  const staged = stageFishImport({ dir, dshHome: home, buffer: oldBundle, now: 6000 })
+  const staged = stageFishImport({ dir, buffer: oldBundle, now: 6000 })
   assert.equal(staged.counts.configs, 0)
   const report = applyPendingImport({ dir, dshHome: home })
   assert.equal(report.ok, true)
@@ -410,7 +477,7 @@ test('新包导入：先关外部通道、恢复偏好、保留本地秘密，�
     perDay: 9,
   }))
 
-  const staged = stageFishImport({ dir, dshHome: home, buffer: bundle.buffer, now: 7000 })
+  const staged = stageFishImport({ dir, buffer: bundle.buffer, now: 7000 })
   assert.equal(staged.counts.configs, 3)
   const stagedManifest = JSON.parse(readFileSync(join(dir, '.import-pending', 'manifest.json'), 'utf8'))
   assert.equal(Object.keys(stagedManifest.configs.files).length, 3, '暂存的 manifest 带配置')
@@ -456,7 +523,7 @@ test('暂存的配置被改坏：只警告并跳过配置，记忆照常导入',
   const home = mkdtempSync(join(tmpdir(), 'fish-archive-tamper-'))
   const dir = join(home, 'fish-mind')
   mkdirSync(dir, { recursive: true })
-  stageFishImport({ dir, dshHome: home, buffer: bundle.buffer, now: 8000 })
+  stageFishImport({ dir, buffer: bundle.buffer, now: 8000 })
   const indexPath = join(dir, '.import-pending', 'manifest.json')
   const manifest = JSON.parse(readFileSync(indexPath, 'utf8'))
   manifest.configs.version = 9
