@@ -10059,15 +10059,22 @@ export function apply(ctx) {
 
   // ---------- 挂监听 ----------
 
-  // SnowLuma 跟着 DSH 起来：同意过协议、勾了自动启动、而且它没在跑时才拉。
+  // SnowLuma 跟着 DSH 起来：先认本机已有的安装（正在运行的实例、盘根 / Program Files 等常见位置），
+  // 之前接受过协议的直接接管；找不到才等主人在设置页装，开机不主动下载。
   ctx.effect(() => {
     const 表 = setTimeout(() => {
-      void snowluma.自动启动().catch((error) => {
-        try { ctx.logger?.info(`qq-bridge: SnowLuma 自动启动出错：${String((error && error.message) || error)}`) } catch (e2) {}
-      })
+      void snowluma.自动准备()
+        .then((结果) => {
+          if (结果 && 结果.接管) {
+            try { ctx.logger?.info(`qq-bridge: 已接管本机已有的 SnowLuma ${结果.目录 || ''}`) } catch (e) {}
+          }
+        })
+        .catch((error) => {
+          try { ctx.logger?.info(`qq-bridge: SnowLuma 自动准备出错：${String((error && error.message) || error)}`) } catch (e2) {}
+        })
     }, 2500)
     return () => clearTimeout(表)
-  }, 'qq-bridge: 自动拉起 SnowLuma')
+  }, 'qq-bridge: 自动认出并拉起 SnowLuma')
 
   // 戳一戳收报口跟着配置走：开关 / 端口一改，保存后立刻重开。
   ctx.effect(() => {

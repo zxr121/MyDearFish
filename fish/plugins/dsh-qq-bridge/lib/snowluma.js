@@ -110,6 +110,113 @@ export function 读SnowLuma版本(目录) {
   return 包 && typeof 包.version === 'string' ? 包.version : ''
 }
 
+const 协议文件们 = [
+  ['eula', 'EULA.md'],
+  ['privacy', 'PRIVACY.md'],
+]
+
+/**
+ * 算安装目录里协议正文的版本号。算法与 SnowLuma 的 consent.json 一致：
+ * sha256(id\0正文\0 …) 取前 16 位；正文没改，旧同意跨版本仍然有效。
+ * @param {string} 目录 - SnowLuma 安装目录。
+ * @returns {string} 16 位十六进制；两份协议都读不到时为空。
+ */
+export function 协议指纹(目录) {
+  const 哈希 = createHash('sha256')
+  let 有正文 = 0
+  for (const [id, 文件] of 协议文件们) {
+    let 文本 = ''
+    try {
+      文本 = readFileSync(join(目录, 文件), 'utf8')
+    } catch (error) {}
+    if (文本.trim() !== '') 有正文++
+    哈希.update(id)
+    哈希.update('\0')
+    哈希.update(文本)
+    哈希.update('\0')
+  }
+  return 有正文 > 0 ? 哈希.digest('hex').slice(0, 16) : ''
+}
+
+/**
+ * 看安装目录里有没有主人以前接受、且协议正文没改过的同意记录。
+ * 只认 SnowLuma 自己写的 config/consent.json；环境变量那种临时同意不算。
+ * @param {string} 目录 - SnowLuma 安装目录。
+ * @returns {{已同意: boolean, 同意时间: string, 原因: string}} 同意证据。
+ */
+export function 读SnowLuma同意(目录) {
+  const 记录 = 读JSON(join(目录, 'config', 'consent.json'), null)
+  if (!记录 || typeof 记录.version !== 'string' || 记录.version === '') {
+    return { 已同意: false, 同意时间: '', 原因: '没有同意记录' }
+  }
+  const 现在 = 协议指纹(目录)
+  if (现在 !== '' && 现在 !== 记录.version) {
+    return { 已同意: false, 同意时间: String(记录.acceptedAt || ''), 原因: '协议正文更新过' }
+  }
+  return { 已同意: true, 同意时间: String(记录.acceptedAt || ''), 原因: '' }
+}
+
+const 要看的盘 = ['C', 'D', 'E', 'F', 'G', 'H']
+
+/**
+ * 本机常见的 SnowLuma 位置：安装器、压缩包解压、盘根三种习惯都列一遍。
+ * 只做存在性检查，不递归扫盘；环境参数可替换，测试不会碰到真机器。
+ * @param {Record<string, string|undefined>} 环境 - 用来取 LOCALAPPDATA / ProgramFiles 等目录。
+ * @param {string} 家 - 用户目录。
+ * @returns {{路径: string, 来源: string}[]} 去重后的候选位置，不保证真的装了。
+ */
+export function 常见安装目录(环境 = process.env, 家 = homedir()) {
+  const 出 = []
+  const 见过 = new Set()
+  const 加 = (路径, 来源) => {
+    if (!路径 || typeof 路径 !== 'string') return
+    const 目录 = resolve(路径)
+    const 键 = 目录.toLowerCase()
+    if (见过.has(键)) return
+    见过.add(键)
+    出.push({ 路径: 目录, 来源 })
+  }
+  const 本机 = 环境.LOCALAPPDATA
+  if (本机) {
+    加(join(本机, 'SnowLuma', 'app'), '本机应用')
+    加(join(本机, 'SnowLuma', 'snowluma'), '本机应用')
+    加(join(本机, 'SnowLuma'), '本机应用')
+    加(join(本机, 'Programs', 'SnowLuma', 'app'), '本机程序')
+    加(join(本机, 'Programs', 'SnowLuma'), '本机程序')
+  }
+  const 漫游 = 环境.APPDATA
+  if (漫游) {
+    加(join(漫游, 'SnowLuma', 'app'), '用户配置')
+    加(join(漫游, 'SnowLuma'), '用户配置')
+  }
+  const 公共 = 环境.ProgramData
+  if (公共) {
+    加(join(公共, 'SnowLuma', 'app'), '公共程序')
+    加(join(公共, 'SnowLuma'), '公共程序')
+  }
+  for (const 根 of [环境.ProgramFiles, 环境['ProgramFiles(x86)']]) {
+    if (!根) continue
+    加(join(根, 'SnowLuma', 'app'), '程序目录')
+    加(join(根, 'SnowLuma'), '程序目录')
+  }
+  if (家) {
+    加(join(家, 'snowluma'), '用户目录')
+    加(join(家, 'SnowLuma', 'app'), '用户目录')
+    加(join(家, 'Desktop', 'SnowLuma', 'app'), '桌面')
+    加(join(家, 'Desktop', 'SnowLuma'), '桌面')
+    加(join(家, 'Downloads', 'SnowLuma', 'app'), '下载目录')
+    加(join(家, 'Downloads', 'SnowLuma'), '下载目录')
+  }
+  // 解压到盘根（D:\SnowLuma\app）是最省事的装法，Windows 上顺手看一眼
+  if (process.platform === 'win32') {
+    for (const 盘 of 要看的盘) {
+      加(`${盘}:\\SnowLuma\\app`, `${盘} 盘`)
+      加(`${盘}:\\SnowLuma`, `${盘} 盘`)
+    }
+  }
+  return 出
+}
+
 export function 生成后台密码() {
   return randomBytes(8).toString('hex')
 }
@@ -212,6 +319,8 @@ export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端
 export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件地址 }) {
   let 安装任务 = { 进行中: false, 阶段: '', 错: '', 已下载: 0, 总: 0 }
   let 探测缓存 = { at: 0, 值: null, 进行中: null }
+  let 发现缓存 = { at: 0, 值: [], 进行中: null }
+  const 发现毫秒 = 30_000
 
   const 绝对目录 = (值) => {
     const 文本 = typeof 值 === 'string' ? 值.trim() : ''
@@ -239,20 +348,86 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     }
   }
 
+  const 跑PowerShell = (脚本, 毫秒 = 8000) =>
+    new Promise((resolve) => {
+      try {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-Command', 脚本],
+          { windowsHide: true, timeout: 毫秒, maxBuffer: 4 * 1024 * 1024 },
+          (错, 标准输出) => resolve(错 ? '' : String(标准输出 || '')),
+        )
+      } catch (error) {
+        resolve('')
+      }
+    })
+
+  /**
+   * 找本机正在运行的 SnowLuma：它自带 node.exe，命令行是 `node.exe index.mjs`，
+   * 用可执行文件所在目录反推安装位置。PowerShell 一次问完，结果缓存 30 秒。
+   */
+  async function 找运行中的SnowLuma() {
+    const 现在 = Date.now()
+    if (现在 - 发现缓存.at < 发现毫秒) return 发现缓存.值
+    if (发现缓存.进行中) return 发现缓存.进行中
+    发现缓存.进行中 = (async () => {
+      const 出 = []
+      if (process.platform === 'win32') {
+        const 文本 = await 跑PowerShell(
+          'Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress',
+        )
+        let 清单 = []
+        try {
+          清单 = JSON.parse(文本)
+        } catch (error) {
+          清单 = []
+        }
+        if (!Array.isArray(清单)) 清单 = 清单 && typeof 清单 === 'object' ? [清单] : []
+        for (const 项 of 清单) {
+          const 可执行 = String((项 && 项.ExecutablePath) || '')
+          if (可执行 === '') continue
+          const 目录 = dirname(可执行)
+          if (!是SnowLuma目录(目录)) continue
+          if (出.some((x) => x.目录.toLowerCase() === 目录.toLowerCase())) continue
+          出.push({ 目录, pid: Number(项.ProcessId) || 0 })
+        }
+      }
+      发现缓存 = { at: Date.now(), 值: 出, 进行中: null }
+      return 出
+    })()
+    return 发现缓存.进行中
+  }
+
+  /** 这个目录能不能当作「主人以前同意过」：SnowLuma 自己的 consent.json，或我们拉起过它的启动记录。 */
+  const 同意证据 = (目录) => {
+    const 记录 = 读SnowLuma同意(目录)
+    if (记录.已同意) return 记录
+    if (进程在(读PID(目录))) return { 已同意: true, 同意时间: '', 原因: '这个目录是 DSH 之前启动的' }
+    return 记录
+  }
+
   const 候选目录 = (配置) => {
     const 出 = []
-    const 加 = (路径, 来源) => {
+    const 加 = (路径, 来源, 运行中 = false) => {
       const 目录 = 绝对目录(路径)
       if (目录 === '' || 出.some((x) => x.目录.toLowerCase() === 目录.toLowerCase())) return
       if (!是SnowLuma目录(目录)) return
-      出.push({ 目录, 来源, 版本: 读SnowLuma版本(目录) })
+      出.push({
+        目录,
+        来源,
+        版本: 读SnowLuma版本(目录),
+        运行中,
+        同意: 同意证据(目录),
+      })
     }
     const 指定 = 绝对目录(配置 && 配置.SnowLuma && 配置.SnowLuma.目录)
-    if (指定 !== '') 加(指定, '设置里指定')
+    const 运行中 = 发现缓存.值 || []
+    if (指定 !== '') 加(指定, '设置里指定', 运行中.some((x) => x.目录.toLowerCase() === 指定.toLowerCase()))
+    for (const x of 运行中) 加(x.目录, '正在运行', true)
     加(join(家目录, 'snowluma'), '数据目录')
     if (basename(家目录).toLowerCase() === '.dsh') 加(join(dirname(家目录), 'tools', 'snowluma'), '工作区')
-    if (process.env.LOCALAPPDATA) 加(join(process.env.LOCALAPPDATA, 'SnowLuma', 'snowluma'), '本机')
     加(join(homedir(), 'snowluma'), '用户目录')
+    for (const x of 常见安装目录()) 加(x.路径, x.来源)
     return 出
   }
 
@@ -369,12 +544,24 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     const 配置 = 读配置()
     const 目录 = 目标目录(配置)
     const 已安装 = 是SnowLuma目录(目录)
+    const 候选 = 候选目录(配置)
+    const 首个 = 候选[0] || null
     return {
       ok: true,
       目录,
       已安装,
       版本: 已安装 ? 读SnowLuma版本(目录) : '',
-      候选: 候选目录(配置),
+      候选,
+      认出: 首个
+        ? {
+            目录: 首个.目录,
+            来源: 首个.来源,
+            版本: 首个.版本,
+            运行中: 首个.运行中,
+            已同意: !!(首个.同意 && 首个.同意.已同意),
+            同意时间: (首个.同意 && 首个.同意.同意时间) || '',
+          }
+        : null,
       后台: { 地址: `http://127.0.0.1:${后台端口}/`, 密码: String((配置.SnowLuma && 配置.SnowLuma.后台密码) || '') },
       同意协议: !!(配置.SnowLuma && 配置.SnowLuma.同意协议),
       自动启动: !!(配置.SnowLuma && 配置.SnowLuma.自动启动),
@@ -725,6 +912,55 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     记账('SnowLuma 没在跑，已按设置自动启动')
   }
 
+  /**
+   * 开机时先把本机已有的 SnowLuma 接过来：正在运行的实例，或留着有效同意记录的安装目录。
+   * 有同意证据才自动接管并拉起；没有证据只把目录填进设置，第一次同意仍由主人自己勾。
+   * 只在设置里没写目录、或写的目录已经不存在时出手；找不到也不下载。
+   * @returns {Promise<{ok: boolean, 接管: boolean, 目录?: string, 版本?: string, 来源?: string, 认出?: object}>} 接管结果。
+   */
+  async function 自动准备() {
+    // 测试和排障时不该去碰真机器上的安装；平时不设这个变量。
+    if (String(process.env.DSH_QQ_BRIDGE_NO_SNOWLUMA_ADOPT || '') === '1') {
+      return { ok: true, 接管: false, 跳过: true }
+    }
+    const 配置 = 读配置()
+    if (!配置.总开关) return { ok: true, 接管: false }
+    if (安装任务.进行中) return { ok: true, 接管: false }
+    const 雪 = (配置 && 配置.SnowLuma) || {}
+    const 指定 = 绝对目录(雪.目录)
+
+    if (是SnowLuma目录(指定)) {
+      if (雪.同意协议) {
+        await 自动启动()
+        return { ok: true, 接管: false, 目录: 指定 }
+      }
+      const 证据 = 同意证据(指定)
+      if (!证据.已同意) return { ok: true, 接管: false, 认出: { 目录: 指定, 已同意: false } }
+      改配置({ 目录: 指定, 同意协议: true, 自动启动: true })
+      记账(`沿用 ${指定} 里之前接受过的 SnowLuma 协议，不再要求重新勾选`)
+      void 执行安装({ 目录: 指定, 自动启动: true })
+      return { ok: true, 接管: true, 目录: 指定, 版本: 读SnowLuma版本(指定), 来源: '设置里指定' }
+    }
+
+    await 找运行中的SnowLuma()
+    const 候选 = 候选目录(配置)
+    if (候选.length === 0) return { ok: true, 接管: false }
+    const 可接管 = 候选.find((x) => x.同意 && x.同意.已同意)
+    if (可接管) {
+      改配置({ 目录: 可接管.目录, 同意协议: true, 自动启动: true })
+      记账(`认出本机已有的 SnowLuma v${可接管.版本 || '?'}（${可接管.目录}），协议之前接受过，直接接管、不再下载`)
+      void 执行安装({ 目录: 可接管.目录, 自动启动: true })
+      return { ok: true, 接管: true, 目录: 可接管.目录, 版本: 可接管.版本, 来源: 可接管.来源 }
+    }
+    // 只是认出了目录：填进设置，等主人勾一下同意；不碰它的进程，也不下载第二份
+    const 提示 = 候选[0]
+    if (String(雪.目录 || '').trim() === '' && 提示) {
+      改配置({ 目录: 提示.目录 })
+      记账(`认出本机已有的 SnowLuma v${提示.版本 || '?'}（${提示.目录}）；勾选同意后就能直接启用，不会重新下载`)
+    }
+    return { ok: true, 接管: false, 认出: 提示 }
+  }
+
   return {
     状态,
     快照,
@@ -733,6 +969,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     停止: 手动停止,
     重置密码,
     自动启动,
+    自动准备,
     探测,
     目标目录,
     候选目录,

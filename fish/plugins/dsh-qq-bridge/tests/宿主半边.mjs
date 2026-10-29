@@ -15,6 +15,8 @@ import { createHash } from 'node:crypto'
 
 const 家 = mkdtempSync(join(tmpdir(), 'qq-bridge-'))
 process.env.DSH_HOME = 家
+// 测试不碰真机器上的 SnowLuma：自动接管读的是真进程和真目录，假的 fetch 分不出来。
+process.env.DSH_QQ_BRIDGE_NO_SNOWLUMA_ADOPT = '1'
 
 // 先把配置写好（总开关开、真发、私聊 123），再放两张她已收藏的表情包
 writeFileSync(

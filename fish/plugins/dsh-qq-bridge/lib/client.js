@@ -788,6 +788,34 @@ window.__ModuleLoader__.load({
         await 拉雪()
       }
 
+      // 本机已经有的 SnowLuma：之前同意过的直接启用；没有同意记录的只填目录，协议仍由主人自己勾。
+      const 用已有 = async (候选) => {
+        const 目录 = String((候选 && 候选.目录) || '')
+        if (目录 === '') return
+        const 已同意 = !!(候选.同意 && 候选.同意.已同意)
+        if (!已同意) {
+          设雪目录(目录)
+          设雪说('目录已经填好：' + 目录 + '。勾选下面的协议后点「配置并启动」，不会重新下载。')
+          return
+        }
+        设雪忙(true)
+        设雪说('')
+        const s = await post('/snowluma/setup', {
+          目录,
+          密码: 雪密码.trim(),
+          同意协议: true,
+          自动启动: true,
+        })
+        设雪忙(false)
+        设雪说((s && s.说) || '没反应')
+        if (s && s.状态) 吃雪(s.状态)
+        if (s && s.ok) {
+          设雪目录(目录)
+          设雪密码('')
+        }
+        await 拉雪()
+      }
+
       const 雪动作 = async (名) => {
         设雪忙(true)
         const s = await post('/snowluma/' + 名, {})
@@ -891,7 +919,8 @@ window.__ModuleLoader__.load({
             h('div', { style: 雪连上 ? S.已同步 : S.未保存 }, 雪连上 ? '✓ 已接通' : '还没接通'),
           ),
           h('div', { style: S.dim },
-            '固定用 SnowLuma。点「一键安装并配置」会从官方 GitHub Releases 下载 Windows 版（国内网络自动换镜像），并把 OneBot HTTP（' + 雪OneBot + '）、事件上报和后台密码都写好；' +
+            '固定用 SnowLuma。先找本机已有的安装（正在运行的实例、盘根 / Program Files / 桌面等常见位置），找到就直接配置启动，不会重新下载；' +
+              '真的没有才从官方 GitHub Releases 下载 Windows 版（国内网络自动换镜像），并把 OneBot HTTP（' + 雪OneBot + '）、事件上报和后台密码都写好；' +
               '你只剩两步：登录鱼 QQ、在 SnowLuma 后台把它接上。',
           ),
           雪装好 && 雪.外部实例
@@ -906,8 +935,29 @@ window.__ModuleLoader__.load({
                   ? '正在装：' + String(雪安装.阶段 || '') + (雪安装.总 ? '（' + 兆(雪安装.已下载) + ' / ' + 兆(雪安装.总) + '）' : '')
                   : 雪装好
                     ? '已安装 v' + String(雪.版本 || '?') + '：' + String(雪.目录 || '')
-                    : '还没装。点击下载安装（约 40–60 MB），装好会自动配置并启动。',
+                    : (Array.isArray(雪.候选) && 雪.候选.length > 0
+                        ? '本机已经认出 ' + String(雪.候选.length) + ' 个 SnowLuma；选一个直接用，不会重新下载。'
+                        : '还没装。点击下载安装（约 40–60 MB），装好会自动配置并启动。'),
               ),
+              !雪装好 && Array.isArray(雪.候选) && 雪.候选.length > 0
+                ? h('div', { style: { ...S.card, marginTop: 6 } },
+                    h('div', { style: { fontSize: 12, fontWeight: 600 } }, '本机已有的 SnowLuma'),
+                    ...雪.候选.slice(0, 4).map((c) => h('div', {
+                      key: String(c.目录),
+                      style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 },
+                    },
+                      h('div', { style: { ...S.dim, flex: '1 1 300px', minWidth: 0, wordBreak: 'break-all' } },
+                        'v' + String(c.版本 || '?') + ' · ' + String(c.目录) +
+                          '（' + String(c.来源 || '') + (c.运行中 ? '，正在运行' : '') +
+                          (c.同意 && c.同意.已同意
+                            ? (c.同意.同意时间 ? '，之前已同意协议' : '，之前由 DSH 启动过')
+                            : '') + '）'),
+                      按钮(c.同意 && c.同意.已同意 ? '用这个并启用' : '用这个目录', () => 用已有(c), true, 雪忙),
+                    )),
+                    h('div', { style: { ...S.dim, marginTop: 4 } },
+                      '「用这个并启用」只写配置并启动，不会重新下载；之前没同意过协议的，仍然要你自己勾选。'),
+                  )
+                : null,
               h('label', { style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, marginTop: 6 } },
                 h('input', { type: 'checkbox', checked: 同意雪, onChange: (e) => 设同意雪(e.target.checked) }),
                 h('span', null,
@@ -924,6 +974,7 @@ window.__ModuleLoader__.load({
               h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
                 按钮(雪装中 ? '正在安装…' : (雪装好 ? (雪在跑 ? '重新配置并重启' : '配置并启动') : '一键安装并配置'),
                   装雪, true, 雪忙 || 雪装中 || !同意雪),
+                按钮('重新检测', () => { void 拉雪() }, false, 雪忙 || 雪装中),
                 雪装好 ? 按钮('打开后台', 打开雪后台, false, 雪忙) : null,
                 雪装好 && 雪后台.密码 ? 按钮('复制后台密码', () => 复制(雪后台.密码), false, false) : null,
               ),

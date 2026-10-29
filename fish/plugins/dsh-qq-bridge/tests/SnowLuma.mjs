@@ -14,6 +14,9 @@ import {
   规范OneBot地址,
   是SnowLuma目录,
   读SnowLuma版本,
+  协议指纹,
+  读SnowLuma同意,
+  常见安装目录,
   生成后台密码,
   写后台密码,
   写OneBot配置,
@@ -106,6 +109,40 @@ try {
   报('有 index.mjs + node.exe 才算装过', 是SnowLuma目录(安装目录) === true)
   报('版本从 release.json 读', 读SnowLuma版本(安装目录) === '9.9.9')
 
+  // ---------- 协议证据 ----------
+  writeFileSync(join(安装目录, 'EULA.md'), '# EULA\n正文一\n', 'utf8')
+  writeFileSync(join(安装目录, 'PRIVACY.md'), '# 隐私政策\n正文二\n', 'utf8')
+  const 指纹 = 协议指纹(安装目录)
+  报('协议指纹 16 位十六进制', /^[0-9a-f]{16}$/.test(指纹), 指纹)
+  报('没有 consent.json 不算同意', 读SnowLuma同意(安装目录).已同意 === false)
+  writeFileSync(join(安装目录, 'config', 'consent.json'),
+    JSON.stringify({ version: 指纹, acceptedAt: '2026-10-22T02:01:00.154Z' }), 'utf8')
+  const 同意 = 读SnowLuma同意(安装目录)
+  报('同意记录 + 协议正文没变 = 已同意',
+    同意.已同意 === true && 同意.同意时间 === '2026-10-22T02:01:00.154Z', JSON.stringify(同意))
+  writeFileSync(join(安装目录, 'EULA.md'), '# EULA\n正文改过了\n', 'utf8')
+  const 过期 = 读SnowLuma同意(安装目录)
+  报('协议正文改过就不算同意，得重新勾', 过期.已同意 === false && 过期.原因.includes('更新'), JSON.stringify(过期))
+  writeFileSync(join(安装目录, 'EULA.md'), '# EULA\n正文一\n', 'utf8')
+
+  // ---------- 常见安装位置 ----------
+  const 假环境 = {
+    LOCALAPPDATA: join(家, 'localappdata'),
+    APPDATA: join(家, 'appdata'),
+    ProgramData: join(家, 'programdata'),
+    ProgramFiles: join(家, 'program-files'),
+    'ProgramFiles(x86)': join(家, 'program-files-x86'),
+  }
+  const 假家 = join(家, '用户')
+  const 常见 = 常见安装目录(假环境, 假家)
+  const 有位置 = (路径) => 常见.some((x) => x.路径 === 路径)
+  报('常见位置覆盖 LocalAppData / Program Files / 桌面 / 下载',
+    有位置(join(假环境.LOCALAPPDATA, 'SnowLuma', 'app')) &&
+      有位置(join(假环境.ProgramFiles, 'SnowLuma', 'app')) &&
+      有位置(join(假家, 'Desktop', 'SnowLuma', 'app')) &&
+      有位置(join(假家, 'Downloads', 'SnowLuma', 'app')), JSON.stringify(常见.map((x) => x.来源)))
+  报('常见位置按大小写去重', new Set(常见.map((x) => x.路径.toLowerCase())).size === 常见.length)
+
   let 当前配置 = {
     SnowLuma: { 目录: '', 后台密码: '', 同意协议: false, 自动启动: true },
     戳一戳: { 端口: 19388 },
@@ -120,6 +157,8 @@ try {
   const 候选 = 管理器.候选目录(当前配置)
   const 快照 = 管理器.快照()
   报('自动认出 <DSH_HOME>/snowluma', 候选.some((x) => x.目录 === 安装目录), JSON.stringify(候选))
+  报('候选带上同意证据', (候选.find((x) => x.目录 === 安装目录) || {}).同意?.已同意 === true)
+  报('快照的认出指向第一个候选', 快照.认出 && 快照.认出.目录 === 候选[0].目录, JSON.stringify(快照.认出))
   报('快照报已安装和版本，未探测', 快照.已安装 === true && 快照.版本 === '9.9.9' && 快照.同意协议 === false && !('运行中' in 快照), JSON.stringify(快照))
 
   const 未同意 = 管理器.设置({ 同意协议: false })
@@ -137,6 +176,24 @@ try {
   报('设置里指定的目录优先', 管理器2.目标目录({ SnowLuma: { 目录: 指定目录 } }) === 指定目录)
   管理器2.停止()
   报('没有进程时停止不炸', true)
+
+  // 我们以前拉起过的目录：没有 consent.json，但启动记录 + 活着的 PID 也算同意证据
+  const 启动过家 = join(家, '由DSH启动')
+  const 启动过目录 = join(启动过家, 'snowluma')
+  mkdirSync(join(启动过目录, 'config'), { recursive: true })
+  writeFileSync(join(启动过目录, 'index.mjs'), '// fake\n', 'utf8')
+  writeFileSync(join(启动过目录, 'node.exe'), '', 'utf8')
+  writeFileSync(join(启动过目录, '.dsh-launch.json'), JSON.stringify({ pid: process.pid, at: Date.now() }), 'utf8')
+  const 管理器3 = 创建SnowLuma({
+    家目录: 启动过家,
+    读配置: () => ({ SnowLuma: { 目录: '' } }),
+    存配置: () => {},
+    记账: () => {},
+    事件地址: () => 事件地址,
+  })
+  const 启动候选 = 管理器3.候选目录({ SnowLuma: { 目录: '' } }).find((x) => x.目录 === 启动过目录)
+  报('我们拉起过的目录也算同意证据', !!启动候选 && 启动候选.同意.已同意 === true && 启动候选.同意.原因.includes('DSH'),
+    JSON.stringify(启动候选))
 } finally {
   rmSync(家, { recursive: true, force: true })
 }
