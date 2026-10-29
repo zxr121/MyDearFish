@@ -92,7 +92,7 @@
 
 `client.js` 在设置里注册「大肥鱼」页（order 20）和「梗百科」页（order 22）；宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/tendency`、`GET /dsh-fish-mind/creation`、`POST /dsh-fish-mind/creation/brief`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/phrases`、`POST /dsh-fish-mind/developer`、`POST /dsh-fish-mind/backup/config`、`POST /dsh-fish-mind/backup/now`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。总览带出生设定、性格倾向、记忆、心情、人物志、通道、零花钱、自动备份和边界；出厂人设另走 `/persona`，展开高级区才读。QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
 
-「大肥鱼」页顶部的开发者模式区读 `boundaries.permissions.developer`，开关写 `POST /dsh-fish-mind/developer`；旁边的按钮调用客户端的 `uiWorkspace.startSession(undefined, { agentPreset: 'cordis' })` 新开一个创造模式会话，然后关掉设置页。鱼的人设和记忆照常挂载；创造模式自带的改代码、写文件能力来自宿主预设，不受这个开关限制。
+「大肥鱼」页顶部的开发者模式区读 `boundaries.permissions.developer`，开关写 `POST /dsh-fish-mind/developer`；旁边的按钮先把她自己的安装目录注册成工作区（`workspaces.create`，已注册就复用），再调用客户端的 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis' })` 在那里新开一个创造模式会话，然后关掉设置页。鱼的人设和记忆照常挂载；创造模式自带的改代码、写文件能力来自宿主预设，不受这个开关限制。
 
 导出是 `node:zlib` 写的普通 zip，含 `manifest.json`、`identity.json`、`memory/experience.jsonl`、`memory/facts.json`，有内容时再带 `memory/working.json`、`mood.json`、`people.json`；本机设置按白名单收进 `manifest.configs`（`mydearfish.fish-configs` v1：鱼脑、倾向、自定义人设、心情、QQ、主动搭话、朗读、B 站），不新增 zip 条目，所以旧版本照样能导入、只是忽略这一段。凭据、账号/群号、目标会话、NapCat 地址、本机路径、零花钱账本、收藏的表情包、日志、SQLite 和审计不进包。自动备份复用同一条打包路径，只是把文件写进 `$DSH_HOME/fish-backups/` 而不是交给浏览器下载。导入完整验包（白名单、CRC32、SHA-256，拒绝加密、ZIP64、data descriptor、分卷和越界路径），随时可导入并覆盖现在这条鱼：先暂存 `.import-pending/`，重启时在打开 SQLite 前把整条鱼备份到 `import-backup-<时间>/` 再应用；包里没有的心情、人物志、提炼水位，以及只记由头编号的内心层水位一并清掉，先写配置，再写出生设定和心情称呼，对外通道强制先关（QQ 总开关关、社交停下试运行、主动搭话关、B 站不自动评论/回复/私信）；单份配置坏了只跳过并记警告，绝不阻断记忆导入。格式不对不动现有文件。细节见[大肥鱼设置与搬迁](../../../docs/my-dear-fish/fish-settings.zh.md)。
 
@@ -116,9 +116,9 @@
 
 ## 创造模式
 
-提示词穿不过代码闸门时（例如「用颜文字」「把群友的图也收」），`GET /dsh-fish-mind/creation` 给出一份确定性 brief：原话、已识别落点、未识别从句、代码位置（QQ 判断/接话/表情在 `fish/plugins/dsh-qq-bridge/lib/host.js`，鱼脑在 `fish/plugins/dsh-fish-mind`）、要补和要跑的测试，以及硬约束（不动安全/隐私/法律/额度/权限/试运行/群规相关代码、不读写 DSH_HOME、不提交不推送、能做成确定性规则就别只加提示词、只影响这条鱼）。`process.cwd()` 下同时存在 `fish/bundle/package.json` 与 `fish/plugins/dsh-fish-mind/lib/index.js` 才算源码仓库；打包版只给可复制的 brief，并说明改了也编不进去。
+提示词穿不过代码闸门时（例如「用颜文字」「把群友的图也收」），`GET /dsh-fish-mind/creation` 给出一份确定性 brief：原话、已识别落点、未识别从句、代码位置（QQ 判断/接话/表情在 `fish/plugins/dsh-qq-bridge/lib/host.js`，鱼脑在 `fish/plugins/dsh-fish-mind`）、要补和要跑的测试，以及硬约束（不动安全/隐私/法律/额度/权限/试运行/群规相关代码、不读写 DSH_HOME、不提交不推送、能做成确定性规则就别只加提示词、只影响这条鱼）。同一个接口还返回 `checkout`——鱼自己的安装目录：运行数据固定在 `<安装目录>\data`，取 data 的上一级，开发实例就是源码仓库，安装版是 exe 所在目录。那里同时存在 `fish/bundle/package.json` 与 `fish/plugins/dsh-fish-mind/lib/index.js` 才算源码仓库；打包版只给可复制的 brief，并说明改了也编不进去。
 
-点击「打开创造模式」走 `workspace.startSession(undefined, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })`：说明只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。代码改动跟着仓库/安装包走，不随记忆包；配置和倾向随「导出」走。权限层挡得住运行中的内核写入，但挡不住源码仓库编辑——这里靠明确指令加主人看 diff，不假装是沙箱。
+点击「打开创造模式」先把这个安装目录注册成工作区（`workspaces.create`，已注册就复用），再走 `workspace.startSession(workspaceId, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })`：说明只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿，新会话的文件路径就在鱼自己的地盘里。代码改动跟着仓库/安装包走，不随记忆包；配置和倾向随「导出」走。权限层挡得住运行中的内核写入，但挡不住源码仓库编辑——这里靠明确指令加主人看 diff，不假装是沙箱。
 
 ## 情景记忆
 
@@ -456,7 +456,7 @@ Windows 的 sandbox 只限制写入，不限制读取和网络。因此 Broker �
 node --test fish/plugins/dsh-fish-mind/tests/*.test.mjs
 ```
 
-测试覆盖：来源映射、群聊/好友来源与按会话隔离召回、敏感清洗、中文二元组检索、单字回退、去重、JSONL 重建、情景切段、显著性阈值、章节树（日/周/月、社交作用域、导入排除、原文展开）、v2→v3 迁移、关系边（事实取代、图召回、重建一致）、五路召回与融合、时间窗解析、来源标签与置信度、补编码、工作台注入与截断、影子/关闭模式不召回、`recall` 工具、同会话显式回查、`open_chapter` 目录展开、`open_episode` 原文与分页续读、超长正文按 `archiveChars` 存档而索引只吃 `maxTextChars` 前缀、上下文压缩摘要写进经历流及 `capture.compaction` 关闭、前台/后台权限判定、私密路径与本机探测硬拒绝、紧急停止、审计、写接口缺失、默认每日额度与设置页调额、跨天累计、日期倒流、预留与结算、账户余额归一、对外脱敏、工具结果脱敏、模型输出流式脱敏、注入识别与警示、危险命令拒绝和全局 `llm/stream` 拦截、外部 MCP 工具的只读白名单与非白名单硬拒、导入旧记录的来源标签与整类排除、`agent/created` 事件驱动挂载与 `agent/disposed` 摘除及挂载抛错不影响宿主、短期窗口的按会话/按屋子（分线合并）与来源过滤和 TTL 与字数淘汰、社交版短期段、旧出厂值自动抬到一小时、提炼计划（放凉/攒满/只剩一条/水位之后）、积压从最旧逐批消化、id 水位跨时钟回拨与重建、坏输出不推水位和连续失败跳一条、事实去重与取代、`sleep_runs` 流水、`working` 配置区间收敛、幽默提示的语气档位与社交收敛及 `humor.inject` 开关、性格人设的整段读写与校验（保留换行、清控制字符、拒绝空值与 `{{变量}}`、恢复出厂只删覆盖、缺 `configEditor` 返回 501）、主人倾向的五个维度与否定和后写覆盖、读写往返与坏文件/高版本降级、提示块优先级、创造模式 brief 与源码仓库检测、可搬运配置的白名单导出与秘密不外泄、导入强制关对外通道与单文件坏只跳过、manifest 多字段的旧版兼容、梗百科真实词库加载与搜索排序、自建增删改、内置改删恢复、重名冲突、坏覆盖层备份、预查命中与不命中、社交版提示、`search_meme` 渲染、自动备份（打包、同名碰撞、只留五份、非本插件文件不动、备份目录被文件占用时报错、到期判断、旧备份清理）和二十条设置路由。
+测试覆盖：来源映射、群聊/好友来源与按会话隔离召回、敏感清洗、中文二元组检索、单字回退、去重、JSONL 重建、情景切段、显著性阈值、章节树（日/周/月、社交作用域、导入排除、原文展开）、v2→v3 迁移、关系边（事实取代、图召回、重建一致）、五路召回与融合、时间窗解析、来源标签与置信度、补编码、工作台注入与截断、影子/关闭模式不召回、`recall` 工具、同会话显式回查、`open_chapter` 目录展开、`open_episode` 原文与分页续读、超长正文按 `archiveChars` 存档而索引只吃 `maxTextChars` 前缀、上下文压缩摘要写进经历流及 `capture.compaction` 关闭、前台/后台权限判定、私密路径与本机探测硬拒绝、紧急停止、审计、写接口缺失、默认每日额度与设置页调额、跨天累计、日期倒流、预留与结算、账户余额归一、对外脱敏、工具结果脱敏、模型输出流式脱敏、注入识别与警示、危险命令拒绝和全局 `llm/stream` 拦截、外部 MCP 工具的只读白名单与非白名单硬拒、导入旧记录的来源标签与整类排除、`agent/created` 事件驱动挂载与 `agent/disposed` 摘除及挂载抛错不影响宿主、短期窗口的按会话/按屋子（分线合并）与来源过滤和 TTL 与字数淘汰、社交版短期段、旧出厂值自动抬到一小时、提炼计划（放凉/攒满/只剩一条/水位之后）、积压从最旧逐批消化、id 水位跨时钟回拨与重建、坏输出不推水位和连续失败跳一条、事实去重与取代、`sleep_runs` 流水、`working` 配置区间收敛、幽默提示的语气档位与社交收敛及 `humor.inject` 开关、性格人设的整段读写与校验（保留换行、清控制字符、拒绝空值与 `{{变量}}`、恢复出厂只删覆盖、缺 `configEditor` 返回 501）、主人倾向的五个维度与否定和后写覆盖、读写往返与坏文件/高版本降级、提示块优先级、创造模式 brief 与安装目录工作区（目录取 `data` 的上一级、打包版只给说明）、可搬运配置的白名单导出与秘密不外泄、导入强制关对外通道与单文件坏只跳过、manifest 多字段的旧版兼容、梗百科真实词库加载与搜索排序、自建增删改、内置改删恢复、重名冲突、坏覆盖层备份、预查命中与不命中、社交版提示、`search_meme` 渲染、自动备份（打包、同名碰撞、只留五份、非本插件文件不动、备份目录被文件占用时报错、到期判断、旧备份清理）和二十条设置路由。
 
 从 JSONL 重建：
 

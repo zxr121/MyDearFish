@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -594,4 +594,39 @@ test('性格倾向接口：读写、预览不落盘、创造模式说明', async
   assert.deepEqual(cleared.json.preview, [])
 
   ctx.dispose()
+})
+
+test('创造模式工作区：安装目录取 data 的上一级，源码仓库能改、安装版只给说明', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fish-install-'))
+  process.env.DSH_HOME = join(root, 'data')
+  mkdirSync(process.env.DSH_HOME, { recursive: true })
+  const packagedCtx = fakeContext()
+  const packagedRoutes = []
+  packagedCtx.set('agents', { list: () => [] })
+  packagedCtx.set('webServer', fakeServer(packagedRoutes))
+  apply(packagedCtx)
+
+  const packaged = await call(packagedRoutes, '/dsh-fish-mind/creation')
+  assert.equal(packaged.res.status, 200)
+  assert.equal(packaged.json.checkout, root, '工作区落在安装目录，不是 data 目录')
+  assert.equal(packaged.json.available, false)
+  assert.match(packaged.json.brief, /不是源码仓库/)
+  packagedCtx.dispose()
+
+  mkdirSync(join(root, 'fish', 'bundle'), { recursive: true })
+  mkdirSync(join(root, 'fish', 'plugins', 'dsh-fish-mind', 'lib'), { recursive: true })
+  writeFileSync(join(root, 'fish', 'bundle', 'package.json'), '{}\n')
+  writeFileSync(join(root, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js'), '// stub\n')
+  const checkoutCtx = fakeContext()
+  const checkoutRoutes = []
+  checkoutCtx.set('agents', { list: () => [] })
+  checkoutCtx.set('webServer', fakeServer(checkoutRoutes))
+  apply(checkoutCtx)
+
+  const checkout = await call(checkoutRoutes, '/dsh-fish-mind/creation')
+  assert.equal(checkout.res.status, 200)
+  assert.equal(checkout.json.checkout, root)
+  assert.equal(checkout.json.available, true)
+  assert.match(checkout.json.brief, /当前目录看起来是源码仓库/)
+  checkoutCtx.dispose()
 })

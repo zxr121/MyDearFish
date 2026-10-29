@@ -268,6 +268,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const [backupForm, setBackupForm] = React.useState(null)
       const [backupBusy, setBackupBusy] = React.useState('')
       const [devBusy, setDevBusy] = React.useState(false)
+      const [devOpening, setDevOpening] = React.useState(false)
       const [ttsPanelBusy, setTtsPanelBusy] = React.useState(false)
       const [restartPrompt, setRestartPrompt] = React.useState(null)
       const fileRef = React.useRef(null)
@@ -376,18 +377,23 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         }
       }
 
-      // 创造模式会话由宿主组合：新开一个空白会话，预设换成 cordis，鱼的人设和记忆照常跟着。
+      // 创造模式会话由宿主组合：先把她自己的安装目录注册成工作区，再在那里新开空白会话，
+      // 预设换成 cordis，鱼的人设和记忆照常跟着，文件路径也落在鱼自己的地盘。
       // 带 prompt 时只填进可编辑草稿、不自动发送；不带时就是空白会话。
-      const startDevSession = (options) => {
+      const startDevSession = async (options) => {
+        if (devOpening) return
         const prompt = options && typeof options === 'object' && typeof options.prompt === 'string' ? options.prompt : ''
-        let opened = false
+        setDevOpening(true)
+        let opened
         try {
           opened = typeof openDevSession === 'function'
-            && openDevSession(prompt === '' ? undefined : { prompt }) === true
+            && await openDevSession(prompt === '' ? undefined : { prompt })
         } catch (error) {
+          setDevOpening(false)
           flash('建会话没成功：' + String((error && error.message) || error), 'error')
           return
         }
+        setDevOpening(false)
         if (!opened) {
           flash('这个宿主没有打开会话的入口，没法新建创造模式会话', 'error')
           return
@@ -958,10 +964,11 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
               'data-fishm-btn': '',
               'data-primary': '',
               type: 'button',
+              disabled: devOpening,
               onClick: startDevSession,
-            }, '用创造模式开一个调试会话'),
+            }, devOpening ? '正在打开…' : '用创造模式开一个调试会话'),
             h('span', { 'data-fishm-note': '' },
-              '新会话会换成创造模式，她的性格和记忆照常带着；排查完记得把开发者模式关掉。')),
+              '新会话在她自己的安装目录工作区里打开（没有就注册一个），换成创造模式，她的性格和记忆照常带着；排查完记得把开发者模式关掉。')),
           h('div', { 'data-fishm-note': '' },
             '创造模式自带的改代码、写文件能力来自宿主预设，不受这个开关限制；这个开关只管她能不能读 DSH 里的调试资料。')),
 
@@ -2037,13 +2044,23 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           { name: 'settings.section', id: 'fish', order: 20, label: '大肥鱼' },
           (props) => h(Panel, {
             close: props && props.close,
-            openDevSession: (options) => {
+            openDevSession: async (options) => {
               const workspace = typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined
               if (!workspace || typeof workspace.startSession !== 'function') return false
+              const workspaces = typeof ctx.get === 'function' ? ctx.get('workspaces') : undefined
+              if (!workspaces || typeof workspaces.create !== 'function') {
+                throw new Error('宿主没有工作区入口，没法把安装目录注册成工作区')
+              }
+              const creation = await getJson(API + '/creation')
+              const root = creation && typeof creation.checkout === 'string' ? creation.checkout : ''
+              if (root === '') throw new Error('宿主没有给出安装目录')
+              const view = await workspaces.create({ path: root })
+              const workspaceId = view && view.workspaceId
+              if (workspaceId === undefined) throw new Error('安装目录没能注册成工作区')
               const prompt = options && typeof options.prompt === 'string' ? options.prompt : ''
               const sessionOptions = { clearPreviousDraft: false, agentPreset: 'cordis' }
               if (prompt !== '') sessionOptions.prompt = prompt
-              workspace.startSession(undefined, sessionOptions)
+              workspace.startSession(workspaceId, sessionOptions)
               return true
             },
           }),

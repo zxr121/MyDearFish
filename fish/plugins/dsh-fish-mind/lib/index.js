@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join, parse } from 'node:path'
 import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPending, markImportedPersona, readImportReport, stageFishImport } from './archive.js'
 import { backupIsDue, describeBackups, writeBackup } from './backup.js'
 import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, resetIdentity, saveIdentity, syncMoodNames } from './birth.js'
@@ -1450,12 +1450,31 @@ export function apply(ctx) {
     }
   }
 
+  // 安装目录：运行数据固定放在 `<安装目录>\data`，所以 data 的上一级就是鱼自己的地盘。
+  // 开发实例的上一级是源码仓库，安装版是 exe 所在目录；DSH_HOME 被指到别处时再找打包资源。
+  function installRoot() {
+    const parent = dirname(dshHome)
+    if (basename(dshHome).toLowerCase() === 'data' && parse(parent).root !== parent && existsSync(parent)) {
+      return parent
+    }
+    if (isFishCheckout(process.cwd())) return process.cwd()
+    if (typeof process.resourcesPath === 'string') {
+      const packaged = dirname(process.resourcesPath)
+      if (existsSync(join(packaged, 'app.asar'))) return packaged
+    }
+    return process.cwd()
+  }
+
+  function isFishCheckout(root) {
+    return existsSync(join(root, 'fish', 'bundle', 'package.json')) &&
+      existsSync(join(root, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js'))
+  }
+
   function creationCheckout() {
-    const cwd = process.cwd()
+    const checkout = installRoot()
     return {
-      available: existsSync(join(cwd, 'fish', 'bundle', 'package.json')) &&
-        existsSync(join(cwd, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js')),
-      checkout: cwd,
+      available: isFishCheckout(checkout),
+      checkout,
     }
   }
 

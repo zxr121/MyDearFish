@@ -187,7 +187,7 @@
 
 `GET /dsh-fish-mind/creation` 生成一份确定性 brief：主人原话、已识别落点、未识别从句、代码位置（QQ 判断 / 接话 / 表情在 `fish/plugins/dsh-qq-bridge/lib/host.js`，鱼脑在 `fish/plugins/dsh-fish-mind`）、要补的测试，以及硬约束——不动安全、隐私、法律红线、额度、权限、试运行和群规相关代码，不读写 `DSH_HOME`，不提交不推送，能做成确定性规则就别只加提示词，只影响这条鱼。
 
-`process.cwd()` 下同时存在 `fish/bundle/package.json` 与 `fish/plugins/dsh-fish-mind/lib/index.js` 才算源码仓库；打包版只给可复制的 brief，并写明“这一版没有源码，改了也编不进去”。打开创造模式走 `workspace.startSession(undefined, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })`：brief 只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。
+安装目录按运行数据反推：数据固定放在 `<安装目录>\data`，所以 `DSH_HOME` 的上一级就是她自己的地盘——开发时是源码仓库，安装版是 exe 所在目录。`GET /dsh-fish-mind/creation` 把这份目录作为 `checkout` 返回，并在 `fish/bundle/package.json` 与 `fish/plugins/dsh-fish-mind/lib/index.js` 都在时标明是源码仓库；打包版只给可复制的 brief，并写明“这一版没有源码，改了也编不进去”。打开创造模式先用 `workspaces.create({ path: checkout })` 把安装目录注册成工作区（已注册就复用），再走 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })` 在那里开会话：brief 只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。
 
 代码改动跟着仓库和安装包走，不随记忆包；配置和倾向随「导出」走。权限层挡得住运行中的内核写入，但挡不住源码仓库编辑——这里靠明确指令加主人看 diff，不假装是沙箱。
 
