@@ -2315,12 +2315,48 @@ export function 收句号(文字) {
   return 文.replace(/[ \t]{2,}/gu, ' ').trim()
 }
 
-/** 把一段多句的文字按句尾标点拆开（真人连发通常一句一条）；单句不拆。 */
+/** 把一段多句的文字按句尾标点拆开（真人连发通常一句一条）；单句不拆。
+ * 连着的标点算一处句尾（「……」「？！」不在中间断开）。 */
 export function 按句拆(文字) {
-  return String(文字 || '')
-    .split(/(?<=[。！？!?…~]["」』”’）)]?)\s*/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
+  const 原文 = String(文字 || '')
+  const 段们 = []
+  let 末 = 0
+  for (const m of 原文.matchAll(/[。！？!?…~～]+["」』”’）)]?/gu)) {
+    const 止 = m.index + m[0].length
+    const 段 = 原文.slice(末, 止).trim()
+    if (段 !== '') 段们.push(段)
+    末 = 止
+  }
+  const 余 = 原文.slice(末).trim()
+  if (余 !== '') 段们.push(余)
+  return 段们
+}
+
+/** 接一段停顿标点：前一条已经以省略号收尾就不再叠一层，免得发出「…………」。 */
+function 接标点(前, 后) {
+  if (!/[.。…]$/u.test(前)) return 前 + 后
+  const 余 = 后.replace(/^[.。…]+/u, '')
+  return 余 === '' ? 前 : 前 + 余
+}
+
+/** 整条只有标点（「……」「？！」这类停顿）的段不单独占一条消息：并进上一条，前面没有就并进下一条。 */
+function 合标点段(段们) {
+  const 出 = []
+  let 攒着 = ''
+  for (const 段 of 段们) {
+    if (/^[\p{P}\p{Z}\s]+$/u.test(段)) {
+      if (出.length === 0) 攒着 = 攒着 === '' ? 段 : 接标点(攒着, 段)
+      else 出[出.length - 1] = 接标点(出[出.length - 1], 段)
+      continue
+    }
+    出.push(攒着 + 段)
+    攒着 = ''
+  }
+  if (攒着 !== '') {
+    if (出.length > 0) 出[出.length - 1] = 接标点(出[出.length - 1], 攒着)
+    else 出.push(攒着)
+  }
+  return 出
 }
 
 function 收段(细, 最多, 连接符) {
@@ -2328,11 +2364,10 @@ function 收段(细, 最多, 连接符) {
   return [...细.slice(0, 最多 - 1), 细.slice(最多 - 1).join(连接符)]
 }
 
-/** 一段文字拆成她要连发的几条：空行/换行优先，没自己分条的整段按句尾自动断。不设上限，上限由调用方收。 */
+/** 一段文字拆成她要连发的几条：空行/换行优先，没自己分条的整段按句尾自动断；只有标点的段并进相邻那条。 */
 export function 拆条目(文字) {
   const 全部 = 按段拆(文字)
-  if (全部.length > 1) return 全部
-  return 按句拆(全部[0] || '')
+  return 合标点段(全部.length > 1 ? 全部 : 按句拆(全部[0] || ''))
 }
 
 const 连发文字上限 = 3
