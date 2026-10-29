@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { parseFishArchive } from '../lib/archive.js'
+import { buildSelfPrompt } from '../lib/birth.js'
 import { apply } from '../lib/index.js'
 
 function fakeContext() {
@@ -118,7 +119,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 17)
+  assert.equal(routes.length, 20)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -170,12 +171,15 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   const afterSave = await call(routes, '/dsh-fish-mind/overview')
   assert.equal(afterSave.json.identity.name, '小鲸')
   assert.deepEqual(afterSave.json.identity.relations, [{ name: '时光', relation: '妈妈' }])
-  assert.ok(afterSave.json.selfPrompt.includes('时光：妈妈'))
-  assert.ok(afterSave.json.selfPrompt.includes('主人是女性，提到主人时用「她」'))
+  assert.equal(afterSave.json.tendency.text, '')
+  assert.equal(Object.hasOwn(afterSave.json, 'selfPrompt'), false, '总览不再暴露内部自我提示')
   const identityFile = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'identity.json'), 'utf8'))
   assert.equal(identityFile.name, '小鲸')
   assert.equal(identityFile.ownerGender, '女')
   assert.deepEqual(identityFile.relations, [{ name: '时光', relation: '妈妈' }])
+  const selfPrompt = buildSelfPrompt(identityFile)
+  assert.ok(selfPrompt.includes('时光：妈妈'))
+  assert.ok(selfPrompt.includes('主人是女性，提到主人时用「她」'))
 
   const grant = await call(routes, '/dsh-fish-mind/budget', {
     method: 'POST',
@@ -362,7 +366,7 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 17)
+  assert.equal(routes.length, 20)
 
   const search = await call(routes, '/dsh-fish-mind/memes', {
     url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&page=1&pageSize=5',
@@ -455,6 +459,139 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
 
   const wrongMethod = await call(routes, '/dsh-fish-mind/memes', { method: 'POST', body: {} })
   assert.equal(wrongMethod.res.status, 405)
+
+  ctx.dispose()
+})
+
+test('性格倾向接口：读写、预览不落盘、创造模式说明', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-tendency-settings-'))
+  const ctx = fakeContext()
+  const routes = []
+  ctx.set('agents', { list: () => [] })
+  ctx.set('webServer', fakeServer(routes))
+  apply(ctx)
+  assert.equal(routes.length, 20)
+
+  const initial = await call(routes, '/dsh-fish-mind/tendency')
+  assert.equal(initial.res.status, 200)
+  assert.equal(initial.json.text, '')
+  assert.equal(initial.json.maxLength, 2000)
+  assert.equal(initial.json.policy.talk.mode, 'normal')
+  assert.deepEqual(initial.json.preview, [])
+  assert.ok(initial.json.blockers.some((item) => item.includes('还没配置 QQ 桥')))
+
+  writeFileSync(join(process.env.DSH_HOME, 'qq-bridge-config.json'), JSON.stringify({
+    总开关: true,
+    试运行: true,
+    社交: {
+      启用: true,
+      试运行: false,
+      学表情: false,
+      主动每时: 6,
+      主动每日: 40,
+      判断阈值: 0.4,
+      关注上限: 12,
+    },
+  }))
+
+  const preview = await call(routes, '/dsh-fish-mind/tendency', {
+    method: 'POST',
+    body: { text: '群里安静一点，话短一点，用颜文字', previewOnly: true },
+  })
+  assert.equal(preview.res.status, 200)
+  assert.equal(preview.json.previewOnly, true)
+  assert.equal(preview.json.text, '群里安静一点，话短一点，用颜文字')
+  assert.equal(preview.json.policy.talk.mode, 'less')
+  assert.equal(preview.json.policy.length.mode, 'short')
+  assert.deepEqual(preview.json.unmatched, ['用颜文字'])
+  assert.equal(preview.json.preview.length, 3)
+  assert.equal(preview.json.preview[0].landingLabel, '现有旋钮')
+  assert.match(preview.json.preview[0].effect, /6\/时·40\/日 → 4\/时·24\/日/)
+  assert.match(preview.json.preview[0].effect, /0\.40 → 0\.46/)
+  assert.match(preview.json.preview[0].effect, /12 → 9/)
+  assert.equal(preview.json.preview[1].landingLabel, '每轮提示')
+  assert.equal(preview.json.preview[2].landingLabel, '需要改代码')
+  assert.ok(preview.json.blockers.some((item) => item.includes('试运行')))
+  assert.ok(preview.json.blockers.some((item) => item.includes('学表情')))
+  assert.equal(existsSync(join(process.env.DSH_HOME, 'fish-mind', 'tendency.json')), false, '预览不落盘')
+
+  const stillEmpty = await call(routes, '/dsh-fish-mind/tendency')
+  assert.equal(stillEmpty.json.text, '')
+
+  const saved = await call(routes, '/dsh-fish-mind/tendency', {
+    method: 'POST',
+    body: { text: '  群里安静一点，话短一点，用颜文字  ' },
+  })
+  assert.equal(saved.res.status, 200)
+  assert.equal(saved.json.text, '群里安静一点，话短一点，用颜文字')
+  assert.ok(saved.json.updatedAt > 0)
+  assert.equal(saved.json.previewOnly, undefined)
+  const stored = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'fish-mind', 'tendency.json'), 'utf8'))
+  assert.equal(stored.text, '群里安静一点，话短一点，用颜文字')
+
+  const reloaded = await call(routes, '/dsh-fish-mind/tendency')
+  assert.equal(reloaded.json.text, '群里安静一点，话短一点，用颜文字')
+  assert.equal(reloaded.json.policy.talk.thresholdDelta, 0.06)
+
+  const overview = await call(routes, '/dsh-fish-mind/overview')
+  assert.equal(overview.json.tendency.text, '群里安静一点，话短一点，用颜文字')
+  assert.equal(overview.json.tendency.matched, 2)
+  assert.equal(overview.json.tendency.unmatched, 1)
+
+  const service = ctx.get('fishMind')
+  assert.equal(service.tendency().text, '群里安静一点，话短一点，用颜文字')
+  assert.equal(service.tendency().policy.talk.proactiveScale, 0.6)
+
+  const tooLong = await call(routes, '/dsh-fish-mind/tendency', {
+    method: 'POST',
+    body: { text: '长'.repeat(2001) },
+  })
+  assert.equal(tooLong.res.status, 400)
+  assert.match(tooLong.json.error, /最多 2000 字/)
+  const braces = await call(routes, '/dsh-fish-mind/tendency', {
+    method: 'POST',
+    body: { text: '{{主人}}' },
+  })
+  assert.equal(braces.res.status, 400)
+  const notText = await call(routes, '/dsh-fish-mind/tendency', {
+    method: 'POST',
+    body: { text: 42 },
+  })
+  assert.equal(notText.res.status, 400)
+  assert.equal((await call(routes, '/dsh-fish-mind/tendency', { method: 'DELETE' })).res.status, 405)
+
+  const creation = await call(routes, '/dsh-fish-mind/creation')
+  assert.equal(creation.res.status, 200)
+  const expectedAvailable = existsSync(join(process.cwd(), 'fish', 'bundle', 'package.json')) &&
+    existsSync(join(process.cwd(), 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js'))
+  assert.equal(creation.json.available, expectedAvailable)
+  assert.equal(creation.json.checkout, process.cwd())
+  assert.match(creation.json.brief, /硬约束（必须遵守）/)
+  assert.match(creation.json.brief, /群里安静一点，话短一点，用颜文字/)
+
+  const brief = await call(routes, '/dsh-fish-mind/creation/brief', {
+    method: 'POST',
+    body: { text: '用颜文字，安静一点' },
+  })
+  assert.equal(brief.res.status, 200)
+  assert.equal(brief.json.available, expectedAvailable)
+  assert.deepEqual(brief.json.unmatched, ['用颜文字'])
+  assert.deepEqual(brief.json.matched.map((item) => item.dimension), ['talk'])
+  assert.match(brief.json.brief, /用颜文字/)
+  assert.match(brief.json.brief, /不读不写 DSH_HOME/)
+  assert.equal(typeof brief.json.brief, 'string')
+  assert.ok(brief.json.brief.length > 100)
+  assert.equal((await call(routes, '/dsh-fish-mind/creation', { method: 'POST', body: {} })).res.status, 405)
+  assert.equal((await call(routes, '/dsh-fish-mind/creation/brief', { method: 'GET' })).res.status, 405)
+
+  const cleared = await call(routes, '/dsh-fish-mind/tendency', {
+    method: 'POST',
+    body: { text: '' },
+  })
+  assert.equal(cleared.res.status, 200)
+  assert.equal(cleared.json.text, '')
+  assert.equal(cleared.json.policy.talk.mode, 'normal')
+  assert.deepEqual(cleared.json.preview, [])
 
   ctx.dispose()
 })

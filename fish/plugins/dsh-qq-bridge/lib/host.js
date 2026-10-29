@@ -4477,6 +4477,8 @@ export function apply(ctx) {
   let 主人agent失败At = 0 // 建失败后 30 秒内不再重试，免得每 4 秒刷一条日志
   const 她的消息id = new Set() // 她在群里/好友里发出去的 message_id（用来识别“回复她”）
   let 社交总今日 = { 日: '', 数: 0 }
+  // 「安静一点」的硬门槛今天拦下了几轮；只给状态页看，重启归零。
+  let 安静跳过今日 = { 日: '', 数: 0 }
   let 社交轮询中 = false
   let 自己号缓存 = { at: 0, 号: '', 昵称: '', 已记: false }
 
@@ -5011,6 +5013,55 @@ export function apply(ctx) {
     return 聊天热度(近.length)
   }
 
+  const 默认倾向 = Object.freeze({
+    talk: Object.freeze({ mode: 'normal', proactiveScale: 1, thresholdDelta: 0, attentionScale: 1 }),
+    length: Object.freeze({ mode: 'normal' }),
+    humor: Object.freeze({ mode: 'normal' }),
+    stickerSend: Object.freeze({ mode: 'normal' }),
+    stickerSave: Object.freeze({ mode: 'normal' }),
+  })
+
+  /**
+   * 主人写在设置里的倾向；旧版鱼脑没有 tendency() 或字段不合法时全走默认。
+   * 桥侧再夹一次硬顶：只有鱼脑编译出的乘/加允许落到现有旋钮上。
+   */
+  function 倾向策略() {
+    let 原 = null
+    try {
+      const mind = ctx.get('fishMind')
+      if (mind && typeof mind.tendency === 'function') 原 = mind.tendency()
+    } catch (error) {
+      return 默认倾向
+    }
+    const policy = 原 && 原.policy && typeof 原.policy === 'object' ? 原.policy : null
+    if (!policy) return 默认倾向
+    const 夹 = (值, 底, 顶, 兜) => {
+      const n = Number(值)
+      return Number.isFinite(n) ? Math.min(顶, Math.max(底, n)) : 兜
+    }
+    const 模式 = (块, 可选) => (块 && typeof 块 === 'object' && 可选.includes(块.mode) ? 块.mode : 'normal')
+    const talk = policy.talk && typeof policy.talk === 'object' ? policy.talk : {}
+    return {
+      talk: {
+        mode: 模式(talk, ['normal', 'less', 'more']),
+        proactiveScale: 夹(talk.proactiveScale, 0.3, 2, 1),
+        thresholdDelta: 夹(talk.thresholdDelta, -0.15, 0.15, 0),
+        attentionScale: 夹(talk.attentionScale, 0.5, 1.5, 1),
+      },
+      length: { mode: 模式(policy.length, ['normal', 'short', 'long']) },
+      humor: { mode: 模式(policy.humor, ['normal', 'less', 'more']) },
+      stickerSend: { mode: 模式(policy.stickerSend, ['normal', 'less', 'off', 'more']) },
+      stickerSave: { mode: 模式(policy.stickerSave, ['normal', 'less', 'off', 'more']) },
+    }
+  }
+
+  /** 倾向只在这里加一次判断阈值差额；下游一律用判.阈值，不重复加。 */
+  function 有效判断阈值(配置) {
+    const 基 = Number(配置.社交.判断阈值) || 0.55
+    const 差 = 倾向策略().talk.thresholdDelta
+    return Math.max(0, Math.min(1, 基 + 差))
+  }
+
   /** 主动话量用完了没有：只看她自己凑上去的轮次，被叫和主人的不算。空串 = 还能说。 */
   function 主动额度用完(配置, key, now = Date.now()) {
     const c = 计数of(key)
@@ -5023,7 +5074,9 @@ export function apply(ctx) {
     // 这间屋正热闹时她也少挤：话密缩到六成，刷屏缩到三成；同样留一轮兜底。
     const 热度 = 配置.社交.电量 !== false ? 房间热度(key, now) : 'normal'
     const 热缩 = 热度 === 'storm' ? 0.3 : 热度 === 'busy' ? 0.6 : 1
-    const 缩 = 精力缩 * 热缩
+    // 主人写的「安静一点 / 活泼一点」也乘在这里，和精力、热度同一套逻辑，仍留一轮兜底。
+    const 倾向缩 = 倾向策略().talk.proactiveScale
+    const 缩 = 精力缩 * 热缩 * 倾向缩
     const 每时 = 量.每时 > 0 ? Math.max(1, Math.round(量.每时 * 缩)) : 0
     const 每日 = 量.每日 > 0 ? Math.max(1, Math.round(量.每日 * 缩)) : 0
     if (每日 > 0 && c.主动今日 >= 每日) return `今天的主动话量用完了（${c.主动今日}/${每日} 轮）`
@@ -5085,6 +5138,11 @@ export function apply(ctx) {
     社交总今日.数 += 1
   }
 
+  function 记安静跳过() {
+    if (安静跳过今日.日 !== 今日()) 安静跳过今日 = { 日: 今日(), 数: 0 }
+    安静跳过今日.数 += 1
+  }
+
   /** 这一轮该用什么分寸说话：热、温、淡，或余额吃紧时收着；群里太热闹时提醒别硬挤。 */
   function 这一轮的分寸(配置, 目标, 批, 把握 = 0, 阈值 = 0.55) {
     const 基 = 分寸正文(配置, 目标, 批, 把握, 阈值)
@@ -5094,7 +5152,24 @@ export function apply(ctx) {
       : 热度 === 'busy'
         ? '这间屋这会儿话比较密：没叫她时不用急着接，被叫到照常回。'
         : ''
-    return 热行 === '' ? 基 : `${基} ${热行}`
+    const 长 = 倾向策略().length.mode
+    const 长行 = 长 === 'short'
+      ? '主人希望你回得短一点：能一两句说清就别展开。'
+      : 长 === 'long'
+        ? '主人希望你讲完整：需要解释时别只丢一句结论。'
+        : ''
+    // 余额吃紧时「收着」优先，不再追加倾向的长度要求。
+    const 行们 = [基]
+    if (长行 !== '' && !余额吃紧(配置)) 行们.push(长行)
+    if (热行 !== '') 行们.push(热行)
+    return 行们.join(' ')
+  }
+
+  /** 零花钱是不是低于吃紧线；账本不可用时不算吃紧。 */
+  function 余额吃紧(配置) {
+    const 钱 = 零花钱够(配置)
+    const 吃紧线 = Number(配置.社交.余额吃紧线) || 0
+    return 吃紧线 > 0 && Number.isFinite(Number(钱.可用)) && Number(钱.可用) < 吃紧线
   }
 
   /** 这一轮该用什么分寸说话：热、温、淡，或余额吃紧时收着。只给她自己看，不进对外消息。 */
@@ -5104,10 +5179,7 @@ export function apply(ctx) {
     const c = 计数of(目标.key)
     const now = Date.now()
     c.本小时 = c.本小时.filter((t) => now - t < 3_600_000)
-    const 钱 = 零花钱够(配置)
-    const 吃紧线 = Number(s.余额吃紧线) || 0
-    const 吃紧 = 吃紧线 > 0 && Number.isFinite(Number(钱.可用)) && Number(钱.可用) < 吃紧线
-    if (吃紧) {
+    if (余额吃紧(配置)) {
       return '这一轮收着点：零花钱快见底了，短一句就够，敷衍一点也没关系；不主动开新话题、不追问；把话留给真正想接的时候。'
     }
     const 上次她说 = c.本小时.length > 0 ? c.本小时[c.本小时.length - 1] : 0
@@ -5552,8 +5624,15 @@ export function apply(ctx) {
     const 兴趣 = 配置.社交.兴趣词
     // 没有手写兴趣词不等于无感：这是学习期，先像小孩一样广泛好奇，慢慢长出自己的兴趣词。
     const 学习期 = 兴趣.length === 0 && !成熟
-    const 配置阈值 = Number(配置.社交.判断阈值) || 0.55
+    const 倾向 = 倾向策略()
+    const 配置阈值 = 有效判断阈值(配置)
     const 阈值 = 学习期 ? 学习期阈值(配置阈值, 词数, 成熟) : 配置阈值
+    const 关注上限 = Math.max(1, Math.round((Number(配置.社交.关注上限) || 12) * 倾向.talk.attentionScale))
+    const 倾向行 = 倾向.talk.mode === 'less'
+      ? '主人希望她安静一点：可接可不接的普通消息，倾向少挑、reply=false；被叫、私聊、问她本人、查好感度仍然必须看、必须回。'
+      : 倾向.talk.mode === 'more'
+        ? '主人希望她活泼一点：接得上的普通消息可以更愿意搭一句，短应也行；但整批是广告、刷屏、对别人说或她不聊的话题时仍然不接。'
+        : ''
     const 兴趣行 = 兴趣.length > 0
       ? `她明确写下的兴趣：${兴趣.join('、').slice(0, 200)}。${学到.length ? `她在这间屋里也常聊到：${学到.join('、').slice(0, 120)}。` : ''}这些是她会主动开新话题的方向；别的消息不是不能看、不能接，只是不必主动往那些话题上带。问到她本人、她的来历和她跟主人的关系是例外，这类问题要看。`
       : 学习期
@@ -5593,8 +5672,9 @@ export function apply(ctx) {
       不聊行,
       '兴趣只决定她会不会主动开新话题，不决定她能不能回。没兴趣但接得上的话，可以短应一声；被叫或私聊时必须回应。游戏和她不聊的话题是例外：这类话题她不接、不装懂，哪怕接得上也不接，只有被直接叫到时才短应一句。',
       兴趣行,
+      倾向行,
       '你的任务分两步：',
-      `1) 从“这次的新消息”里挑出她这一轮愿意看、愿意搭理的，最多 ${配置.社交.关注上限} 条，写进 watch（只写消息 id）。兴趣不是门槛：不感兴趣但接得上、能短应一句的也可以挑；完全插不上、只是群里热闹的，可以不挑。${学习期 ? '她还在长兴趣，愿意多看一点：有点好奇、有点意思就值得看；有人直接叫她 / 问她，或者群里正聊着最近看过的内容，优先看。游戏和不聊话题不算探索范围，学习期也一样。' : ''}被 @、被叫名字、被回复、好友私聊、问到她本人、查好感度的消息必须放进 watch，哪怕她不感兴趣。纯广告、刷屏、复读、要钱、套隐私仍然不看；标着 [对别人说] 或 [不聊:…] 又没有直接叫她的，也不挑。整批或最近的上下文在聊她不来的话题（游戏、游戏截图/术语、[不聊:…]），没直接叫她就一条都别挑——这不是“不主动”，是干脆不要接。没挑中的她这一轮当没看见。`,
+      `1) 从“这次的新消息”里挑出她这一轮愿意看、愿意搭理的，最多 ${关注上限} 条，写进 watch（只写消息 id）。兴趣不是门槛：不感兴趣但接得上、能短应一句的也可以挑；完全插不上、只是群里热闹的，可以不挑。${学习期 ? '她还在长兴趣，愿意多看一点：有点好奇、有点意思就值得看；有人直接叫她 / 问她，或者群里正聊着最近看过的内容，优先看。游戏和不聊话题不算探索范围，学习期也一样。' : ''}被 @、被叫名字、被回复、好友私聊、问到她本人、查好感度的消息必须放进 watch，哪怕她不感兴趣。纯广告、刷屏、复读、要钱、套隐私仍然不看；标着 [对别人说] 或 [不聊:…] 又没有直接叫她的，也不挑。整批或最近的上下文在聊她不来的话题（游戏、游戏截图/术语、[不聊:…]），没直接叫她就一条都别挑——这不是“不主动”，是干脆不要接。没挑中的她这一轮当没看见。`,
       `2) 用 reply + confidence 表示她这一轮要不要接。只要 watch 里有她想接的话——感兴趣、有话说、能短应一声都算——reply 就是 true；不要求她对这个话题感兴趣，也不要用把握不到阈值把想接压回去。被叫或好友私聊时，即使不感兴趣也必须 reply=true，至少回一句；只有整批都是广告、刷屏、越界内容、确实不该接时才 false。整批都在回别人或聊她不来的话题、又没点她时，reply 必须是 false，哪怕每句都接得上、每个梗她都能凑一句。confidence 是她“愿不愿意回应”的把握，不是消息的重要性。${学习期 ? '学习期她愿意多聊一点，短一句也行；但游戏和不聊话题仍然不接。' : ''}问到她本人或她和亲近的人的关系时，至少应一句：confidence 按“愿不愿意接这一句”给。`,
        `3) 群聊里如果她只想短应一声、不值得正经回一整句，可以给 short：2~12 个字的一句自然反应（“嗯”“确实”“哈哈”“好家伙”“真的假的”）。只在没被直接叫到、没人提问、不是在查好感度、这一句确实适合一句话带过时才写；被叫、被问、私聊、要引用原话、想接表情或复读时都不写 short。short 会原样发进群里，只写那句话本身：不带引号、不带 @、不带链接、不解释，不加语气前缀。没有合适的短应就别写这个字段。`,
       '被 @、被叫名字、被回复、好友私聊，都是直接对她说话：必须回，至少接一句或短应一声；不感兴趣也可以短，但不能装没看见。',
@@ -5735,7 +5815,7 @@ export function apply(ctx) {
       if (id === '' || !待看id.has(id) || 看.includes(id)) continue
       if (!能接这条(待看id.get(id))) continue
       看.push(id)
-      if (看.length >= 配置.社交.关注上限) break
+      if (看.length >= 关注上限) break
     }
     // 被 @、被叫名字、被回复、好友私聊、问她本人、查好感度：不交给模型否决，直接算她必须看、必须回。
     const 直回 = (待看 || []).filter((m) => 直接找她(目标, m) && !像硬广告或刷屏(m.文字))
@@ -6520,12 +6600,26 @@ export function apply(ctx) {
   const 表情近见 = new Map() // md5 → { 次, at }
   let 表情自存日 = { 日: '', 存: 0 }
 
+  /**
+   * 自动收藏的三个数跟着主人倾向走：勤存放宽、少存收紧、不存关掉。
+   * 只调现有上限，不改去重、场景和总收藏上限这些硬约束。
+   */
+  function 表情自存策略() {
+    const 模式 = 倾向策略().stickerSave.mode
+    if (模式 === 'more') return { 每日上限: 40, 见过: 1, 每条上限: 2 }
+    if (模式 === 'less') return { 每日上限: 4, 见过: 3, 每条上限: 1 }
+    if (模式 === 'off') return { 每日上限: 0, 见过: 0, 每条上限: 0 }
+    return { 每日上限: 表情自存每日上限, 见过: 表情自存见过, 每条上限: 1 }
+  }
+
   /** 这一轮要不要把她收到的表情存进收藏：群和好友私聊都收，只收表情类，不碰主人的图，试运行不写。 */
   async function 试自动存表情(配置, 目标, 文字, 图片, 上文 = '') {
     if (!配置 || !配置.社交 || !配置.社交.学表情 || 配置.社交.试运行) return null
     if (表情们.length >= 表情上限) return null
+    const 策略 = 表情自存策略()
+    if (策略.每日上限 <= 0) return null
     if (表情自存日.日 !== 今日()) 表情自存日 = { 日: 今日(), 存: 0 }
-    if (表情自存日.存 >= 表情自存每日上限) return null
+    if (表情自存日.存 >= 策略.每日上限) return null
     const 净文 = 净表情文字(文字)
     const 场景 = 净文 === '' ? 判表情场景(上文) : 判表情场景(净文)
     const 画像 = 社交画像.get(目标.key) || {}
@@ -6533,17 +6627,21 @@ export function apply(ctx) {
     const 场景热 = 场景 !== '' && Number((语感.场景[场景] || {}).重) >= 表情自存场景次
     const 候选 = (Array.isArray(图片) ? 图片 : [])
       .filter((图) => 图 && 图.ref && 图.表情 && !图.收藏号 && !图.主人 && String(图.md5 || '') !== '')
+    let 存了 = 0
+    let 最后 = null
     for (const 图 of 候选) {
+      if (存了 >= 策略.每条上限 || 表情自存日.存 >= 策略.每日上限) break
       const 哈希 = String(图.md5)
       const 旧 = 表情近见.get(哈希)
       const 次 = 旧 && Date.now() - 旧.at < 30 * 60_000 ? 旧.次 + 1 : 1
       表情近见.set(哈希, { 次, at: Date.now() })
-      if (次 < 表情自存见过 && !场景热) continue
+      if (次 < 策略.见过 && !场景热) continue
       const 条目 = await 存表情包(配置, 图, 场景 || '表情', `${目标.叫}·自动`, { 自动: true, 允许普通图: false })
       if (条目) {
         表情自存日.存 += 1
+        存了 += 1
+        最后 = 条目
         记账(`${目标.叫}：把一张表情收进 QQ 收藏 #${条目.id} ${条目.label}（${次 > 1 ? `又见到同一张 ${次} 次` : `这屋常用“${场景}”发表情`}）`)
-        return 条目
       }
     }
     if (表情近见.size > 400) {
@@ -6551,7 +6649,7 @@ export function apply(ctx) {
         if (Date.now() - 值.at >= 30 * 60_000) 表情近见.delete(哈希)
       }
     }
-    return null
+    return 最后
   }
 
   /** 旧版存在本机的表情：连上 QQ 后逐张写进账号收藏，成功就删掉本地图片。 */
@@ -7802,7 +7900,7 @@ export function apply(ctx) {
       }
       const 批 = 带上下文(目标, 全部)
       并入社交缓冲(目标, 全部)
-      const 阈值 = Number(配置.社交.判断阈值) || 0.55
+      const 阈值 = 有效判断阈值(配置)
       const 节奏 = 这一轮的分寸(配置, 目标, 全部, 0.9, 阈值)
       记一轮(目标.key, false, 全部)
       记思绪('判断', `主人点名叫她，不交兴趣判断，直接接：${全部.length} 条`, { 看到: 批样(批), 分寸: 节奏 }, 目标.叫)
@@ -7923,6 +8021,14 @@ export function apply(ctx) {
     }
     if (!判.接 && !问她 && !查数 && !直呼) {
       await 只看不发(配置, 目标, 选出, `看了 ${选出.length}/${全部.length} 条，${判.说}${有效快说}`)
+      return
+    }
+    // 主人写了「安静一点」：判断说想接的普通消息，把握没到阈值就只看不回。
+    // 被叫、私聊、问她本人、查好感度不受影响；「活泼一点」不会把 reply=false 翻回来。
+    if (倾向策略().talk.mode === 'less' && !问她 && !查数 && !直呼
+      && !(Number(判.把握) >= Number(判.阈值))) {
+      记安静跳过()
+      await 只看不发(配置, 目标, 选出, `看了 ${选出.length}/${全部.length} 条，把握没到阈值（${Number(判.把握).toFixed(2)} < ${Number(判.阈值).toFixed(2)}），安静一点先不回`)
       return
     }
     const 把握 = 问她 || 查数 || 直呼 ? Math.max(Number(判.把握) || 0, 判.阈值) : 判.把握
@@ -9084,6 +9190,11 @@ export function apply(ctx) {
             重置: 重置明细(私聊key),
           },
       今日已接: 社交总今日.日 === 今日() ? 社交总今日.数 : 0,
+      倾向: {
+        talk: 倾向策略().talk.mode,
+        skippedToday: 安静跳过今日.日 === 今日() ? 安静跳过今日.数 : 0,
+        stickerSave: 倾向策略().stickerSave.mode,
+      },
       人物: {
         认识: 人物.size,
         账号: [...人物.values()].reduce((n, p) => n + (Array.isArray(p.账号) ? p.账号.length : 0), 0),
@@ -9240,6 +9351,11 @@ export function apply(ctx) {
       表情包: {
         数量: 表情们.length,
         最近: 表情们.slice(-8).map((x) => ({ id: x.id, label: x.label })),
+        selfSave: {
+          count: 表情自存日.日 === 今日() ? 表情自存日.存 : 0,
+          cap: 表情自存策略().每日上限,
+          mode: 倾向策略().stickerSave.mode,
+        },
       },
       导入: 导入概况(配置),
       日志,

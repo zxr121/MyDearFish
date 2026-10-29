@@ -109,7 +109,7 @@ test('整条鱼能打包再读回，校验数量、身份、心情和人物志',
     now: 1_700_000_000_000,
   })
   assert.match(bundle.fileName, /^mydearfish-2023-11-1[45]\.zip$/)
-  assert.deepEqual(bundle.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1 })
+  assert.deepEqual(bundle.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1, configs: 3 })
 
   const parsed = parseFishArchive(bundle.buffer)
   assert.equal(parsed.identity.name, '小鲸')
@@ -211,7 +211,7 @@ test('导入到空鱼：验包、暂存、重启时应用、备份并写回事�
   const staged = stageFishImport({ dir, dshHome: home, buffer: bundle.buffer, now: 5000 })
   assert.equal(staged.ok, true)
   assert.equal(staged.pending, true)
-  assert.deepEqual(staged.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1 })
+  assert.deepEqual(staged.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1, configs: 3 })
   assert.equal(importIsPending(dir), true)
   assert.equal(existsSync(join(dir, 'experience.jsonl')), false)
 
@@ -311,4 +311,162 @@ test('设置页总览带完整画像，但不带 QQ 号、群号和本机路径'
   assert.equal(overview.memory.recent[0].text.includes('群 ***'), true)
   assert.equal(serialized.includes(source.home), false)
   source.store.close()
+})
+
+test('配置只进 manifest：zip 条目和版本与旧版完全一致', () => {
+  const source = writeSource()
+  const bundle = buildFishArchive({
+    dir: source.dir,
+    dshHome: source.home,
+    store: source.store,
+    identity: source.identity,
+  })
+  source.store.close()
+
+  const entries = readZip(bundle.buffer)
+  assert.deepEqual([...entries.keys()].sort(), [
+    'identity.json',
+    'manifest.json',
+    'memory/experience.jsonl',
+    'memory/facts.json',
+    'mood.json',
+    'people.json',
+  ])
+  const manifest = JSON.parse(entries.get('manifest.json').toString('utf8'))
+  assert.equal(manifest.version, 1, '加配置不改包版本')
+  assert.equal(manifest.format, 'mydearfish.fish')
+  assert.equal(manifest.counts.configs, 3)
+  assert.equal(Object.keys(manifest.configs.files).length, 3)
+  assert.equal(Object.keys(manifest.files).some((name) => name.includes('config')), false, '配置不占 zip 条目')
+  assert.equal(bundle.counts.configs, 3)
+})
+
+test('旧包没有配置段：只导入记忆，提示这个包没带配置', () => {
+  const source = writeSource()
+  const bundle = buildFishArchive({
+    dir: source.dir,
+    dshHome: source.home,
+    store: source.store,
+    identity: source.identity,
+  })
+  source.store.close()
+
+  const entries = readZip(bundle.buffer)
+  const manifest = JSON.parse(entries.get('manifest.json').toString('utf8'))
+  delete manifest.configs
+  delete manifest.counts.configs
+  entries.set('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2) + '\n'))
+  const oldBundle = createZip([...entries].map(([name, data]) => ({ name, data })))
+
+  const parsed = parseFishArchive(oldBundle)
+  assert.equal(parsed.configs, null)
+  assert.equal(parsed.identity.name, '小鲸')
+  assert.equal(parsed.experience.length, 1)
+
+  const home = mkdtempSync(join(tmpdir(), 'fish-archive-old-'))
+  const dir = join(home, 'fish-mind')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(home, 'qq-bridge-config.json'), JSON.stringify({ 总开关: true, 私聊QQ: 'local-qq' }))
+
+  const staged = stageFishImport({ dir, dshHome: home, buffer: oldBundle, now: 6000 })
+  assert.equal(staged.counts.configs, 0)
+  const report = applyPendingImport({ dir, dshHome: home })
+  assert.equal(report.ok, true)
+  assert.equal(report.configs.present, false)
+  assert.ok(report.configs.warnings.some((item) => item.includes('这个包没带配置')))
+  assert.equal(report.counts.experiences, 1)
+  assert.equal(readFileSync(join(dir, 'experience.jsonl'), 'utf8').includes('今天去看海了'), true)
+  const qq = JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8'))
+  assert.equal(qq['总开关'], true, '旧包不动本机设置')
+  assert.equal(qq['私聊QQ'], 'local-qq')
+})
+
+test('新包导入：先关外部通道、恢复偏好、保留本地秘密，备份里有配置', () => {
+  const source = writeSource()
+  const bundle = buildFishArchive({
+    dir: source.dir,
+    dshHome: source.home,
+    store: source.store,
+    identity: source.identity,
+  })
+  source.store.close()
+
+  const home = mkdtempSync(join(tmpdir(), 'fish-archive-configs-'))
+  const dir = join(home, 'fish-mind')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(home, 'qq-bridge-config.json'), JSON.stringify({
+    总开关: true,
+    试运行: false,
+    NapCat: { 后台密码: 'local-secret' },
+    私聊QQ: 'local-qq',
+    群号: 'local-group',
+    社交: { 启用: true, 试运行: false, 群: ['local-group-id'] },
+  }))
+  mkdirSync(join(home, 'bili-duty'), { recursive: true })
+  writeFileSync(join(home, 'bili-duty', 'config.json'), JSON.stringify({
+    pythonPath: 'C:\local\python.exe',
+    dmUid: 'local-dm',
+    targetSession: 'local-session',
+    perDay: 9,
+  }))
+
+  const staged = stageFishImport({ dir, dshHome: home, buffer: bundle.buffer, now: 7000 })
+  assert.equal(staged.counts.configs, 3)
+  const stagedManifest = JSON.parse(readFileSync(join(dir, '.import-pending', 'manifest.json'), 'utf8'))
+  assert.equal(Object.keys(stagedManifest.configs.files).length, 3, '暂存的 manifest 带配置')
+
+  const report = applyPendingImport({ dir, dshHome: home })
+  assert.equal(report.ok, true)
+  assert.equal(report.configs.present, true)
+  assert.equal(report.configs.applied, 3)
+  assert.equal(report.configs.skipped, 0)
+  assert.equal(report.counts.configs, 3)
+
+  const qq = JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8'))
+  assert.equal(qq['总开关'], false)
+  assert.equal(qq['试运行'], true)
+  assert.equal(qq['社交']['启用'], false)
+  assert.equal(qq['社交']['试运行'], true)
+  assert.equal(qq['NapCat']['后台密码'], 'local-secret')
+  assert.equal(qq['私聊QQ'], 'local-qq')
+  assert.equal(qq['群号'], 'local-group')
+  assert.deepEqual(qq['社交']['群'], ['local-group-id'])
+
+  const bili = JSON.parse(readFileSync(join(home, 'bili-duty', 'config.json'), 'utf8'))
+  assert.equal(bili.perDay, 3, '包里的偏好覆盖本机基础值')
+  assert.equal(bili.autoComment, false)
+  assert.equal(bili.pythonPath, 'C:\local\python.exe')
+  assert.equal(bili.dmUid, 'local-dm')
+  assert.equal(bili.targetSession, 'local-session')
+
+  assert.ok(existsSync(join(report.backup, 'configs', 'qq-bridge-config.json')))
+  assert.equal(JSON.parse(readFileSync(join(report.backup, 'configs', 'qq-bridge-config.json'), 'utf8'))['私聊QQ'], 'local-qq')
+})
+
+test('暂存的配置被改坏：只警告并跳过配置，记忆照常导入', () => {
+  const source = writeSource()
+  const bundle = buildFishArchive({
+    dir: source.dir,
+    dshHome: source.home,
+    store: source.store,
+    identity: source.identity,
+  })
+  source.store.close()
+
+  const home = mkdtempSync(join(tmpdir(), 'fish-archive-tamper-'))
+  const dir = join(home, 'fish-mind')
+  mkdirSync(dir, { recursive: true })
+  stageFishImport({ dir, dshHome: home, buffer: bundle.buffer, now: 8000 })
+  const indexPath = join(dir, '.import-pending', 'manifest.json')
+  const manifest = JSON.parse(readFileSync(indexPath, 'utf8'))
+  manifest.configs.version = 9
+  writeFileSync(indexPath, JSON.stringify(manifest, null, 2) + '\n')
+
+  const report = applyPendingImport({ dir, dshHome: home })
+  assert.equal(report.ok, true)
+  assert.equal(report.configs.present, false)
+  assert.ok(report.warnings.some((item) => item.includes('版本 9')))
+  assert.ok(report.configs.warnings.some((item) => item.includes('这个包没带配置')))
+  assert.equal(report.counts.experiences, 1)
+  assert.equal(existsSync(join(home, 'qq-bridge-config.json')), false, '坏配置不写本机')
 })

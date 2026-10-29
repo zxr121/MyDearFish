@@ -153,6 +153,57 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 7. **Budget exploration**: below “normal” energy there is no exploration; the exploration quota is capped per hour and never mixes with the proactive quota.
 8. **Batch background work**: mood, distillation, and chapter summaries each get their own quota and never compete with chat; whatever exceeds its daily cap rolls over rather than retrying at a lower tier.
 
+## Owner tendency: one sentence into real behavior
+
+The owner writes one paragraph in settings, and it only counts after three steps: raw text → `compileTendency` → a set of dimensions that each declare where they land. The same text always compiles to the same policy, and the settings preview and the runtime injection use that one result, so “this is how she will understand it” is checkable.
+
+| Dimension | Example phrases | Landing | How it takes effect |
+| --- | --- | --- | --- |
+| More or less talk | stay quiet / be lively | existing knobs | proactive quota ×0.6/×1.5, judge threshold +0.06/−0.06, per-batch attention ×0.75/×1.25 |
+| Longer or shorter | keep it short / explain fully | per-round prompt | one line appended to the reply-turn guidance |
+| More or less humor | fewer jokes / more jokes | existing knob / per-round prompt | less = the humor layer idles; more = prompt |
+| Send stickers | fewer stickers / more stickers | per-round prompt | never hard-trimmed, so an explicitly requested sticker survives |
+| Save stickers | save more stickers / stop saving | existing knob | auto-save daily cap 40 / 4 / 0; default 12 |
+
+A prompt alone is not enough for three reasons: words cannot pass the code gates (“save more” still hits the daily cap), long text is diluted inside the 12k persona, and longer preferences get ignored more easily. So dimensions that can land on a knob multiply or add onto the existing mechanism instead of appending yet another paragraph.
+
+The priority order is fixed:
+
+| Priority | Who decides | Example |
+| --- | --- | --- |
+| 1 | Safety, privacy, law, platform / group rules, budget, permissions | never reveal the owner's private matters; never exceed the budget |
+| 2 | Explicit QQ hard switches | study stickers off, dry run, quiet hours, balance floor, master switch |
+| 3 | Owner tendency | stay quiet, save more stickers |
+| 4 | Factory / custom persona | the whole 12k persona |
+| 5 | Group feel, mood, style matching | following this room's way of speaking |
+
+Writing “be lively” never turns a judge's `reply=false` into `reply`; quiet hours, the balance floor, dry run, group rules, and privacy are unaffected. “Stay quiet” adds one hard gate on the main path: an ordinary message the judge marked as reply is only watched when confidence falls below the threshold; being called, private chat, questions about her, and affinity checks are still forced through.
+
+Conflicts are resolved deterministically: within a dimension the later clause wins, and within one clause negation wins (“don't save more” is not pre-empted by “save more”). A non-empty text with no recognized clause is not dropped: the raw text still injects as a preference prompt and is marked `unmatched`.
+
+## Creation mode
+
+Some tendencies cannot land through knobs or prompts — “use kaomoji”, “collect group members' images too”, “reply after saving”. Those requests go to the local creation mode so it can change this one fish's code in the source repository instead of pretending a sentence already took effect.
+
+`GET /dsh-fish-mind/creation` produces a deterministic brief: the owner's raw text, recognized landings, unrecognized clauses, code locations (QQ judging / joining / stickers live in `fish/plugins/dsh-qq-bridge/lib/host.js`, the fish brain in `fish/plugins/dsh-fish-mind`), the tests to add, and hard constraints — do not touch safety, privacy, the legal red line, budget, permissions, dry run, or group-rule code; do not read or write `DSH_HOME`; do not commit or push; prefer a deterministic rule over another prompt; affect only this fish.
+
+It counts as a source checkout only when `fish/bundle/package.json` and `fish/plugins/dsh-fish-mind/lib/index.js` both exist under `process.cwd()`; a packaged build only offers a copyable brief and states that this version has no source, so changes cannot be compiled in. Opening creation mode goes through `workspace.startSession(undefined, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })`: the brief only fills an editable draft, is never auto-sent, and never overwrites the owner's existing draft.
+
+Code changes travel with the repository and the installer, not with the memory archive; configuration and tendency travel with export. The permission layer stops writes to the running kernel but cannot stop edits to a source repository — this relies on explicit instructions plus the owner reviewing the diff, and does not pretend to be a sandbox.
+
+## Portable configuration
+
+Export no longer carries memory alone: configuration rides in `manifest.configs` (`mydearfish.fish-configs` v1) through a whitelist, while zip entries and `ARCHIVE_VERSION` stay unchanged, so an older 大肥鱼 still imports a new package and simply ignores the configs.
+
+| File | Carried | Never carried / forced on import |
+| --- | --- | --- |
+| Fish brain `config.json` | mode, injection, retention, sizes, episodes, recall, chapters, working, inner life, humor, phrases, backup | budget allowance, developer mode, permissions |
+| `tendency.json` | full text | — |
+| Custom persona | only when the owner changed it | the rest of the profile patch |
+| Mood / QQ / speak-up / TTS / Bilibili configs | whitelisted preferences, models, wording, pacing, keywords | credentials, account or group numbers, target sessions, NapCat address, local paths, DM uid |
+
+Import applies configuration first, then writes birth settings and mood names, and forces outbound channels off: QQ master switch off, social paused in dry run, proactive talk off, Bilibili auto-comment / reply / DM off. One broken file is only skipped with a warning and never blocks the memory import; local originals are backed up to `import-backup-<time>/configs/` before applying. The whitelist is maintained on purpose: a newly added secret field stays out of the package until someone adds it to the registry.
+
 ## Other features: requests raised in other sessions
 
 | Request | Current state | Next step |
@@ -194,6 +245,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 5. Done (0.2.94): the repair turn.
 6. Done: page-by-page audit of settings dropdowns and the private-chat sticker path. All five fish pages carry dark option backgrounds, the TTS page has no dropdown, and settings pages of non-fish plugins are outside this plugin's scope; saving, renaming, sending by number, deduplicating stickers, and being honest about a missing number all have private-chat test coverage.
 7. Done (0.2.96–0.2.97): the first two steps of time continuity — a message she wanted to answer but that cooldown, battery, quota, quiet hours, or a busy room held back becomes an open thread, and she adds a line once the room has been quiet for a while; threads persist to local `qq-bridge-threads.json`, survive restarts within the same day, and the `迟到分钟` cap rises to 360 so they can cross hours. Next-day callbacks wait for a later round.
+8. Done (0.2.99): owner tendency compiles from one paragraph into five dimensions; those that land on a knob multiply or add directly, and the rest go to a creation-mode brief; export carries whitelisted configuration while older versions still import; the settings page keeps only the outer "tendency" layer, with the factory persona and collection prompts folded into a collapsed advanced section.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 
@@ -210,4 +262,4 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | `社交.迟到分钟` | 10 | How long a thread waits before she comes back to it (up to 360); three times this delay or a day change drops it |
 | `社交.挂起上限` | 3 | How many threads one room holds at once; the oldest is pushed out first |
 
-`判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value.
+`判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value. The owner tendency is in neither table: its raw text lives in `fish-mind/tendency.json` and writes neither the QQ config nor the fish-brain `config.json`.

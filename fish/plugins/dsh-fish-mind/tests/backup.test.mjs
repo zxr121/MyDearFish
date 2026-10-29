@@ -72,7 +72,7 @@ test('自动备份写到安装目录，文件名带秒，能重新读回', () =>
   assert.equal(parsed.identity.name, '小鲸')
   assert.equal(parsed.experience.length, 1)
   assert.equal(parsed.facts.length, 1)
-  assert.deepEqual(result.counts, { experiences: 1, facts: 1, moodPoints: 0, people: 0 })
+  assert.deepEqual(result.counts, { experiences: 1, facts: 1, moodPoints: 0, people: 0, configs: 0 })
 
   const listed = listBackups({ dshHome: source.home })
   assert.equal(listed.length, 1)

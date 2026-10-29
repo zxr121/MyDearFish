@@ -369,7 +369,7 @@ const 假附件 = {
   },
 }
 
-模.apply(ctx)
+const 宿主 = 模.apply(ctx)
 报('session/event 监听挂上了', 监听.length >= 1)
 
 const 会话 = { id: 'session-X' }
@@ -1104,6 +1104,15 @@ const 记忆绪 = (外源绪.思绪 || []).filter((x) => x.类别 === '记忆')
 报('/thoughts：鱼脑新增的诊断行变成「记忆」思绪', 记忆绪.length === 1 && 记忆绪[0].文本.includes('短期转长期'), JSON.stringify(记忆绪.map((x) => x.文本)))
 报('/thoughts：顶部摘要给出当前心情', 外源绪.心情 && 外源绪.心情.可用 === true && 外源绪.心情.心情 === 72 && 外源绪.心情.上次想法.includes('鱼片'), JSON.stringify(外源绪.心情))
 报('/thoughts：顶部摘要给出今日花费和余额', 外源绪.预算 && 外源绪.预算.可用 === true && 外源绪.预算.今日花费 === 7.01 && 外源绪.预算.今日调用 === 400 && 外源绪.预算.余额 === 24.3, JSON.stringify(外源绪.预算))
+
+// 状态页：自动收藏的上限和倾向模式看得见；旧鱼脑没有 tendency 时是出厂值。
+const 概况 = await 宿主.概况()
+报('状态：表情包带自动收藏的今日张数、上限和模式', 概况.ok === true && 概况.表情包 && 概况.表情包.selfSave
+  && typeof 概况.表情包.selfSave.count === 'number' && 概况.表情包.selfSave.cap === 12 && 概况.表情包.selfSave.mode === 'normal',
+  JSON.stringify(概况.表情包 && 概况.表情包.selfSave))
+报('状态：社交里带倾向（没有 tendency 的旧鱼脑回推出厂值）', 概况.社交 && 概况.社交.倾向
+  && 概况.社交.倾向.talk === 'normal' && 概况.社交.倾向.stickerSave === 'normal' && 概况.社交.倾向.skippedToday === 0,
+  JSON.stringify(概况.社交 && 概况.社交.倾向))
 
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

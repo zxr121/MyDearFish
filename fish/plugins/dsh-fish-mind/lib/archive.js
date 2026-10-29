@@ -1,11 +1,13 @@
 // 大肥鱼的搬家包：整条鱼导出成一个 zip，导入时严格验包、只进空鱼。
 //
-// 包里装的是「经历」：出生设定、经历流、长期事实、心情、QQ 人物志和短期提炼水位。
-// 不装配置、权限、零花钱账本、诊断日志、SQLite 派生库和任何聊天渠道凭据；这些跟
-// 这台机器、这个账号绑定，换一台机器应当重新长出来。
+// 包里装的是「经历」：出生设定、经历流、长期事实、心情、QQ 人物志和短期提炼水位；
+// 另外把本机设置按白名单塞进 manifest.configs，旧版会忽略这一段、只导入记忆。
+// 不装凭据、账号、群号、目标会话、零花钱账本、诊断日志、SQLite 派生库和收藏数据；
+// 这些跟这台机器、这个账号绑定，换一台机器要重新配。
 //
 // 导入分两步：设置页上传后先落到 .import-pending，重启时在打开 SQLite 之前应用。
 // 这样导入要么整包生效，要么原样退回；中途失败会留下备份和 import-report.json。
+// 配置先应用、身份后应用，避免旧称呼盖掉新身份；单份配置坏只跳过，不阻断记忆导入。
 
 import { createHash } from 'node:crypto'
 import {
@@ -26,6 +28,7 @@ import {
   saveIdentity,
   syncMoodNames,
 } from './birth.js'
+import { applyPortableConfigs, collectPortableConfigs, parsePortableConfigs, PORTABLE_CONFIGS } from './portable-configs.js'
 import { createZip, readZip } from './zip.js'
 
 export const ARCHIVE_FORMAT = 'mydearfish.fish'
@@ -380,10 +383,10 @@ function sameCount(manifest, key, actual) {
 
 /**
  * 把当前这条鱼打成一个 zip。
- * @param {object} options - `{ dir, dshHome, store, identity, pluginVersion, now }`。
+ * @param {object} options - `{ dir, dshHome, store, identity, pluginVersion, personaText, now }`。
  * @returns {{ buffer: Buffer, fileName: string, counts: object, warnings: string[] }}
  */
-export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion = '', now = Date.now() }) {
+export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion = '', personaText = '', now = Date.now() }) {
   const warnings = []
   const createdAt = finite(now) === null ? Date.now() : Number(now)
   const experience = readExperienceFile(dir, warnings)
@@ -398,6 +401,8 @@ export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion 
   const people = readPeopleFile(dshHome, warnings)
   const working = readWorkingFile(dir)
   const document = identityDocument(identity, createdAt)
+  const configs = collectPortableConfigs({ dshHome, personaText })
+  if (configs !== null) warnings.push(...configs.warnings)
 
   const entries = [
     { name: 'identity.json', data: JSON.stringify(document, null, 2) + '\n' },
@@ -431,6 +436,7 @@ export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion 
     facts: facts.length,
     moodPoints: mood === null ? 0 : mood.timeline.length,
     people: people === null ? 0 : Object.keys(people).length,
+    configs: configs === null ? 0 : Object.keys(configs.files).length,
   }
   const manifest = {
     format: ARCHIVE_FORMAT,
@@ -442,6 +448,9 @@ export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion 
     files: manifestFiles(entries),
     warnings,
   }
+  // 旧版只校验 manifest.files 和 zip 条目，不认识的 manifest 字段直接忽略；
+  // 所以配置放在这里，既不改包格式，也不会让旧版拒绝整包。
+  if (configs !== null) manifest.configs = configs
   entries.unshift({ name: 'manifest.json', data: JSON.stringify(manifest, null, 2) + '\n' })
   const buffer = createZip(entries, { now: new Date(createdAt) })
   return { buffer, fileName: archiveFileName(new Date(createdAt)), counts, warnings }
@@ -512,6 +521,7 @@ export function parseFishArchive(buffer) {
   const warnings = Array.isArray(manifest.warnings)
     ? manifest.warnings.filter((item) => typeof item === 'string').slice(0, 20)
     : []
+  const configs = parsePortableConfigs(manifest.configs, warnings)
   const identity = parseStagedIdentity(entries, warnings)
   if (isPlainObject(manifest.identity) && manifest.identity.name !== identity.name) {
     throw bad('manifest.json 里的名字和出生设定对不上')
@@ -564,6 +574,7 @@ export function parseFishArchive(buffer) {
     manifest,
     identity,
     identityText: entries.get('identity.json').toString('utf8'),
+    configs,
     experience,
     experienceText: experience.map((record) => JSON.stringify(record)).join('\n') + (experience.length > 0 ? '\n' : ''),
     facts,
@@ -659,6 +670,20 @@ function writeReport(dir, report) {
   return report
 }
 
+/**
+ * 人设是启动后才有配置层可写的，单独把结果补进导入报告。
+ * @param {string} dir - 鱼脑目录。
+ * @param {'applied'|'unavailable'} status - 应用结果。
+ * @returns {object|null} 更新后的报告；没有报告时返回 null。
+ */
+export function markImportedPersona(dir, status) {
+  const report = readImportReport(dir)
+  if (!isPlainObject(report) || report.ok !== true) return report
+  const configs = isPlainObject(report.configs) ? { ...report.configs } : {}
+  configs.persona = status
+  return writeReport(dir, { ...report, configs })
+}
+
 function readStaged(dir) {
   const root = pendingPath(dir)
   if (!existsSync(root)) return null
@@ -678,6 +703,8 @@ function readStaged(dir) {
     throw bad('暂存的导入包版本不对')
   }
   const warnings = Array.isArray(manifest.warnings) ? manifest.warnings.filter((item) => typeof item === 'string') : []
+  // 不信任磁盘：manifest 里的配置段重新校验一遍，坏配置只警告。
+  const configs = parsePortableConfigs(manifest.configs, warnings)
   const identity = parseStagedIdentity(new Map([['identity.json', Buffer.from(read('identity.json') || '', 'utf8')]]), warnings)
   const experienceText = read('memory/experience.jsonl') || ''
   const experience = parseExperienceJsonl(experienceText, warnings)
@@ -733,6 +760,7 @@ function readStaged(dir) {
   return {
     manifest,
     identity,
+    configs,
     experience,
     experienceText: experience.map((record) => JSON.stringify(record)).join('\n') + (experience.length > 0 ? '\n' : ''),
     facts,
@@ -788,6 +816,7 @@ export function stageFishImport({ dir, dshHome, store, buffer, now = Date.now() 
       facts: parsed.facts.length,
       moodPoints: parsed.mood === null ? 0 : parsed.mood.timeline.length,
       people: parsed.people === null ? 0 : Object.keys(parsed.people).length,
+      configs: parsed.configs === null ? 0 : Object.keys(parsed.configs.files).length,
     },
     warnings: parsed.warnings,
   }
@@ -800,6 +829,13 @@ function backupFiles({ dir, dshHome, backup }) {
   copyIfExists(join(dir, 'working.json'), join(backup, 'working.json'), '短期提炼水位')
   copyIfExists(join(dshHome, 'feiyu-mood', 'state.json'), join(backup, 'mood-state.json'), '心情状态')
   copyIfExists(join(dshHome, 'qq-social-people.json'), join(backup, 'qq-social-people.json'), '人物志')
+  for (const entry of PORTABLE_CONFIGS) {
+    const source = join(dshHome, ...entry.path)
+    if (!existsSync(source)) continue
+    const target = join(backup, 'configs', ...entry.path)
+    mkdirSync(dirname(target), { recursive: true })
+    copyIfExists(source, target, entry.name)
+  }
   const database = join(dir, 'mind.sqlite')
   if (existsSync(database)) {
     copyIfExists(database, join(backup, 'mind.sqlite'), '检索库')
@@ -808,7 +844,9 @@ function backupFiles({ dir, dshHome, backup }) {
   }
 }
 
-function applyStaged({ dir, dshHome, staged, backup, now }) {
+function applyStaged({ dir, dshHome, staged, backup, now, diag = () => {} }) {
+  // 先恢复设置：人设/称呼随后由出生设定覆盖，避免旧称呼盖掉新身份。
+  const configs = applyPortableConfigs({ dshHome, dir, configs: staged.configs, diag })
   writeAtomic(join(dir, 'experience.jsonl'), staged.experienceText)
   for (const suffix of ['', '-wal', '-shm']) {
     try {
@@ -832,7 +870,7 @@ function applyStaged({ dir, dshHome, staged, backup, now }) {
     writeAtomicJson(join(dshHome, 'qq-social-people.json'), { version: 1, people: staged.people })
   }
   writeAtomicJson(join(dir, IMPORT_FACTS_FILE), { format: 'mydearfish.facts.pending', version: 1, facts: staged.facts })
-  return backup
+  return { backup, configs }
 }
 
 /**
@@ -897,8 +935,16 @@ export function applyPendingImport({ dir, dshHome, diag = () => {} }) {
     }
     phase = 'apply'
 
-    applyStaged({ dir, dshHome, staged, backup, now })
+    const applied = applyStaged({ dir, dshHome, staged, backup, now, diag })
     rmSync(pendingPath(dir), { recursive: true, force: true })
+    const configs = {
+      present: staged.configs !== null,
+      applied: applied.configs.applied,
+      skipped: applied.configs.skipped,
+      warnings: applied.configs.warnings,
+      persona: applied.configs.persona === '' ? 'none' : 'pending',
+    }
+    if (staged.configs === null) configs.warnings.push('这个包没带配置，只导入了记忆')
     const report = writeReport(dir, {
       ok: true,
       at: now,
@@ -915,11 +961,13 @@ export function applyPendingImport({ dir, dshHome, diag = () => {} }) {
         facts: staged.facts.length,
         moodPoints: staged.mood === null ? 0 : staged.mood.timeline.length,
         people: staged.people === null ? 0 : Object.keys(staged.people).length,
+        configs: configs.present ? configs.applied + configs.skipped : 0,
       },
+      configs,
       backup,
       warnings: staged.warnings,
     })
-    diag(`import: 已导入 ${report.counts.experiences} 段经历、${report.counts.facts} 条事实；备份在 ${backup}`)
+    diag(`import: 已导入 ${report.counts.experiences} 段经历、${report.counts.facts} 条事实、${configs.applied} 份配置；备份在 ${backup}`)
     return report
   } catch (error) {
     const report = writeReport(dir, {

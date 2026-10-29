@@ -580,10 +580,10 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             h('option', { value: '' }, '（不选 = 自动挑最近聊过的）'),
             ...((sessions || []).map((s) => h('option', { value: s.id }, s.title + '（' + s.id.slice(0, 14) + '…）'))))),
 
-        /* ── 提示词（可改） ── */
+        /* ── 称呼与采集提示词 ── */
         h('div', { 'data-bd-sec': '' },
-          h('div', { 'data-bd-h': '' }, '提示词（可改）'),
-          h('div', { 'data-bd-note': '' }, '称呼 + 子代理提示词。改了「称呼」，所有提示里的「小鱿鱼」都跟着变。'),
+          h('div', { 'data-bd-h': '' }, '称呼与采集提示词'),
+          h('div', { 'data-bd-note': '' }, '改「称呼」，所有提示里的「小鱿鱼」都跟着变；采集提示词是公共提示词，一般不用改。'),
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
               h('div', { 'data-bd-label': '' }, '称呼'),
@@ -593,13 +593,17 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
                 onChange: (e) => setOwnerName(e.target.value),
                 onBlur: () => patch({ ownerName: String(ownerName || '').trim() || '小鱿鱼' }, '称呼'),
               }))),
-          h('div', { 'data-bd-label': '' }, '子代理提示词（占位符 {owner}=称呼、{direction}=方向、{n}=条数）'),
-          h('textarea', {
-            'data-bd-input': '', rows: 8,
-            value: scanPrompt ?? '',
-            onChange: (e) => setScanPrompt(e.target.value),
-            onBlur: () => patch({ scanPrompt: String(scanPrompt || '') }, '子代理提示词'),
-          })),
+          h('details', { style: { marginTop: 4 } },
+            h('summary', { style: { cursor: 'pointer', fontSize: 13, fontWeight: 600, opacity: 0.88 } },
+              '高级 · 采集提示词（公共提示词，一般不用改）'),
+            h('div', { 'data-bd-label': '', style: { marginTop: 8 } },
+              '子代理提示词（占位符 {owner}=称呼、{direction}=方向、{n}=条数）'),
+            h('textarea', {
+              'data-bd-input': '', rows: 8,
+              value: scanPrompt ?? '',
+              onChange: (e) => setScanPrompt(e.target.value),
+              onBlur: () => patch({ scanPrompt: String(scanPrompt || '') }, '子代理提示词'),
+            }))),
         /* ── 一轮挑几条 ── */
         h('div', { 'data-bd-sec': '' },
           h('div', { 'data-bd-h': '' }, '一轮挑几条'),

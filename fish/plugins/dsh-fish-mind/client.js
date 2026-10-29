@@ -3,7 +3,7 @@
  * ============================================================================
  * 这一页给主人看完整的一条鱼：
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
- *   · 性格人设：整段人设前缀，保存后热应用；
+ *   · 性格倾向：一段话编译成旋钮/每轮提示，改代码的交给创造模式；出厂人设收进高级；
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
  *   · 开发者模式：只读查看本机调试资料的开关，以及一个创造模式调试会话的入口；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
@@ -251,6 +251,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const [data, setData] = React.useState(null)
       const [form, setForm] = React.useState(null)
       const [persona, setPersona] = React.useState(null)
+      const [personaExpanded, setPersonaExpanded] = React.useState(false)
+      const [tendencyText, setTendencyText] = React.useState('')
+      const [tendencyPreview, setTendencyPreview] = React.useState(null)
+      const [tendencyError, setTendencyError] = React.useState('')
+      const [tendencyBusy, setTendencyBusy] = React.useState('')
+      const [creationBrief, setCreationBrief] = React.useState(null)
+      const [creationBusy, setCreationBusy] = React.useState(false)
       const [busy, setBusy] = React.useState('')
       const [msg, setMsg] = React.useState('')
       const [msgKind, setMsgKind] = React.useState('')
@@ -329,6 +336,17 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         }
       }, [])
 
+      const loadTendency = React.useCallback(async () => {
+        try {
+          const next = await getJson(API + '/tendency')
+          setTendencyText(typeof next.text === 'string' ? next.text : '')
+          setTendencyPreview(next)
+          setTendencyError('')
+        } catch (error) {
+          setTendencyError(String((error && error.message) || error))
+        }
+      }, [])
+
       // 右下角卡片被 ✕ 关掉以后，这里是它唯一的再显示入口
       const showTtsPanel = async () => {
         if (ttsPanelBusy) return
@@ -359,10 +377,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       }
 
       // 创造模式会话由宿主组合：新开一个空白会话，预设换成 cordis，鱼的人设和记忆照常跟着。
-      const startDevSession = () => {
+      // 带 prompt 时只填进可编辑草稿、不自动发送；不带时就是空白会话。
+      const startDevSession = (options) => {
+        const prompt = options && typeof options === 'object' && typeof options.prompt === 'string' ? options.prompt : ''
         let opened = false
         try {
-          opened = typeof openDevSession === 'function' && openDevSession() === true
+          opened = typeof openDevSession === 'function'
+            && openDevSession(prompt === '' ? undefined : { prompt }) === true
         } catch (error) {
           flash('建会话没成功：' + String((error && error.message) || error), 'error')
           return
@@ -376,10 +397,29 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
       React.useEffect(() => {
         load()
-        loadPersona()
+        loadTendency()
         const timer = setInterval(() => { void load() }, 30000)
         return () => clearInterval(timer)
-      }, [load, loadPersona])
+      }, [load, loadTendency])
+
+      // 停顿半秒再预览：主人还在打字时不发请求，打完再看她怎么理解。
+      React.useEffect(() => {
+        if (tendencyError !== '') return undefined
+        const timer = setTimeout(async () => {
+          try {
+            const next = await postJson(API + '/tendency', { text: tendencyText, previewOnly: true })
+            setTendencyPreview(next)
+          } catch (error) {
+            setTendencyPreview((current) => ({
+              ...(current || {}),
+              preview: [],
+              unmatched: [],
+              blockerError: String((error && error.message) || error),
+            }))
+          }
+        }, 500)
+        return () => clearTimeout(timer)
+      }, [tendencyText, tendencyError])
 
       const patch = (key, value) => setForm((current) => ({ ...(current || {}), [key]: value }))
 
@@ -465,7 +505,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         try {
           const result = await postJson(API + '/persona', { persona: persona.persona })
           setPersona({ ...result, available: true })
-          flash('性格人设已保存，下一轮就会按新的人设说话')
+          flash('出厂人设已保存，下一轮就会按新的人设说话')
         } catch (error) {
           flash('保存失败：' + String((error && error.message) || error), 'error')
         }
@@ -473,7 +513,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       }
 
       const resetPersona = async () => {
-        if (!window.confirm('把性格人设恢复成出厂版本？名字、外形和其他出生设定不受影响。')) return
+        if (!window.confirm('把出厂人设恢复成原版？名字、外形、性格倾向和其他出生设定不受影响。')) return
         setBusy('persona-reset')
         try {
           const result = await postJson(API + '/persona/reset', {})
@@ -483,6 +523,72 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           flash('重置失败：' + String((error && error.message) || error), 'error')
         }
         setBusy('')
+      }
+
+      const saveTendency = async () => {
+        setTendencyBusy('save')
+        try {
+          const result = await postJson(API + '/tendency', { text: tendencyText })
+          setTendencyText(typeof result.text === 'string' ? result.text : '')
+          setTendencyPreview(result)
+          setTendencyError('')
+          flash('性格倾向已保存，下一轮就会按这个方向说话')
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        }
+        setTendencyBusy('')
+      }
+
+      const clearTendency = async () => {
+        if (!window.confirm('清空性格倾向？她会回到出厂性格，倾向提示也不再注入。')) return
+        setTendencyBusy('clear')
+        try {
+          const result = await postJson(API + '/tendency', { text: '' })
+          setTendencyText('')
+          setTendencyPreview(result)
+          setTendencyError('')
+          flash('性格倾向已清空，她回到出厂性格')
+        } catch (error) {
+          flash('清空失败：' + String((error && error.message) || error), 'error')
+        }
+        setTendencyBusy('')
+      }
+
+      const addTendencyPhrase = (phrase) => {
+        const limit = Number(tendencyPreview && tendencyPreview.maxLength) || 2000
+        setTendencyText((current) => {
+          const head = String(current || '').trim().replace(/[。；;，,\s]+$/, '')
+          const next = head === '' ? phrase : `${head}，${phrase}`
+          return next.length > limit ? next.slice(0, limit) : next
+        })
+      }
+
+      const openCreation = async () => {
+        if (creationBusy) return
+        setCreationBusy(true)
+        try {
+          const result = await postJson(API + '/creation/brief', { text: tendencyText })
+          const early = tendencyPreview && tendencyPreview.unmatched
+          setCreationBrief({
+            text: String(result.brief || ''),
+            available: result.available === true,
+            unmatched: list(result.unmatched).length > 0 ? list(result.unmatched) : list(early),
+          })
+        } catch (error) {
+          flash('生成改造说明失败：' + String((error && error.message) || error), 'error')
+        }
+        setCreationBusy(false)
+      }
+
+      const copyCreationBrief = async () => {
+        const text = creationBrief && creationBrief.text ? creationBrief.text : ''
+        if (text === '') return
+        try {
+          await navigator.clipboard.writeText(text)
+          flash('改造说明已复制')
+        } catch (error) {
+          flash('复制没成功，请手动选中下面的文字', 'error')
+        }
       }
 
       const saveGrant = async () => {
@@ -607,7 +713,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           link.click()
           setTimeout(() => URL.revokeObjectURL(url), 5000)
           flash(counts
-            ? `已导出 ${name}：经历 ${counts.experiences} 条、事实 ${counts.facts} 条、心情 ${counts.moodPoints} 条、人物 ${counts.people} 位`
+            ? `已导出 ${name}：经历 ${counts.experiences} 条、事实 ${counts.facts} 条、心情 ${counts.moodPoints} 条、人物 ${counts.people} 位、配置 ${num(counts.configs)} 份`
             : `已导出 ${name}`)
         } catch (error) {
           flash('导出失败：' + String((error && error.message) || error), 'error')
@@ -623,7 +729,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           flash('这个文件超过 64 MB，不是正常的大肥鱼记忆包', 'error')
           return
         }
-        if (!window.confirm(`导入「${file.name}」会替换这条鱼的全部记忆、心情和人物志，只允许导入到空鱼。继续？`)) return
+        if (!window.confirm(`导入「${file.name}」会替换这条鱼的全部记忆、心情和人物志，并恢复包里的设置；QQ 总开关会先关掉，社交先停在试运行。只允许导入到空鱼。继续？`)) return
         setBusy('import')
         try {
           const buffer = await file.arrayBuffer()
@@ -663,6 +769,10 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const wallet = data.wallet || {}
       const biliQuota = wallet.bili || {}
       const backup = data.backup || {}
+      const tendencyLines = list(tendencyPreview && tendencyPreview.preview)
+      const tendencyBlockers = list(tendencyPreview && tendencyPreview.blockers)
+      const tendencyUnmatched = list(tendencyPreview && tendencyPreview.unmatched)
+      const tendencyLimit = Number(tendencyPreview && tendencyPreview.maxLength) || 2000
       const boundaries = data.boundaries || {}
       const permissions = boundaries.permissions || {}
       const privacy = boundaries.privacy || {}
@@ -701,6 +811,134 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           h('div', { 'data-fishm-phase': '' }, data.phase || '')),
 
         h(Section, {
+          title: '性格倾向',
+          note: '写你希望她长期是什么样。能落到现有设置的会直接改设置；只能靠语气的会每轮提醒她；需要改代码的，可以交给创造模式。她在外面的群聊里也会看到这段话，别写账号、密码、住址这类只有你该知道的事。安全、隐私、群规、额度和正事不受影响。',
+        },
+          tendencyError !== ''
+            ? h('div', { 'data-fishm-banner': '' }, `现在读不了倾向：${tendencyError}`)
+            : h('div', { 'data-fishm-field': '' },
+                h('div', { 'data-fishm-actions': '' },
+                  h('span', { 'data-fishm-note': '' }, `${tendencyText.length} / ${tendencyLimit} 字`),
+                  h('span', { 'data-fishm-note': '' },
+                    tendencyPreview && tendencyPreview.updatedAt
+                      ? `上次保存 ${when(tendencyPreview.updatedAt)}`
+                      : '还没写过')),
+                h('textarea', {
+                  'data-fishm-input': '',
+                  'data-fishm-area': '',
+                  'data-fishm-persona': '',
+                  rows: 6,
+                  value: tendencyText,
+                  maxLength: tendencyLimit,
+                  placeholder: '例如：群里安静一点，话短一点，别老开玩笑。看到合适的表情包就顺手存下来。',
+                  onChange: (event) => setTendencyText(event.target.value),
+                }),
+                h('div', { 'data-fishm-actions': '' },
+                  ['群里安静一点', '话短一点', '少开玩笑', '多主动一点'].map((phrase) => h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    key: phrase,
+                    onClick: () => addTendencyPhrase(phrase),
+                  }, phrase))),
+                h('div', { 'data-fishm-note': '' },
+                  '先写一句总的（安静/活泼、话短/话长、玩笑多少）；想改主动频率就写「多主动/少主动」，不用去 QQ 页改两个数；具体动作先看预览的落点，需要代码就交给创造模式。'),
+                h('div', { 'data-fishm-actions': '' },
+                  h('button', {
+                    'data-fishm-btn': '',
+                    'data-primary': '',
+                    type: 'button',
+                    disabled: tendencyBusy !== '',
+                    onClick: saveTendency,
+                  }, tendencyBusy === 'save' ? '保存中…' : '保存倾向'),
+                  h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    disabled: tendencyBusy !== '' || tendencyText === '',
+                    onClick: clearTendency,
+                  }, tendencyBusy === 'clear' ? '清空中…' : '清空')),
+                h('div', { 'data-fishm-h': '' }, '她会这样理解'),
+                tendencyLines.length === 0
+                  ? h('div', { 'data-fishm-note': '' }, tendencyText.trim() === ''
+                      ? '还没有写倾向；她会完全按出厂性格说话。'
+                      : '这几句还没有专门规则，会按原话作为偏好提示注入。')
+                  : h('div', { 'data-fishm-list': '' }, tendencyLines.map((line, index) => h('div', {
+                      'data-fishm-item': '',
+                      key: index,
+                    },
+                      h('div', { 'data-fishm-meta': '' },
+                        `「${line.clause}」 → ${line.label} `,
+                        h('span', {
+                          'data-fishm-chip': line.landing === 'knob' ? 'on' : line.landing === 'code' ? 'warn' : '',
+                        }, line.landingLabel || '')),
+                      line.effect || ''))),
+                tendencyBlockers.length > 0
+                  ? h('div', { 'data-fishm-banner': '' }, '现在有这些阻碍：' + tendencyBlockers.join('；'))
+                  : null,
+                h('div', { 'data-fishm-note': '' },
+                  '安全、隐私、法律、群规、额度和权限永远优先；倾向只能在硬开关允许的范围内改语气和频率。'),
+                h('div', { 'data-fishm-actions': '' },
+                  h('span', { 'data-fishm-note': '' },
+                    tendencyUnmatched.length > 0
+                      ? `有 ${tendencyUnmatched.length} 句还没被代码直接支持`
+                      : '已经能落地的都落地了'),
+                  h('button', {
+                    'data-fishm-btn': '',
+                    type: 'button',
+                    disabled: creationBusy || tendencyText.trim() === '',
+                    onClick: openCreation,
+                  }, creationBusy ? '正在整理…' : tendencyUnmatched.length > 0 ? '让创造模式来改' : '让创造模式改这条鱼'))),
+
+          h('details', {
+            'data-fishm-details': '',
+            onToggle: (event) => {
+              const open = !!(event && event.currentTarget && event.currentTarget.open)
+              setPersonaExpanded(open)
+              if (open && persona === null) void loadPersona()
+            },
+          },
+            h('summary', {}, '高级 · 出厂人设（公共提示词，一般不用改）'),
+            !personaExpanded
+              ? null
+              : persona === null
+                ? h('div', { 'data-fishm-note': '' }, '正在读人设…')
+                : persona.available !== true
+                  ? h('div', { 'data-fishm-banner': '' }, `现在改不了人设：${persona.error || '宿主没有配置编辑服务'}`)
+                  : h('div', { 'data-fishm-field': '' },
+                      h('div', { 'data-fishm-actions': '' },
+                        h('span', { 'data-fishm-chip': persona.overridden ? 'warn' : 'on' },
+                          persona.overridden ? '自定义' : '出厂'),
+                        h('span', { 'data-fishm-note': '' },
+                          `${(persona.persona || '').length} / ${persona.maxLength || 12000} 字`)),
+                      h('textarea', {
+                        'data-fishm-input': '',
+                        'data-fishm-area': '',
+                        'data-fishm-persona': '',
+                        rows: 18,
+                        value: persona.persona || '',
+                        maxLength: persona.maxLength || 12000,
+                        onChange: (event) => setPersona((current) => ({
+                          ...(current || {}),
+                          persona: event.target.value,
+                        })),
+                      }),
+                      h('div', { 'data-fishm-note': '' },
+                        '这是整段人设前缀，会替换出厂那份。她说到底听谁的：安全、隐私、法律、群规、额度、权限 > QQ 硬开关 > 性格倾向 > 这份人设 > 群语感和心情。不要写 {{变量}}。'),
+                      h('div', { 'data-fishm-actions': '' },
+                        h('button', {
+                          'data-fishm-btn': '',
+                          'data-primary': '',
+                          type: 'button',
+                          disabled: busy !== '',
+                          onClick: savePersona,
+                        }, busy === 'persona' ? '保存中…' : '保存人设'),
+                        h('button', {
+                          'data-fishm-btn': '',
+                          type: 'button',
+                          disabled: busy !== '',
+                          onClick: resetPersona,
+                        }, busy === 'persona-reset' ? '恢复中…' : '恢复出厂人设'))))),
+
+        h(Section, {
           title: '开发者模式',
           note: '给她一条只读的调试通道：在你自己的会话里查看 DSH 目录里的日志、配置和会话记录。凭据、身份文件、写入和群聊会话仍然拒绝；shell 只放行列目录、读文件这类只读命令，每次读取都记进审计。',
         },
@@ -730,7 +968,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '出生设定',
-          note: '出生设定、性格人设和每日额度能改；记忆、心情、人物志、通道和安全边界只读。',
+          note: '出生设定、性格倾向和每日额度能改；记忆、心情、人物志、通道和安全边界只读。',
         },
           h('div', { 'data-fishm-grid': '' },
             h(Field, {
@@ -838,47 +1076,6 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
             }, busy === 'reset' ? '恢复中…' : '恢复出厂'))),
 
         h(Section, {
-          title: '性格人设',
-          note: '整段替换部署层的出厂人设，保存后下一轮生效。名字、外形和记忆不在这里；安全、隐私、额度和权限规则仍由代码固定。',
-        },
-          persona === null
-            ? h('div', { 'data-fishm-note': '' }, '正在读人设…')
-            : persona.available !== true
-              ? h('div', { 'data-fishm-banner': '' }, `现在改不了人设：${persona.error || '宿主没有配置编辑服务'}`)
-              : h('div', { 'data-fishm-field': '' },
-                  h('div', { 'data-fishm-actions': '' },
-                    h('span', { 'data-fishm-chip': persona.overridden ? 'warn' : 'on' },
-                      persona.overridden ? '自定义' : '出厂'),
-                    h('span', { 'data-fishm-note': '' },
-                      `${(persona.persona || '').length} / ${persona.maxLength || 12000} 字`)),
-                  h('textarea', {
-                    'data-fishm-input': '',
-                    'data-fishm-area': '',
-                    'data-fishm-persona': '',
-                    rows: 18,
-                    value: persona.persona || '',
-                    maxLength: persona.maxLength || 12000,
-                    onChange: (event) => setPersona((current) => ({
-                      ...(current || {}),
-                      persona: event.target.value,
-                    })),
-                  }),
-                  h('div', { 'data-fishm-note': '' },
-                    '这是整段人设前缀，会替换出厂那份。不要写 {{变量}}；她要遵守的安全、隐私、额度和权限规则不在人设里，改不掉。'),
-                  h('div', { 'data-fishm-actions': '' },
-                    h('button', {
-                      'data-fishm-btn': '',
-                      'data-primary': '',
-                      disabled: busy !== '',
-                      onClick: savePersona,
-                    }, busy === 'persona' ? '保存中…' : '保存人设'),
-                    h('button', {
-                      'data-fishm-btn': '',
-                      disabled: busy !== '',
-                      onClick: resetPersona,
-                    }, busy === 'persona-reset' ? '恢复中…' : '恢复出厂人设')))),
-
-        h(Section, {
           title: '自定义话术',
           note: '这两句由你写；该带过、该停下来的时候她照旧，隐私、安全和额度规则不受影响。',
         },
@@ -958,10 +1155,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                   key: index,
                 },
                   h('div', { 'data-fishm-meta': '' }, `可信 ${num(relation.confidence)} · 从 ${when(relation.validFrom)} 起`),
-                  `${relation.src} · ${relation.relation} · ${relation.dst}`)))),
-          h('details', { 'data-fishm-details': '' },
-            h('summary', {}, '自我提示（只读）'),
-            h('pre', { 'data-fishm-prompt': '' }, data.selfPrompt || ''))),
+                  `${relation.src} · ${relation.relation} · ${relation.dst}`))))),
 
         h('details', { 'data-fishm-details': '' },
           h('summary', {}, `内心${inner.enabled ? ` · 倾述欲 ${Math.round(num(inner.strength) * 100)}%` : ' · 还没启动'}`),
@@ -1104,7 +1298,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '搬迁',
-          note: '导出的 zip 只含出生设定、记忆、长期事实、心情、人物志和短期水位；不含账号、凭据、配置路径或聊天记录之外的系统数据。',
+          note: '导出会带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）。凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不带走，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。',
         },
           pending
             ? h('div', { 'data-fishm-banner': '', 'data-fishm-pending': '' },
@@ -1121,7 +1315,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
             ? h('div', { 'data-fishm-item': '' },
                 h('div', { 'data-fishm-meta': '' }, `上次导入 · ${when(report.at)} · ${report.ok ? '成功' : '失败'}`),
                 report.ok
-                  ? `经历 ${num(report.counts && report.counts.experiences)} 条 · 事实 ${num(report.counts && report.counts.facts)} 条 · 心情 ${num(report.counts && report.counts.moodPoints)} 条 · 人物 ${num(report.counts && report.counts.people)} 位${Number.isFinite(report.factsApplied) ? ` · 写回事实 ${num(report.factsApplied)} 条` : ''}`
+                  ? `经历 ${num(report.counts && report.counts.experiences)} 条 · 事实 ${num(report.counts && report.counts.facts)} 条 · 心情 ${num(report.counts && report.counts.moodPoints)} 条 · 人物 ${num(report.counts && report.counts.people)} 位${Number.isFinite(report.factsApplied) ? ` · 写回事实 ${num(report.factsApplied)} 条` : ''}${report.configs && report.configs.present ? ` · 配置 ${num(report.configs.applied)} 份${report.configs.skipped ? `（跳过 ${num(report.configs.skipped)}）` : ''}` : ' · 没带配置'}`
                   : `卡在 ${report.stage || '未知步骤'}：${report.error || '没有留下原因'}`)
             : null,
           h('div', { 'data-fishm-actions': '' },
@@ -1145,7 +1339,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           h('div', { 'data-fishm-note': '' }, pending
             ? '包已经验过并暂存好了。重启 DSH 时会换上这条鱼，旧数据会先备份。'
             : emptyFish
-              ? '只收大肥鱼自己的记忆包；格式、版本、校验和文件清单有一项不对就不会导入。导入只用于空鱼，导入后需要重启。'
+              ? '只收大肥鱼自己的记忆包；格式、版本、校验和文件清单有一项不对就不会导入。导入只用于空鱼，导入后会恢复记忆、心情、人物志、性格倾向和设置；QQ 总开关会先关掉，社交先停在试运行，等你确认账号和群之后再打开。导入后需要重启。'
               : '这条鱼已经有记忆、心情或人物志，不能再导入。导入只用于刚出生、还空着的那条鱼。')),
 
         h(Section, {
@@ -1220,6 +1414,49 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         msg ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null,
 
+        creationBrief
+          ? h('div', {
+              'data-fishwd-mask': '',
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-label': '交给创造模式的说明',
+            },
+              h('div', { 'data-fishwd-card': '' },
+                h('div', { 'data-fishwd-head': '' },
+                  h('div', { 'data-fishwd-title': '' }, '交给创造模式')),
+                h('div', { 'data-fishwd-body': '' },
+                  h('div', { 'data-fishwd-intro': '' }, creationBrief.available
+                    ? '当前目录是源码仓库，可以直接改。下面这份说明只说她要达到的行为和边界，打开创造模式时只填进草稿，不会自动发送。'
+                    : '这一版没有源码，改了也编不进去；下面这份说明可以先复制出来，换到源码仓库再改。'),
+                  h('pre', {
+                    'data-fishm-prompt': '',
+                    style: { maxHeight: '320px', overflow: 'auto' },
+                  }, creationBrief.text)),
+                h('div', { 'data-fishwd-foot': '' },
+                  h('span', { 'data-fishm-note': '' },
+                    '配置和倾向随「导出」走；代码改动跟着源码仓库或安装包走，不会进记忆包。'),
+                  h('div', { 'data-fishm-actions': '' },
+                    h('button', {
+                      'data-fishm-btn': '',
+                      type: 'button',
+                      onClick: () => setCreationBrief(null),
+                    }, '关闭'),
+                    h('button', {
+                      'data-fishm-btn': '',
+                      type: 'button',
+                      onClick: copyCreationBrief,
+                    }, '复制'),
+                    h('button', {
+                      'data-fishwd-ok': '',
+                      type: 'button',
+                      onClick: () => {
+                        const text = creationBrief.text
+                        setCreationBrief(null)
+                        startDevSession({ prompt: text })
+                      },
+                    }, '打开创造模式')))))
+          : null,
+
         restartPrompt
           ? h('div', {
               'data-fishwd-mask': '',
@@ -1285,6 +1522,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         title: '你可以设置什么',
         body: [
           '• 出生设定（「大肥鱼」页）：名字、物种、外形、怎么称呼你、来历、说话习惯，以及可以自由增删的群友关系',
+          '• 性格倾向（「大肥鱼」页）：写一段你希望她长期是什么样。能落到现有设置的会直接改设置，只能靠语气的每轮提醒她；预览会告诉你哪些话直接改了设置、哪些只是每轮提示、哪些需要交给创造模式改代码',
           '• 心情（「鱼的心情」页）：称呼和昵称、生效会话、判断模型、是否每轮判断、是否注入、基线、下限',
           '• 主动搭话（「主动搭话」页）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
           '• QQ（「通到 QQ」页）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
@@ -1298,10 +1536,10 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         title: '小贴士',
         body: [
           '1. 记忆存在本机，换窗口、重启都还在；含密码、密钥等凭据的整条经历只留时间和来源，超长正文会截断。日/周/月章节会在后台自动整理',
-          '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系和说话风格',
+          '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系、说话风格和性格倾向；倾向会先预览再保存',
           '3. 主动搭话要先勾目标会话（出厂试运行关着，掷中就真发；想先只看记录就打开试运行）；到点掷骰子，安静时段不掷，刚聊过更难开口',
           '4. 隐私、法律红线和危险命令的硬规则改不了，改出生设定也改不了',
-          '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志和短期水位；QQ、朗读、B 站配置、凭据和零花钱账本不在包里，要重配。导入只进空鱼，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',
+          '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）；凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不在包里，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。导入只进空鱼，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',
         ],
       },
     ]
@@ -1799,10 +2037,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           { name: 'settings.section', id: 'fish', order: 20, label: '大肥鱼' },
           (props) => h(Panel, {
             close: props && props.close,
-            openDevSession: () => {
+            openDevSession: (options) => {
               const workspace = typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined
               if (!workspace || typeof workspace.startSession !== 'function') return false
-              workspace.startSession(undefined, { clearPreviousDraft: false, agentPreset: 'cordis' })
+              const prompt = options && typeof options.prompt === 'string' ? options.prompt : ''
+              const sessionOptions = { clearPreviousDraft: false, agentPreset: 'cordis' }
+              if (prompt !== '') sessionOptions.prompt = prompt
+              workspace.startSession(undefined, sessionOptions)
               return true
             },
           }),

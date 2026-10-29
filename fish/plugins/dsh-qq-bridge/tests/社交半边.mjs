@@ -443,6 +443,22 @@ const QQ收藏 = new Map()
 let 收藏序号 = 0
 let 图序号 = 0
 const 鱼脑 = { availableCny: 5, 脱敏坏: false, 脱敏空: false }
+// 主人倾向：绝大多数用例是默认；需要时改 倾向态.policy，倾向态.无接口 模拟旧版鱼脑。
+const 倾向态 = { policy: null, 无接口: false }
+const 默认倾向 = {
+  talk: { mode: 'normal', proactiveScale: 1, thresholdDelta: 0, attentionScale: 1 },
+  length: { mode: 'normal' },
+  humor: { mode: 'normal' },
+  stickerSend: { mode: 'normal' },
+  stickerSave: { mode: 'normal' },
+}
+const 偏 = (补) => ({ ...默认倾向, ...补 })
+const 安静倾向 = 偏({
+  talk: { mode: 'less', proactiveScale: 0.6, thresholdDelta: 0.06, attentionScale: 0.75 },
+})
+const 活泼倾向 = 偏({
+  talk: { mode: 'more', proactiveScale: 1.5, thresholdDelta: -0.06, attentionScale: 1.25 },
+})
 let 默认模型选择 = { provider: 'fake', model: 'cheap', reasoningEffort: 'max' }
 let 判断输出 = JSON.stringify({ watch: [], reply: false, confidence: 0.1, reason: '插不上话' })
 const 判断输出队列 = []
@@ -567,6 +583,14 @@ const ctx = {
           return { text: String(t), hits: 0, reasons: [] }
         },
         claimDelivery: (key) => ({ claimed: true, by: 'qq' }),
+        ...(倾向态.无接口
+          ? {}
+          : {
+              tendency: () => ({
+                text: 倾向态.policy ? '测试倾向' : '',
+                policy: 倾向态.policy || 默认倾向,
+              }),
+            }),
       }
     }
     if (名字 === 'llm') return 假llm
@@ -3840,6 +3864,179 @@ const 隔天概况 = await 宿主隔天.概况()
 const 隔天态 = 隔天概况.社交.目标.find((t) => t.key === 'group:1198')
 const 隔天日志 = 隔天概况.日志.map((x) => x.文本).join('\n')
 报('留话头：跨天和不完整的记录重启时丢掉', !!隔天态 && 隔天态.悬着 === 0 && 隔天日志.includes('跨天或不完整'), JSON.stringify({ 悬着: 隔天态 && 隔天态.悬着, 日志: 隔天日志.slice(-160) }))
+
+// ---------- 41 主人倾向：一句话乘在现有旋钮上，安静/活泼不改基础配置 ----------
+// 41a 安静一点：判断说想接但把握没到阈值（0.55 + 0.06 = 0.61）→ 只看不回；被叫照常回。
+倾向态.policy = 安静倾向
+写配置({
+  群: ['1341'], 兴趣词: ['海'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0,
+  冷却秒: 0, 连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1341, [一条群消息('今天海边风有点大', { uid: 811, id: 4611 })])
+设判断(['4611'], true, 0.57, '勉强想接一句')
+const 倾向静前回合 = 回合.length
+const 静前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
+await 轮询社交()
+await 等(50)
+const 静后日志 = await 日志从(静前日志)
+报('安静一点：把握没到阈值就不回，也不开回复回合', 回合.length === 倾向静前回合 && 静后日志.includes('安静一点先不回'), 静后日志.slice(-260))
+报('安静一点：日志里看得出 0.57 没到 0.61', 静后日志.includes('0.57 < 0.61'), 静后日志.slice(-260))
+报('安静一点：判断提示带上主人倾向', String(判断调用.at(-1)?.system).includes('主人希望她安静一点'))
+const 静态 = await 宿主.概况()
+报('安静一点：状态里看得见倾向和今天拦下几轮', 静态.社交.倾向.talk === 'less' && 静态.社交.倾向.skippedToday === 1, JSON.stringify(静态.社交.倾向))
+
+群消息表.set(1341, [一条群消息('大肥鱼 你觉得呢', { atSelf: true, uid: 812, id: 4612 })])
+设判断(['4612'], true, 0.57, '被叫了')
+const 静叫前 = 回合.length
+await 轮询社交()
+const 静叫开了 = await 等到(async () => 回合.length === 静叫前 + 1)
+报('安静一点：被叫照样回，不看这个阈值', 静叫开了, 静叫开了 ? '' : '没开回合')
+await 收到回复('session-qq-social-group-1341', '风是有点大')
+
+// 41b 安静一点：主动每时 2 × 0.6 → 1，第二句主动搭话更早被额度拦下。
+写配置({
+  群: ['1342'], 兴趣词: ['海'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0,
+  冷却秒: 0, 连说上限: 0, 主动每时: 2, 主动每日: 10, 低信号跳过: false,
+})
+报('安静一点：主动话量照常说出第一轮', await 主动开一轮(1342, '今天海边风有点大'))
+const 判前静额 = 判断调用.length
+const 静额id = await 发到群(1342, '傍晚应该会出太阳')
+设判断([静额id], true, 0.9, '还想接')
+const 静额前回合 = 回合.length
+await 轮询社交()
+await 等(50)
+报('安静一点：第二句主动搭话不再判、不开回合', 判断调用.length === 判前静额 && 回合.length === 静额前回合,
+  JSON.stringify({ 判断: 判断调用.length - 判前静额, 回合: 回合.length - 静额前回合 }))
+报('安静一点：日志说明这小时的主动话量只剩 1 轮', (await 日志文本()).includes('这小时的主动话量用完了（1/1 轮）'))
+const 静额态 = await 目标状态('group:1342')
+报('安静一点：状态里基础话量还是 2，倾向只在读取时乘', 静额态.话量.每时 === 2 && 静额态.主动本小时 === 1, JSON.stringify({ 每时: 静额态.话量.每时, 用了: 静额态.主动本小时 }))
+
+// 41c 活泼一点：判断说 reply=false 的普通消息不会被倾向翻成接。
+倾向态.policy = 活泼倾向
+写配置({
+  群: ['1343'], 兴趣词: ['海'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0,
+  冷却秒: 0, 连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1343, [一条群消息('今天食堂的菜好咸', { uid: 813, id: 4621 })])
+设判断(['4621'], false, 0.2, '接不上')
+const 活前回合 = 回合.length
+await 轮询社交()
+await 等(50)
+报('活泼一点：判断说不接的普通消息不会被翻成接', 回合.length === 活前回合)
+报('活泼一点：判断提示带上主人倾向', String(判断调用.at(-1)?.system).includes('主人希望她活泼一点'))
+
+// 41d 安静一点：关注上限 4 × 0.75 → 3，判断挑了 4 条也只放前 3 条进这一轮。
+倾向态.policy = 安静倾向
+写配置({
+  群: ['1344'], 兴趣词: ['海'], 快判: false, 判断冷却秒: 0, 聚拢秒: 0,
+  冷却秒: 0, 连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false, 关注上限: 4,
+})
+群消息表.set(1344, [
+  一条群消息('今天海边风特别大', { uid: 814, id: 4622 }),
+  一条群消息('我看到一只白色的鸟', { uid: 815, id: 4623 }),
+  一条群消息('傍晚应该会出太阳', { uid: 816, id: 4624 }),
+  一条群消息('礁石上全是小贝壳', { uid: 817, id: 4625 }),
+])
+设判断(['4622', '4623', '4624', '4625'], true, 0.9, '都想看')
+const 关前回合 = 回合.length
+await 轮询社交()
+const 关开了 = await 等到(async () => 回合.length === 关前回合 + 1)
+const 关文 = String(回合.at(-1)?.message.content[0].text || '')
+报('安静一点：关注上限 4 只放前 3 条进这一轮', 关开了 && 关文.includes('今天海边风特别大') && 关文.includes('我看到一只白色的鸟') && 关文.includes('傍晚应该会出太阳') && !关文.includes('礁石上全是小贝壳'), JSON.stringify({ 开了: 关开了, 回合差: 回合.length - 关前回合, 有4: 关文.includes('礁石上全是小贝壳'), 尾: 关文.slice(-400) }))
+报('安静一点：判断提示里写的上限也是 3', String(判断调用.at(-1)?.system).includes('最多 3 条'), String(判断调用.at(-1)?.system).slice(0, 500))
+await 收到回复('session-qq-social-group-1344', '海边是挺好')
+
+// 41e 自动存表情跟着倾向松紧：少存要见三次、不存一张不收、勤存一条里两张都收。
+const 倾向图 = (名) => `https://multimedia.nt.qq.com.cn/tendency-${名}.jpg`
+const 少存图 = 倾向图('less')
+固定图.set(少存图, Buffer.from([0xff, 0xd8, 0xff, 0xe5, 0x01]))
+倾向态.policy = 偏({ stickerSave: { mode: 'less' } })
+写配置({
+  群: ['1345'], 学表情: true, 判断冷却秒: 0, 聚拢秒: 0, 冷却秒: 0,
+  连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1345, [
+  带图说话(4631, '嗯', { uid: 818, url: 少存图 }),
+  带图说话(4632, '哦', { uid: 819, url: 少存图 }),
+  带图说话(4633, '好', { uid: 820, url: 少存图 }),
+])
+const 少前收藏 = QQ收藏.size
+const 少前态 = (await 宿主.概况()).表情包.selfSave
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等(50)
+const 少后态 = (await 宿主.概况()).表情包.selfSave
+报('少存表情：同一张要见到第三次才收', QQ收藏.size === 少前收藏 + 1 && 少后态.count === 少前态.count + 1, JSON.stringify({ 收藏: QQ收藏.size - 少前收藏, 存: 少后态.count - 少前态.count }))
+报('少存表情：状态里上限缩到 4、模式是 less', 少后态.cap === 4 && 少后态.mode === 'less', JSON.stringify(少后态))
+
+const 不存图 = 倾向图('off')
+固定图.set(不存图, Buffer.from([0xff, 0xd8, 0xff, 0xe6, 0x01]))
+倾向态.policy = 偏({ stickerSave: { mode: 'off' } })
+写配置({
+  群: ['1346'], 学表情: true, 判断冷却秒: 0, 聚拢秒: 0, 冷却秒: 0,
+  连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1346, [
+  带图说话(4641, '哈哈', { uid: 821, url: 不存图 }),
+  带图说话(4642, '哈哈', { uid: 822, url: 不存图 }),
+])
+const 不存前收藏 = QQ收藏.size
+const 不存前态 = (await 宿主.概况()).表情包.selfSave
+await 轮询社交()
+await 等(50)
+const 不存后态 = (await 宿主.概况()).表情包.selfSave
+报('不存表情：看到同一张两次也一张不收', QQ收藏.size === 不存前收藏 && 不存后态.count === 不存前态.count, `收藏 +${QQ收藏.size - 不存前收藏}`)
+报('不存表情：状态里上限是 0、模式是 off', 不存后态.cap === 0 && 不存后态.mode === 'off', JSON.stringify(不存后态))
+
+const 勤存甲 = 倾向图('more-a')
+const 勤存乙 = 倾向图('more-b')
+固定图.set(勤存甲, Buffer.from([0xff, 0xd8, 0xff, 0xe7, 0x01]))
+固定图.set(勤存乙, Buffer.from([0xff, 0xd8, 0xff, 0xe7, 0x02]))
+const 双图消息 = (id, urls, 文本) => ({
+  user_id: 888,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: id,
+  sender: { card: '群友888', nickname: 'x' },
+  message: [
+    ...urls.map((url) => ({ type: 'image', data: { url, file: 'a.jpg', summary: '[动画表情]', sub_type: 1 } })),
+    { type: 'text', data: { text: 文本 } },
+  ],
+})
+倾向态.policy = 偏({ stickerSave: { mode: 'more' } })
+写配置({
+  群: ['1347'], 学表情: true, 判断冷却秒: 0, 聚拢秒: 0, 冷却秒: 0,
+  连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1347, [双图消息(4651, [勤存甲, 勤存乙], '这两个表情好好笑')])
+const 勤前收藏 = QQ收藏.size
+const 勤前态 = (await 宿主.概况()).表情包.selfSave
+await 轮询社交()
+await 等(50)
+const 勤后态 = (await 宿主.概况()).表情包.selfSave
+报('勤存表情：第一次见到就收，一条消息里的两张都收', QQ收藏.size === 勤前收藏 + 2 && 勤后态.count === 勤前态.count + 2, JSON.stringify({ 收藏: QQ收藏.size - 勤前收藏, 存: 勤后态.count - 勤前态.count }))
+报('勤存表情：状态里上限放宽到 40、模式是 more', 勤后态.cap === 40 && 勤后态.mode === 'more' && (await 宿主.概况()).社交.倾向.stickerSave === 'more', JSON.stringify(勤后态))
+
+// 41f 旧版鱼脑没有 tendency()：全部回推出厂值。
+倾向态.无接口 = true
+const 回退图 = 倾向图('fallback')
+固定图.set(回退图, Buffer.from([0xff, 0xd8, 0xff, 0xe8, 0x01]))
+写配置({
+  群: ['1348'], 学表情: true, 判断冷却秒: 0, 聚拢秒: 0, 冷却秒: 0,
+  连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1348, [
+  带图说话(4661, '嗯', { uid: 823, url: 回退图 }),
+  带图说话(4662, '嗯', { uid: 824, url: 回退图 }),
+])
+const 回前收藏 = QQ收藏.size
+const 回前态 = (await 宿主.概况()).表情包.selfSave
+await 轮询社交()
+await 等(50)
+const 回后态 = (await 宿主.概况()).表情包.selfSave
+报('没有 tendency 的旧鱼脑：回推出厂设置，照常存表情', QQ收藏.size === 回前收藏 + 1 && 回后态.count === 回前态.count + 1, `收藏 +${QQ收藏.size - 回前收藏}`)
+报('没有 tendency 的旧鱼脑：状态里是出厂上限 12', 回后态.cap === 12 && 回后态.mode === 'normal', JSON.stringify(回后态))
+倾向态.无接口 = false
+倾向态.policy = null
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

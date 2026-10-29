@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { importIsPending, readImportReport } from './archive.js'
-import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, OWNER_GENDERS } from './birth.js'
+import { DEFAULT_IDENTITY, IDENTITY_LIMITS, OWNER_GENDERS } from './birth.js'
 
 const DIM_LABELS = {
   happy: '开心',
@@ -364,6 +364,7 @@ export function buildOverview({
   privacy,
   injection,
   phase,
+  tendency,
   now = Date.now(),
 }) {
   return {
@@ -391,7 +392,14 @@ export function buildOverview({
       defaults: isPlainObject(defaults) ? { ...defaults } : {},
       limits: isPlainObject(limits) ? { ...limits } : {},
     },
-    selfPrompt: buildSelfPrompt(identity),
+    tendency: isPlainObject(tendency)
+      ? {
+          text: text(tendency.text, 2000),
+          updatedAt: number(tendency.updatedAt),
+          matched: Array.isArray(tendency.matched) ? tendency.matched.length : 0,
+          unmatched: Array.isArray(tendency.unmatched) ? tendency.unmatched.length : 0,
+        }
+      : { text: '', updatedAt: 0, matched: 0, unmatched: 0 },
     phase: text(phase, 200),
     memory: memoryOverview(store, now),
     mood: moodOverview(dshHome),

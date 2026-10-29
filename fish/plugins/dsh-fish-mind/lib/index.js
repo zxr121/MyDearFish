@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPending, readImportReport, stageFishImport } from './archive.js'
+import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPending, markImportedPersona, readImportReport, stageFishImport } from './archive.js'
 import { backupIsDue, describeBackups, writeBackup } from './backup.js'
 import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, resetIdentity, saveIdentity, syncMoodNames } from './birth.js'
 import { createBiliQuota } from './bili-quota.js'
@@ -29,11 +29,13 @@ import { humorPrompt, humorTone } from './humor.js'
 import { createMemeWiki } from './memes.js'
 import { buildOverview } from './overview.js'
 import { createPersonaEditor } from './persona.js'
+import { applyImportedPersona } from './portable-configs.js'
 import { createBroker } from './permissions.js'
 import { createPrivacyGuard } from './privacy.js'
 import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
 import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
+import { buildCreationBrief, buildTendencyPrompt, compileTendency, describeTendency, loadTendency, normalizeTendencyInput, saveTendency, TENDENCY_LIMIT } from './tendency.js'
 import { extractionPrompt, factSentence, parseFactsDetailed, planConsolidation, shorttermText } from './working.js'
 import { isTrustedLocalRequest, readBodyLimited, readJsonLimited, sendBytes, sendJson } from './local-http.js'
 
@@ -128,7 +130,17 @@ export function apply(ctx) {
     getConfigEditor: () => (typeof ctx.get === 'function' ? ctx.get('configEditor') : undefined),
     diag,
   })
+  // 人设属于 profile 配置层，启动时服务可能还没就绪；等配置层可用后补写一次。
+  if (typeof ctx.inject === 'function' && existsSync(join(dir, 'persona-import.txt'))) {
+    ctx.inject(['configEditor'], () => {
+      void applyImportedPersona({ dir, personaEditor, diag }).then((text) => {
+        markImportedPersona(dir, text === '' ? 'unavailable' : 'applied')
+      })
+    })
+  }
   let config = loadConfig({ dshHome, diag })
+  const initialTendency = loadTendency(dir, diag)
+  let tendencyState = { ...initialTendency, compiled: compileTendency(initialTendency.text) }
   const store = openStore({ dir, config, diag })
   const memes = createMemeWiki({ dir, diag })
   applyImportedFacts({ dir, store, diag })
@@ -1378,6 +1390,75 @@ export function apply(ctx) {
     return changed ? out : contexts
   }
 
+  function readQqTendencyBase() {
+    try {
+      const raw = JSON.parse(readFileSync(join(dshHome, 'qq-bridge-config.json'), 'utf8'))
+      const social = raw && typeof raw === 'object' && raw['社交'] && typeof raw['社交'] === 'object' ? raw['社交'] : {}
+      return {
+        proactivePerHour: social['主动每时'],
+        proactivePerDay: social['主动每日'],
+        threshold: social['判断阈值'],
+        attention: social['关注上限'],
+      }
+    } catch {
+      return {}
+    }
+  }
+
+  function tendencyBlockers() {
+    const list = []
+    if (config.mode !== 'live') list.push('鱼脑当前不是 live 模式，倾向提示不会注入')
+    else if (!config.inject) list.push('鱼脑注入关着，倾向提示和记忆都不会进上下文')
+    let qq = null
+    try {
+      qq = JSON.parse(readFileSync(join(dshHome, 'qq-bridge-config.json'), 'utf8'))
+    } catch {}
+    if (qq === null || typeof qq !== 'object' || Array.isArray(qq)) {
+      list.push('还没配置 QQ 桥，倾向目前只影响本机会话的语气')
+      return list
+    }
+    const social = qq['社交'] && typeof qq['社交'] === 'object' ? qq['社交'] : null
+    if (qq['总开关'] !== true) list.push('QQ 总开关关着，群里不会开口')
+    if (social === null || social['启用'] !== true) list.push('QQ 社交没有启用')
+    if (qq['试运行'] === true || (social !== null && social['试运行'] === true)) {
+      list.push('QQ 还在试运行，不会真的发出去')
+    }
+    if (social !== null && social['学表情'] === false) list.push('QQ 的「学表情」关着，存表情类倾向不会生效')
+    return list
+  }
+
+  function currentPersonaText() {
+    try {
+      const info = personaEditor.read()
+      return info.overridden === true && typeof info.persona === 'string' ? info.persona : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function tendencyPayload(compiled, text = tendencyState.text, updatedAt = tendencyState.updatedAt) {
+    const preview = describeTendency(compiled, readQqTendencyBase())
+    return {
+      text,
+      updatedAt,
+      maxLength: TENDENCY_LIMIT,
+      policy: compiled.policy,
+      preview,
+      matched: compiled.matches.map((match) => ({ clause: match.clause, dimension: match.dimension, mode: match.mode })),
+      unmatched: [...compiled.unmatchedClauses],
+      blockers: tendencyBlockers(),
+    }
+  }
+
+  function creationCheckout() {
+    const cwd = process.cwd()
+    return {
+      available: existsSync(join(cwd, 'fish', 'bundle', 'package.json')) &&
+        existsSync(join(cwd, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js')),
+      checkout: cwd,
+    }
+  }
+
   function backupStatus() {
     return describeBackups({
       dshHome,
@@ -1404,6 +1485,7 @@ export function apply(ctx) {
         store,
         identity,
         pluginVersion: PLUGIN_VERSION,
+        personaText: currentPersonaText(),
         now: startedAt,
       })
       lastBackupRun = {
@@ -1582,6 +1664,8 @@ export function apply(ctx) {
     budget: () => budget.status(),
     /** 设置页写的两句自定义话术；QQ 桥拼社交提示时读 privateDodge。 */
     phrases: () => ({ ...config.phrases }),
+    /** 主人倾向的只读快照；QQ 桥只从这里读 policy，不直接读文件。 */
+    tendency: () => tendencyPayload(tendencyState.compiled),
     /** 自动备份的只读状态；不含绝对路径。 */
     backups: () => backupStatus(),
     /**
@@ -1648,6 +1732,8 @@ export function apply(ctx) {
     reload() {
       config = loadConfig({ dshHome, diag })
       identity = loadIdentity(dir, diag)
+      const loadedTendency = loadTendency(dir, diag)
+      tendencyState = { ...loadedTendency, compiled: compileTendency(loadedTendency.text) }
       store.setConfig(config)
       innerLife.reload()
       broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession })
@@ -1709,6 +1795,7 @@ export function apply(ctx) {
             privacy: snapshot.privacy,
             injection: snapshot.injection,
             phase: snapshot.phase,
+            tendency: tendencyPayload(tendencyState.compiled),
           }),
           inner: snapshot.inner,
           phrases: { ...config.phrases },
@@ -1757,6 +1844,52 @@ export function apply(ctx) {
         if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
         const reset = await personaEditor.reset()
         sendJson(res, 200, { ok: true, ...reset })
+      })
+
+      route('/dsh-fish-mind/tendency', async (req, res) => {
+        if (req.method === 'GET') {
+          sendJson(res, 200, { ok: true, ...tendencyPayload(tendencyState.compiled) })
+          return
+        }
+        if (req.method !== 'POST') return methodNotAllowed(res, 'GET 或 POST')
+        const body = await readJsonLimited(req, 32 * 1024)
+        const text = normalizeTendencyInput(body && body.text)
+        const compiled = compileTendency(text)
+        if (body && body.previewOnly === true) {
+          sendJson(res, 200, { ok: true, previewOnly: true, ...tendencyPayload(compiled, text, tendencyState.updatedAt) })
+          return
+        }
+        const saved = saveTendency(dir, text, Date.now(), diag)
+        tendencyState = { ...saved, compiled }
+        sendJson(res, 200, { ok: true, ...tendencyPayload(compiled, saved.text, saved.updatedAt) })
+      })
+
+      route('/dsh-fish-mind/creation', async (req, res) => {
+        if (req.method !== 'GET') return methodNotAllowed(res, 'GET')
+        const info = creationCheckout()
+        sendJson(res, 200, {
+          ok: true,
+          ...info,
+          brief: buildCreationBrief(tendencyState.compiled, tendencyState.text, info.available),
+        })
+      })
+
+      route('/dsh-fish-mind/creation/brief', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req, 32 * 1024)
+        const text = body && typeof body.text === 'string'
+          ? normalizeTendencyInput(body.text)
+          : tendencyState.text
+        const compiled = compileTendency(text)
+        const info = creationCheckout()
+        sendJson(res, 200, {
+          ok: true,
+          ...info,
+          text,
+          brief: buildCreationBrief(compiled, text, info.available),
+          matched: compiled.matches.map((match) => ({ clause: match.clause, dimension: match.dimension, mode: match.mode })),
+          unmatched: [...compiled.unmatchedClauses],
+        })
       })
 
       route('/dsh-fish-mind/budget', async (req, res) => {
@@ -1897,7 +2030,7 @@ export function apply(ctx) {
 
       route('/dsh-fish-mind/export', async (req, res) => {
         if (req.method !== 'GET') return methodNotAllowed(res, 'GET')
-        const bundle = buildFishArchive({ dir, dshHome, store, identity, pluginVersion: PLUGIN_VERSION })
+        const bundle = buildFishArchive({ dir, dshHome, store, identity, pluginVersion: PLUGIN_VERSION, personaText: currentPersonaText() })
         diag(`export: 导出 ${bundle.fileName}（经历 ${bundle.counts.experiences}，事实 ${bundle.counts.facts}）`)
         sendBytes(res, 200, bundle.buffer, {
           'content-disposition': `attachment; filename="${bundle.fileName}"`,
@@ -2156,11 +2289,28 @@ export function apply(ctx) {
         order: 909,
         text: (assembly) => {
           try {
+            // 主人说「少开玩笑/正经一点」时直接关掉幽默层；其他倾向只靠语气提示。
+            if (tendencyState.compiled.policy.humor.mode === 'less') return ''
             if (config.mode !== 'live' || !config.inject || !config.humor?.inject) return ''
             const { last, social: roomSocial } = workspaceSession(assembly)
             return humorPrompt({ text: last && last.text, social: roomSocial })
           } catch (error) {
             diag(`humor: 组装幽默提示失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-tendency',
+        order: 906,
+        text: () => {
+          try {
+            if (config.mode !== 'live' || !config.inject || tendencyState.text === '') return ''
+            return buildTendencyPrompt(tendencyState.compiled.policy, tendencyState.text, {
+              unmatchedClauses: tendencyState.compiled.unmatchedClauses,
+            })
+          } catch (error) {
+            diag(`tendency: 组装倾向提示失败（${String((error && error.message) || error)}）`)
             return ''
           }
         },

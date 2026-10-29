@@ -91,7 +91,7 @@ export function pruneBackups({ dshHome, keep = BACKUP_KEEP }) {
 
 /**
  * 立刻打一份备份，再按上限清理旧文件。
- * @param {object} options - `{ dir, dshHome, store, identity, pluginVersion, now, keep }`。
+ * @param {object} options - `{ dir, dshHome, store, identity, pluginVersion, personaText, now, keep }`。
  * @returns {{ ok: boolean, fileName: string, path: string, bytes: number, counts: object, warnings: string[], pruned: string[] }}
  */
 export function writeBackup({
@@ -100,6 +100,7 @@ export function writeBackup({
   store,
   identity,
   pluginVersion = '',
+  personaText = '',
   now = Date.now(),
   keep = BACKUP_KEEP,
 }) {
@@ -112,7 +113,7 @@ export function writeBackup({
   }
   mkdirSync(folder, { recursive: true })
 
-  const bundle = buildFishArchive({ dir, dshHome, store, identity, pluginVersion, now })
+  const bundle = buildFishArchive({ dir, dshHome, store, identity, pluginVersion, personaText, now })
   let fileName = backupFileName(now)
   let counter = 2
   while (existsSync(join(folder, fileName))) {
