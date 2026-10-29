@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
     const IMPORT_LIMIT = 64 * 1024 * 1024
     const RELATION_FALLBACK = { count: 12, name: 24, text: 24 }
     const RELATION_KEYS = ['name', 'relation']
-    const OWNER_PRONOUNS_FALLBACK = ['他', '她', 'TA']
+    const OWNER_GENDERS_FALLBACK = ['女', '男', '未说']
 
     const getJson = async (url) => {
       const res = await fetch(url, { headers: { accept: 'application/json' } })
@@ -294,7 +294,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                 species: next.identity.species,
                 appearance: next.identity.appearance,
                 ownerAddress: next.identity.ownerAddress,
-                ownerPronoun: next.identity.ownerPronoun || OWNER_PRONOUNS_FALLBACK[0],
+                ownerGender: next.identity.ownerGender || OWNER_GENDERS_FALLBACK[2],
                 origin: next.identity.origin,
                 style: next.identity.style,
                 relations: list(next.identity.relations).map((item) => ({
@@ -428,7 +428,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
               species: identity.species,
               appearance: identity.appearance,
               ownerAddress: identity.ownerAddress,
-              ownerPronoun: identity.ownerPronoun || OWNER_PRONOUNS_FALLBACK[0],
+              ownerGender: identity.ownerGender || OWNER_GENDERS_FALLBACK[2],
               origin: identity.origin,
               style: identity.style,
               relations: list(identity.relations).map((item) => ({
@@ -651,7 +651,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
       const identity = data.identity || {}
       const limits = identity.limits || {}
-      const pronouns = list(identity.pronouns).length > 0 ? list(identity.pronouns) : OWNER_PRONOUNS_FALLBACK
+      const genders = list(identity.genders).length > 0 ? list(identity.genders) : OWNER_GENDERS_FALLBACK
       const relationLimit = Number(limits.relations) || RELATION_FALLBACK.count
       const relationNameLimit = Number(limits.relationName) || RELATION_FALLBACK.name
       const relationTextLimit = Number(limits.relationText) || RELATION_FALLBACK.text
@@ -752,13 +752,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
               onChange: (value) => patch('ownerAddress', value),
             }),
             h('label', { 'data-fishm-field': '' },
-              h('span', { 'data-fishm-flabel': '' }, '指代主人时用'),
+              h('span', { 'data-fishm-flabel': '' }, '主人的性别'),
               h('select', {
                 'data-fishm-input': '',
-                value: form.ownerPronoun || pronouns[0],
-                onChange: (event) => patch('ownerPronoun', event.target.value),
-              }, pronouns.map((value) => h('option', { key: value, value }, value))),
-              h('span', { 'data-fishm-note': '' }, '她说话、写心情时用这个代词指你；改完下一轮生效。'))),
+                value: form.ownerGender || genders[2],
+                onChange: (event) => patch('ownerGender', event.target.value),
+              }, genders.map((value) => h('option', { key: value, value }, value))),
+              h('span', { 'data-fishm-note': '' }, '她按这个决定提到你时用「他」还是「她」；选「未说」就不猜，直接叫你或用「TA」。改完下一轮生效。'))),
           h(Field, {
             label: '外形',
             hint: `最多 ${limits.appearance || 240} 字。她会在提示里把这个当作自己的固定形象。`,

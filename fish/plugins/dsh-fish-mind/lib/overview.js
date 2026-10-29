@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { importIsPending, readImportReport } from './archive.js'
-import { buildSelfPrompt, IDENTITY_LIMITS, OWNER_PRONOUNS } from './birth.js'
+import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, OWNER_GENDERS } from './birth.js'
 
 const DIM_LABELS = {
   happy: '开心',
@@ -372,10 +372,10 @@ export function buildOverview({
       species: text(identity && identity.species, 40),
       appearance: text(identity && identity.appearance, 240),
       ownerAddress: text(identity && identity.ownerAddress, 40),
-      ownerPronoun: OWNER_PRONOUNS.includes(identity && identity.ownerPronoun)
-        ? identity.ownerPronoun
-        : OWNER_PRONOUNS[0],
-      pronouns: [...OWNER_PRONOUNS],
+      ownerGender: OWNER_GENDERS.includes(identity && identity.ownerGender)
+        ? identity.ownerGender
+        : DEFAULT_IDENTITY.ownerGender,
+      genders: [...OWNER_GENDERS],
       origin: text(identity && identity.origin, 240),
       style: text(identity && identity.style, 600),
       relations: Array.isArray(identity && identity.relations)

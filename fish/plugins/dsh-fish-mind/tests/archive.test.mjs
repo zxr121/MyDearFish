@@ -24,7 +24,7 @@ const IDENTITY = {
   species: '虎鲸娘',
   appearance: '黑白配色，短发。',
   ownerAddress: '船长',
-  ownerPronoun: '她',
+  ownerGender: '女',
   origin: '从一片海图里醒来。',
   style: '句子短一点。',
 }
@@ -113,7 +113,7 @@ test('整条鱼能打包再读回，校验数量、身份、心情和人物志',
 
   const parsed = parseFishArchive(bundle.buffer)
   assert.equal(parsed.identity.name, '小鲸')
-  assert.equal(parsed.identity.ownerPronoun, '她')
+  assert.equal(parsed.identity.ownerGender, '女')
   assert.equal(parsed.experience.length, 1)
   assert.equal(parsed.experience[0].text, '【QQ 群聊·群 555666777】今天去看海了')
   assert.deepEqual(parsed.facts, [{ subject: '阿蓝', predicate: '喜欢', object: '鲸鱼', confidence: 0.9, validFrom: 1000 }])
