@@ -22,6 +22,8 @@ import { summarize } from './sanitize.js'
 
 const SHELL_TOOLS = new Set(['bash', 'pwsh'])
 const WRITE_TOOLS = new Set(['write', 'edit'])
+// 她替主人改行为设置的工具：读不限制，写要开发者模式。
+const FISH_CONFIG_TOOL = 'fish_config'
 // 开发者模式放行这些纯读工具；shell 另行走下面的只读命令白名单，编辑器一类不走这个口子。
 const READ_TOOLS = new Set(['read', 'glob', 'grep', 'read_image'])
 // 开发者模式里额外放行的只读 shell：命令名必须在白名单里，重定向、脚本块、
@@ -688,6 +690,28 @@ export function createBroker({
         reason: `外部服务「${mcp[1]}」的工具「${mcp[2]}」不在只读白名单里：她不能借外部 MCP 发消息、撤回、拍一拍或管理群。要在 QQ 里说话只能走她自己的嘴；确实需要这个能力时请主人把工具名加进 permissions.mcpReadOnlyTools。`,
       }
     }
+    // 她可以读自己负责的设置；替主人改设置要先打开开发者模式，而且只能在主人自己的前台会话里。
+    // 安全、额度、名单、权限和凭据不在可改范围里，写入每次记审计。
+    if (exec?.name === FISH_CONFIG_TOOL) {
+      const args = exec.arguments && typeof exec.arguments === 'object' && !Array.isArray(exec.arguments) ? exec.arguments : {}
+      const writing = args.patch !== undefined && args.patch !== null
+      if (writing) {
+        if (config.developer.enabled !== true || origin !== 'foreground' || isOwnerSession(exec) !== true) {
+          return {
+            ...base,
+            decision: 'deny',
+            rule: 'fish.settings.write',
+            reason: '改设置要先在「大肥鱼 → 开发者模式」里打开开发者模式，而且只能在你自己的会话里改。安全、预算、名单和凭据不开放。',
+          }
+        }
+        return {
+          ...base,
+          decision: 'allow',
+          rule: 'fish.settings.write',
+          reason: '开发者模式：在主人自己的会话里替主人改行为设置。',
+        }
+      }
+    }
     if (!config.permissions.enabled) return { ...base, decision: 'allow', reason: '权限开关关着', rule: 'permissions.disabled' }
 
     if (origin === 'autonomous') {
@@ -734,9 +758,9 @@ export function createBroker({
     return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`
   }
 
-  /** 记录一次判定；前台普通 allow 不记，避免审计被正常操作淹没，但从外部服务取数据或开发者模式读调试资料要留痕。 */
+  /** 记录一次判定；前台普通 allow 不记，避免审计被正常操作淹没，但从外部服务取数据、开发者模式读调试资料和改设置要留痕。 */
   function record(exec, verdict, downstream = 'allow') {
-    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read' || verdict.rule === 'developer.read'
+    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read' || verdict.rule === 'developer.read' || verdict.rule === 'fish.settings.write'
     if (verdict.decision === 'allow' && !notable) return
     audit({
       at: Date.now(),

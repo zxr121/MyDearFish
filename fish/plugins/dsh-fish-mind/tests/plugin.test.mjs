@@ -665,7 +665,7 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
 
   const recall = harness.tools.get('recall')
   assert.ok(recall)
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const value = await recall.execute({ query: '海边' }, {})
   assert.equal(value.enabled, false)
   assert.equal(value.reason, 'shadow-mode')
@@ -1069,7 +1069,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   const agent = { session: session('session-new'), ctx }
   agents.push(agent)
   await ctx.emit('agent/created', { agent })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const names = harness.contexts.map((entry) => entry.name)
   for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
     assert.ok(names.includes(name), name)
@@ -1113,11 +1113,11 @@ test('社交会话只挂记忆提示，不注册记忆工具', async () => {
   const owner = { session: session('session-owner'), ctx }
   agents.push(owner)
   await ctx.emit('agent/created', { agent: owner })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
 
   await ctx.emit('agent/disposed', { agent: social })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
   ctx.dispose()
 })
 
@@ -1462,5 +1462,67 @@ test('经历库重建后旧 id 对不上，水位退回时间戳继续走', asyn
   assert.equal(result.written, 1)
   assert.equal(calls.length, 1)
   assert.equal(mind.state().memory.working.lastConsolidatedId, 2, '跑完后接上新的 id 水位')
+  ctx.dispose()
+})
+
+test('fish_config：读可改设置，改值写进 QQ 和主动搭话，倾向走同一条保存路径', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-config-tool-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  writeFileSync(join(home, 'qq-bridge-config.json'), JSON.stringify({
+    总开关: true,
+    自定义: '留着',
+    社交: { 启用: false, 主动每日: 40 },
+  }))
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  apply(ctx)
+  const tool = harness.tools.get('fish_config')
+  assert.ok(tool)
+
+  const listed = await tool.execute({}, {})
+  assert.equal(listed.ok, true)
+  assert.deepEqual(listed.changes, [])
+  assert.equal(listed.items.find((item) => item.key === 'qq.proactivePerDay').value, '40')
+  assert.equal(listed.items.find((item) => item.key === 'qq.mode').value, 'auto')
+  assert.match(tool.output.render({}, listed)[0].text, /qq\.proactivePerDay/)
+
+  const written = await tool.execute({
+    patch: {
+      'qq.proactivePerDay': 60,
+      'qq.avoidTopics': '抽卡、游戏',
+      'speakUp.enabled': false,
+      'speakUp.trigger': '过去看看大家在聊什么',
+    },
+  }, {})
+  assert.equal(written.ok, true)
+  assert.equal(written.changes.length, 4)
+  assert.match(tool.output.render({}, written)[0].text, /主动每日：40 → 60/)
+  const qq = JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8'))
+  assert.equal(qq.总开关, true, '不碰不在清单里的字段')
+  assert.equal(qq.自定义, '留着')
+  assert.equal(qq.社交.启用, false)
+  assert.equal(qq.社交.主动每日, 60)
+  assert.deepEqual(qq.社交.不聊话题, ['抽卡', '游戏'])
+  const speak = JSON.parse(readFileSync(join(home, 'speak-up-config.json'), 'utf8'))
+  assert.equal(speak.总开关, false)
+  assert.equal(speak.触发文案, '过去看看大家在聊什么')
+
+  const same = await tool.execute({ patch: { 'qq.proactivePerDay': 60 } }, {})
+  assert.deepEqual(same.changes, [])
+  assert.match(same.note, /没有改动/)
+  await assert.rejects(() => tool.execute({ patch: { 'qq.proactivePerDay': 1000 } }, {}), /要在 0 ~ 999/)
+  await assert.rejects(() => tool.execute({ patch: { nope: 1 } }, {}), /不认识/)
+  assert.equal(JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8')).社交.主动每日, 60, '校验失败不落盘')
+
+  const tendency = await tool.execute({ patch: { 'mind.tendency': '活泼一点' } }, {})
+  assert.equal(tendency.ok, true)
+  assert.equal(tendency.items.find((item) => item.key === 'mind.tendency').value, '活泼一点')
+  const after = JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8'))
+  assert.equal(after.社交.主动每日, 90)
+  assert.equal(after.社交.主动每时, 9)
+  const stored = JSON.parse(readFileSync(join(home, 'fish-mind', 'tendency.json'), 'utf8'))
+  assert.equal(stored.text, '活泼一点')
+  assert.equal(stored.applied.written.主动每日, 90)
   ctx.dispose()
 })

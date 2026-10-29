@@ -10,21 +10,32 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { QQ_SOCIAL_DEFAULTS, QQ_SOCIAL_LIMITS, qqSocialValues, readQqSocial, updateQqSocial } from './config-files.js'
 
 export const TENDENCY_FORMAT = 'mydearfish.tendency'
-export const TENDENCY_VERSION = 1
+export const TENDENCY_VERSION = 2
 export const TENDENCY_LIMIT = 2000
+
+/** QQ 社交段里被「安静/活泼」直接改的四个字段。 */
+export const TALK_FIELDS = Object.freeze(['主动每时', '主动每日', '判断阈值', '关注上限'])
+
+const TALK_FALLBACK = Object.freeze({
+  主动每时: QQ_SOCIAL_DEFAULTS['主动每时'],
+  主动每日: QQ_SOCIAL_DEFAULTS['主动每日'],
+  判断阈值: QQ_SOCIAL_DEFAULTS['判断阈值'],
+  关注上限: QQ_SOCIAL_DEFAULTS['关注上限'],
+})
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g
 const CLAUSE_SPLIT = /[。！？!?；;\n，,]/
 
 /** 五个高信号维度；顺序就是设置页预览的顺序。 */
 export const DIMENSIONS = Object.freeze([
-  { id: 'talk', label: '话多话少', landing: 'knob', landingLabel: '现有旋钮' },
+  { id: 'talk', label: '话多话少', landing: 'settings', landingLabel: '写入设置' },
   { id: 'length', label: '话长话短', landing: 'prompt', landingLabel: '每轮提示' },
-  { id: 'humor', label: '玩笑多少', landing: 'knob', landingLabel: '现有旋钮' },
+  { id: 'humor', label: '玩笑多少', landing: 'switch', landingLabel: '现有开关' },
   { id: 'stickerSend', label: '发不发表情', landing: 'prompt', landingLabel: '每轮提示' },
-  { id: 'stickerSave', label: '存不存表情', landing: 'knob', landingLabel: '现有旋钮' },
+  { id: 'stickerSave', label: '存不存表情', landing: 'code', landingLabel: '固定规则' },
 ])
 
 const DIMENSION_BY_ID = new Map(DIMENSIONS.map((item) => [item.id, item]))
@@ -124,19 +135,44 @@ export function normalizeTendencyInput(raw) {
   return text
 }
 
+function validTalk(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const out = {}
+  for (const field of TALK_FIELDS) {
+    const number = Number(value[field])
+    if (!Number.isFinite(number)) return null
+    out[field] = field === '判断阈值' ? Math.round(number * 1000) / 1000 : Math.round(number)
+  }
+  return out
+}
+
+function readApplied(raw) {
+  const applied = raw !== null && typeof raw === 'object' ? raw.applied : null
+  if (applied === null || typeof applied !== 'object' || Array.isArray(applied)) return null
+  const base = validTalk(applied.base)
+  const written = validTalk(applied.written)
+  if (base === null || written === null) return null
+  return {
+    at: typeof applied.at === 'number' && Number.isFinite(applied.at) ? applied.at : 0,
+    base,
+    written,
+    drifted: applied.drifted === true,
+  }
+}
+
 /**
  * 读主人倾向；缺失或损坏时返回空文本，不让设置页打不开。
  * @param {string} dir - `$DSH_HOME/fish-mind`。
  * @param {(message: string) => void} [diag] - 诊断日志。
- * @returns {{ text: string, updatedAt: number, warning: string }}
+ * @returns {{ text: string, updatedAt: number, applied: object|null, warning: string }}
  */
 export function loadTendency(dir, diag = () => {}) {
   const path = join(dir, 'tendency.json')
-  if (!existsSync(path)) return { text: '', updatedAt: 0, warning: '' }
+  if (!existsSync(path)) return { text: '', updatedAt: 0, applied: null, warning: '' }
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8'))
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      return { text: '', updatedAt: 0, warning: '倾向文件不是对象' }
+      return { text: '', updatedAt: 0, applied: null, warning: '倾向文件不是对象' }
     }
     const text = typeof raw.text === 'string' ? raw.text.replace(CONTROL_CHARS, '').trim().slice(0, TENDENCY_LIMIT) : ''
     const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0
@@ -144,29 +180,32 @@ export function loadTendency(dir, diag = () => {}) {
     if (typeof raw.version === 'number' && raw.version > TENDENCY_VERSION) {
       diag(`tendency: 文件版本 ${raw.version} 比当前高，只读取原文`)
     }
-    return { text, updatedAt, warning: '' }
+    return { text, updatedAt, applied: readApplied(raw), warning: '' }
   } catch (error) {
     diag(`tendency: 读不了 ${path}（${String((error && error.message) || error)}）`)
-    return { text: '', updatedAt: 0, warning: '倾向文件读不出来，已按空文本处理' }
+    return { text: '', updatedAt: 0, applied: null, warning: '倾向文件读不出来，已按空文本处理' }
   }
 }
 
 /**
- * 原子写主人倾向。
+ * 原子写主人倾向，连同上次落到 QQ 设置的基础值快照。
  * @param {string} dir - `$DSH_HOME/fish-mind`。
  * @param {unknown} raw - 设置页提交的原文。
  * @param {number} [now] - 写入时间。
  * @param {(message: string) => void} [diag] - 诊断日志。
- * @returns {{ text: string, updatedAt: number }}
+ * @param {{ at: number, base: object, written: object, drifted: boolean }|null} [applied] - 落地记录。
+ * @returns {{ text: string, updatedAt: number, applied: object|null }}
  */
-export function saveTendency(dir, raw, now = Date.now(), diag = () => {}) {
+export function saveTendency(dir, raw, now = Date.now(), diag = () => {}, applied = null) {
   const text = normalizeTendencyInput(raw)
   const updatedAt = Number.isFinite(now) ? now : Date.now()
   mkdirSync(dir, { recursive: true })
   const path = join(dir, 'tendency.json')
   const temp = `${path}.tmp`
+  const record = { format: TENDENCY_FORMAT, version: TENDENCY_VERSION, text, updatedAt }
+  if (applied !== null) record.applied = applied
   try {
-    writeFileSync(temp, JSON.stringify({ format: TENDENCY_FORMAT, version: TENDENCY_VERSION, text, updatedAt }, null, 2) + '\n')
+    writeFileSync(temp, `${JSON.stringify(record, null, 2)}\n`)
     renameSync(temp, path)
   } catch (error) {
     try {
@@ -175,7 +214,145 @@ export function saveTendency(dir, raw, now = Date.now(), diag = () => {}) {
     throw error
   }
   diag(`tendency: 已保存 ${text === '' ? '（清空）' : `${text.length} 字`}`)
-  return { text, updatedAt }
+  return { text, updatedAt, applied }
+}
+
+function clampTalk(field, value) {
+  const limit = QQ_SOCIAL_LIMITS[field]
+  const clamped = Math.min(limit.max, Math.max(limit.min, value))
+  return field === '判断阈值' ? Math.round(clamped * 100) / 100 : Math.round(clamped)
+}
+
+/**
+ * 从 QQ 社交段取倾向会改的四个字段；缺字段或非法时回出厂值。
+ * @param {object|null} social - QQ 配置里的 `社交` 段。
+ * @returns {object} `{ 主动每时, 主动每日, 判断阈值, 关注上限 }`。
+ */
+export function talkFieldsOf(social) {
+  const values = qqSocialValues(social)
+  const out = {}
+  for (const field of TALK_FIELDS) out[field] = values[field]
+  return out
+}
+
+/**
+ * 把「安静/活泼」落到四个设置上；normal 表示保持基础值。
+ * @param {object} base - `{ 主动每时, 主动每日, 判断阈值, 关注上限 }`。
+ * @param {string} mode - `policy.talk.mode`：normal / less / more。
+ * @returns {object} 要写进 QQ 设置的目标值。
+ */
+export function tuneTalk(base, mode) {
+  // 关注上限只小幅变化（0.75/1.25），避免一次把太多新消息塞进她的视线。
+  const out = {}
+  for (const field of TALK_FIELDS) {
+    const 给的 = Number(base && base[field])
+    const 起 = Number.isFinite(给的) ? 给的 : TALK_FALLBACK[field]
+    if (mode === 'less') {
+      const 目标 = field === '判断阈值' ? 起 + 0.06 : field === '关注上限' ? 起 * 0.75 : 起 * 0.6
+      out[field] = clampTalk(field, 目标)
+    } else if (mode === 'more') {
+      const 目标 = field === '判断阈值' ? 起 - 0.06 : field === '关注上限' ? 起 * 1.25 : 起 * 1.5
+      out[field] = clampTalk(field, 目标)
+    } else {
+      out[field] = clampTalk(field, 起)
+    }
+  }
+  return out
+}
+
+/**
+ * 两组 QQ 设置值是否相同。
+ * @param {object} left - 一组 `{ 主动每时, 主动每日, 判断阈值, 关注上限 }`。
+ * @param {object} right - 另一组。
+ * @returns {boolean} 四个字段都相同。
+ */
+export function sameTalkValues(left, right) {
+  return TALK_FIELDS.every((field) => Number(left && left[field]) === Number(right && right[field]))
+}
+
+/**
+ * 算「这次保存要写哪些设置」，但不落盘。QQ 桥没配置时返回不可用，倾向只留在本机。
+ * @param {{ dshHome: string, compiled: object, applied: object|null, now?: number }} options - 执行参数。
+ * @returns {{ available: boolean, current: object|null, applied: object|null, changed: object|null, apply: (() => void)|null, warnings: string[] }}
+ */
+export function planTendencyApply({ dshHome, compiled, applied = null, now = Date.now() }) {
+  const read = readQqSocial(dshHome)
+  if (read.broken) {
+    return {
+      available: false,
+      current: null,
+      applied: null,
+      changed: null,
+      apply: null,
+      warnings: [`QQ 设置文件读不出来（${read.error}），倾向这次没有写进设置。`],
+    }
+  }
+  if (!read.exists || read.social === null) {
+    return {
+      available: false,
+      current: null,
+      applied: null,
+      changed: null,
+      apply: null,
+      warnings: ['还没配置 QQ 桥，倾向这次只影响语气；配好后保存会写进「通到QQ」。'],
+    }
+  }
+  const current = talkFieldsOf(read.social)
+  const base = applied !== null && sameTalkValues(current, applied.written) ? { ...applied.base } : { ...current }
+  const written = tuneTalk(base, compiled.policy.talk.mode)
+  const changed = !sameTalkValues(written, current)
+  return {
+    available: true,
+    current,
+    applied: { at: Number.isFinite(now) ? now : Date.now(), base, written, drifted: false },
+    changed: changed ? { ...written } : null,
+    apply: changed
+      ? () => {
+          updateQqSocial(dshHome, (social) => {
+            for (const field of TALK_FIELDS) social[field] = written[field]
+          })
+        }
+      : null,
+    warnings: [],
+  }
+}
+
+/**
+ * 启动/重载时让倾向文件和 QQ 设置对齐：已写入的不动；主人手动改过的只记新基础，不覆盖；
+ * 旧版没有 applied 记录的补落一次；上次写设置失败的按 base 重试。
+ * @param {{ dshHome: string, text: string, compiled: object, applied: object|null, now?: number, diag?: (message: string) => void }} options - 执行参数。
+ * @returns {{ applied: object|null, persist: boolean, apply: (() => void)|null, warnings: string[] }}
+ */
+export function reconcileTendency({ dshHome, text, compiled, applied = null, now = Date.now(), diag = () => {} }) {
+  if (text === '') {
+    return { applied: null, persist: applied !== null, apply: null, warnings: [] }
+  }
+  const read = readQqSocial(dshHome)
+  if (read.broken) {
+    return { applied, persist: false, apply: null, warnings: [`QQ 设置文件读不出来（${read.error}），倾向这次没法同步到设置。`] }
+  }
+  if (!read.exists || read.social === null) {
+    return { applied, persist: false, apply: null, warnings: [] }
+  }
+  const current = talkFieldsOf(read.social)
+  if (applied !== null) {
+    if (sameTalkValues(current, applied.written)) return { applied, persist: false, apply: null, warnings: [] }
+    if (sameTalkValues(current, applied.base)) {
+      const plan = planTendencyApply({ dshHome, compiled, applied, now })
+      return { applied, persist: false, apply: plan.apply, warnings: plan.warnings }
+    }
+    const 漂移 = { at: Number.isFinite(now) ? now : Date.now(), base: { ...current }, written: { ...current }, drifted: true }
+    diag('tendency: QQ 设置被手动改过，倾向没有覆盖，已把当前值记成新的基础')
+    return {
+      applied: 漂移,
+      persist: true,
+      apply: null,
+      warnings: ['主人手动改过 QQ 设置，倾向没有覆盖；下次保存倾向会以当前值为基础。'],
+    }
+  }
+  const plan = planTendencyApply({ dshHome, compiled, applied: null, now })
+  if (!plan.available) return { applied: null, persist: false, apply: null, warnings: plan.warnings }
+  return { applied: plan.applied, persist: true, apply: plan.apply, warnings: plan.warnings }
 }
 
 /**
@@ -185,7 +362,7 @@ export function saveTendency(dir, raw, now = Date.now(), diag = () => {}) {
  */
 export function compileTendency(text) {
   const policy = {
-    talk: { mode: 'normal', proactiveScale: 1, thresholdDelta: 0, attentionScale: 1 },
+    talk: { mode: 'normal' },
     length: { mode: 'normal' },
     humor: { mode: 'normal' },
     stickerSend: { mode: 'normal' },
@@ -212,11 +389,7 @@ export function compileTendency(text) {
 
   for (const [dimension, match] of latest) {
     if (dimension === 'talk') {
-      if (match.mode === 'less') {
-        policy.talk = { mode: 'less', proactiveScale: 0.6, thresholdDelta: 0.06, attentionScale: 0.75 }
-      } else if (match.mode === 'more') {
-        policy.talk = { mode: 'more', proactiveScale: 1.5, thresholdDelta: -0.06, attentionScale: 1.25 }
-      }
+      if (match.mode === 'less' || match.mode === 'more') policy.talk = { mode: match.mode }
     } else {
       policy[dimension] = { mode: match.mode }
     }
@@ -228,38 +401,41 @@ export function compileTendency(text) {
   return { policy, matches, unmatchedClauses }
 }
 
-function positive(value, fallback) {
-  const number = Number(value)
-  return Number.isFinite(number) && number > 0 ? number : fallback
-}
-
-function scaledQuota(base, scale) {
-  return Math.max(1, Math.round(positive(base, 1) * scale))
-}
-
 function thresholdText(value) {
   return Number(value).toFixed(2)
 }
 
-function talkEffect(mode, base) {
-  const 每时 = positive(base && base.proactivePerHour, 6)
-  const 每日 = positive(base && base.proactivePerDay, 40)
-  const 阈值 = Number(base && base.threshold)
-  const 关注 = positive(base && base.attention, 12)
-  const scale = mode === 'less' ? 0.6 : 1.5
-  const delta = mode === 'less' ? 0.06 : -0.06
-  const attentionScale = mode === 'less' ? 0.75 : 1.25
-  const 有效阈值 = Math.max(0, Math.min(1, (Number.isFinite(阈值) ? 阈值 : 0.4) + delta))
-  return `主动话量 ${每时}/时·${每日}/日 → ${scaledQuota(每时, scale)}/时·${scaledQuota(每日, scale)}/日；判断阈值 ${thresholdText(Number.isFinite(阈值) ? 阈值 : 0.4)} → ${thresholdText(有效阈值)}；每批关注 ${Math.round(关注)} → ${scaledQuota(关注, attentionScale)}（现有设置）。`
+function talkEffect(mode, base, status) {
+  const 源 = {}
+  for (const field of TALK_FIELDS) {
+    const 给的 = Number(base && base[field])
+    源[field] = Number.isFinite(给的) ? 给的 : TALK_FALLBACK[field]
+  }
+  const 目标 = tuneTalk(源, mode)
+  const tail = status === 'applied'
+    ? '（已写入「通到QQ」）'
+    : status === 'missing'
+      ? '（还没配置 QQ 桥，先只影响语气）'
+      : status === 'drifted'
+        ? '（主人手动改过，下次保存以当前值为基础重算）'
+        : '（保存后写入「通到QQ」）'
+  return `主动话量 ${源.主动每时}/时·${源.主动每日}/日 → ${目标.主动每时}/时·${目标.主动每日}/日；判断阈值 ${thresholdText(源.判断阈值)} → ${thresholdText(目标.判断阈值)}；每批关注 ${源.关注上限} → ${目标.关注上限}${tail}`
 }
+
+const TALK_LANDING = Object.freeze({
+  applied: '已写入设置',
+  missing: 'QQ 桥没配置',
+  drifted: '手动改过，保存后重算',
+})
 
 /**
  * 把编译结果翻成设置页能直接看懂的「她会这样理解」。
  * @param {object} compiled - `compileTendency` 的返回值。
- * @param {object} [base] - QQ 当前基础值 `{ proactivePerHour, proactivePerDay, threshold, attention }`。
+ * @param {object} [base] - 「通到QQ」当前基础值 `{ 主动每时, 主动每日, 判断阈值, 关注上限 }`。
+ * @param {string} [status] - `pending` / `applied` / `missing` / `drifted`。
  * @returns {object[]} 每条带落点和生效值。
  */
-export function describeTendency(compiled, base = {}) {
+export function describeTendency(compiled, base = {}, status = 'pending') {
   const lines = []
   for (const match of compiled.matches) {
     const dimension = DIMENSION_BY_ID.get(match.dimension)
@@ -268,7 +444,8 @@ export function describeTendency(compiled, base = {}) {
     let landing = dimension.landing
     let landingLabel = dimension.landingLabel
     if (match.dimension === 'talk') {
-      effect = talkEffect(match.mode, base)
+      effect = talkEffect(match.mode, base, status)
+      landingLabel = TALK_LANDING[status] || '写入设置'
     } else if (match.dimension === 'length') {
       effect = match.mode === 'short' ? '回话收在一两句，能一句说清就不展开（每轮提示）。' : '需要解释时讲完整，别只丢结论（每轮提示）。'
     } else if (match.dimension === 'humor') {
@@ -281,10 +458,10 @@ export function describeTendency(compiled, base = {}) {
           : '可以多发表情，别每次都只发字（每轮提示）。'
     } else if (match.dimension === 'stickerSave') {
       effect = match.mode === 'more'
-        ? '自动收藏上限放宽：每天 40 张、见过 1 次就收、每条最多 2 张（现有设置）。'
+        ? '自动收藏上限放宽：每天 40 张、见过 1 次就收、每条最多 2 张（固定规则）。'
         : match.mode === 'less'
-          ? '自动收藏收紧：每天 4 张、见过 3 次才收、每条最多 1 张（现有设置）。'
-          : '不再自动收藏表情（现有设置；手动收藏不受影响）。'
+          ? '自动收藏收紧：每天 4 张、见过 3 次才收、每条最多 1 张（固定规则）。'
+          : '不再自动收藏表情（固定规则；手动收藏不受影响）。'
     }
     lines.push({
       clause: match.clause,

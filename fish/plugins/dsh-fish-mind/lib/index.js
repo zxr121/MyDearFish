@@ -32,10 +32,23 @@ import { createPersonaEditor } from './persona.js'
 import { applyImportedPersona } from './portable-configs.js'
 import { createBroker } from './permissions.js'
 import { createPrivacyGuard } from './privacy.js'
+import { applyFishSettings, listFishSettings } from './settings-catalog.js'
 import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
 import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
-import { buildCreationBrief, buildTendencyPrompt, compileTendency, describeTendency, loadTendency, normalizeTendencyInput, saveTendency, TENDENCY_LIMIT } from './tendency.js'
+import {
+  buildCreationBrief,
+  buildTendencyPrompt,
+  compileTendency,
+  describeTendency,
+  loadTendency,
+  normalizeTendencyInput,
+  planTendencyApply,
+  reconcileTendency,
+  sameTalkValues,
+  saveTendency,
+  TENDENCY_LIMIT,
+} from './tendency.js'
 import { extractionPrompt, factSentence, parseFactsDetailed, planConsolidation, shorttermText } from './working.js'
 import { isTrustedLocalRequest, readBodyLimited, readJsonLimited, sendBytes, sendJson } from './local-http.js'
 
@@ -141,6 +154,7 @@ export function apply(ctx) {
   let config = loadConfig({ dshHome, diag })
   const initialTendency = loadTendency(dir, diag)
   let tendencyState = { ...initialTendency, compiled: compileTendency(initialTendency.text) }
+  reconcileTendencyState()
   const store = openStore({ dir, config, diag })
   const memes = createMemeWiki({ dir, diag })
   applyImportedFacts({ dir, store, diag })
@@ -1390,21 +1404,6 @@ export function apply(ctx) {
     return changed ? out : contexts
   }
 
-  function readQqTendencyBase() {
-    try {
-      const raw = JSON.parse(readFileSync(join(dshHome, 'qq-bridge-config.json'), 'utf8'))
-      const social = raw && typeof raw === 'object' && raw['社交'] && typeof raw['社交'] === 'object' ? raw['社交'] : {}
-      return {
-        proactivePerHour: social['主动每时'],
-        proactivePerDay: social['主动每日'],
-        threshold: social['判断阈值'],
-        attention: social['关注上限'],
-      }
-    } catch {
-      return {}
-    }
-  }
-
   function tendencyBlockers() {
     const list = []
     if (config.mode !== 'live') list.push('鱼脑当前不是 live 模式，倾向提示不会注入')
@@ -1436,17 +1435,92 @@ export function apply(ctx) {
     }
   }
 
-  function tendencyPayload(compiled, text = tendencyState.text, updatedAt = tendencyState.updatedAt) {
-    const preview = describeTendency(compiled, readQqTendencyBase())
+  function tendencyPayload(compiled, text = tendencyState.text, updatedAt = tendencyState.updatedAt, options = {}) {
+    const plan = planTendencyApply({ dshHome, compiled, applied: tendencyState.applied })
+    // 预览的是还没保存的原文时，设置里仍然是旧倾向，不能说「已写入」。
+    const unsavedText = options.preview === true && text !== tendencyState.text
+    const status = !plan.available
+      ? 'missing'
+      : unsavedText
+        ? 'pending'
+        : tendencyState.applied !== null && !sameTalkValues(plan.current, tendencyState.applied.written)
+          ? 'drifted'
+          : plan.changed === null && tendencyState.applied !== null
+            ? 'applied'
+            : 'pending'
     return {
       text,
       updatedAt,
       maxLength: TENDENCY_LIMIT,
       policy: compiled.policy,
-      preview,
+      preview: describeTendency(compiled, plan.available ? plan.applied.base : {}, status),
+      applied: tendencyState.applied,
+      applyStatus: status,
       matched: compiled.matches.map((match) => ({ clause: match.clause, dimension: match.dimension, mode: match.mode })),
       unmatched: [...compiled.unmatchedClauses],
       blockers: tendencyBlockers(),
+    }
+  }
+
+  /**
+   * 保存倾向并落进 QQ 设置：先写倾向文件（带 base/written 快照），再改设置；
+   * 写设置失败就把倾向文件回退到上一次，避免留下「文件改了、设置没改」的中间态。
+   */
+  function saveAndApplyTendency(text, now = Date.now()) {
+    const compiled = compileTendency(text)
+    const previous = { text: tendencyState.text, updatedAt: tendencyState.updatedAt, applied: tendencyState.applied }
+    const plan = planTendencyApply({ dshHome, compiled, applied: tendencyState.applied, now })
+    const saved = saveTendency(dir, text, now, diag, plan.applied)
+    if (plan.apply) {
+      try {
+        plan.apply()
+      } catch (error) {
+        const message = String((error && error.message) || error)
+        try {
+          saveTendency(dir, previous.text, previous.updatedAt, diag, previous.applied)
+        } catch (rollbackError) {
+          diag(`tendency: 写 QQ 设置失败后回退倾向文件也失败（${String((rollbackError && rollbackError.message) || rollbackError)}）`)
+        }
+        const failure = new Error(`倾向没写进「通到QQ」：${message}。设置页还是旧值，可以再保存一次。`)
+        failure.statusCode = 500
+        throw failure
+      }
+    }
+    tendencyState = { ...saved, compiled }
+    for (const warning of plan.warnings) diag(`tendency: ${warning}`)
+    return { compiled, saved, plan }
+  }
+
+  /** 读起的倾向和 QQ 设置对齐一次：旧版补落，主人手动改过的不覆盖，上次写失败的按基础值重试。 */
+  function reconcileTendencyState() {
+    try {
+      const reconciled = reconcileTendency({
+        dshHome,
+        text: tendencyState.text,
+        compiled: tendencyState.compiled,
+        applied: tendencyState.applied,
+        diag,
+      })
+      for (const warning of reconciled.warnings) diag(`tendency: ${warning}`)
+      let persisted = true
+      if (reconciled.persist) {
+        try {
+          const stored = saveTendency(dir, tendencyState.text, tendencyState.updatedAt, diag, reconciled.applied)
+          tendencyState = { ...stored, compiled: tendencyState.compiled }
+        } catch (error) {
+          persisted = false
+          diag(`tendency: 保存落地记录失败（${String((error && error.message) || error)}）`)
+        }
+      }
+      if (persisted && reconciled.apply) {
+        try {
+          reconciled.apply()
+        } catch (error) {
+          diag(`tendency: 写进 QQ 设置失败（${String((error && error.message) || error)}），下次启动会再试`)
+        }
+      }
+    } catch (error) {
+      diag(`tendency: 对齐设置失败（${String((error && error.message) || error)}）`)
     }
   }
 
@@ -1753,6 +1827,7 @@ export function apply(ctx) {
       identity = loadIdentity(dir, diag)
       const loadedTendency = loadTendency(dir, diag)
       tendencyState = { ...loadedTendency, compiled: compileTendency(loadedTendency.text) }
+      reconcileTendencyState()
       store.setConfig(config)
       innerLife.reload()
       broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession })
@@ -1875,12 +1950,15 @@ export function apply(ctx) {
         const text = normalizeTendencyInput(body && body.text)
         const compiled = compileTendency(text)
         if (body && body.previewOnly === true) {
-          sendJson(res, 200, { ok: true, previewOnly: true, ...tendencyPayload(compiled, text, tendencyState.updatedAt) })
+          sendJson(res, 200, { ok: true, previewOnly: true, ...tendencyPayload(compiled, text, tendencyState.updatedAt, { preview: true }) })
           return
         }
-        const saved = saveTendency(dir, text, Date.now(), diag)
-        tendencyState = { ...saved, compiled }
-        sendJson(res, 200, { ok: true, ...tendencyPayload(compiled, saved.text, saved.updatedAt) })
+        const result = saveAndApplyTendency(text)
+        sendJson(res, 200, {
+          ok: true,
+          warnings: result.plan.warnings,
+          ...tendencyPayload(result.compiled, result.saved.text, result.saved.updatedAt),
+        })
       })
 
       route('/dsh-fish-mind/creation', async (req, res) => {
@@ -2372,7 +2450,7 @@ export function apply(ctx) {
     }
     const toolRuntime = agentService(agent, 'tools')
     if (!social && toolRuntime && typeof toolRuntime.register === 'function') {
-      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition()]) {
+      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition(), fishConfigToolDefinition()]) {
         try {
           offs.push(toolRuntime.register(definition))
         } catch (error) {
@@ -2380,7 +2458,7 @@ export function apply(ctx) {
         }
       }
     } else if (!social) {
-      diag(`tools 在 ${sid} 上不可用，只读记忆工具没有注册`)
+      diag(`tools 在 ${sid} 上不可用，记忆和设置工具没有注册`)
     }
     return () => {
       for (const off of offs) {
@@ -2388,6 +2466,126 @@ export function apply(ctx) {
           if (typeof off === 'function') off()
         } catch {}
       }
+    }
+  }
+
+  function fishConfigToolDefinition() {
+    return {
+      name: 'fish_config',
+      description: '读 / 改大肥鱼自己的行为设置。不带 patch 就是读全部设置项和当前值；带 patch 就改。'
+        + '只开放行为旋钮：通到QQ 的主动每时、主动每日、关注上限、判断阈值、学表情、模式、称呼、兴趣词、不聊话题、冷却秒；'
+        + '主动搭话的总开关、间隔、峰谷命中线、安静时段、触发文案；以及性格倾向原文。'
+        + '改设置要先让主人在「大肥鱼 → 开发者模式」打开开发者模式，而且只能在你自己的会话里改；'
+        + '安全、额度、名单、权限、凭据和代码不开放。先不带 patch 读一遍，键名照抄清单里的 key；一次可以改多项。',
+      parameters: {
+        type: 'object',
+        properties: {
+          patch: {
+            type: 'object',
+            additionalProperties: true,
+            description: '要改的设置（可省）：键是清单里的 key，值是新值。例：{"qq.proactivePerDay": 60, "qq.threshold": 0.35}',
+          },
+        },
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            note: { type: 'string' },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string' },
+                  page: { type: 'string' },
+                  label: { type: 'string' },
+                  type: { type: 'string' },
+                  value: { type: 'string' },
+                  defaultValue: { type: 'string' },
+                  range: { type: 'string' },
+                  description: { type: 'string' },
+                },
+                required: ['key', 'page', 'label', 'type', 'value', 'defaultValue', 'range', 'description'],
+                additionalProperties: false,
+              },
+            },
+            changes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string' },
+                  page: { type: 'string' },
+                  label: { type: 'string' },
+                  before: { type: 'string' },
+                  after: { type: 'string' },
+                },
+                required: ['key', 'page', 'label', 'before', 'after'],
+                additionalProperties: false,
+              },
+            },
+            warnings: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['ok', 'note', 'items', 'changes', 'warnings'],
+          additionalProperties: false,
+        },
+        render(_args, value) {
+          const lines = []
+          if (Array.isArray(value.changes) && value.changes.length > 0) {
+            lines.push(`改了 ${value.changes.length} 项：`)
+            for (const change of value.changes) {
+              lines.push(`- ${change.page} · ${change.label}：${change.before} → ${change.after}`)
+            }
+            if (value.note) lines.push(value.note)
+          } else if (Array.isArray(value.items)) {
+            lines.push('她可以改的设置：')
+            for (const item of value.items) {
+              lines.push(`- ${item.key}（${item.page} · ${item.label}）= ${item.value}；范围 ${item.range}。${item.description}`)
+            }
+            if (value.note) lines.push(value.note)
+          }
+          if (Array.isArray(value.warnings) && value.warnings.length > 0) {
+            lines.push('注意：')
+            for (const warning of value.warnings) lines.push(`- ${warning}`)
+          }
+          return [{ type: 'text', text: lines.join('\n') }]
+        },
+      },
+      async execute(args) {
+        const hasPatch = args !== null && typeof args === 'object' && args.patch !== undefined && args.patch !== null
+        if (!hasPatch) {
+          const listed = listFishSettings({ dshHome })
+          return {
+            ok: true,
+            note: '这是她可以改的全部设置。要改就用 {"key": 新值} 传给 patch；一次可以改多项。',
+            items: listed.items,
+            changes: [],
+            warnings: listed.warnings,
+          }
+        }
+        if (typeof args.patch !== 'object' || Array.isArray(args.patch)) {
+          throw new Error('patch 要是一个对象：键是设置项名，值是新值')
+        }
+        const result = applyFishSettings({
+          dshHome,
+          patch: args.patch,
+          saveTendencyText: (text) => {
+            const applied = saveAndApplyTendency(text)
+            return {
+              warnings: applied.plan.warnings,
+              note: !applied.plan.available
+                ? '性格倾向已保存；QQ 桥没配置，这次只影响语气。'
+                : applied.plan.changed === null
+                  ? '性格倾向已保存；QQ 设置的数值不需要变。'
+                  : '性格倾向已保存，并写进了「通到QQ」。',
+            }
+          },
+        })
+        return { ok: true, ...result }
+      },
     }
   }
 

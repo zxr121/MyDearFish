@@ -333,6 +333,36 @@ test('开发者模式关着时，只读 shell 查鱼脑目录仍然拒绝', () =
   assert.equal(verdict.rule, 'sealed.fish-mind')
 })
 
+test('fish_config 改设置要开发者模式加主人前台会话，读不用开发者模式', () => {
+  const off = makeBroker()
+  const reading = off.broker.evaluate(exec('fish_config', {}))
+  assert.equal(reading.decision, 'allow', '读设置不需要开发者模式')
+  const denied = off.broker.evaluate(exec('fish_config', { patch: { 'qq.proactivePerDay': 60 } }))
+  assert.equal(denied.decision, 'deny')
+  assert.equal(denied.rule, 'fish.settings.write')
+  assert.match(denied.reason, /开发者模式/)
+
+  const on = makeBroker({ developer: true })
+  const call = exec('fish_config', { patch: { 'qq.proactivePerDay': 60 } })
+  const allowed = on.broker.evaluate(call)
+  assert.equal(allowed.decision, 'allow')
+  assert.equal(allowed.rule, 'fish.settings.write')
+  on.broker.record(call, allowed)
+  assert.equal(on.audits.at(-1).rule, 'fish.settings.write')
+  assert.equal(on.audits.at(-1).args.includes('proactivePerDay'), true)
+
+  const social = on.broker.evaluate(exec('fish_config', { patch: { 'qq.proactivePerDay': 60 } }, { sessionId: 'qq-social-group-1' }))
+  assert.equal(social.decision, 'deny')
+  assert.equal(social.rule, 'fish.settings.write')
+
+  on.broker.markAutonomous('life-1')
+  const autonomous = on.broker.evaluate(exec('fish_config', { patch: { 'qq.proactivePerDay': 60 } }, { sessionId: 'life-1' }))
+  assert.equal(autonomous.decision, 'deny')
+
+  const anonymous = on.broker.evaluate(exec('fish_config', { patch: { 'qq.proactivePerDay': 60 } }, { agent: false }))
+  assert.equal(anonymous.decision, 'deny')
+})
+
 test('开发者模式不覆盖群聊和后台会话', () => {
   const { broker, dshHome } = makeBroker({ developer: true })
   const social = broker.evaluate(exec('read', { file_path: join(dshHome, 'fish-mind', 'diag.log') }, { sessionId: 'qq-social-group-1' }))

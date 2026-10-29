@@ -5077,7 +5077,7 @@ export function apply(ctx) {
   }
 
   const 默认倾向 = Object.freeze({
-    talk: Object.freeze({ mode: 'normal', proactiveScale: 1, thresholdDelta: 0, attentionScale: 1 }),
+    talk: Object.freeze({ mode: 'normal' }),
     length: Object.freeze({ mode: 'normal' }),
     humor: Object.freeze({ mode: 'normal' }),
     stickerSend: Object.freeze({ mode: 'normal' }),
@@ -5086,7 +5086,8 @@ export function apply(ctx) {
 
   /**
    * 主人写在设置里的倾向；旧版鱼脑没有 tendency() 或字段不合法时全走默认。
-   * 桥侧再夹一次硬顶：只有鱼脑编译出的乘/加允许落到现有旋钮上。
+   * 「安静/活泼」在保存时已经写进设置里的主动每时、主动每日、判断阈值和关注上限，
+   * 桥这边只读语气和表情模式，不再在读取时乘一遍。
    */
   function 倾向策略() {
     let 原 = null
@@ -5098,19 +5099,9 @@ export function apply(ctx) {
     }
     const policy = 原 && 原.policy && typeof 原.policy === 'object' ? 原.policy : null
     if (!policy) return 默认倾向
-    const 夹 = (值, 底, 顶, 兜) => {
-      const n = Number(值)
-      return Number.isFinite(n) ? Math.min(顶, Math.max(底, n)) : 兜
-    }
     const 模式 = (块, 可选) => (块 && typeof 块 === 'object' && 可选.includes(块.mode) ? 块.mode : 'normal')
-    const talk = policy.talk && typeof policy.talk === 'object' ? policy.talk : {}
     return {
-      talk: {
-        mode: 模式(talk, ['normal', 'less', 'more']),
-        proactiveScale: 夹(talk.proactiveScale, 0.3, 2, 1),
-        thresholdDelta: 夹(talk.thresholdDelta, -0.15, 0.15, 0),
-        attentionScale: 夹(talk.attentionScale, 0.5, 1.5, 1),
-      },
+      talk: { mode: 模式(policy.talk, ['normal', 'less', 'more']) },
       length: { mode: 模式(policy.length, ['normal', 'short', 'long']) },
       humor: { mode: 模式(policy.humor, ['normal', 'less', 'more']) },
       stickerSend: { mode: 模式(policy.stickerSend, ['normal', 'less', 'off', 'more']) },
@@ -5118,11 +5109,10 @@ export function apply(ctx) {
     }
   }
 
-  /** 倾向只在这里加一次判断阈值差额；下游一律用判.阈值，不重复加。 */
+  /** 判断阈值只认设置里的值；倾向保存时已经写进设置，这里不再加差额。 */
   function 有效判断阈值(配置) {
     const 基 = Number(配置.社交.判断阈值) || 0.55
-    const 差 = 倾向策略().talk.thresholdDelta
-    return Math.max(0, Math.min(1, 基 + 差))
+    return Math.max(0.1, Math.min(1, 基))
   }
 
   /** 主动话量用完了没有：只看她自己凑上去的轮次，被叫和主人的不算。空串 = 还能说。 */
@@ -5137,9 +5127,8 @@ export function apply(ctx) {
     // 这间屋正热闹时她也少挤：话密缩到六成，刷屏缩到三成；同样留一轮兜底。
     const 热度 = 配置.社交.电量 !== false ? 房间热度(key, now) : 'normal'
     const 热缩 = 热度 === 'storm' ? 0.3 : 热度 === 'busy' ? 0.6 : 1
-    // 主人写的「安静一点 / 活泼一点」也乘在这里，和精力、热度同一套逻辑，仍留一轮兜底。
-    const 倾向缩 = 倾向策略().talk.proactiveScale
-    const 缩 = 精力缩 * 热缩 * 倾向缩
+    // 「安静一点 / 活泼一点」在保存时已经改了设置里的主动额度，这里只按精力和热度缩。
+    const 缩 = 精力缩 * 热缩
     const 每时 = 量.每时 > 0 ? Math.max(1, Math.round(量.每时 * 缩)) : 0
     const 每日 = 量.每日 > 0 ? Math.max(1, Math.round(量.每日 * 缩)) : 0
     if (每日 > 0 && c.主动今日 >= 每日) return `今天的主动话量用完了（${c.主动今日}/${每日} 轮）`
@@ -5690,7 +5679,7 @@ export function apply(ctx) {
     const 倾向 = 倾向策略()
     const 配置阈值 = 有效判断阈值(配置)
     const 阈值 = 学习期 ? 学习期阈值(配置阈值, 词数, 成熟) : 配置阈值
-    const 关注上限 = Math.max(1, Math.round((Number(配置.社交.关注上限) || 12) * 倾向.talk.attentionScale))
+    const 关注上限 = Math.max(1, Math.round(Number(配置.社交.关注上限) || 12))
     const 倾向行 = 倾向.talk.mode === 'less'
       ? '主人希望她安静一点：可接可不接的普通消息，倾向少挑、reply=false；被叫、私聊、问她本人、查好感度仍然必须看、必须回。'
       : 倾向.talk.mode === 'more'

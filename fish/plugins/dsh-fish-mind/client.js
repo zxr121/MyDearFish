@@ -3,9 +3,9 @@
  * ============================================================================
  * 这一页给主人看完整的一条鱼：
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
- *   · 性格倾向：一段话编译成旋钮/每轮提示，改代码的交给创造模式；出厂人设收进高级；
+ *   · 性格倾向：一段话编译成设置/每轮提示，能落地的保存时写进对应设置页，改代码的交给创造模式；
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
- *   · 开发者模式：只读查看本机调试资料的开关，以及一个创造模式调试会话的入口；
+ *   · 开发者模式：只读调试资料、在对话里帮她改行为设置的开关，以及创造模式调试会话的入口；
  *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
  *   · 搬迁：导出整条鱼为一个 zip；导入只收合法的大肥鱼包，随时可用，覆盖前先整份备份；
@@ -369,7 +369,9 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         try {
           await postJson(API + '/developer', { enabled: next === true })
           await load()
-          flash(next === true ? '开发者模式已打开：她现在可以只读查看 DSH 目录' : '开发者模式已关闭')
+          flash(next === true
+            ? '开发者模式已打开：她能只读看调试资料，也能在对话里帮你改行为设置'
+            : '开发者模式已关闭：读调试资料和改设置都停了')
         } catch (error) {
           flash('没改成：' + String((error && error.message) || error), 'error')
         } finally {
@@ -538,7 +540,11 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           setTendencyText(typeof result.text === 'string' ? result.text : '')
           setTendencyPreview(result)
           setTendencyError('')
-          flash('性格倾向已保存，下一轮就会按这个方向说话')
+          flash(result && result.applyStatus === 'applied'
+            ? '性格倾向已保存，主动话量等设置也写进了「通到QQ」'
+            : result && result.applyStatus === 'missing'
+              ? '性格倾向已保存；还没配置 QQ 桥，这次只影响语气'
+              : '性格倾向已保存，下一轮就会按这个方向说话')
         } catch (error) {
           flash('保存失败：' + String((error && error.message) || error), 'error')
         }
@@ -546,14 +552,16 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       }
 
       const clearTendency = async () => {
-        if (!window.confirm('清空性格倾向？她会回到出厂性格，倾向提示也不再注入。')) return
+        if (!window.confirm('清空性格倾向？她会回到出厂性格，倾向提示不再注入；倾向改过的主动话量等设置会还原到保存前的值。')) return
         setTendencyBusy('clear')
         try {
           const result = await postJson(API + '/tendency', { text: '' })
           setTendencyText('')
           setTendencyPreview(result)
           setTendencyError('')
-          flash('性格倾向已清空，她回到出厂性格')
+          flash(result && result.applyStatus === 'missing'
+            ? '性格倾向已清空，她回到出厂性格'
+            : '性格倾向已清空，她回到出厂性格，设置也还原了')
         } catch (error) {
           flash('清空失败：' + String((error && error.message) || error), 'error')
         }
@@ -779,6 +787,20 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const tendencyBlockers = list(tendencyPreview && tendencyPreview.blockers)
       const tendencyUnmatched = list(tendencyPreview && tendencyPreview.unmatched)
       const tendencyLimit = Number(tendencyPreview && tendencyPreview.maxLength) || 2000
+      const tendencyStatus = tendencyPreview && tendencyPreview.applyStatus
+      const tendencyStatusText = tendencyStatus === 'applied'
+        ? '这段倾向已经写进「通到QQ」：主动话量、判断阈值和关注上限就是那边设置页里的值。'
+        : tendencyStatus === 'missing'
+          ? '还没配置 QQ 桥：这段倾向现在只影响语气；配好后再点一次保存，就会写进「通到QQ」。'
+          : tendencyStatus === 'drifted'
+            ? '你手动改过「通到QQ」里的数值，她不会覆盖；下次保存会以你现在的值为基础重算。'
+            : '保存后会直接写进「通到QQ」的设置页，不用再去那边改两个数。'
+      const writableGroups = []
+      for (const item of list(data.settings && data.settings.writable)) {
+        const found = writableGroups.find((group) => group.page === item.page)
+        if (found) found.labels.push(item.label)
+        else writableGroups.push({ page: item.page, labels: [item.label] })
+      }
       const boundaries = data.boundaries || {}
       const permissions = boundaries.permissions || {}
       const privacy = boundaries.privacy || {}
@@ -817,7 +839,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '性格倾向',
-          note: '写你希望她长期是什么样。能落到现有设置的会直接改设置；只能靠语气的会每轮提醒她；需要改代码的，可以交给创造模式。她在外面的群聊里也会看到这段话，别写账号、密码、住址这类只有你该知道的事。安全、隐私、群规、额度和正事不受影响。',
+          note: '写你希望她长期是什么样。保存时，能落到设置的会直接写进「通到QQ」；只能靠语气的会每轮提醒她；需要改代码的，可以交给创造模式。她在外面的群聊里也会看到这段话，别写账号、密码、住址这类只有你该知道的事。安全、隐私、群规、额度和正事不受影响。',
         },
           tendencyError !== ''
             ? h('div', { 'data-fishm-banner': '' }, `现在读不了倾向：${tendencyError}`)
@@ -846,7 +868,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                     onClick: () => addTendencyPhrase(phrase),
                   }, phrase))),
                 h('div', { 'data-fishm-note': '' },
-                  '先写一句总的（安静/活泼、话短/话长、玩笑多少）；想改主动频率就写「多主动/少主动」，不用去 QQ 页改两个数；具体动作先看预览的落点，需要代码就交给创造模式。'),
+                  '先写一句总的（安静/活泼、话短/话长、玩笑多少）；想改主动频率就写「多主动/少主动」，保存后会写进「通到QQ」的主动每时和主动每日；具体动作先看预览的落点，需要代码就交给创造模式。'),
                 h('div', { 'data-fishm-actions': '' },
                   h('button', {
                     'data-fishm-btn': '',
@@ -861,6 +883,9 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                     disabled: tendencyBusy !== '' || tendencyText === '',
                     onClick: clearTendency,
                   }, tendencyBusy === 'clear' ? '清空中…' : '清空')),
+                tendencyText.trim() === ''
+                  ? null
+                  : h('div', { 'data-fishm-note': '' }, tendencyStatusText),
                 h('div', { 'data-fishm-h': '' }, '她会这样理解'),
                 tendencyLines.length === 0
                   ? h('div', { 'data-fishm-note': '' }, tendencyText.trim() === ''
@@ -873,7 +898,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                       h('div', { 'data-fishm-meta': '' },
                         `「${line.clause}」 → ${line.label} `,
                         h('span', {
-                          'data-fishm-chip': line.landing === 'knob' ? 'on' : line.landing === 'code' ? 'warn' : '',
+                          'data-fishm-chip': line.landing === 'settings' || line.landing === 'switch' ? 'on' : line.landing === 'code' ? 'warn' : '',
                         }, line.landingLabel || '')),
                       line.effect || ''))),
                 tendencyBlockers.length > 0
@@ -945,7 +970,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '开发者模式',
-          note: '给她一条只读的调试通道：在你自己的会话里查看 DSH 目录里的日志、配置和会话记录。凭据、身份文件、写入和群聊会话仍然拒绝；shell 只放行列目录、读文件这类只读命令，每次读取都记进审计。',
+          note: '给她一条调试和辅助配置的通道：在你自己的会话里只读查看 DSH 目录里的日志、配置和会话记录；也可以在对话里帮你改行为设置。凭据、身份文件、QQ 名单、安全边界、预算和代码仍然拒绝；每次读调试资料和改设置都记进审计。',
         },
           h('label', { 'data-fishm-check': '' },
             h('input', {
@@ -957,8 +982,19 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
             devBusy
               ? '正在切换…'
               : permissions.developer === true
-                ? '已打开：她自己的前台会话可以只读查看 DSH 目录'
-                : '关着：她读不了 DSH 目录'),
+                ? '已打开：你的前台会话里她能只读看调试资料、帮你改行为设置'
+                : '关着：她读不了 DSH 目录，也改不了设置'),
+          h('div', { 'data-fishm-h': '' }, '打开后她能帮你改的设置'),
+          writableGroups.length === 0
+            ? h('div', { 'data-fishm-note': '' }, '设置清单暂时读不到，重启 DSH 后再看。')
+            : h('div', { 'data-fishm-list': '' }, writableGroups.map((group, index) => h('div', {
+                'data-fishm-item': '',
+                key: index,
+              },
+                h('div', { 'data-fishm-meta': '' }, group.page),
+                group.labels.join('、')))),
+          h('div', { 'data-fishm-note': '' },
+            '在对话里直接说就行，例如「把群里主动话量调到每小时 4 次」「晚上 1 点到 8 点别主动搭话」。QQ 试运行和总开关、群/好友名单、关掉/只听、少掺和、静音时段、最低余额、预算、记忆、权限、凭据和代码不开放。'),
           h('div', { 'data-fishm-actions': '' },
             h('button', {
               'data-fishm-btn': '',
@@ -1294,7 +1330,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           h('summary', {}, '边界'),
           h('div', { 'data-fishm-sec': '' },
             h(Row, { label: '权限层', value: `${permissions.enabled ? '开' : '关'} · 急停 ${permissions.emergencyStop ? '已按下' : '未按'} · 后台会话 ${permissions.autonomous ? '放行' : '全拒'}` }),
-            h(Row, { label: '开发者模式', value: permissions.developer ? '开 · 仅主人前台会话只读 DSH 目录' : '关' }),
+            h(Row, { label: '开发者模式', value: permissions.developer ? '开 · 仅主人前台会话只读 DSH 目录、帮改行为设置' : '关' }),
             h(Row, { label: '受保护路径', value: `只读 ${num(permissions.protectedReadPaths)} 处 · 只写 ${num(permissions.protectedWritePaths)} 处 · 鱼脑封存 ${num(permissions.sealedPaths)} 处` }),
             h(Row, { label: '外部 MCP', value: `${num(permissions.mcpReadOnlyTools)} 类只读动作；其他默认拒绝` }),
             h(Row, { label: '硬拒绝', value: hardText.join(' · ') || '—' }),
@@ -1529,7 +1565,8 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         title: '你可以设置什么',
         body: [
           '• 出生设定（「大肥鱼」页）：名字、物种、外形、怎么称呼你、来历、说话习惯，以及可以自由增删的群友关系',
-          '• 性格倾向（「大肥鱼」页）：写一段你希望她长期是什么样。能落到现有设置的会直接改设置，只能靠语气的每轮提醒她；预览会告诉你哪些话直接改了设置、哪些只是每轮提示、哪些需要交给创造模式改代码',
+          '• 性格倾向（「大肥鱼」页）：写一段你希望她长期是什么样。保存时会直接写进「通到QQ」的主动每时、主动每日、判断阈值和关注上限；只能靠语气的每轮提醒她；预览会告诉你哪些话写进了设置、哪些只是每轮提示、哪些需要交给创造模式改代码',
+          '• 开发者模式（「大肥鱼」页）：打开后她在你自己的会话里能只读查看调试资料，也能按你的话用 fish_config 改行为设置（主动话量、阈值、关注上限、称呼、兴趣词、不聊话题、主动搭话和性格倾向）；安全、预算、名单、凭据和代码仍然不开放',
           '• 心情（「鱼的心情」页）：称呼和昵称、生效会话、判断模型、是否每轮判断、是否注入、基线、下限',
           '• 主动搭话（「主动搭话」页）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
           '• QQ（「通到 QQ」页）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
@@ -1543,7 +1580,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         title: '小贴士',
         body: [
           '1. 记忆存在本机，换窗口、重启都还在；含密码、密钥等凭据的整条经历只留时间和来源，超长正文会截断。日/周/月章节会在后台自动整理',
-          '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系、说话风格和性格倾向；倾向会先预览再保存',
+          '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系、说话风格和性格倾向；倾向会先预览再保存，保存后主动话量等数值会直接出现在「通到QQ」设置页',
           '3. 主动搭话要先勾目标会话（出厂试运行关着，掷中就真发；想先只看记录就打开试运行）；到点掷骰子，安静时段不掷，刚聊过更难开口',
           '4. 隐私、法律红线和危险命令的硬规则改不了，改出生设定也改不了',
           '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）；凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不在包里，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。导入随时可用，会覆盖现在这条鱼、覆盖前先整份备份，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',

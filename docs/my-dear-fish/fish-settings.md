@@ -2,7 +2,7 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, developer mode, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, automatic backup, and the developer-mode switch are editable, everything else is read-only, and a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and a wrong format writes no file; an import is always available, replaces the current fish, and backs it up in full first.
+The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, developer mode, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, automatic backup, and the developer-mode switch are editable, everything else is read-only, and with developer mode on she can also change behavior settings for you in the owner's own foreground session; a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and a wrong format writes no file; an import is always available, replaces the current fish, and backs it up in full first.
 
 ## Overview
 
@@ -20,7 +20,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; a closed voice card can be shown again here; addresses, tokens, and login state are not shown | Card visibility only |
 | Pocket money | Daily grant, available balance, spent today, and call count; Bilibili patrol spend today and its quarter-of-the-grant cap | No |
 | Automatic backup | Whether the whole fish is packed on a schedule, the interval (1–720 hours), the latest and next backup, and the five retained files; a backup can also be taken immediately | Yes |
-| Developer mode | Whether she may read local debugging material; the adjacent button opens a Creator-mode debugging session | Yes |
+| Developer mode | Whether she may read local debugging material and change behavior settings for you in the owner's foreground session; the adjacent button opens a Creator-mode debugging session | Yes |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
 
 Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.
@@ -30,6 +30,8 @@ The overview exists only in the local settings UI. Its routes register on the DS
 ## Developer mode
 
 Developer mode is off by default. While it is off, tools reading anything under `$DSH_HOME` are refused outright as `private.dsh-home`. When it is on, she may use read-only tools and read-only shell commands (directory listings, file reads, and searches) in the owner's own foreground session to inspect logs, configuration, and session records in the DSH directory for troubleshooting; credential files (`.env`, `.credentials.yaml`, `~/.ssh`, and the like), identity files, writes, and write-capable commands are still refused, as are group/friend sessions, subagents, and background sessions. Every allowed read is recorded in the audit log as `developer.read`.
+
+The same switch governs behavior settings: `fish_config` reads settings without developer mode, while writes require developer mode plus the owner's own foreground session and are recorded as `fish.settings.write`; only proactive volume, judgment threshold, attention cap, sticker saving, proactive-chat pacing, and tendency are writable — group/friend lists, dry run and the master switch, off/listen-only, low involvement, quiet hours, minimum balance, budget, memory, permissions, credentials, and code stay closed.
 
 The “Open a debugging session in Creator mode” button in the same block first registers her own installation directory as a workspace (an existing registration is reused; it is the source repository in development and the exe directory in an installed build), then starts a new blank session there with the Creator (`cordis`) preset while keeping the fish persona and memory; Creator mode's own ability to edit code and write files comes from the host preset and is not governed by this switch. Turn the switch off after troubleshooting and the next tool call returns to the hard refusal.
 

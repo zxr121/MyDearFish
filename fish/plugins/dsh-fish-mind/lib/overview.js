@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { importIsPending, readImportReport } from './archive.js'
 import { DEFAULT_IDENTITY, IDENTITY_LIMITS, OWNER_GENDERS } from './birth.js'
+import { SETTING_ITEMS } from './settings-catalog.js'
 
 const DIM_LABELS = {
   happy: '开心',
@@ -241,6 +242,10 @@ function backupOverview(backup) {
   }
 }
 
+function writableSettingsOverview() {
+  return SETTING_ITEMS.map((item) => ({ key: item.key, page: item.page, label: item.label }))
+}
+
 function boundariesOverview(permissions, privacy, injection) {
   const permissionInfo = isPlainObject(permissions) ? permissions : {}
   const privacyInfo = isPlainObject(privacy) ? privacy : {}
@@ -401,6 +406,7 @@ export function buildOverview({
         }
       : { text: '', updatedAt: 0, matched: 0, unmatched: 0 },
     phase: text(phase, 200),
+    settings: { writable: writableSettingsOverview() },
     memory: memoryOverview(store, now),
     mood: moodOverview(dshHome),
     social: socialOverview(dshHome),
