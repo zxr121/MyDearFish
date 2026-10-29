@@ -1251,6 +1251,29 @@ const 学表情提示 = String(学表情轮?.message?.content?.[0]?.text || '')
 报('学表情：判断提示说明只发一张表情也算接上', String(判断调用.at(-1)?.system).includes('只发一张表情接住也算接上了'))
 报('表情包当接话方式的场景提示挂上了', 场景提示.some((s) => 提示文本(s).includes('表情包也是一种接话方式')))
 
+// ---------- 6f2 学表情：好友私聊里反复见到的同一张也自动收 ----------
+const 好友带图 = (id, 文本, { uid = 879, url, 表情 = true } = {}) => ({
+  user_id: uid,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: id,
+  sender: { card: '好友879', nickname: 'x' },
+  message: [
+    { type: 'image', data: { url, file: 'a.jpg', summary: 表情 ? '[动画表情]' : '[图片]', sub_type: 表情 ? 1 : 0 } },
+    { type: 'text', data: { text: 文本 } },
+  ],
+})
+写配置({ 群: [], 好友: ['879'], 只听: ['friend:879'], 学表情: true, 判断冷却秒: 0 })
+const 好友自动图 = 'https://multimedia.nt.qq.com.cn/auto-collect-friend.jpg'
+固定图.set(好友自动图, Buffer.from([0xff, 0xd8, 0xff, 0xe4]))
+好友消息表.set(879, [
+  好友带图(4391, '哈哈哈', { url: 好友自动图 }),
+  好友带图(4392, '哈哈哈', { url: 好友自动图 }),
+])
+const 收藏数前6f2 = QQ收藏.size
+await 轮询社交()
+await 等()
+报('学表情：好友私聊里反复见到的同一张也自动收', QQ收藏.size === 收藏数前6f2 + 1, `收藏 +${QQ收藏.size - 收藏数前6f2}`)
+
 // ---------- 6g 学表情关掉：不量、不自动收藏、提示里也不提群里的表情习惯 ----------
 写配置({ 群: ['1076'], 学表情: false, 判断冷却秒: 0 })
 const 关图 = 'https://multimedia.nt.qq.com.cn/auto-collect-off.jpg'

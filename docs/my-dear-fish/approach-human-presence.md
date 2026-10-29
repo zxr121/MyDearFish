@@ -129,7 +129,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 | --- | --- | --- |
 | Owner gender female / male / unspecified, never guessed | The pronoun version shipped; being upgraded to a gender field | Follow the in-progress birth-identity change |
 | A sticker alone counts as a reply | Done in 0.2.87 | Keep |
-| Collect stickers automatically and learn by scene | Done in 0.2.87 | Verify that private chats also collect |
+| Collect stickers automatically and learn by scene | Done in 0.2.87; private chats collect since 0.2.89 | Keep |
 | Native quote, ellipses never split a sentence | Done in 0.2.85 / 0.2.86 | Keep |
 | Recognize being addressed by name | Only replies and @ | Added this round |
 | Per-room off / listen-only / less mingling / resting | Done | Keep |
