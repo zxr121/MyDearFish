@@ -157,8 +157,8 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 | Mood and proactive talk in groups | Mood skips social rooms; proactive talk excludes social rooms | 0.2.91 made mood read-only in social rooms; proactive talk still excludes them |
 | Multi-group concurrency cost | Only the global quota | Adds energy and judge cooldowns this round |
 | Overlong sessions, failure recovery | Compression threshold, reset route, and consecutive-failure pause done | Keep |
-| White text in dark-theme dropdowns | Fixed only on the “Reach QQ” page | Audit the remaining dropdowns page by page |
-| Recognizing people in images, sticker ownership | md5 and sender markers in place | Verify the private-chat path |
+| White text in dark-theme dropdowns | All five fish pages carry dark option backgrounds: QQ bridge, speak-up, fish-mind, mood, and Bilibili; the TTS page has no dropdown | Done |
+| Recognizing people in images, sticker ownership | md5 and sender markers in place; private-chat saving, renaming, sending by number, duplicate detection, and honesty about a missing number all have tests | Done |
 
 ## Acceptance
 
@@ -175,11 +175,11 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 ## Implementation order
 
 1. Done (0.2.88): the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
-2. This round (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
-3. This round (0.2.92): the ledger groups by reply strand; replies and judgments fill the quoted strand first, then top up the budget with recent words.
+2. Done (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
+3. Done (0.2.92): the ledger groups by reply strand; replies and judgments fill the quoted strand first, then top up the budget with recent words.
 4. Done (0.2.93): social battery and rhythm jitter between consecutive sends.
-5. This round (0.2.94): the repair turn.
-6. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
+5. Done (0.2.94): the repair turn.
+6. Done: page-by-page audit of settings dropdowns and the private-chat sticker path. All five fish pages carry dark option backgrounds, the TTS page has no dropdown, and settings pages of non-fish plugins are outside this plugin's scope; saving, renaming, sending by number, deduplicating stickers, and being honest about a missing number all have private-chat test coverage.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 
@@ -191,5 +191,6 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | `社交.短应` | true | Allow the judge model to return a short reaction without a separate reply call |
 | `社交.精力` | true | Whether the allowance affects group proactive talk, judging, exploration, and length |
 | `社交.电量` | true | Whether recent per-room speech lowers the proactive quota |
+| `社交.重说` | true | Whether a "?" or "didn't catch that" triggers a direct rephrase without another judgment |
 
 `判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value.
