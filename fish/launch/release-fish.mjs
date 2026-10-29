@@ -274,6 +274,18 @@ async function 下载安装包({ url, 文件, 大小, sha }) {
         进度(`  下载 ${MB(已收)} / ${总量 ? MB(总量) : '?'}  ${百分比.toFixed(1)}%  ${MB(速度)}/s  剩 ${时钟(剩余)}`)
       }
       await new Promise((resolve, reject) => {
+        let 慢次数 = 0
+        const 监控 = setInterval(() => {
+          const 秒 = Math.max(0.001, (Date.now() - 开始) / 1000)
+          const 均速 = (已收 - 起点) / 秒
+          if (秒 > 15 && 均速 < 800 * 1024 && (!总量 || 已收 < 总量 * 0.98)) {
+            慢次数++
+            if (慢次数 >= 2) res.destroy(new Error('速度过慢'))
+          } else {
+            慢次数 = 0
+          }
+        }, 5000)
+        const 清理 = () => clearInterval(监控)
         res.on('data', (块) => {
           已收 += 块.length
           const 现在 = Date.now()
@@ -283,9 +295,18 @@ async function 下载安装包({ url, 文件, 大小, sha }) {
             显示()
           }
         })
-        res.on('error', reject)
-        输出.on('error', reject)
-        输出.on('finish', resolve)
+        res.on('error', (错误) => {
+          清理()
+          reject(错误)
+        })
+        输出.on('error', (错误) => {
+          清理()
+          reject(错误)
+        })
+        输出.on('finish', () => {
+          清理()
+          resolve()
+        })
         res.pipe(输出)
       })
       显示()
@@ -300,7 +321,10 @@ async function 下载安装包({ url, 文件, 大小, sha }) {
       if (尝试 >= 100) throw 错误
       const 现在 = existsSync(目标) ? statSync(目标).size : 0
       说(`  连接中断（${错误.message}），第 ${尝试} 次重试，已下 ${MB(现在)}`)
-      if (!走镜像 && 尝试 % 4 === 0) {
+      if (错误.message === '速度过慢') {
+        if (!走镜像) 说('  直连太慢，改走 gh-proxy.com 镜像')
+        走镜像 = true
+      } else if (!走镜像 && 尝试 % 4 === 0) {
         走镜像 = true
         说('  改走 gh-proxy.com 镜像')
       } else if (走镜像 && 尝试 % 6 === 0) {
