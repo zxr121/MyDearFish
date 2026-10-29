@@ -75,13 +75,17 @@ Since 0.2.91, the chat prompt filter no longer drops the `feiyu-mood` context in
 
 Since 0.2.92, context is grouped by "who this replies to": when a reply or judgment needs older words, the bridge first fills in the strand containing the quoted message, then fills the remaining count budget with the most recent chatter (20 messages / 2400 characters for replies, 12 messages for judgments), and finally orders everything by time. Every segment she sends records its real message ids, so a later reply to her can reconnect the whole strand. The budget does not grow; it just yields space to more relevant words.
 
+### Rhythm jitter
+
+The pause between two consecutive sends is no longer a fixed 450 milliseconds; it falls between 0.4 and 1.2 seconds based on the length of the previous segment plus some randomness: longer after a long line, shorter after a brief reaction. Owner private chats and social sessions share this rhythm, so it no longer reads like a timer.
+
 ### Rhythm
 
 Group reply delays stop being fixed: jitter of 0.6 to 1.6 times based on message length and mood, never below 0.8 seconds; 0.4 to 1.2 seconds between consecutive sends; when the other side keeps typing, wait for the last message. The longer the text, the likelier it splits into two messages, but anything that fits in one stays one.
 
 ### Social battery
 
-Each room keeps its own battery from 0 to 1: the more she has said in the last fifteen minutes, the lower it is; a low battery halves the proactive quota and stretches cooldowns; an empty battery leaves only messages that call her. The battery recovers over time and refills after a rest of hours without speaking. It is a second layer beside the global allowance: the battery decides whether this room wants her to speak, the allowance decides whether she still can.
+Since 0.2.93, how many messages other people sent in the room during the last ten minutes becomes a heat level: twenty or more counts as chatty and cuts her proactive quota to sixty percent, forty or more counts as a flood and cuts it to thirty percent, always leaving at least one turn per hour and per day. People do not force their way into a lively conversation, and this saves money too. Being called, being asked about herself, owner messages, and friend private chats bypass this quota; turning `社交.电量` off uses the fixed quota only. Heat reads the room's activity, not how much she herself has said: consecutive-speech caps already bound that, and following the room's rhythm is what makes her look human.
 
 ## Energy: the balance is strength
 
@@ -169,8 +173,9 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 1. Done (0.2.88): the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
 2. This round (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
 3. This round (0.2.92): the ledger groups by reply strand; replies and judgments fill the quoted strand first, then top up the budget with recent words.
-4. Next round: social battery, rhythm jitter, repair turns; read-only mood already reached social rooms in 0.2.91.
-5. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
+4. This round (0.2.93): social battery and rhythm jitter between consecutive sends.
+5. Next round: repair turns.
+6. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 

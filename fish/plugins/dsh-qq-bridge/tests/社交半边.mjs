@@ -1007,7 +1007,8 @@ await 等()
 报('连发：主人 @ 照常开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1025').length === 群1025之前 + 1)
 const 群1025之前发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length
 await 收到回复('session-qq-social-group-1025', '来啦\n\n我看看\n\n你们聊什么\n\n我也想听\n\n再说点')
-await new Promise((r) => setTimeout(r, 1100))
+await 等到(async () => 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length >= 群1025之前发 + 3, 6000)
+await new Promise((r) => setTimeout(r, 100))
 const 群1025发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).slice(群1025之前发)
 报('连发：五段只发三条，尾部并进最后一条', 群1025发.length === 3 && 群1025发[2].体.message[0].data.text === '你们聊什么\n我也想听\n再说点', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
 
@@ -1021,7 +1022,8 @@ await 等()
 报('连发：整段多句照常开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1030').length === 句拆前轮 + 1)
 const 句拆前发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1030).length
 await 收到回复('session-qq-social-group-1030', '鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')
-await new Promise((r) => setTimeout(r, 700))
+await 等到(async () => 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1030).length >= 句拆前发 + 2, 4000)
+await new Promise((r) => setTimeout(r, 100))
 const 句拆发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1030).slice(句拆前发)
 报('连发：整段多句断成两条，句号收掉', 句拆发.length === 2 && 句拆发[0].体.message[0].data.text === '鱼片没有，自己人不能切片' && 句拆发[1].体.message[0].data.text === '倒是那个小兔话，我听着还挺亲切', JSON.stringify(句拆发.map((x) => x.体.message[0].data.text)))
 
@@ -1547,7 +1549,8 @@ await 轮询社交()
 await 等()
 const 多前 = 发的.length
 await 收到回复('session-qq-social-group-1012', '怎么啦\n\n还有一句')
-await new Promise((r) => setTimeout(r, 600))
+await 等到(async () => 发的.slice(多前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012).length >= 2, 4000)
+await new Promise((r) => setTimeout(r, 100))
 const 多回 = 发的.slice(多前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
 报('连发多条：reply 段只在第一条',
   多回.length === 2 && 多回[0].体.message[0]?.type === 'reply' && 多回[0].体.message[0]?.data?.id === '4242' &&
@@ -1565,7 +1568,8 @@ await 轮询社交()
 await 等()
 const 戳前 = 发的.length
 await 收到回复('session-qq-social-group-1012', '在呢 [戳人:123456]')
-await new Promise((r) => setTimeout(r, 600))
+await 等到(async () => 发的.slice(戳前).some((x) => x.url.endsWith('/group_poke')) && 发的.slice(戳前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012), 4000)
+await new Promise((r) => setTimeout(r, 100))
 const 主动戳 = 发的.slice(戳前).find((x) => x.url.endsWith('/group_poke'))
 const 戳后文字 = 发的.slice(戳前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
 报('她说 [戳人:QQ号] → 调 group_poke 戳那个人', 主动戳 && 主动戳.体.group_id === 1012 && 主动戳.体.user_id === 123456, JSON.stringify(主动戳))
@@ -3454,6 +3458,36 @@ const 串判断提示 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?
 const 串回复文 = String(回合.at(-1)?.message.content[0].text || '')
 报('回复串：回复里也把被引用的旧话带回来', 开了串轮 && 串回复文.includes('【最近聊过】群友888：周末有人去爬山吗'), 串回复文.slice(0, 700))
 await 收到回复('session-qq-social-group-1413', '好呀')
+
+// ---------- 37 社交电量：这间屋正热闹时，主动搭话的额度自动收 ----------
+写配置({ 群: ['1415'], 快判: false, 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 主动每时: 2, 主动每日: 5, 连说上限: 0, 低信号跳过: false })
+const 热闹批 = Array.from({ length: 20 }, (_, i) => 一条群消息(`热闹消息第${i + 1}条`, { uid: i % 2 === 0 ? 889 : 890, id: 79701 + i }))
+群消息表.set(1415, 热闹批)
+设判断([], false, 0.2, '先不接')
+await 轮询社交()
+await 等()
+报('社交电量：这间屋的热闹先记进账本', (await 目标状态('group:1415')).待看 === 0 && (await 目标状态('group:1415')).热度 === 'busy', JSON.stringify({ 热度: (await 目标状态('group:1415')).热度 }))
+时间偏移 += 11_000
+群消息表.set(1415, [...群消息表.get(1415), 一条群消息('今天外面好热啊', { uid: 888, id: 79721 })])
+设判断(['79721'], true, 0.9, '接一句')
+const 电量前回合 = 回合.length
+const 电量前判断 = 判断调用.length
+await 轮询社交()
+const 开了电量轮 = await 等到(async () => 回合.length === 电量前回合 + 1)
+const 电量文 = String(回合.at(-1)?.message.content[0].text || '')
+报('社交电量：话密的屋子额度从 2 收到 1，还能接一轮', 电量前判断 + 1 === 判断调用.length, '判断=' + (判断调用.length - 电量前判断))
+报('社交电量：提示里说明这间屋正忙，别硬挤', 开了电量轮 && 电量文.includes('这间屋这会儿话比较密'), 电量文.slice(-400))
+await 收到回复('session-qq-social-group-1415', '是有点热')
+await new Promise((r) => setTimeout(r, 200))
+时间偏移 += 11_000
+群消息表.set(1415, [...群消息表.get(1415), 一条群消息('晚上会不会凉快', { uid: 888, id: 79722 })])
+设判断(['79722'], true, 0.9, '再接一句')
+const 电量后判断 = 判断调用.length
+await 轮询社交()
+await 等()
+报('社交电量：额度用完后不再主动开口，省下判断的钱',
+  判断调用.length === 电量后判断 && (await 日志文本()).includes('这小时的主动话量用完了（1/1 轮）'),
+  JSON.stringify({ 判断: 判断调用.length - 电量后判断 }))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

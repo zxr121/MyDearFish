@@ -273,6 +273,7 @@ const 默认配置 = {
     冷却最短秒: 2, // 她最有兴致时的最短间隔
     冷却最长倍率: 1.2, // 她兴致最低时，冷却乘以这个数
     精力: true, // 余额当力气用：累了少主动、短一点；关掉只看余额下限
+    电量: true, // 这间屋最近聊得越热，主动搭话的额度越低；被叫和主人不算
     余额吃紧线: 5, // 零花钱低于这个数时，冷却按曲线逐渐拉长
     余额吃紧倍率: 1.5, // 余额接近最低时冷却最多乘以这个数
     最低余额: 1, // 零花钱低于这个数就不主动接话（被叫也不接，省着点）
@@ -522,6 +523,7 @@ function 归一化社交(原始, 主人号 = '') {
     判断阈值: 数(混.判断阈值, 兜.判断阈值, 0.1, 1),
     低信号跳过: 布(混.低信号跳过, 兜.低信号跳过),
     短应: 布(混.短应, 兜.短应),
+    电量: 布(混.电量, 兜.电量),
     判断冷却秒: Math.round(数(混.判断冷却秒, 兜.判断冷却秒, 0, 3600)),
     聚拢秒: Math.round(数(混.聚拢秒, 兜.聚拢秒, 0, 60)),
     并行: 布(混.并行, 兜.并行),
@@ -744,6 +746,32 @@ export function 串上下文(账本, 批, 条数上限, 字数上限) {
     const bi = 序号.get(String((b && b.id) || ''))
     return (ai === undefined ? 0 : ai) - (bi === undefined ? 0 : bi)
   })
+}
+
+/**
+ * 连发两条之间的停顿：上一条越长，她“打完再发下一条”停得越久一点；
+ * 带一点随机，落在 0.4~1.2 秒，不会像定时器一样每次都一样。
+ * @param {string} 上一条 - 刚发出去的那段文字。
+ * @param {number} 随机 - 0~1 的随机数；测试时可以固定。
+ * @returns {number} 毫秒。
+ */
+export function 发段间隔(上一条, 随机 = Math.random()) {
+  const 字 = String(上一条 || '').replace(/\[[^\]\n]*\]/g, '').trim().length
+  const 中 = 450 + Math.min(350, 字 * 25)
+  const 倍 = 0.6 + Math.min(0.99, Math.max(0, Number(随机) || 0)) * 0.9
+  return Math.round(Math.min(1200, Math.max(400, 中 * 倍)))
+}
+
+/**
+ * 十分钟内这间屋有多少条别人的话：越多越热闹，她越不用挤进去。
+ * @param {number} 条数 - 窗口里别人说的话。
+ * @returns {'normal'|'busy'|'storm'} 冷清、话密、刷屏。
+ */
+export function 聊天热度(条数) {
+  const n = Math.max(0, Math.round(Number(条数) || 0))
+  if (n >= 40) return 'storm'
+  if (n >= 20) return 'busy'
+  return 'normal'
 }
 
 /** "23:00-08:00" 在当刻是否生效；空串 = 不静音。支持跨午夜。 */
@@ -4868,6 +4896,16 @@ export function apply(ctx) {
     }
   }
 
+  /** 这间屋最近十分钟的热闹程度：只数别人说的话，她自己刷的不算。 */
+  function 房间热度(key, now = Date.now()) {
+    const 近 = (社交缓冲.get(key) || []).filter((m) => {
+      if (!m || m.自己) return false
+      const at = Number(m.at) || 0
+      return at > 0 && now - at * 1000 < 10 * 60_000
+    })
+    return 聊天热度(近.length)
+  }
+
   /** 主动话量用完了没有：只看她自己凑上去的轮次，被叫和主人的不算。空串 = 还能说。 */
   function 主动额度用完(配置, key, now = Date.now()) {
     const c = 计数of(key)
@@ -4876,7 +4914,11 @@ export function apply(ctx) {
     if (精力 && 精力.proactiveScale <= 0) return `这会儿${精力.label}，不主动开口`
     const 量 = 话量of(配置, key)
     // 精力低时主动额度跟着缩，但不低于每小时 / 每天一轮；被叫和主人本来就不走这里。
-    const 缩 = 精力 && 精力.proactiveScale < 1 ? Math.max(0.1, 精力.proactiveScale) : 1
+    const 精力缩 = 精力 && 精力.proactiveScale < 1 ? Math.max(0.1, 精力.proactiveScale) : 1
+    // 这间屋正热闹时她也少挤：话密缩到六成，刷屏缩到三成；同样留一轮兜底。
+    const 热度 = 配置.社交.电量 !== false ? 房间热度(key, now) : 'normal'
+    const 热缩 = 热度 === 'storm' ? 0.3 : 热度 === 'busy' ? 0.6 : 1
+    const 缩 = 精力缩 * 热缩
     const 每时 = 量.每时 > 0 ? Math.max(1, Math.round(量.每时 * 缩)) : 0
     const 每日 = 量.每日 > 0 ? Math.max(1, Math.round(量.每日 * 缩)) : 0
     if (每日 > 0 && c.主动今日 >= 每日) return `今天的主动话量用完了（${c.主动今日}/${每日} 轮）`
@@ -4938,8 +4980,20 @@ export function apply(ctx) {
     社交总今日.数 += 1
   }
 
-  /** 这一轮该用什么分寸说话：热、温、淡，或余额吃紧时收着。只给她自己看，不进对外消息。 */
+  /** 这一轮该用什么分寸说话：热、温、淡，或余额吃紧时收着；群里太热闹时提醒别硬挤。 */
   function 这一轮的分寸(配置, 目标, 批, 把握 = 0, 阈值 = 0.55) {
+    const 基 = 分寸正文(配置, 目标, 批, 把握, 阈值)
+    const 热度 = 目标.类型 === 'group' && 配置.社交.电量 !== false ? 房间热度(目标.key) : 'normal'
+    const 热行 = 热度 === 'storm'
+      ? '这间屋这会儿刷得很快，大家正聊得热：没叫她时别挤进去，被叫到就短答一句。'
+      : 热度 === 'busy'
+        ? '这间屋这会儿话比较密：没叫她时不用急着接，被叫到照常回。'
+        : ''
+    return 热行 === '' ? 基 : `${基} ${热行}`
+  }
+
+  /** 这一轮该用什么分寸说话：热、温、淡，或余额吃紧时收着。只给她自己看，不进对外消息。 */
+  function 分寸正文(配置, 目标, 批, 把握 = 0, 阈值 = 0.55) {
     const s = 配置.社交
     const 群 = 目标.类型 === 'group'
     const c = 计数of(目标.key)
@@ -7971,7 +8025,7 @@ export function apply(ctx) {
           记账(`⚠ 在 ${目标.叫} 戳 ${项.戳人} 失败：${JSON.stringify(r.数据).slice(0, 140)}`)
         }
       }
-      if (i < 项们.length - 1) await new Promise((r2) => setTimeout(r2, 450))
+      if (i < 项们.length - 1) await new Promise((r2) => setTimeout(r2, 发段间隔(项们[i].文字 || '')))
     }
     const 文字条数 = 项们.filter((x) => x.文字 !== undefined).length
     const 戳人数 = 项们.filter((x) => x.戳人 !== undefined).length
@@ -8136,7 +8190,6 @@ export function apply(ctx) {
     const 目标们 = []
     if (配置.转私聊 && 配置.私聊QQ) 目标们.push({ 类型: 'private', 号: Number(配置.私聊QQ) })
     if (配置.转群 && 配置.群号) 目标们.push({ 类型: 'group', 号: Number(配置.群号) })
-    const 发段延迟 = 450 // 每段之间隔一下，像真人一条条发
     let 已带引用 = false
 
     for (let i = 0; i < 项们.length; i++) {
@@ -8165,7 +8218,7 @@ export function apply(ctx) {
           }
         }
       }
-      if (i < 项们.length - 1) await new Promise((r) => setTimeout(r, 发段延迟))
+      if (i < 项们.length - 1) await new Promise((r) => setTimeout(r, 发段间隔(项们[i].文字 || '')))
     }
     return 出
   }
@@ -8648,6 +8701,7 @@ export function apply(ctx) {
           少掺和: 目标.类型 === 'group' && 少掺和房间(配置, 目标),
           歇到: 目标.歇到 || 0,
           话量: 话量of(配置, 目标.key),
+          热度: 目标.类型 === 'group' ? 房间热度(目标.key, 现在) : 'normal',
           人的态度: 目标.类型 === 'group'
             ? Object.fromEntries(Object.entries(配置.社交.人的态度[目标.key] || {}).filter(([, 值]) => 取人态(值) !== null))
             : {},

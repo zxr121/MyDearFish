@@ -37,6 +37,17 @@ writeFileSync(
 let 挂了 = 0
 const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 'PASS' : 'FAIL'}  ${标签}${详情 ? '  :: ' + 详情 : ''}`) }
 
+// 连发之间隔着 0.4~1.2 秒的抖动，等“发够条数”而不是死等某个毫秒数
+const 等到 = async (条件, 毫秒 = 2500) => {
+  const 止 = Date.now() + 毫秒
+  while (Date.now() < 止) {
+    if (await 条件()) return true
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  return false
+}
+const 等稳 = () => new Promise((r) => setTimeout(r, 100))
+
 // 假 fetch：记下每次 POST，回一个「发送成功」；拉历史时给一条她的新消息
 const 发了 = []
 let 私聊消息文本 = '宝宝'
@@ -243,6 +254,11 @@ const 自己账本 = [
 const 自己选 = 模.串上下文(自己账本, [{ id: '952', 说话人: '乙', 文字: '你俩聊啥呢', 回复id: '951' }], 6, Infinity)
 报('串上下文：别人回复她的真实消息也能接上串', 自己选.map((m) => m.id).join(',') === '900,self-1,951', JSON.stringify(自己选.map((m) => m.id)))
 报('串上下文：字数预算紧时只留最近的', 模.串上下文(串账本, [], 20, 20).map((m) => m.id).join(',') === '905', JSON.stringify(模.串上下文(串账本, [], 20, 20).map((m) => m.id)))
+报('聊天热度：十分钟别人二十条算话密，四十条算刷屏', 模.聊天热度(19) === 'normal' && 模.聊天热度(20) === 'busy' && 模.聊天热度(39) === 'busy' && 模.聊天热度(40) === 'storm')
+报('聊天热度：坏输入当冷清', 模.聊天热度(undefined) === 'normal' && 模.聊天热度(-5) === 'normal' && 模.聊天热度('30') === 'busy')
+报('发段间隔：再快也不低于 0.4 秒、再慢不超过 1.2 秒', 模.发段间隔('', 0) >= 400 && 模.发段间隔('一段相当长的文字'.repeat(10), 1) <= 1200, JSON.stringify([模.发段间隔('', 0), 模.发段间隔('一段相当长的文字'.repeat(10), 1)]))
+报('发段间隔：上一条越长，停得越久', 模.发段间隔('嗯', 0.5) < 模.发段间隔('今天外面风好大，你那边下雨了吗', 0.5), JSON.stringify([模.发段间隔('嗯', 0.5), 模.发段间隔('今天外面风好大，你那边下雨了吗', 0.5)]))
+报('发段间隔：同样长度也会抖一下', 模.发段间隔('好的呀', 0) !== 模.发段间隔('好的呀', 0.9))
 
 // ---------- 假 ctx ----------
 const 监听 = []
@@ -384,26 +400,30 @@ const 脱敏后 = 发了.at(-1)?.体.message[0].data.text || ''
 const 之前c = 发了.length
 监听[0](会话, 助手消息(81, 1, [块('text', '宝宝\n\n我看看图')], false))
 监听[0](会话, 转完(81))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.length >= 之前c + 2)
+await 等稳()
 const 连发 = 发了.slice(之前c)
 报('连发：空行拆成两条私聊', 连发.length === 2 && 连发.every((x) => x.url.endsWith('/send_private_msg')), JSON.stringify(连发.map((x) => x.体.message[0].data.text)))
 报('连发：两条各是一段', 连发.length === 2 && 连发[0].体.message[0].data.text === '宝宝' && 连发[1].体.message[0].data.text === '我看看图', JSON.stringify(连发.map((x) => x.体.message[0].data.text)))
 const 之前d = 发了.length
 监听[0](会话, 助手消息(82, 1, [块('text', '嗯嗯\n我看图')], false))
 监听[0](会话, 转完(82))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.length >= 之前d + 2)
+await 等稳()
 报('连发：没有空行时单换行也拆', 发了.slice(之前d).length === 2, JSON.stringify(发了.slice(之前d).map((x) => x.体.message[0].data.text)))
 const 之前e = 发了.length
 监听[0](会话, 助手消息(83, 1, [块('text', '鱼片没有，自己人不能切片。倒是那个小兔话，我听着还挺亲切。')], false))
 监听[0](会话, 转完(83))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.length >= 之前e + 2)
+await 等稳()
 报('连发：一整段多句按句尾断成两条，句号收掉', 发了.slice(之前e).length === 2 && 发了.slice(之前e)[0].体.message[0].data.text === '鱼片没有，自己人不能切片' && 发了.slice(之前e)[1].体.message[0].data.text === '倒是那个小兔话，我听着还挺亲切', JSON.stringify(发了.slice(之前e).map((x) => x.体.message[0].data.text)))
 
 // ②d 连发表情：几张表情和话混着写，私聊里按写下顺序一张张、一句句发
 const 之前f = 发了.length
 监听[0](会话, 助手消息(84, 1, [块('text', '[发表情:#2] 给你[发表情:#5] 都拿去')], false))
 监听[0](会话, 转完(84))
-await new Promise((r) => setTimeout(r, 1800))
+await 等到(() => 发了.length >= 之前f + 4, 5000)
+await 等稳()
 const 表情连发 = 发了.slice(之前f)
 报('连发表情：私聊按写下顺序排（表情→话→表情→话）', 表情连发.length === 4
   && 表情连发[0].url.endsWith('/send_custom_face') && 表情连发[0].体.emoji_id === 'e2'
@@ -416,7 +436,8 @@ const 表情连发 = 发了.slice(之前f)
 const 之前g = 发了.length
 监听[0](会话, 助手消息(85, 1, [块('text', '[发表情:#99] 还有一张[发表情:#2]')], false))
 监听[0](会话, 转完(85))
-await new Promise((r) => setTimeout(r, 1300))
+await 等到(() => 发了.length >= 之前g + 2)
+await 等稳()
 const 跳过 = 发了.slice(之前g)
 报('连发表情：收藏里没有的编号跳过不挡后面的', 跳过.length === 2
   && 跳过[0].url.endsWith('/send_private_msg') && 跳过[0].体.message[0].data.text === '还有一张'
@@ -794,7 +815,8 @@ const 存文 = 转进的.at(-1)?.content?.[0]?.text || ''
 const 之前发回 = 发了.length
 监听[0](会话, 助手消息(160, 1, [块('text', `发你 [发表情:#${绿?.id}]`)], false))
 监听[0](会话, 转完(160))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.slice(之前发回).filter((x) => x.url.endsWith('/send_custom_face') || x.url.endsWith('/send_private_msg')).length >= 2)
+await 等稳()
 const 发回 = 发了.slice(之前发回)
 报('私聊：按收藏编号发回 → 发的是刚存下的那张', !!绿 && 发回.length === 2
   && 发回[0].url.endsWith('/send_private_msg') && 发回[0].体.message[0].data.text === '发你'
@@ -818,7 +840,8 @@ const 蓝文 = 转进的.at(-1)?.content?.[0]?.text || ''
 const 之前图发 = 发了.length
 监听[0](会话, 助手消息(161, 1, [块('text', '[发表情:图1] 给你')], false))
 监听[0](会话, 转完(161))
-await new Promise((r) => setTimeout(r, 900))
+await 等到(() => 发了.slice(之前图发).filter((x) => x.url.endsWith('/send_custom_face') || x.url.endsWith('/send_private_msg')).length >= 2)
+await 等稳()
 const 图发 = 发了.slice(之前图发)
 const 图发消息 = 图发.filter((x) => x.url.endsWith('/send_custom_face') || x.url.endsWith('/send_private_msg'))
 const 存后2 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
@@ -860,7 +883,8 @@ const 橙 = 存后3.items.find((x) => !存后2.items.some((y) => y.id === x.id))
 const 之前改 = 发了.length
 监听[0](会话, 助手消息(162, 1, [块('text', '[存表情:图1:橘猫趴床] 记好了')], false))
 监听[0](会话, 转完(162))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.slice(之前改).some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '记好了'))
+await 等稳()
 const 存后4 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 橙改 = 存后4.items.find((x) => x.id === 橙?.id)
 const 改发 = 发了.slice(之前改)
@@ -904,7 +928,8 @@ const 失文 = 转进的.at(-1)?.content?.[0]?.text || ''
 const 之改 = 发了.length
 监听[0](会话, 助手消息(163, 1, [块('text', '[存表情:图1:黑猫] 存好了')], false))
 监听[0](会话, 转完(163))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.slice(之改).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
 const 改私发 = 发了.slice(之改).filter((x) => x.url.endsWith('/send_private_msg'))
 报('私聊：没存成却说“存好了” → 改成“没存进去”', 改私发.length === 1 && 改私发[0].体.message[0].data.text.includes('没存进去') && !改私发[0].体.message[0].data.text.includes('存好了'), JSON.stringify(改私发.map((x) => x.体.message)))
 收藏上传失败 = false
@@ -920,7 +945,8 @@ await new Promise((r) => setTimeout(r, 20))
 const 之落 = 发了.length
 监听[0](会话, 助手消息(164, 1, [块('text', '[发表情:#999] 喏')], false))
 监听[0](会话, 转完(164))
-await new Promise((r) => setTimeout(r, 700))
+await 等到(() => 发了.slice(之落).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
 const 落发 = 发了.slice(之落)
 报('私聊：收藏里没有的编号不发', !落发.some((x) => x.url.endsWith('/send_custom_face')) && 落发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '喏'), JSON.stringify(落发.map((x) => ({ url: x.url, 体: x.体 }))))
 私聊消息id = 9724
