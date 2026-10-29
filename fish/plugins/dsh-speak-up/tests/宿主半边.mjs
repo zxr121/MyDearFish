@@ -63,8 +63,28 @@ const 造agent = (id) => ({
 const 甲 = 造agent('sess-abc')
 const 乙 = 造agent(ID_长)
 
+// 假的「通到QQ」服务：默认没有房间；QQ 用例里再往里放。
+const 假qq房们 = []
+const 开房记录 = []
+const 假qq社交 = {
+  房间们: () => 假qq房们.map((x) => ({ ...x })),
+  能不能说: (id) => {
+    const 房 = 假qq房们.find((x) => x.会话id === id)
+    return 房 && 房.能开口 === false ? (房.不能因 || '现在不能主动开口') : ''
+  },
+  开房: async (id) => {
+    const 房 = 假qq房们.find((x) => x.会话id === id)
+    if (!房) return null
+    开房记录.push(id)
+    房.agent = 造agent(id)
+    return 房.agent
+  },
+}
+const 全部agent = () => [甲, 乙, ...假qq房们.map((x) => x.agent).filter(Boolean)]
+
 const 假ctx = {
-  agents: { get: (id) => [甲, 乙].find((a) => a.id === String(id)), list: () => [甲, 乙] },  sessions: { flush: async () => true },
+  agents: { get: (id) => 全部agent().find((a) => a.id === String(id)), list: () => 全部agent() },
+  sessions: { flush: async () => true },
   webServer: { register: (r) => { 路由.set(r.path, r.handler); return () => 路由.delete(r.path) } },
   interval: (cb, ms) => { 停表们.push({ cb, ms }); return () => {} },
   logger: { info: (s) => 日志.push(s), warn: (s) => 日志.push(s) },
@@ -82,6 +102,7 @@ const 假ctx = {
     if (n === 'sessionController') {
       return { inspect: async () => ({ events: [] }), create: async () => ({ sessionId: 'sess-新建的' }) }
     }
+    if (n === 'qqSocial') return 假qq社交
     return undefined
   },
 }
@@ -111,6 +132,9 @@ let st = await 调('/dsh-speak-up/state')
   st.配置.近阈值分钟 === 20 && st.配置.近因子 === 0.15 && st.配置.远阈值分钟 === 360 && st.配置.远因子 === 1.5 &&
   st.配置.试运行 === false && st.配置.总开关 === true && st.配置.角色 === 'user')
 报('「目标会话」默认是空数组（勾选清单的形状）', Array.isArray(st.配置.目标会话) && st.配置.目标会话.length === 0)
+报('默认全选（清单里的房间默认都勾着），「不主动的会话」默认空',
+  st.配置.全选 === true && Array.isArray(st.配置.不主动的会话) && st.配置.不主动的会话.length === 0,
+  JSON.stringify({ 全选: st.配置.全选, 不主动: st.配置.不主动的会话 }))
 
 // ---------- 会话清单 + 标题（两条来源都要验）----------
 const 清单 = st.活着的会话
@@ -131,14 +155,23 @@ const 找 = (id) => 清单.find((s) => s.id === id) || {}
   清单.every((s) => typeof s.状态 === 'string' && typeof s.有agent === 'boolean') &&
   找('sess-没名字').有agent === false && 找('sess-没名字').状态 === '没活着')
 
-// ---------- 没勾 → 手动真发挡住；演练自动用活着的会话 ----------
+// ---------- 默认全选：真发也会发给活着房间之一；全部取消才挡住 ----------
+甲.收到的.length = 0
+乙.收到的.length = 0
 let r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
-报('一个都没勾 → 手动真发挡住并记账', 甲.收到的.length === 0 && r.日志.at(-1).文本.includes('还没勾'), r.日志.at(-1).文本)
+报('默认全选 → 手动真发直接发给活着房间之一',
+  甲.收到的.length + 乙.收到的.length === 1 && r.日志.at(-1).文本.includes('已送出一句'), r.日志.at(-1).文本)
 
 r = await 调('/dsh-speak-up/roll', { 模式: '演练' })
-报('没勾目标时演练自动从所有活着的会话里挑，不拦死',
-  甲.收到的.length === 0 && r.日志.at(-1).文本.includes('没勾目标') && r.日志.at(-1).文本.includes('演练'),
-  r.日志.at(-1).文本)
+报('演练默认从所有勾着的房间里挑，不拦死',
+  甲.收到的.length + 乙.收到的.length === 1 && r.日志.at(-1).文本.includes('演练'), r.日志.at(-1).文本)
+
+await 调('/dsh-speak-up/save', { 不主动的会话: ['sess-abc', ID_长, ID_裸, ID_首条, 'sess-没名字'] })
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+报('清单里的房间全部取消 → 手动真发挡住并记账',
+  甲.收到的.length + 乙.收到的.length === 1 && r.日志.at(-1).文本.includes('一个勾着的房间都没有'), r.日志.at(-1).文本)
+// 后面的用例要精确控制挑中谁：回到老名单模式
+await 调('/dsh-speak-up/save', { 全选: false, 不主动的会话: [], 目标会话: [] })
 
 // ---------- 存 + 归一化 + 落盘 ----------
 r = await 调('/dsh-speak-up/save', { 目标会话: ['sess-abc'], 间隔分钟: '7', 峰时命中线: '150', 安静起: 0, 安静止: 0, 近因子: '0.2' })
@@ -152,6 +185,8 @@ writeFileSync(join(家, 'speak-up-config.json'), JSON.stringify({ 目标会话: 
 st = await 调('/dsh-speak-up/state')
 报('老配置里的字符串（带逗号）会被洗成 id 数组',
   Array.isArray(st.配置.目标会话) && st.配置.目标会话.length === 2, JSON.stringify(st.配置.目标会话))
+报('老配置明确勾过目标会话 → 升级后保留成「按名单」而不是默认全选',
+  st.配置.全选 === false && Array.isArray(st.配置.不主动的会话), JSON.stringify({ 全选: st.配置.全选 }))
 报('「已勾情况」标出了每个勾着的会话活着没',
   st.目标情况.length === 2 && st.目标情况.every((x) => x.活着 === true) && st.目标活着 === true)
 await 调('/dsh-speak-up/save', {
@@ -354,7 +389,8 @@ await 调('/dsh-speak-up/save', { 峰时命中线: 40, 谷时命中线: 40 })
 // ⚠ 上面两节为了验"读文件"把配置文件删掉过，这里要把「目标会话」重新勾上，
 //   否则后面的定时那几条都会卡在「还没勾目标会话」
 await 调('/dsh-speak-up/save', {
-  目标会话: ['sess-abc'], 峰时命中线: 100, 谷时命中线: 100,
+  全选: false, 不主动的会话: [], 目标会话: ['sess-abc'],
+  峰时命中线: 100, 谷时命中线: 100,
   没中加成: 0, 加成上限: 40, 搭话冷却分钟: 0,
 })
 
@@ -376,12 +412,12 @@ await 滴答()
 // ---------- 勾了但没活着 / 勾了在忙 ----------
 await 调('/dsh-speak-up/save', { 安静起: 0, 安静止: 0, 目标会话: ['sess-不存在'] })
 await 滴答()
-报('勾的会话没有活着的 agent → 什么都不做（不唤醒冷会话）', 日志.at(-1).includes('都不能说话'), 日志.at(-1))
+报('勾的会话没有活着的 agent → 什么都不做（不唤醒冷会话）', 日志.at(-1).includes('都不能开口'), 日志.at(-1))
 
 await 调('/dsh-speak-up/save', { 目标会话: [ID_长] })
 乙.status = 'running'
 await 滴答()
-报('勾的唯一一个在忙 → 什么都不做', 日志.at(-1).includes('都不能说话'), 日志.at(-1))
+报('勾的唯一一个在忙 → 什么都不做', 日志.at(-1).includes('都不能开口'), 日志.at(-1))
 
 // ---------- 多目标：一次只在其中一个里开口 ----------
 await 调('/dsh-speak-up/save', { 目标会话: ['sess-abc', ID_长] })
@@ -404,6 +440,45 @@ for (let i = 0; i < 40; i++) {
 报('两个都可用 → 每次只发一个，两边都会被轮到（不是只发第一个）',
   发甲 + 发乙 === 40 && 发甲 > 0 && 发乙 > 0, `甲${发甲} 乙${发乙}`)
 报('多目标时记账里写了这次挑的是谁', 日志.at(-1).includes('这次挑'), 日志.at(-1))
+
+// ---------- QQ 群：默认勾着；没开房也能被挑中；取消后不主动 ----------
+const QQ = 'session-qq-social-group-123456'
+假qq房们.push({ key: 'group:123456', 类型: 'group', 号: '123456', 会话id: QQ, 叫: '群 123456', 名: '测试群', 能开口: true, 不能因: '' })
+await 调('/dsh-speak-up/save', {
+  全选: true, 目标会话: [], 不主动的会话: ['sess-abc', ID_长, ID_裸, ID_首条, 'sess-没名字'],
+})
+st = await 调('/dsh-speak-up/state')
+报('QQ 群默认在清单里、默认勾着（还没开房）',
+  st.活着的会话.some((x) => x.id === QQ && x.勾着 === true && x.qq === '群' && x.可开 === true),
+  JSON.stringify(st.活着的会话.find((x) => x.id === QQ)))
+甲.收到的.length = 0
+乙.收到的.length = 0
+开房记录.length = 0
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+const qqagent = 假qq房们[0].agent
+报('只勾着 QQ 群时，掷中后按需开房并 followup 到那间房',
+  开房记录[0] === QQ && !!qqagent && qqagent.收到的.length === 1 && 甲.收到的.length === 0,
+  `开房${JSON.stringify(开房记录)} 收到${qqagent ? qqagent.收到的.length : '没开'}`)
+报('真发记录里说明了这次挑的是 QQ 房间', r.日志.at(-1).文本.includes('QQ 房间'), r.日志.at(-1).文本)
+
+假qq房们[0].能开口 = false
+假qq房们[0].不能因 = '现在在 QQ 静音时段'
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+报('QQ 桥说不能开口时，候选里直接跳过并写明原因',
+  r.日志.at(-1).文本.includes('都不能开口') && r.日志.at(-1).文本.includes('QQ 静音'), r.日志.at(-1).文本)
+假qq房们[0].能开口 = true
+假qq房们[0].不能因 = ''
+
+await 调('/dsh-speak-up/save', {
+  全选: true, 不主动的会话: ['sess-abc', ID_长, ID_裸, ID_首条, 'sess-没名字', QQ],
+})
+const 开房数前 = 开房记录.length
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+报('取消 QQ 群后就不再主动（连开房都不会发生）',
+  开房记录.length === 开房数前 && r.日志.at(-1).文本.includes('一个勾着的房间都没有'), r.日志.at(-1).文本)
+
+假qq房们.length = 0
+await 调('/dsh-speak-up/save', { 全选: false, 目标会话: ['sess-abc'], 不主动的会话: [] })
 
 // ---------- 演练 / 真发 ----------
 甲.收到的.length = 0
@@ -447,6 +522,14 @@ r = await 调('/dsh-speak-up/new-session', { 设为目标: true })
   r.新会话 === 'sess-新建的' && r.配置.目标会话.length === 2 && r.配置.目标会话[0] === 'sess-abc',
   JSON.stringify(r.配置.目标会话))
 await 调('/dsh-speak-up/save', { 目标会话: ['sess-abc'] })
+
+// 全选模式：新会话本来就默认勾着，只需要不留在「不主动的会话」里
+await 调('/dsh-speak-up/save', { 全选: true, 目标会话: [], 不主动的会话: ['sess-新建的'] })
+r = await 调('/dsh-speak-up/new-session', { 设为目标: true })
+报('全选模式下新建会话自动勾上（会从不主动里放出来）',
+  r.配置.全选 === true && !r.配置.不主动的会话.includes('sess-新建的'),
+  JSON.stringify(r.配置))
+await 调('/dsh-speak-up/save', { 全选: false, 目标会话: ['sess-abc'], 不主动的会话: [] })
 
 // ---------- 换表 ----------
 const 表数前 = 停表们.length

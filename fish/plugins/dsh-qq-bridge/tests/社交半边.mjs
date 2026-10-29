@@ -529,9 +529,11 @@ const 造agent = (sid) => ({
   inject: (m) => { 注入们.push({ sid, message: m }) },
 })
 
+const 服务表 = new Map()
 const ctx = {
   on: (名字, cb) => { if (名字 === 'session/event') 监听.push(cb); return () => {} },
   effect: (fn) => { const 摘 = fn(); return () => { try { 摘 && 摘() } catch {} } },
+  provide: (名字, 值) => { 服务表.set(名字, 值) },
   webServer: { register: (o) => 路由.set(o.path, o.handler) },
   logger: { info: () => {} },
   agents: {
@@ -596,6 +598,9 @@ const ctx = {
 }
 
 const 宿主 = 模.apply(ctx)
+// ⚠ 后面的「重启」用例会再 apply 一次，把服务表里的 qqSocial 换成新实例（计数是空的）；
+//   这里先把主实例的服务留一份，44 节验计数才不会被换掉。
+const 主qqSocial = 服务表.get('qqSocial')
 const 轮询社交 = 轮询回调们[1]
 报('社交轮询挂上了', typeof 轮询社交 === 'function' && 轮询回调们.length >= 2, '轮询数=' + 轮询回调们.length)
 
@@ -4071,6 +4076,65 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
 报('没有 tendency 的旧鱼脑：状态里是出厂上限 12', 回后态.cap === 12 && 回后态.mode === 'normal', JSON.stringify(回后态))
 倾向态.无接口 = false
 倾向态.policy = null
+
+// ---------- 44 qqSocial：给「主动搭话」认房间、按需开房、先把额度和静音挡住 ----------
+{
+  const 服务 = 主qqSocial
+  报('qqSocial 服务暴露了房间们/能不能说/开房',
+    !!服务 && typeof 服务.房间们 === 'function' && typeof 服务.能不能说 === 'function' && typeof 服务.开房 === 'function')
+
+  写配置({ 群: ['1501'], 好友: ['1502'] })
+  let 房们 = 服务.房间们()
+  报('qqSocial 房间们：群和好友都在，带会话 id、群号/QQ 号和现在能不能开口',
+    房们.length === 2 &&
+    房们.some((x) => x.key === 'group:1501' && x.类型 === 'group' && 房们[0].号 === '1501') &&
+    房们.some((x) => x.key === 'friend:1502' && x.类型 === 'friend') &&
+    房们.every((x) => typeof x.会话id === 'string' && x.会话id.startsWith('session-qq-social-') && x.能开口 === true && x.不能因 === ''),
+    JSON.stringify(房们))
+
+  报('qqSocial 能不能说：配置里的房间空串 = 能，别的 id 有原因',
+    服务.能不能说('session-qq-social-group-1501') === '' &&
+    服务.能不能说('session-qq-social-group-9999') === '不是当前配置里的 QQ 群/好友')
+
+  写配置({ 群: ['1501'], 只听: ['group:1501'], 试运行: true, 静音: '' })
+  房们 = 服务.房间们()
+  报('qqSocial 房间们：只听和试运行会写进不能因，并能认出「不能开口」',
+    房们[0].能开口 === false && 房们[0].不能因.includes('只听不说'), JSON.stringify(房们[0]))
+  报('qqSocial 能不能说：分开问时给的是同一条原因',
+    服务.能不能说('session-qq-social-group-1501').includes('只听不说'))
+
+  写配置({ 群: ['1501'], 主动每时: 1, 主动每日: 1, 试运行: false })
+  const 额前 = 发的.length
+  送主动轮('session-qq-social-group-1501', 71, '第一句占额度')
+  await 等到(() => 群聊发(额前).length >= 1)
+  await 等到(() => 服务.房间们()[0].能开口 === false, 2000)
+  报('主动搭话：真发出算一轮主动话量', 群聊发(额前).length === 1)
+  报('主动搭话：额度用完后，qqSocial 房间们说她不能再开口（先替主动搭话挡一道）',
+    服务.房间们()[0].能开口 === false && 服务.房间们()[0].不能因.includes('主动话量用完了'), JSON.stringify(服务.房间们()[0]))
+  const 额超前 = 发的.length
+  送主动轮('session-qq-social-group-1501', 72, '超额度不该发')
+  await 等(150)
+  报('主动搭话：额度拦住时不真发、账本写原因',
+    群聊发(额超前).length === 0 && (await 日志文本()).includes('主动话量用完了'), JSON.stringify(群聊发(额超前)))
+
+  写配置({ 群: ['1501'], 静音: '00:00-23:59' })
+  报('qqSocial 房间们：静音时段里说她不能开口',
+    服务.房间们()[0].能开口 === false && 服务.房间们()[0].不能因.includes('静音'), JSON.stringify(服务.房间们()[0]))
+  const 静前 = 发的.length
+  送主动轮('session-qq-social-group-1501', 73, '静音不该发')
+  await 等(150)
+  报('主动搭话：静音时段不真发', 群聊发(静前).length === 0 && (await 日志文本()).includes('静音'), JSON.stringify(群聊发(静前)))
+
+  写配置({ 群: ['1501'] })
+  报('qqSocial 开房：不在配置里的 id 返回 null', (await 服务.开房('session-qq-social-group-9999')) === null)
+  const 开前登记 = 登记的会话.size
+  const 开出的 = await 服务.开房('session-qq-social-group-1501')
+  报('qqSocial 开房：清单里的房间真的开出来了（agent 带会话，会话已登记）',
+    !!开出的 && 开出的.session && 开出的.session.id === 'session-qq-social-group-1501' && 登记的会话.size === 开前登记 + 1,
+    JSON.stringify({ id: 开出的 && 开出的.session && 开出的.session.id, 登记: 登记的会话.size - 开前登记 }))
+  const 再开 = await 服务.开房('session-qq-social-group-1501')
+  报('qqSocial 开房：已经开着就不重复建', 再开 === 开出的 && 登记的会话.size === 开前登记 + 1)
+}
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

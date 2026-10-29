@@ -98,7 +98,11 @@ const 版本 = (() => {
 const 默认配置 = {
   总开关: true, // 关掉就完全不动
   试运行: false, // 出厂默认真发；想先观察几轮就在设置里重新打开
-  目标会话: [], // 勾了哪些会话（**数组**，可以勾多个）；掷中一次只在其中一个里开口
+  // 全选 = 清单里的房间默认都勾着（含 QQ 群/好友）；取消勾选的房间记进「不主动的会话」。
+  // 老配置里明确勾过「目标会话」的那份名单保留成 全选: false，不为升级擅自扩大范围。
+  全选: true,
+  目标会话: [], // 全选为 false 时才用：只在勾了的那几个会话里开口
+  不主动的会话: [], // 全选为 true 时用：这些房间虽然默认勾着，但主人点名不要她主动
   间隔分钟: 30, // 多久掷一次骰子
   // ---- 峰谷分时：贵的时候少开口，便宜的时候多开口 ----
   // ⚠⚠ 峰谷**时段是固定的，不给她填**（周一到周五 9:00~12:00、14:00~18:00 是峰时，
@@ -194,10 +198,18 @@ function 会话id列表(值) {
 function 归一化(原始) {
   const 原始是对象 = 原始 && typeof 原始 === 'object' && !Array.isArray(原始)
   const 混 = 原始是对象 ? { ...默认配置, ...原始 } : { ...默认配置 }
+  const 原始有 = (键) => 原始是对象 && 原始[键] !== undefined
+  const 目标会话 = 会话id列表(混.目标会话)
+  // 升级兼容：老版本没有「全选」，只要它明确勾过目标会话，就按老名单来（全选 = false）；
+  // 没勾过（或从没存过配置）就走新默认 —— 清单里所有房间都算勾上。
+  let 全选 = 布(混.全选, 默认配置.全选)
+  if (!原始有('全选') && 原始有('目标会话') && 目标会话.length > 0) 全选 = false
   return {
     总开关: 布(混.总开关, 默认配置.总开关),
     试运行: 布(混.试运行, 默认配置.试运行),
-    目标会话: 会话id列表(混.目标会话),
+    全选,
+    目标会话,
+    不主动的会话: 会话id列表(混.不主动的会话),
     间隔分钟: Math.round(数(混.间隔分钟, 默认配置.间隔分钟, 1, 1440)),
     峰时命中线: 数改过名(原始, '峰时命中线', '峰时概率', 默认配置.峰时命中线, 0, 100),
     谷时命中线: 数改过名(原始, '谷时命中线', '谷时概率', 默认配置.谷时命中线, 0, 100),
@@ -239,6 +251,13 @@ function 写配置(配置) {
   } catch (error) {
     return false
   }
+}
+
+/** 这个房间勾着没有：全选时只排除「不主动的会话」，老配置只看「目标会话」。 */
+function 勾着(配置, id) {
+  const 键 = String(id)
+  if (配置.全选) return !配置.不主动的会话.includes(键)
+  return 配置.目标会话.includes(键)
 }
 
 // ---------- 小工具 ----------
@@ -427,6 +446,16 @@ function 活着的会话(ctx) {
   return Array.from(new Set(ids))
 }
 
+/** 「通到QQ」插件在的时候借它的服务：认出 QQ 群/好友、按需开房。 */
+function 取qq社交(ctx) {
+  try {
+    const qq = typeof ctx.get === 'function' ? ctx.get('qqSocial') : undefined
+    return qq && typeof qq.房间们 === 'function' ? qq : null
+  } catch (error) {
+    return null
+  }
+}
+
 /** 没勾目标时，优先她最近真的待过的房间（鱼脑按最近活动给会话排过序）。 */
 function 按最近活跃排序(ctx, ids) {
   if (ids.length < 2) return ids
@@ -613,22 +642,45 @@ function 造执行体(ctx) {
       }
     }
 
-    // 没勾目标时，自动模式从活着的会话里挑 —— 鱼脑是全局的，哪个会话都是她；
-    // 优先最近真的待过的那个房间，别往很久没人的屋里说话。
-    // 手动「真发」仍然要求明确勾选，避免误往没预期的会话里说话。
-    const 候选会话 = 配置.目标会话.length > 0
-      ? 配置.目标会话
-      : (模式 === '真发' ? [] : 按最近活跃排序(ctx, 活着的会话(ctx)))
+    // 清单里的房间默认都勾着：QQ 群/好友（哪怕还没开房）+ 本机活着的会话。
+    // 取消过勾的记在「不主动的会话」里；老配置明确勾过名单的仍按那份名单走。
+    const 候选会话 = []
+    const 已见 = new Set()
+    const 加候选 = (id, 房) => {
+      const 键 = String(id || '')
+      if (键 === '' || 已见.has(键)) return
+      已见.add(键)
+      候选会话.push({ id: 键, 房: 房 || null })
+    }
+    const qq = 取qq社交(ctx)
+    if (qq) {
+      let 房们 = []
+      try {
+        房们 = qq.房间们() || []
+      } catch (error) {
+        记账(`读 QQ 房间清单失败（这轮先只看本机会话）：${String((error && error.message) || error)}`)
+      }
+      for (const 房 of 房们) {
+        if (!房 || !勾着(配置, 房.会话id)) continue
+        加候选(房.会话id, 房)
+      }
+    }
+    for (const id of 按最近活跃排序(ctx, 活着的会话(ctx))) {
+      if (勾着(配置, id)) 加候选(id)
+    }
+    // 老名单里勾着的会话可能已经关掉了：也留着，下面会标「没活着」。
+    if (!配置.全选) {
+      for (const id of 配置.目标会话) 加候选(id)
+    }
     if (候选会话.length === 0) {
       return 记账(
-        配置.目标会话.length === 0 && 模式 === '真发'
-          ? '还没勾「目标会话」，手动真发需要先勾一个（自动模式会自动使用所有活着的会话）'
-          : '现在没有活着的会话可以开口，这轮什么都不做',
+        模式 === '真发'
+          ? '现在一个勾着的房间都没有：在设置里勾一个再真发'
+          : '现在没有勾着、又能开口的房间，这轮什么都不做',
       )
     }
 
-    // 勾了好几个时：**这次只在其中一个里开口**（随机挑一个活着又不忙的）。
-    // 没勾目标时按最近活跃优先（可用[0]），不去很久没人说话的房间。
+    // 勾了好几个时：**这次只在其中一个里开口**（随机挑一个能开口又不忙的）。
     // 为什么不全都发：一次掷中就往每个会话里说一句，等于同时开好几轮、同时烧好几份 token，
     // 而且「她」听起来像分身。挑一个最像真人（她只在一个地方说话）。
     const 可用 = []
@@ -639,12 +691,26 @@ function 造执行体(ctx) {
       const 登记 = ctx.workspaceRegistry || ctx.get('workspaceRegistry')
       for (const x of (登记 && 登记.archivedSessionIds) || []) 归档名单.add(String(x))
     } catch (error) {}
-    for (const id of 候选会话) {
+    for (const 候 of 候选会话) {
+      const id = 候.id
       if (归档名单.has(String(id))) {
         不可用.push(`${短id(id)}(已归档)`)
         continue
       }
       const a = 找agent(ctx, id)
+      if (候.房) {
+        // QQ 房间：桥那边先挡住关掉/只听/歇着/静音/额度用尽的；没开房的掷中后再开。
+        if (!候.房.能开口) {
+          不可用.push(`${短id(id)}(QQ：${候.房.不能因 || '现在不能主动开口'})`)
+          continue
+        }
+        if (a !== undefined && a.status !== undefined && a.status !== 'idle') {
+          不可用.push(`${短id(id)}(忙)`)
+          continue
+        }
+        可用.push({ id, agent: a === undefined ? null : a, qq: true })
+        continue
+      }
       if (a === undefined) {
         不可用.push(`${短id(id)}(没活着)`)
         continue
@@ -654,23 +720,19 @@ function 造执行体(ctx) {
         不可用.push(`${短id(id)}(忙)`)
         continue
       }
-      可用.push({ id, agent: a })
+      可用.push({ id, agent: a, qq: false })
     }
     if (可用.length === 0) {
       return 记账(
-        `候选会话现在都不能说话（${不可用.join('、') || '（空）'}）—— 按设计**不自动唤醒**，这轮什么都不做`,
+        `候选房间现在都不能开口（${不可用.join('、') || '（空）'}）—— 按设计**不自动唤醒**，这轮什么都不做`,
       )
     }
-    const 挑中 = 配置.目标会话.length > 0
-      ? 可用[Math.floor(Math.random() * 可用.length)]
-      : 可用[0]
+    const 挑中 = 可用[Math.floor(Math.random() * 可用.length)]
     const 目标id = 挑中.id
-    const agent = 挑中.agent
+    let agent = 挑中.agent
     const 挑的说法 = 可用.length > 1
-      ? (配置.目标会话.length
-        ? `（勾了 ${可用.length} 个可用，这次挑 ${短id(目标id)}）`
-        : `（没勾目标，从 ${可用.length} 个活着的会话里这次挑 ${短id(目标id)}）`)
-      : (配置.目标会话.length ? '' : `（没勾目标，这次挑 ${短id(目标id)}）`)
+      ? `（从 ${可用.length} 个能开口的房间里这次挑 ${短id(目标id)}${挑中.qq ? '，QQ 房间' : ''}）`
+      : (挑中.qq ? `（这次挑 ${短id(目标id)}，QQ 房间）` : '')
 
     // 「主动搭话」之后的冷却（单独一格配置；跟"她多久没说话"那两个阈值是两回事）。
     // ⚠ 0 = 不冷却：刚开口过也照投。
@@ -759,6 +821,13 @@ function 造执行体(ctx) {
     }
 
     try {
+      // QQ 房间平时只有来消息才开；掷中之后才开房，没掷中不花这份钱、也不多一间空会话。
+      if (agent === null) {
+        const qq服务 = 取qq社交(ctx)
+        const 开出来的 = qq服务 && typeof qq服务.开房 === 'function' ? await qq服务.开房(目标id) : null
+        if (!开出来的) return 记账(`QQ 房间「${目标id}」这次没开出来，这轮不开口`)
+        agent = 开出来的
+      }
       const 工厂 = await 拿造消息工厂()
       const 消息 = 工厂
         ? 工厂.createUserMessage({ content: [{ type: 'text', text: 文案 }], source: { kind: 源标记 } })
@@ -847,8 +916,13 @@ function 造执行体(ctx) {
     },
     目标活着() {
       const 配置 = 读配置()
-      if (配置.目标会话.length === 0) return false
-      return 配置.目标会话.some((id) => 找agent(ctx, id) !== undefined)
+      const qq = 取qq社交(ctx)
+      if (qq) {
+        try {
+          if ((qq.房间们() || []).some((房) => 房 && 勾着(配置, 房.会话id) && 房.能开口)) return true
+        } catch (error) {}
+      }
+      return 活着的会话(ctx).some((id) => 勾着(配置, id))
     },
   }
 }
@@ -1033,6 +1107,7 @@ export function apply(ctx) {
    *   还没打开的「小屋」），只是这一轮掷中时会跳过它。
    */
   const 会话清单 = () => {
+    const 配置 = 体.配置()
     const 会话服务 = ctx.get('sessions')
     const ids = new Set()
     try {
@@ -1051,7 +1126,15 @@ export function apply(ctx) {
       }
     } catch (error) {}
 
-    const 勾着 = new Set(体.配置().目标会话)
+    // QQ 群/好友：还没开房的也列出来（掷中后由 QQ 桥按需开房），没连 QQ 就先空着。
+    const qq = 取qq社交(ctx)
+    let qq房们 = []
+    if (qq) {
+      try {
+        qq房们 = qq.房间们() || []
+      } catch (error) {}
+    }
+
     // ⭐ 归档名单：DSH 的权威来源是 workspaceRegistry.archivedSessionIds
     //   （2026-10-20 修：以前完全不看归档 ⇒ 设置页里把已归档的会话也列出来，勾了也白勾）
     const 归档 = new Set()
@@ -1062,7 +1145,7 @@ export function apply(ctx) {
     const 出 = []
     for (const id of ids) {
       const 是归档 = 归档.has(id)
-      const 已勾 = 勾着.has(id)
+      const 已勾 = 勾着(配置, id)
       // 没勾着的归档会话：直接不列（它们掷中也会被 DSH 拦掉）
       // 已经勾着的归档会话：仍然列出来，但要标出来，好让她自己取消勾选
       if (是归档 && !已勾) continue
@@ -1080,8 +1163,32 @@ export function apply(ctx) {
         标题来源: 题.来源,
         状态: agent === undefined ? '没活着' : agent.status === undefined ? '?' : String(agent.status),
         有agent: agent !== undefined,
+        可开: false,
         勾着: 已勾,
         归档: 是归档,
+        qq: '',
+      })
+    }
+    const 已有 = new Set(出.map((x) => x.id))
+    for (const 房 of qq房们) {
+      if (!房 || !房.会话id || 已有.has(String(房.会话id))) continue
+      const 是归档 = 归档.has(String(房.会话id))
+      const 已勾 = 勾着(配置, 房.会话id)
+      if (是归档 && !已勾) continue
+      const agent = 找agent(ctx, 房.会话id)
+      出.push({
+        id: String(房.会话id),
+        标题: 房.名 || 房.叫,
+        标题来源: 'QQ 桥',
+        状态: !房.能开口
+          ? '不能开口'
+          : agent === undefined ? '没打开' : agent.status === undefined ? '?' : String(agent.status),
+        有agent: agent !== undefined,
+        可开: !!房.能开口,
+        不能因: 房.能开口 ? '' : String(房.不能因 || ''),
+        勾着: 已勾,
+        归档: 是归档,
+        qq: 房.类型 === 'group' ? '群' : '好友',
       })
     }
     // 排序：按标题（中文按拼音/comparator），没标题的排最后再按 id 排。
@@ -1096,10 +1203,25 @@ export function apply(ctx) {
     })
   }
 
-  /** 勾着的那些现在是什么情况（页面上用来提示「勾了 2 个，其中 1 个现在活着」）。 */
+  /** 勾着的那些现在是什么情况（页面上用来提示「勾了 2 个，其中 1 个现在能开口」）。 */
   const 目标情况 = () => {
+    const 配置 = 体.配置()
+    const 清单 = 会话清单()
+    const ids = []
+    for (const x of 清单) if (x.勾着 && !ids.includes(x.id)) ids.push(x.id)
+    // 老名单里勾着、但已经不在清单里的会话（关掉了 / 归档了）也要报出来。
+    if (!配置.全选) {
+      for (const id of 配置.目标会话) if (!ids.includes(id)) ids.push(id)
+    }
     const 会话服务 = ctx.get('sessions')
-    return 体.配置().目标会话.map((id) => {
+    const qq = 取qq社交(ctx)
+    const qq表 = new Map()
+    if (qq) {
+      try {
+        for (const 房 of qq.房间们() || []) if (房 && 房.会话id) qq表.set(String(房.会话id), 房)
+      } catch (error) {}
+    }
+    return ids.map((id) => {
       let 会话
       try {
         会话 = 会话服务 && typeof 会话服务.get === 'function' ? 会话服务.get(id) : undefined
@@ -1107,12 +1229,15 @@ export function apply(ctx) {
         会话 = undefined
       }
       const 题 = 取标题(ctx, id, 会话)
+      const 房 = qq表.get(String(id))
       return {
         id,
         短id: 短id(id),
-        标题: 题.标题,
+        标题: 题.标题 || (房 ? (房.名 || 房.叫) : ''),
         标题来源: 题.来源,
         活着: 找agent(ctx, id) !== undefined,
+        可开: 房 ? !!房.能开口 : false,
+        qq: 房 ? (房.类型 === 'group' ? '群' : '好友') : '',
       }
     })
   }
@@ -1125,7 +1250,7 @@ export function apply(ctx) {
       ok: true,
       版本,
       配置,
-      目标活着: 目标.some((x) => x.活着),
+      目标活着: 目标.some((x) => x.活着 || x.可开),
       目标情况: 目标,
       活着的会话: 会话清单(),
       配置文件: 配置文件,
@@ -1193,10 +1318,15 @@ export function apply(ctx) {
     if (!id) return 回(res, { ok: false, 说: '建会话没有返回 sessionId' })
     let 已勾上 = false
     if (来 && 来.设为目标 === true) {
-      // 往「勾着的会话」里**追加**一个（不是覆盖）—— 她可能已经勾了别的
-      const 洗好 = 归一化({ ...体.配置(), 目标会话: [...体.配置().目标会话, id] })
+      const 现 = 体.配置()
+      // 全选模式下新会话本来就默认勾着，只把它从「不主动的会话」里放出来；
+      // 老名单模式仍然往名单里**追加**一个（不是覆盖）—— 她可能已经勾了别的。
+      const 新 = 现.全选
+        ? { ...现, 不主动的会话: 现.不主动的会话.filter((x) => x !== id) }
+        : { ...现, 目标会话: [...现.目标会话, id] }
+      const 洗好 = 归一化(新)
       if (!写配置(洗好)) return 回(res, { ok: false, 说: `会话建好了（${id}），但写不进配置文件` })
-      已勾上 = true
+      已勾上 = 勾着(洗好, id)
     }
     体.记账(`新建了一个会话：${id}${已勾上 ? '（已经帮你勾上了）' : ''}`)
     回(res, { ...(await 概况()), ok: true, 新会话: id, 说: `建好了：${id}${已勾上 ? '，已经勾上' : ''}` })

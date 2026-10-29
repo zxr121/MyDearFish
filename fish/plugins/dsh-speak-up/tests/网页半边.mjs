@@ -21,11 +21,20 @@ globalThis.window = { __ModuleLoader__: { load: (o) => { 捕获 = o } } }
 //   这里必须回一份**像真的**会话清单（用下面那个可变量，等 fixture 建好再填）。
 let 请求 = []
 let 服务端会话 = []
+/** 按补丁算出勾着谁：全选模式看「不主动的会话」，老名单模式看「目标会话」。 */
+const 勾着们 = (体) => {
+  if (!体) return []
+  if (体.全选 === true) {
+    const 排 = new Set(Array.isArray(体.不主动的会话) ? 体.不主动的会话 : [])
+    return 服务端会话.map((s) => s.id).filter((id) => !排.has(id))
+  }
+  return Array.isArray(体.目标会话) ? 体.目标会话 : []
+}
 globalThis.fetch = async (url, 选项) => {
   let 体 = null
   try { 体 = 选项 && 选项.body ? JSON.parse(选项.body) : null } catch (e) { 体 = null }
   请求.push({ url: String(url), 方法: (选项 && 选项.method) || 'GET', 体 })
-  const 目标 = 体 && Array.isArray(体.目标会话) ? 体.目标会话 : []
+  const 目标 = 勾着们(体)
   return {
     json: async () => ({
       ok: true, 说: '保存好了', 版本: '0.1.0', 配置文件: 'C:/x/speak-up-config.json',
@@ -35,8 +44,12 @@ globalThis.fetch = async (url, 选项) => {
         id, 短id: String(id).slice(-8),
         标题: ((服务端会话.find((s) => s.id === id) || {}).标题) || '',
         活着: ((服务端会话.find((s) => s.id === id) || {}).有agent) === true,
+        可开: ((服务端会话.find((s) => s.id === id) || {}).可开) === true,
       })),
-      目标活着: 目标.some((id) => (服务端会话.find((s) => s.id === id) || {}).有agent === true),
+      目标活着: 目标.some((id) => {
+        const s = 服务端会话.find((x) => x.id === id) || {}
+        return s.有agent === true || s.可开 === true
+      }),
       活着的会话: 服务端会话,
     }),
   }
@@ -134,7 +147,7 @@ const 造态 = (目标, 日志 = [{ 时间: '01-01 00:00:00', 文本: '已装好
   目标活着: 目标.some((id) => (会话清单.find((x) => x.id === id) || {}).有agent === true),
   日志,
   配置: {
-    总开关: true, 试运行: true, 目标会话: 目标, 间隔分钟: 30,
+    总开关: true, 试运行: true, 全选: false, 目标会话: 目标, 不主动的会话: [], 间隔分钟: 30,
     搭话冷却分钟: 20, 没中加成: 10, 加成上限: 40,
     安静起: 1, 安静止: 8, 近阈值分钟: 20, 近因子: 0.15, 远阈值分钟: 360, 远因子: 1.5,
     峰时命中线: 20, 谷时命中线: 60,
@@ -146,7 +159,7 @@ let 树 = 首次渲染(造态(['sess-abc']))
 let 文 = JSON.stringify(树)
 const 要有 = ['主动搭话', '总开关', '试运行', '掷骰子间隔', '安静时段', '时机因子',
   '峰谷分时', '峰时命中线', '谷时命中线', '搭话冷却', '没中加成', '加成上限',
-  '近：', '远：', '目标会话', '触发文案', '角色', '保存设置', '演练一次', '真发一次', '新建一个小屋', '最近', 'developer']
+  '近：', '远：', '她能主动开口的房间', '触发文案', '角色', '保存设置', '演练一次', '真发一次', '新建一个小屋', '最近', 'developer']
 const 缺 = 要有.filter((x) => !文.includes(x))
 报('7 组设置 + 峰谷 + 攒加成 + 冷却 + 所有按钮都渲染出来了', 缺.length === 0, 缺.length ? '缺：' + 缺.join('、') : `${文.length} 字节`)
 报('渲染过程没崩', 树 && 树.t === 'div')
@@ -242,7 +255,7 @@ const 无题行 = 找行(树, '（还没起名）')
   找行(树, '甲会话').kids[0].p.checked === true &&
   找行(树, '乙会话').kids[0].p.checked === false &&
   找行(树, '（还没起名）').kids[0].p.checked === false)
-报('顶部写着「已勾 1 个」', 文.includes('已勾 1 个'))
+报('顶部写着「现在勾着 1 个」', 文.includes('现在勾着 1 个'))
 报('清单上面明写「勾选/取消一点就生效（自动保存）」', 文.includes('一点就生效'))
 报('顶部有同步状态提示', 文.includes('已同步'))
 
@@ -253,14 +266,15 @@ await new Promise((r) => setTimeout(r, 0)) // 等自动保存那一下
 报('点一下**真的发了保存请求**（POST /dsh-speak-up/save）',
   请求.length === 1 && 请求[0].url === '/dsh-speak-up/save' && 请求[0].方法 === 'POST',
   JSON.stringify(请求))
-报('自动保存的内容就是勾上的那两个 id（含刚点的那个）',
-  请求.length === 1 && Array.isArray(请求[0].体.目标会话) && 请求[0].体.目标会话.length === 2 &&
-  请求[0].体.目标会话.includes('sess-abc') && 请求[0].体.目标会话.includes(ID_长),
+报('老名单模式第一次动勾选 → 折算成「默认全选、只排除没勾的」并自动保存',
+  请求.length === 1 && 请求[0].体.全选 === true && 请求[0].体.目标会话.length === 0 &&
+  Array.isArray(请求[0].体.不主动的会话) && 请求[0].体.不主动的会话.length === 1 &&
+  请求[0].体.不主动的会话[0] === 'sess-没名字',
   JSON.stringify(请求[0] && 请求[0].体))
 树 = 渲染()
 报('重渲染后乙会话是勾上的', 找行(树, '乙会话').kids[0].p.checked === true)
 报('重渲染后甲会话还是勾着的（支持勾多个）', 找行(树, '甲会话').kids[0].p.checked === true)
-报('顶部变成「已勾 2 个」', JSON.stringify(树).includes('已勾 2 个'))
+报('顶部变成「现在勾着 2 个」', JSON.stringify(树).includes('现在勾着 2 个'))
 
 // ---------- 交互：再点一下 = 取消（也自动保存）----------
 请求 = []
@@ -268,9 +282,11 @@ await new Promise((r) => setTimeout(r, 0)) // 等自动保存那一下
 await new Promise((r) => setTimeout(r, 0))
 树 = 渲染()
 报('再点一下乙会话 → 取消勾选', 找行(树, '乙会话').kids[0].p.checked === false)
-报('又回到「已勾 1 个」', JSON.stringify(树).includes('已勾 1 个'))
-报('取消也自动保存了，补丁里只剩一个 id',
-  请求.length === 1 && 请求[0].体.目标会话.length === 1 && 请求[0].体.目标会话[0] === 'sess-abc',
+报('又回到「现在勾着 1 个」', JSON.stringify(树).includes('现在勾着 1 个'))
+报('取消也自动保存了：乙进了「不主动的会话」，没名字的还在里面',
+  请求.length === 1 && 请求[0].体.全选 === true &&
+  请求[0].体.不主动的会话.includes(ID_长) && 请求[0].体.不主动的会话.includes('sess-没名字') &&
+  请求[0].体.不主动的会话.length === 2,
   JSON.stringify(请求[0] && 请求[0].体))
 
 // ---------- 交互：没标题的也能勾上 ----------
@@ -280,11 +296,69 @@ await new Promise((r) => setTimeout(r, 0))
 树 = 渲染()
 报('没标题的会话点一下也能勾上', 找行(树, '（还没起名）').kids[0].p.checked === true)
 报('勾上没标题的那行后，顶部提示里用短 id 表示它', JSON.stringify(树).includes('sess-没名字'))
-报('没标题的也能被自动存进目标会话', 请求.length === 1 && 请求[0].体.目标会话.includes('sess-没名字'))
+报('勾上它 = 从「不主动的会话」里放出来（只剩乙没勾）',
+  请求.length === 1 && 请求[0].体.不主动的会话.length === 1 && 请求[0].体.不主动的会话[0] === ID_长,
+  JSON.stringify(请求[0] && 请求[0].体))
 
 // ---------- 勾了一个「没活着」的 → 页面说清楚 ----------
 树 = 首次渲染(造态(['sess-没名字']))
-报('勾的全都没活着时，页面明确提示会跳过', JSON.stringify(树).includes('现在没活着') && JSON.stringify(树).includes('跳过'))
+报('勾的全都没活着时，页面明确提示会跳过',
+  JSON.stringify(树).includes('现在不能开口') && JSON.stringify(树).includes('跳过'))
+
+// ---------- 默认全选 + QQ 房间 ----------
+const QQ = 'session-qq-social-group-123456'
+const 全选会话 = [
+  ...会话清单,
+  { id: QQ, 标题: '测试群', 标题来源: 'QQ 桥', 状态: '没打开', 有agent: false, 可开: true, 勾着: true, qq: '群' },
+]
+服务端会话 = 全选会话
+const 造全选态 = (不主动 = []) => {
+  const 勾着 = 全选会话.map((s) => s.id).filter((id) => !不主动.includes(id))
+  return {
+    ok: true,
+    版本: '0.1.0',
+    配置文件: 'C:/x/speak-up-config.json',
+    活着的会话: 全选会话,
+    目标情况: 勾着.map((id) => {
+      const s = 全选会话.find((x) => x.id === id) || {}
+      return { id, 短id: String(id).slice(-8), 标题: s.标题 || '', 活着: s.有agent === true, 可开: s.可开 === true, qq: s.qq || '' }
+    }),
+    目标活着: 勾着.some((id) => (全选会话.find((x) => x.id === id) || {}).有agent === true),
+    日志: [],
+    配置: {
+      总开关: true, 试运行: true, 全选: true, 目标会话: [], 不主动的会话: 不主动, 间隔分钟: 30,
+      搭话冷却分钟: 20, 没中加成: 10, 加成上限: 40,
+      安静起: 1, 安静止: 8, 近阈值分钟: 20, 近因子: 0.15, 远阈值分钟: 360, 远因子: 1.5,
+      峰时命中线: 20, 谷时命中线: 60,
+      触发文案: 'x', 角色: 'user',
+    },
+  }
+}
+树 = 首次渲染(造全选态())
+报('默认全选：清单里每个房间都勾着（含 QQ 群）',
+  收集会话行(树).length === 4 && 收集会话行(树).every((r) => r.kids[0].p.checked === true),
+  JSON.stringify(收集会话行(树).map((r) => r.kids[0].p.checked)))
+报('QQ 房间带「QQ群」标记，并且标题照常显示',
+  JSON.stringify(树).includes('QQ群') && JSON.stringify(树).includes('测试群'))
+报('默认全选时顶部写「现在勾着 4 个」', JSON.stringify(树).includes('现在勾着 4 个'))
+报('默认全选时不再报「一个勾着的房间都没有」', !JSON.stringify(树).includes('一个勾着的房间都没有'))
+
+请求 = []
+找行(树, '测试群').kids[0].p.onChange({ target: { checked: false } })
+await new Promise((r) => setTimeout(r, 0))
+树 = 渲染()
+报('取消 QQ 群 → 记进「不主动的会话」，立刻自动保存',
+  请求.length === 1 && 请求[0].体.全选 === true && 请求[0].体.不主动的会话.length === 1 &&
+  请求[0].体.不主动的会话[0] === QQ, JSON.stringify(请求[0] && 请求[0].体))
+报('取消后这行真的没勾了', 找行(树, '测试群').kids[0].p.checked === false)
+报('其它房间还勾着（只取消这一个）',
+  找行(树, '甲会话').kids[0].p.checked === true && 找行(树, '乙会话').kids[0].p.checked === true)
+
+树 = 首次渲染(造全选态(全选会话.map((s) => s.id)))
+报('全部取消时，红字提醒「一个勾着的房间都没有」', JSON.stringify(树).includes('一个勾着的房间都没有'))
+
+// 恢复共用清单，后面的手填 / 空数据用例照旧
+服务端会话 = 会话清单
 
 // ---------- 一个都没勾 ----------
 树 = 首次渲染(造态([]))

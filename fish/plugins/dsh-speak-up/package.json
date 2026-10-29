@@ -1,6 +1,6 @@
 {
   "name": "dsh-speak-up",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "主动搭话（dsh-speak-up）：DSH 插件。没人在跟她说话的时候，她也会自己起个话头 —— 按你设的间隔掷一次本地骰子（不花模型），掷中了就走 DSH 自己的一轮（人格、历史、工具、记忆全都是她自己的）。",
   "license": "MIT",
   "type": "module",
