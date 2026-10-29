@@ -5,8 +5,15 @@ import { clearStaleHostCookies } from '../src/host-cookies.ts'
 
 vi.mock('electron', () => ({ session: { defaultSession: { cookies: {} } } }))
 
-const cookie = (patch: Partial<Cookie>): Cookie => ({
-  name: 'dsh-auth-old', domain: '127.0.0.1', path: '/', sameSite: 'strict', ...patch,
+interface CookiePatch {
+  name: string
+  domain?: string
+  path?: string
+  secure?: true
+}
+
+const cookie = ({ name, domain = '127.0.0.1', path = '/', secure }: CookiePatch): Cookie => ({
+  name, value: 'v1.test', domain, path, sameSite: 'strict', ...(secure === undefined ? {} : { secure }),
 })
 
 function jar(cookies: Cookie[], failingName?: string) {

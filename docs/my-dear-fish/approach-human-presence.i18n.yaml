@@ -1,0 +1,64 @@
+# Bilingual-pair consistency record for approach-human-presence.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/approach-human-presence.md
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget:
+  en: 018d859664b70c59
+  zh: 56727847fc6f5cb0
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/in-one-sentence:
+  en: eae9ae0d2aa4cffb
+  zh: c1676d6b35955262
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/her-seven-current-breakpoints:
+  en: 5cd700f25b32b714
+  zh: 2529d27f24f2a8b2
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/how-people-stay-in-a-group:
+  en: 6a8ef900434f38ff
+  zh: 37f1468954ed74b3
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder:
+  en: e37bf69c7226cdab
+  zh: e8719663dade41a3
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder/room-ledger:
+  en: 29e157850182734a
+  zh: 37090c70180e4472
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder/addressee:
+  en: eeb30be80f1580a3
+  zh: 689e3a8427936d18
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder/participation-ladder:
+  en: e1877c3627384ffb
+  zh: 882503569be3c68f
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder/answered-and-silence:
+  en: d804be5c39562080
+  zh: 76472d1ef1cdbc12
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder/rhythm:
+  en: 325d71bea6971d29
+  zh: 1ffdb73cdd38a188
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/presence-ledger-addressee-ladder/social-battery:
+  en: 77e0002f40e6fdfc
+  zh: 1bb1bcccf7822b84
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/energy-the-balance-is-strength:
+  en: 82e2756ef653746c
+  zh: cb048baaf427aa30
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/energy-the-balance-is-strength/three-layers:
+  en: 72baf431bb7b169d
+  zh: 4c941958f789067d
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/energy-the-balance-is-strength/six-tiers:
+  en: d868b9b0260c7dec
+  zh: 762a279f2639e1ae
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/energy-the-balance-is-strength/action-costs:
+  en: b7bb7c5d6842c88f
+  zh: ad6ee0e44a97b4ea
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/energy-the-balance-is-strength/money-saving-list:
+  en: 64213b0a39bb665f
+  zh: d50b79e08b7519fc
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/other-features-requests-raised-in-other-sessions:
+  en: 77c9d2ce4f4f6fa1
+  zh: 24d2750ca19162fc
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/acceptance:
+  en: bb5c884c35cecd49
+  zh: 36939064c127fb13
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/implementation-order:
+  en: feed2fd13708696e
+  zh: 9180260983d4595f
+/being-human-in-groups-filling-feature-gaps-and-the-energy-budget/new-configuration:
+  en: 4654025c0f6b195b
+  zh: ef6e9587624afa40

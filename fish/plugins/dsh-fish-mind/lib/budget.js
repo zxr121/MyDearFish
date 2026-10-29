@@ -13,6 +13,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { energyOf } from './energy.js'
 
 export const BIRTH_DAILY_GRANT_CNY = 10
 export const MAX_DAILY_GRANT_CNY = 10000
@@ -551,12 +552,23 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     return { changed: true, dailyGrantCny: next, previousCny: previous, adjustedCny }
   }
 
+  /**
+   * 账本快照：额度、余额、今天已花、B 站巡检和此刻的精力档位。
+   * 精力只由余额、今日消耗和本地时间算出来，写不进账本，也不受对话影响。
+   * @returns {object} 只读快照，供本机设置页和 QQ 桥使用。
+   */
   function status() {
     ensureGrant()
     const day = localDay(now())
     const bucket = state.days[day] || { spentCny: 0, calls: 0, unmetered: 0, biliSpentCny: 0, biliCalls: 0 }
     const balance = state.lastBalance
     const biliSpent = round(Math.max(0, Number(bucket.biliSpentCny) || 0), 6)
+    const energy = energyOf({
+      availableCny: state.walletCny,
+      dailyGrantCny: state.dailyGrantCny,
+      spentTodayCny: bucket.spentCny,
+      now: now(),
+    })
     const cap = biliCapCny()
     return {
       version: 1,
@@ -569,6 +581,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       spentTodayCny: round(bucket.spentCny, 4),
       callsToday: bucket.calls,
       unmeteredToday: bucket.unmetered,
+      energy,
       bili: {
         share: round(biliShare(), 4),
         capCny: round(cap, 4),
