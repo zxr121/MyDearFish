@@ -272,6 +272,7 @@ const 默认配置 = {
     冷却秒: 15, // 同一个群/好友两次开口的成熟期基础间隔；实际按兴致和余额走指数曲线
     冷却最短秒: 2, // 她最有兴致时的最短间隔
     冷却最长倍率: 1.2, // 她兴致最低时，冷却乘以这个数
+    精力: true, // 余额当力气用：累了少主动、短一点；关掉只看余额下限
     余额吃紧线: 5, // 零花钱低于这个数时，冷却按曲线逐渐拉长
     余额吃紧倍率: 1.5, // 余额接近最低时冷却最多乘以这个数
     最低余额: 1, // 零花钱低于这个数就不主动接话（被叫也不接，省着点）
@@ -288,6 +289,7 @@ const 默认配置 = {
     探索最低余额: 3, // 零花钱低于这个数就不拿钱去探索陌生话题
     判断模型: '', // "provider/model"；空 = 跟主会话模型走
     判断阈值: 0.4, // 小模型想接时的把握低于这个数就不接（只看不回不受影响）
+    低信号跳过: true, // 一整批都是表情、复读、短附和又没叫她时，不花一次判断，攒着等真有内容
     判断冷却秒: 0, // 同一目标两次判断的最小间隔；0 = 每轮轮询都判，判断费靠零花钱和快判兜底
     聚拢秒: 15, // 同一个人连续几秒内的话合成一条再判断；0 = 收到就判
     并行: true, // 主屋正在回话时，新消息开分线会话同时回；关掉 = 按顺序回
@@ -499,6 +501,7 @@ function 归一化社交(原始, 主人号 = '') {
     冷却秒: Math.round(数(混.冷却秒, 兜.冷却秒, 2, 3600)),
     冷却最短秒: Math.round(数(混.冷却最短秒, 兜.冷却最短秒, 1, 3600)),
     冷却最长倍率: 数(混.冷却最长倍率, 兜.冷却最长倍率, 1, 4),
+    精力: 布(混.精力, 兜.精力),
     余额吃紧线: 数(混.余额吃紧线, 兜.余额吃紧线, 0, 1000),
     余额吃紧倍率: 数(混.余额吃紧倍率, 兜.余额吃紧倍率, 1, 3),
     最低余额: 数(混.最低余额, 兜.最低余额, 0, 1000),
@@ -516,6 +519,7 @@ function 归一化社交(原始, 主人号 = '') {
     探索最低余额: 数(混.探索最低余额, 兜.探索最低余额, 0, 1000),
     判断模型: 洗模型(混.判断模型),
     判断阈值: 数(混.判断阈值, 兜.判断阈值, 0.1, 1),
+    低信号跳过: 布(混.低信号跳过, 兜.低信号跳过),
     判断冷却秒: Math.round(数(混.判断冷却秒, 兜.判断冷却秒, 0, 3600)),
     聚拢秒: Math.round(数(混.聚拢秒, 兜.聚拢秒, 0, 60)),
     并行: 布(混.并行, 兜.并行),
@@ -684,6 +688,33 @@ export function 取说话人名字(名片, 昵称, 号码) {
   if (昵称文本 !== '') return 昵称文本.slice(0, 32)
   const 号码文本 = String(号码 === undefined || 号码 === null ? '' : 号码).trim()
   return (号码文本 === '' ? '某人' : 号码文本).slice(0, 32)
+}
+
+/**
+ * 群里这条消息是不是按名字在叫别人。
+ *
+ * 只认开头：`@名字`、`名字，`、`名字你…`、`名字在吗`。名字后面必须紧跟停顿、
+ * 逗号、你 / 您或在不在，避免“小王八”被当成在叫“小王”。叫她自己的名字不算。
+ * @param {string} 文字 - 消息正文。
+ * @param {string[]} 名字们 - 本屋认识的人名，越具体越好。
+ * @param {string[]} [自己名字们] - 她自己的称呼和昵称。
+ * @returns {string} 被叫的人名；没在叫别人就返回空串。
+ */
+export function 在叫别人(文字, 名字们, 自己名字们 = []) {
+  const 文 = String(文字 === undefined || 文字 === null ? '' : 文字).trim()
+  if (文 === '') return ''
+  const 自己 = new Set((自己名字们 || []).map((名) => String(名 || '').trim()).filter(Boolean))
+  const 候选 = [...new Set((名字们 || []).map((名) => String(名 || '').trim()).filter((名) => 名 !== '' && !自己.has(名)))]
+    .sort((a, b) => b.length - a.length)
+  for (const 名 of 候选) {
+    const at = 文.startsWith(`@${名}`)
+    // 单字名只在 @ 后面认，否则“我想…”会被当成在叫“我”。
+    if (!at && 名.length < 2) continue
+    if (!at && !文.startsWith(名)) continue
+    const 后 = 文.slice(at ? 名.length + 1 : 名.length)
+    if (后 === '' || /^[，,、：:！!？?\s]/.test(后) || /^[你您]/.test(后) || /^在吗|^在不在|^在么/.test(后)) return 名
+  }
+  return ''
 }
 
 const 戳说法坏字符 = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufffd]/g
@@ -976,6 +1007,32 @@ export function 问到她自己(文字) {
   if (问身份.test(文)) return true
   if (提自己.test(文) && 提关系.test(文)) return true
   return 评价她.test(文)
+}
+
+/**
+ * 一整批都是纯表情、纯标点或反复复读的短句，又没叫她、没提问：不值得花一次判断。
+ *
+ * 只认三条以上的一整批，单句“哈哈”照常判断；带图、带问号、在修话
+ * （“你说啥”）或问到她自己，都不算低信号。这些消息留在待看里，等真有内容时一起判。
+ * @param {object[]} 批 - 这一批新消息。
+ * @returns {boolean} true 表示可以跳过判断。
+ */
+export function 是低信号(批 = []) {
+  const 列表 = Array.isArray(批) ? 批.filter((m) => m && !m.自己) : []
+  if (列表.length < 3) return false
+  const 净们 = []
+  for (const m of 列表) {
+    if (m.主人 || m.被叫原因 || m.戳) return false
+    if (Array.isArray(m.图片) && m.图片.length > 0) return false
+    const 文 = String(m.文字 || '')
+    if (/[?？]/.test(文) || /你说啥|说什么|没听清|再说一遍|啥意思/.test(文)) return false
+    if (问到她自己(文)) return false
+    const 净 = 文.replace(/\[[^\]\n]{0,40}\]/g, '').replace(/[\s\p{P}\p{S}]/gu, '')
+    if (净.length > 4) return false
+    净们.push(净)
+  }
+  // 全是纯表情 / 标点，或者反复刷同一句；只有各不相同的一串短话仍交给判断。
+  return 净们.every((净) => 净 === '') || new Set(净们).size <= Math.ceil(净们.length / 2)
 }
 
 // 明确的查询口令；普通聊到“好感度”仍按感觉回答，只有带查/多少/几分这类说法才报数。
@@ -2864,7 +2921,7 @@ export function apply(ctx) {
     }
   }
 
-  /** 面板顶部那条当前状态：今天花了多少钱、打了多少次。 */
+  /** 面板顶部那条当前状态：今天花了多少钱、打了多少次、这会儿多大精力。 */
   function 预算摘要() {
     const 存 = 读JSON文件(鱼脑账本文件)
     if (!存 || typeof 存 !== 'object') return { 可用: false }
@@ -2872,6 +2929,9 @@ export function apply(ctx) {
     const 补 = (n) => String(n).padStart(2, '0')
     const 今天 = `${今.getFullYear()}-${补(今.getMonth() + 1)}-${补(今.getDate())}`
     const 账 = (存.days && 存.days[今天]) || {}
+    // 精力档位只由鱼脑账本算，面板不自算一遍；鱼脑没挂上就不显示。
+    const 钱 = 零花钱够(读配置())
+    const 精 = 钱 && 钱.energy
     return {
       可用: true,
       今日: 今天,
@@ -2879,6 +2939,7 @@ export function apply(ctx) {
       今日调用: Number(账.calls) || 0,
       余额: Number(存.walletCny) || 0,
       日额度: Number(存.dailyGrantCny) || 0,
+      精力: 精 ? { 档: 精.level, 说法: 精.label } : null,
     }
   }
 
@@ -4690,9 +4751,15 @@ export function apply(ctx) {
   function 主动额度用完(配置, key, now = Date.now()) {
     const c = 计数of(key)
     c.主动 = c.主动.filter((t) => now - t < 3_600_000)
+    const 精力 = 此刻精力(配置)
+    if (精力 && 精力.proactiveScale <= 0) return `这会儿${精力.label}，不主动开口`
     const 量 = 话量of(配置, key)
-    if (量.每日 > 0 && c.主动今日 >= 量.每日) return `今天的主动话量用完了（${c.主动今日}/${量.每日} 轮）`
-    if (量.每时 > 0 && c.主动.length >= 量.每时) return `这小时的主动话量用完了（${c.主动.length}/${量.每时} 轮）`
+    // 精力低时主动额度跟着缩，但不低于每小时 / 每天一轮；被叫和主人本来就不走这里。
+    const 缩 = 精力 && 精力.proactiveScale < 1 ? Math.max(0.1, 精力.proactiveScale) : 1
+    const 每时 = 量.每时 > 0 ? Math.max(1, Math.round(量.每时 * 缩)) : 0
+    const 每日 = 量.每日 > 0 ? Math.max(1, Math.round(量.每日 * 缩)) : 0
+    if (每日 > 0 && c.主动今日 >= 每日) return `今天的主动话量用完了（${c.主动今日}/${每日} 轮）`
+    if (每时 > 0 && c.主动.length >= 每时) return `这小时的主动话量用完了（${c.主动.length}/${每时} 轮）`
     return ''
   }
 
@@ -4791,12 +4858,19 @@ export function apply(ctx) {
       if (!b || !b.enabled) return { ok: true }
       const 可用 = Number(b.availableCny)
       if (Number.isFinite(可用) && 可用 < Number(配置.社交.最低余额)) {
-        return { ok: false, 说: `零花钱低于设定的下限 ${配置.社交.最低余额}` }
+        return { ok: false, 说: `零花钱低于设定的下限 ${配置.社交.最低余额}`, energy: b.energy || null }
       }
-      return { ok: true, 可用: Number.isFinite(可用) ? 可用 : undefined }
+      return { ok: true, 可用: Number.isFinite(可用) ? 可用 : undefined, energy: b.energy || null }
     } catch (error) {
       return { ok: false, 说: '读鱼脑账本失败' }
     }
+  }
+
+  /** 此刻的精力；主人关掉「精力」或鱼脑版本还没带这个字段时返回 null。 */
+  function 此刻精力(配置, 钱 = null) {
+    if (!配置 || !配置.社交 || 配置.社交.精力 === false) return null
+    const 账 = 钱 || 零花钱够(配置)
+    return 账 && 账.energy ? 账.energy : null
   }
 
   /** 动态冷却：兴致越高越短，余额越紧越长；两段都用指数曲线。 */
@@ -4804,7 +4878,8 @@ export function apply(ctx) {
     const s = 配置.社交
     const 钱 = 零花钱够(配置)
     const 余额倍率 = 余额冷却倍率(钱.可用, s.最低余额, s.余额吃紧线, s.余额吃紧倍率)
-    return 冷却秒数(基础秒, 把握, 阈值, s.冷却最短秒, s.冷却最长倍率, 余额倍率)
+    const 精力倍率 = 此刻精力(配置, 钱) ? 钱.energy.cooldownScale : 1
+    return 冷却秒数(基础秒, 把握, 阈值, s.冷却最短秒, s.冷却最长倍率, 余额倍率 * 精力倍率)
   }
 
   /** "provider/model" → 模型；没填就跟当前主人会话或 DSH 默认模型走。 */
@@ -5148,7 +5223,8 @@ export function apply(ctx) {
         const 钱 = 零花钱够(配置)
         const 可用 = Number(钱.可用)
         const 探索最低 = Math.max(0, Number(配置.社交.探索最低余额) || 0)
-        if (钱.ok && (!Number.isFinite(可用) || 可用 >= 探索最低)) {
+        const 精力 = 此刻精力(配置, 钱)
+        if (钱.ok && (!精力 || 精力.explore) && (!Number.isFinite(可用) || 可用 >= 探索最低)) {
           const 候选 = 没进们
             .filter((x) => !像灌水或广告(x.m.文字))
             .sort((a, b) => b.分 - a.分 || (Number(b.m.at) || 0) - (Number(a.m.at) || 0))[0]
@@ -6827,6 +6903,8 @@ export function apply(ctx) {
       : ''
     const 表情行 = 表情提示()
     const 落空行 = 取表情落空(目标.key)
+    const 精力 = 只看 ? null : 此刻精力(配置)
+    const 精力行 = 精力 && 精力.promptLine ? 精力.promptLine : ''
     const 前段 = [头, 公告行, 人卡].filter(Boolean).join('\n')
     const 后段 = [
       ...查数们,
@@ -6845,6 +6923,7 @@ export function apply(ctx) {
       戳提示,
       冷处理行,
       多聊行,
+      精力行,
       !只看 && 节奏 ? `【这一轮的分寸】${节奏}` : '',
       尾,
     ].filter(Boolean).join('\n')
@@ -7114,6 +7193,12 @@ export function apply(ctx) {
     await 顺手收藏要求的表情(配置, 目标, 全部)
     // 进了视线就先记“见过”，不管最后看不看；这是兴趣权重的分母。
     记见词(目标.key, 全部)
+    // 一整批都是表情、复读、两三个字的附和，又没叫她：先不花判断的钱，攒着等真有内容。
+    if (!不开口 && 配置.社交.低信号跳过 !== false && 是低信号(全部)) {
+      社交待看.set(目标.key, 全部)
+      记思绪早退(目标, `这批 ${全部.length} 条都是短附和或表情，没叫她，先不判断`)
+      return
+    }
     // 主人点名叫她：优先接主人的话，不交给兴趣判断；群友被叫仍走下面的判断。
     if (主人叫她(全部)) {
       if (不开口) {
@@ -7149,8 +7234,11 @@ export function apply(ctx) {
     if (有效.length === 0) return
     const 有效快说 = (快.丢 > 0 ? `；快判这轮先放后面 ${快.丢} 条` : '') + (快.探索 ? '；探索额度挑了一条没见过的' : '')
     // 判断本身也要花钱：设了判断冷却就先攒着，等下一次一起判；默认 0 时每轮都判。
+    // 精力低时给一个下限，累了就少判几次，把消息攒到下一轮；主人手动设得更大时听主人的。
     const 上次判断 = 社交判断At.get(目标.key) || 0
-    const 判断基础 = Number(配置.社交.判断冷却秒) || 0
+    const 精力 = 此刻精力(配置)
+    const 精力下限 = !精力 ? 0 : 精力.level === 'low' ? 15 : 精力.level === 'tight' ? 30 : 精力.level === 'empty' ? 60 : 0
+    const 判断基础 = Math.max(Number(配置.社交.判断冷却秒) || 0, 精力下限)
     const 判断起 = Math.min(10, 判断基础)
     const 判断冷却秒 = 学习期 ? 判断起 + (判断基础 - 判断起) * 缓动曲线(学习进度) : 判断基础
     if (Date.now() - 上次判断 < 判断冷却秒 * 1000) {
@@ -7249,6 +7337,21 @@ export function apply(ctx) {
     排进社交队列(目标.key, () => 开社交一轮(配置, 目标, 带上下文批, `${判断原因}${有效快说}`, 节奏))
   }
 
+  /** 这间屋最近认得的人名：这一批说话的人 + 人物志里在这间屋出现过的人（含别名）。 */
+  function 本屋名字们(目标, 批 = []) {
+    const 名 = new Set()
+    for (const m of 批) if (m && m.说话人) 名.add(String(m.说话人))
+    for (const p of 人物.values()) {
+      if (!p || !p.房 || !p.房[目标.key]) continue
+      if (p.名) 名.add(String(p.名))
+      for (const 别名 of Array.isArray(p.别名) ? p.别名 : []) {
+        if (别名) 名.add(String(别名))
+      }
+      if (名.size >= 40) break
+    }
+    return [...名].slice(0, 40)
+  }
+
   /** 轮询一个群/好友：只取新消息，过滤自己的发言，更新缓冲，再按批处理。 */
   async function 轮询一个社交目标(配置, 目标, 自己) {
     if (目标.类型 === 'group' && 自己.号 === '') {
@@ -7286,6 +7389,8 @@ export function apply(ctx) {
     let 少理跳过 = 0
     let 少掺和跳过 = 0
     const 主人号 = String(配置.私聊QQ || '').trim()
+    // 她自己的名字不算“在叫别人”；昵称还没拿到时只靠配置里的称呼。
+    const 自己名字们 = [...(配置.社交.称呼 || []), 自己号缓存.昵称].filter(Boolean)
     for (const 条 of 列表.slice().sort((a, b) => (Number(a.time) || 0) - (Number(b.time) || 0))) {
       if (!条) continue
       const id = 条.message_id === undefined || 条.message_id === null ? '' : String(条.message_id)
@@ -7330,10 +7435,11 @@ export function apply(ctx) {
       const 上一句 = 上句
       上句 = 段.文字
       记表情语感(配置, 目标, { at, uid, 说话人, 文字: 段.文字, 图片们: 段.图片们 }, 上一句)
-      // 群聊里这条是不是在跟某个具体的人说话：回复 / 引用别人、或者 @ 了别人。
-      // 查不到引用原消息时也算“对别人说”：宁可少插一句，也不钻进两个人之间。
+      // 群聊里这条是不是在跟某个具体的人说话：回复 / 引用别人、@ 了别人，
+      // 或按名字起头在叫别人（“小王你觉得呢”）。宁可少插一句，也不钻进两个人之间。
       const 群 = 目标.类型 === 'group'
-      const 对别人说 = 群 && (在回复别人(段) || 段.at别人)
+      const 点名 = 群 ? 在叫别人(段.文字, 本屋名字们(目标, 新消息), 自己名字们) : ''
+      const 对别人说 = 群 && (在回复别人(段) || 段.at别人 || 点名 !== '')
       // 她不来往的话题（默认不聊游戏）：群里不主动接，被直接叫到再短应一句。
       const 不聊 = 群 ? 不聊命中(配置, 段.文字) : []
       // 群聊里主人和群友一视同仁：按同一套 @ / 叫名字 / 图片 / 兴趣规则。
