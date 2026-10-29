@@ -3662,6 +3662,10 @@ const 日志从 = async (旧) => {
 }
 const 群发到 = (群, 自) => 发的.slice(自).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 群)
 const 新回合从 = (n, sid) => 回合.slice(n).some((t) => t.sid === sid)
+const 悬着档 = join(家, 'qq-bridge-threads.json')
+const 读悬着档 = () => {
+  try { return JSON.parse(readFileSync(悬着档, 'utf8')) } catch { return { rooms: {} } }
+}
 
 写配置({ 群: ['1199'], 冷却秒: 60, 冷却最短秒: 5, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 低信号跳过: false, 探索间隔秒: 0, 迟到分钟: 10, 挂起上限: 3, 主动每时: 10 })
 群消息表.set(1199, [一条群消息('今晚的海面特别蓝', { uid: 888, id: 4041, time: Math.floor(Date.now() / 1000) + 200 })])
@@ -3703,6 +3707,8 @@ await 等到(() => 群发到(1199, 补前发).length >= 1)
 报('留话头：补的话真发回群里', 群发到(1199, 补前发).some((x) => JSON.stringify(x.体.message).includes('那条鱼大不大')), JSON.stringify(群发到(1199, 补前发).map((x) => x.体.message)))
 const 态补完 = await 目标状态('group:1199')
 报('留话头：补完就放下，状态记了上次回头时间', 态补完.悬着 === 0 && 态补完.迟到回头At > 0, JSON.stringify({ 悬着: 态补完.悬着, 回头: 态补完.迟到回头At }))
+const 补完存 = 读悬着档()
+报('留话头：补完从本机文件里清掉', !(补完存.rooms && 补完存.rooms['group:1199']), JSON.stringify(补完存.rooms || {}))
 
 // 回头只想出一句“在吗”：不发
 群消息表.set(1199, [...群消息表.get(1199), 一条群消息('你们说这条鱼是不是很大只', { uid: 888, id: 4043, time: Math.floor(Date.now() / 1000) + 200 })])
@@ -3710,6 +3716,19 @@ const 态补完 = await 目标状态('group:1199')
 await 轮询社交()
 await 等(50)
 报('留话头：补完话又冷却，新的想接也先挂住', (await 目标状态('group:1199')).悬着 === 1)
+const 挂住存 = 读悬着档()
+const 存1199 = (挂住存.rooms && Array.isArray(挂住存.rooms['group:1199'])) ? 挂住存.rooms['group:1199'] : []
+报('留话头：挂住的话写进本机文件', 存1199.length === 1 && String((存1199[0].消息 && 存1199[0].消息.文字) || '').includes('是不是很大只'), JSON.stringify(存1199))
+const 重载ctx = {
+  ...ctx,
+  on: () => () => {},
+  interval: () => () => {},
+  webServer: { register: () => {} },
+}
+const 模重载 = await import(new URL('../lib/host.js', import.meta.url).href + '?v=reload-' + Date.now())
+const 宿主重载 = 模重载.apply(重载ctx)
+const 重载态 = (await 宿主重载.概况()).社交.目标.find((t) => t.key === 'group:1199')
+报('留话头：重启后当天的话头还在', !!重载态 && 重载态.悬着 === 1, JSON.stringify(重载态 && { 悬着: 重载态.悬着 }))
 时间偏移 += 11 * 60_000
 设判断(['4043'], true, 0.9, '还是想补')
 const 在吗前回合 = 回合.length
@@ -3773,6 +3792,8 @@ const 关掉前日志 = (await 宿主.概况()).日志.map((x) => ({ ...x }))
 await 轮询社交()
 await 等(50)
 报('留话头：关掉迟到回话就放下手里的话头', (await 目标状态('group:1198')).悬着 === 0 && (await 日志从(关掉前日志)).includes('迟到回话关着'), (await 日志从(关掉前日志)).slice(-240))
+const 关掉存 = 读悬着档()
+报('留话头：关掉时本机文件里的也清掉', !(关掉存.rooms && 关掉存.rooms['group:1198']), JSON.stringify(关掉存.rooms || {}))
 
 写配置({ 群: ['1198'], 冷却秒: 0, 判断冷却秒: 0, 连说上限: 0, 低信号跳过: false, 主动每时: 1, 主动每日: 0, 迟到分钟: 10, 挂起上限: 3 })
 群消息表.set(1198, [...群消息表.get(1198),
@@ -3802,6 +3823,23 @@ await 轮询社交()
 await 等(50)
 const 过期日志 = await 日志从(过期前日志)
 报('留话头：挂过三倍时间或跨天就自己放掉', (await 目标状态('group:1198')).悬着 === 0 && 过期日志.includes('丢掉'), 过期日志.slice(-260))
+
+// 重启时只接当天、完整的记录：跨天的和残缺的直接丢掉。
+writeFileSync(悬着档, JSON.stringify({
+  version: 1,
+  rooms: {
+    'group:1198': [
+      { 消息: { id: 'old-1', uid: '1', 文字: '昨天的浪', at: 0 }, 记At: Date.now() - 86400_000, 日: '2000-01-01', 原因: '冷却', 主动: false },
+      { 消息: null },
+    ],
+  },
+}, null, 2))
+const 模隔天 = await import(new URL('../lib/host.js', import.meta.url).href + '?v=day-' + Date.now())
+const 宿主隔天 = 模隔天.apply(重载ctx)
+const 隔天概况 = await 宿主隔天.概况()
+const 隔天态 = 隔天概况.社交.目标.find((t) => t.key === 'group:1198')
+const 隔天日志 = 隔天概况.日志.map((x) => x.文本).join('\n')
+报('留话头：跨天和不完整的记录重启时丢掉', !!隔天态 && 隔天态.悬着 === 0 && 隔天日志.includes('跨天或不完整'), JSON.stringify({ 悬着: 隔天态 && 隔天态.悬着, 日志: 隔天日志.slice(-160) }))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

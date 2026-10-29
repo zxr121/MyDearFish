@@ -6,7 +6,7 @@ This document answers three questions: why she still does not feel human in a gr
 
 ## In one sentence
 
-Let her actually be present in a group: every message enters a room ledger first, and a graded participation decision (not watching / short acknowledgment / joining / starting) decides what happens next; treat the balance as energy that runs down, so when she is tired she speaks less and shorter instead of mechanically shutting up; the savings come from not re-judging, not re-feeding context, and keeping cache hits, not from flattening replies into perfunctory lines. Time continuity comes next: when she wants to answer but this is not the moment, the thread stays open and she comes back to it once the room quiets down, instead of forcing a reply or losing it forever.
+Let her actually be present in a group: every message enters a room ledger first, and a graded participation decision (not watching / short acknowledgment / joining / starting) decides what happens next; treat the balance as energy that runs down, so when she is tired she speaks less and shorter instead of mechanically shutting up; the savings come from not re-judging, not re-feeding context, and keeping cache hits, not from flattening replies into perfunctory lines. Time continuity starts in 0.2.96: when she wants to answer but this is not the moment, the thread stays open and she comes back to it once the room quiets down, instead of forcing a reply or losing it forever; since 0.2.97 open threads persist across restarts and can wait hours instead of ten minutes.
 
 ## Her seven current breakpoints
 
@@ -95,10 +95,10 @@ Since 0.2.94, when someone replies "?", "what did you say", "didn't catch that",
 
 Right now she lives only inside "this batch of messages": a batch arrives, one judgment runs, and within seconds she replies or does not; proactive speech is a dice roll weighted by time and mood. People are not like that. They see a message and answer later, come back with "was busy, what did you say earlier", and the next day ask "how did that interview go". None of this needs a model running in the background; the existing room ledger, fish-mind memory, and proactive quota are enough.
 
-Three steps, with the first one landed:
+Three steps, with the first two landed:
 
 1. **Keep the thread (done in 0.2.96)**: when judgment picks a message and she has something to say, but cooldown, low battery, quota, quiet hours, or a busy room blocks the moment, she does not force a reply. The message becomes an open thread in the room; listen-only, resting, and closed rooms keep nothing. Ten minutes later by default, once the room has been quiet for two minutes and she is present again, one cheap judgment decides whether to add a line; that line carries the original words and recent context, and she may naturally say she just saw it without explaining where she was. It shares the proactive quota, holds at most three threads per room, and drops a thread after three times the delay or at the day change.
-2. **Late replies (later)**: widen open threads from ten minutes to a few hours and persist them with fish-mind so they survive a restart; when she returns she looks at these before deciding which to pick up.
+2. **Late replies (done in 0.2.97)**: open threads persist to a local `qq-bridge-threads.json` under `DSH_HOME` (only the original words, speaker, time, and hang reason), updated whenever a thread is kept, dropped, answered by someone else, replied to, or its room is removed. Threads from the same day come back after a restart; cross-day and malformed entries are dropped. The `社交.迟到分钟` cap rises to 360, so something missed before clocking off can still be answered hours later once the room quiets down; when she returns she looks at these first and decides which to pick up.
 3. **Next-day callbacks (later)**: turn facts that invite a follow-up (an interview, a trip, a pet, an exam, a promise) into time-aware openers, replacing the random dice roll in proactive speech — a callback with a reason feels more human and wastes less money.
 
 Guards: expiry, a confidence threshold, and a per-room cap; if someone else already answered the thread in the meantime, she drops it instead of adding a duplicate; a late line never interrogates, echoes, or asks "are you there". The settings page shows how many threads each room holds and when she last came back, and turning `社交.迟到` off disables late replies entirely. Late replies get their own acceptance spot check: stale, aimed at the wrong person, or repeated all count as failures.
@@ -193,7 +193,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 4. Done (0.2.93): social battery and rhythm jitter between consecutive sends.
 5. Done (0.2.94): the repair turn.
 6. Done: page-by-page audit of settings dropdowns and the private-chat sticker path. All five fish pages carry dark option backgrounds, the TTS page has no dropdown, and settings pages of non-fish plugins are outside this plugin's scope; saving, renaming, sending by number, deduplicating stickers, and being honest about a missing number all have private-chat test coverage.
-7. Done (0.2.96): step one of time continuity — a message she wanted to answer but that cooldown, battery, quota, quiet hours, or a busy room held back becomes an open thread, and she adds a line once the room has been quiet for a while; persistence, crossing hours, and next-day callbacks wait for later rounds.
+7. Done (0.2.96–0.2.97): the first two steps of time continuity — a message she wanted to answer but that cooldown, battery, quota, quiet hours, or a busy room held back becomes an open thread, and she adds a line once the room has been quiet for a while; threads persist to local `qq-bridge-threads.json`, survive restarts within the same day, and the `迟到分钟` cap rises to 360 so they can cross hours. Next-day callbacks wait for a later round.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 
@@ -207,7 +207,7 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | `社交.电量` | true | Whether recent per-room speech lowers the proactive quota |
 | `社交.重说` | true | Whether a "?" or "didn't catch that" triggers a direct rephrase without another judgment |
 | `社交.迟到` | true | Whether a message blocked by cooldown, quota, quiet hours, or a busy room is kept as an open thread for a later line |
-| `社交.迟到分钟` | 10 | How long a thread waits before she comes back to it; three times this delay or a day change drops it |
+| `社交.迟到分钟` | 10 | How long a thread waits before she comes back to it (up to 360); three times this delay or a day change drops it |
 | `社交.挂起上限` | 3 | How many threads one room holds at once; the oldest is pushed out first |
 
 `判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value.

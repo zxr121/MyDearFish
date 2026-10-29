@@ -99,6 +99,8 @@ const 熟人上限 = 120
 const 人物文件 = join(目录, 'qq-social-people.json')
 // 主人点过「重置这个聊天」之后，群/好友/主人私聊改用的新会话 id；旧档原地不动。
 const 会话重置文件 = join(目录, 'qq-bridge-sessions.json')
+// 想接但当时被拦下的话头；只在本机，重启后还能回头补。
+const 悬着文件 = join(目录, 'qq-bridge-threads.json')
 const 人物上限 = 300
 const 事实上限 = 24
 const 别名上限 = 6
@@ -532,7 +534,7 @@ function 归一化社交(原始, 主人号 = '') {
     电量: 布(混.电量, 兜.电量),
     重说: 布(混.重说, 兜.重说),
     迟到: 布(混.迟到, 兜.迟到),
-    迟到分钟: Math.round(数(混.迟到分钟, 兜.迟到分钟, 1, 120)),
+    迟到分钟: Math.round(数(混.迟到分钟, 兜.迟到分钟, 1, 360)),
     挂起上限: Math.round(数(混.挂起上限, 兜.挂起上限, 1, 10)),
     判断冷却秒: Math.round(数(混.判断冷却秒, 兜.判断冷却秒, 0, 3600)),
     聚拢秒: Math.round(数(混.聚拢秒, 兜.聚拢秒, 0, 60)),
@@ -4794,6 +4796,66 @@ export function apply(ctx) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
 
+  /**
+   * 读回想接但当时没接上的话头：只留今天的，残缺记录直接丢掉。
+   * 回话里说的原话只在本机留一份，配置里删掉的房间下一轮轮询会跟着清掉。
+   */
+  function 读悬着() {
+    let 存 = null
+    try {
+      存 = JSON.parse(readFileSync(悬着文件, 'utf8'))
+    } catch (error) {
+      if (error && error.code !== 'ENOENT') 记账(`读回话头失败（${悬着文件}）：${String((error && error.message) || error)}`)
+      return
+    }
+    const 屋 = 存 && 存.rooms && typeof 存.rooms === 'object' ? 存.rooms : {}
+    const 今天 = 今日()
+    let 丢 = 0
+    for (const [key, 列] of Object.entries(屋)) {
+      if (!Array.isArray(列)) continue
+      const 留 = []
+      for (const 悬 of 列) {
+        const 消息 = 悬 && 悬.消息
+        if (!消息 || typeof 消息 !== 'object') { 丢 += 1; continue }
+        if (悬.日 !== 今天) { 丢 += 1; continue }
+        if (String(消息.文字 || '').trim() === '' && !消息.被叫原因 && !消息.回复id) { 丢 += 1; continue }
+        留.push({
+          消息: {
+            id: String(消息.id || ''),
+            uid: String(消息.uid || ''),
+            说话人: String(消息.说话人 || ''),
+            文字: String(消息.文字 || ''),
+            at: Number(消息.at) || 0,
+            主人: !!消息.主人,
+            被叫原因: String(消息.被叫原因 || ''),
+            回复id: String(消息.回复id || ''),
+          },
+          记At: Number(悬.记At) || 0,
+          日: String(悬.日 || ''),
+          原因: String(悬.原因 || ''),
+          主动: !!悬.主动,
+        })
+      }
+      if (留.length > 0) 悬着的话.set(key, 留)
+    }
+    if (丢 > 0) 记账(`回话头：重启后丢掉 ${丢} 条跨天或不完整的`)
+  }
+
+  function 写悬着() {
+    try {
+      const rooms = {}
+      for (const [key, 列] of 悬着的话) {
+        if (Array.isArray(列) && 列.length > 0) rooms[key] = 列
+      }
+      mkdirSync(目录, { recursive: true })
+      writeFileSync(悬着文件, JSON.stringify({ version: 1, rooms }, null, 2), 'utf8')
+    } catch (error) {
+      记账(`写不回话头（${悬着文件}）：${String((error && error.message) || error)}`)
+    }
+  }
+
+  读悬着()
+
   /** 毫秒时间戳 → “HH:MM”；只给人看，不带日期。 */
   const 几点 = (毫秒) => {
     const d = new Date(毫秒)
@@ -7455,6 +7517,7 @@ export function apply(ctx) {
       挤掉 += 1
     }
     悬着的话.set(目标.key, 列)
+    写悬着()
     const 短 = 列表.map((m) => String(m.文字 || '').slice(0, 20)).filter(Boolean).slice(0, 3).join(' / ')
     记账(`${目标.叫} 先挂住 ${加} 条话头（${原因}）${挤掉 > 0 ? `；超过 ${上限} 条，挤掉最早的 ${挤掉} 条` : ''}：${短}`)
     记思绪('判断', `想接，但${原因}：先把这条挂住，过一会儿安静了再回来看`, {
@@ -7468,6 +7531,7 @@ export function apply(ctx) {
     const 列 = 悬着的话.get(目标.key) || []
     if (列.length === 0) return
     悬着的话.delete(目标.key)
+    写悬着()
     记账(`${目标.叫} 放下挂着的 ${列.length} 条话头：${原因}`)
   }
 
@@ -7516,8 +7580,13 @@ export function apply(ctx) {
       }
       留.push(悬)
     }
-    if (留.length === 0) 悬着的话.delete(目标.key)
-    else if (留.length !== 全部.length) 悬着的话.set(目标.key, 留)
+    if (留.length === 0) {
+      悬着的话.delete(目标.key)
+      写悬着()
+    } else if (留.length !== 全部.length) {
+      悬着的话.set(目标.key, 留)
+      写悬着()
+    }
     if (过期 > 0) 记账(`${目标.叫}：挂着的 ${过期} 条话头过了 ${Math.round(过期毫秒 / 60_000)} 分钟或跨天了，丢掉`)
     if (已答 > 0) 记账(`${目标.叫}：挂着的 ${已答} 条话头，别人已经接过，不再补`)
     if (放下 > 0) 记账(`${目标.叫}：挂着的 ${放下} 条话头按你的设置先放下（不理 / 不主动 / 少理 / 少掺和）`)
@@ -7555,6 +7624,7 @@ export function apply(ctx) {
     const 剩 = 留.filter((x) => x !== 悬)
     if (剩.length > 0) 悬着的话.set(目标.key, 剩)
     else 悬着的话.delete(目标.key)
+    写悬着()
     if (判.说 === '判断结果看不懂' || 判.说 === '判断模型调用失败' || 判.说 === '没有可用的判断模型') {
       记账(`${目标.叫}：回头补话的判断没做出来（${判.说}${判.详情 ? '：' + 判.详情 : ''}），这条话头放下`)
       return
@@ -7994,6 +8064,7 @@ export function apply(ctx) {
           if (留悬.length !== 悬.length) {
             if (留悬.length === 0) 悬着的话.delete(目标.key)
             else 悬着的话.set(目标.key, 留悬)
+            写悬着()
             记账(`${目标.叫}：挂着的 ${悬.length - 留悬.length} 条话头别人已经回了，不再补一句`)
           }
         }
@@ -8132,9 +8203,15 @@ export function apply(ctx) {
     if (!配置.总开关 || !配置.社交.启用) return
     const 目标们 = 社交目标们(配置)
     if (目标们.length === 0) return
-    // 配置里删掉的房间，挂着的对话头也跟着清掉，别留在内存里。
+    // 配置里删掉的房间，挂着的对话头也跟着清掉，别留在内存和本机文件里。
     const 还在 = new Set(目标们.map((t) => t.key))
-    for (const k of [...悬着的话.keys()]) if (!还在.has(k)) 悬着的话.delete(k)
+    let 清掉屋 = 0
+    for (const k of [...悬着的话.keys()]) {
+      if (还在.has(k)) continue
+      悬着的话.delete(k)
+      清掉屋 += 1
+    }
+    if (清掉屋 > 0) 写悬着()
     for (const k of [...悬着回头At.keys()]) if (!还在.has(k)) 悬着回头At.delete(k)
     // 超时没等到回合结束的，清掉，别一直挂着一轮“待发”
     for (const [sid, 列] of [...社交待发]) {
