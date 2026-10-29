@@ -157,7 +157,40 @@ window.__ModuleLoader__.load({
       h('div', { style: S.row }, h('div', { style: S.lab }, 标签), h('div', { style: S.ctl }, 控件, 说明 ? 提示(说明) : null))
     const 按钮 = (文字, onClick, 亮, 关) =>
       h('button', { type: 'button', style: 亮 ? S.btnOn : S.btn, onClick, disabled: !!关, title: 文字 }, 文字)
-    const 勾 = (值, onChange) => h('input', { type: 'checkbox', checked: !!值, onChange: (e) => onChange(e.target.checked) })
+    // 勾选态一律摆成「开 / 关」两段：哪段亮着就是当前状态，不用靠勾没勾上猜。
+    const 勾 = (值, onChange) => {
+      const 开 = !!值
+      const 段 = (文本, 选中, 目标) => h('button', {
+        type: 'button',
+        'aria-pressed': 选中,
+        style: {
+          border: 'none',
+          borderRadius: 999,
+          padding: '3px 12px',
+          fontSize: 12,
+          lineHeight: 1.4,
+          cursor: 选中 ? 'default' : 'pointer',
+          background: 选中
+            ? (目标 ? 'var(--dsw-alias-state-business-primary)' : 'var(--dsw-alias-border-l2)')
+            : 'transparent',
+          color: 选中 && 目标 ? '#fff' : 'inherit',
+          opacity: 选中 ? 1 : 0.5,
+          fontWeight: 选中 ? 600 : 400,
+          transition: 'background .15s, opacity .15s',
+        },
+        onClick: () => { if (!选中) onChange(目标) },
+      }, 文本)
+      return h('div', {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 2,
+          padding: 2,
+          border: '1px solid var(--dsw-alias-border-l2)',
+          borderRadius: 999,
+        },
+      }, 段('开', 开, true), 段('关', !开, false))
+    }
     const 短id = (id) => {
       const s = String(id)
       return s.length <= 8 ? s : s.slice(-8)
@@ -925,6 +958,22 @@ window.__ModuleLoader__.load({
         : ['判断', '思考', '心情', '记忆', '开口']
       const 显示绪 = 绪类 === '' ? 绪流 : 绪流.filter((x) => x.类别 === 绪类)
 
+      const 总开 = !!配置.总开关
+      const 社交开 = !!社交.启用
+      const 摘要色 = { 好: 'var(--dsw-alias-state-business-primary)', 中: '#b7791f', 差: '#c0392b' }
+      const 摘要行 = (名, 值, 调) => h('div', { style: { display: 'flex', gap: 8, alignItems: 'baseline', marginTop: 4, flexWrap: 'wrap' } },
+        h('span', { style: { ...S.dim, minWidth: 88 } }, 名),
+        h('span', { style: { fontWeight: 600, color: 摘要色[调] } }, 值))
+      const 主转发调 = !总开 ? '差' : (配置.试运行 ? '中' : '好')
+      const 主转发字 = !总开 ? '停（总开关关着）' : (配置.试运行 ? '只记账，不真发' : '真发')
+      const 社交调 = (!总开 || !社交开) ? '差' : (社交.试运行 ? '中' : '好')
+      const 社交字 = !总开
+        ? '停（总开关关着）'
+        : (!社交开 ? '停（社交开关关着）' : (社交.试运行 ? '只记账，不真发' : '真发'))
+      const 房文字 = 现有群.length + 现有好友.length === 0
+        ? '还没填群 / 好友'
+        : 现有群.length + ' 个群 · ' + 现有好友.length + ' 个好友'
+
       const 步骤 = (号, 完成, 标题, 内容) =>
         h('div', { style: { display: 'flex', gap: 10, marginTop: 12 } },
           步骤头(号, 完成),
@@ -944,6 +993,19 @@ window.__ModuleLoader__.load({
             '下面的社交模式里，它只会挑自己感兴趣的消息看，再决定要不要接；能回答、被 @、群里热闹都不是理由。' +
             '第一次接通只要三步：装好 SnowLuma（本机已有的会自动认出来）→ 登录鱼 QQ → 在下面填一个群号或 QQ 号。' +
             '版本 ' + String(态.版本 || '?') + '｜配置文件：' + String(态.配置文件 || ''),
+        ),
+
+        // —— 一眼看懂：现在到底会不会说话 ——
+        h('div', { style: { ...S.card, marginTop: 10, border: '1px solid var(--dsw-alias-state-business-primary)' } },
+          h('div', { style: { ...S.h, margin: '0 0 4px' } }, '现在是什么状态'),
+          h('div', { style: S.dim }, '先看这一张；下面带「进阶」的折叠块一般不用动。'),
+          摘要行('鱼 QQ', 雪连上 ? '已接通：' + String(雪.昵称 || '') + '（' + String(雪.用户 || '') + '）' : '还没接通', 雪连上 ? '好' : '差'),
+          摘要行('总开关', 总开 ? '开' : '关（一句都不发）', 总开 ? '好' : '差'),
+          摘要行('主会话转发', 主转发字, 主转发调),
+          摘要行('群 / 好友发言', 社交字, 社交调),
+          摘要行('在看的房', 房文字, 现有群.length + 现有好友.length > 0 ? '好' : '差'),
+          h('div', { style: { ...S.dim, marginTop: 8 } },
+            '日常只用管四项：鱼 QQ 接通、总开关、主会话转发试运行、社交开关和群 / 好友清单。其余保持默认就能正常说话。'),
         ),
 
         // —— 第一次接通 QQ：装、配、接、检测 ——
@@ -1110,11 +1172,12 @@ window.__ModuleLoader__.load({
           脏 ? '⚠ 上面有改动还没保存 —— 改完点「保存设置」（有改动时底下还会浮一条出来）' : '设置已同步 ✓',
         ),
 
-        // —— 开关 ——
+        // —— 总开关与主会话转发 ——
         h('div', { style: S.card },
-          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '开关'),
-          行('总开关', 勾(配置.总开关, (v) => 改('总开关', v)), '关着 = 一句都不发。出厂默认开；没填私聊 / 群时不会发到具体目标。'),
-          行('试运行', 勾(配置.试运行, (v) => 改('试运行', v)), '开着只记账、不真发到 QQ。想先看记录就开着它。'),
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '总开关和主会话转发'),
+          h('div', { style: S.dim }, '这张卡只管 DSH 主会话自动转发到 QQ；她在群 / 好友私聊里说不说，看下面的「社交」卡片。'),
+          行('总开关（所有发送）', 勾(配置.总开关, (v) => 改('总开关', v)), '关 = 一句都不发：主会话转发和群 / 好友发言一起停。开 = 允许发，但每条线还要各自的开关也开着。'),
+          行('主会话转发试运行', 勾(配置.试运行, (v) => 改('试运行', v)), '开 = 只记账、不真发到 QQ；关 = 真发。群里的发言不受这个开关影响。'),
         ),
 
         // —— 目标会话（下拉选，不手填）——
@@ -1173,12 +1236,11 @@ window.__ModuleLoader__.load({
         h('div', { style: S.card },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '社交（她在群里自己接话）'),
           h('div', { style: S.dim },
-            '每个群 / 好友各开一间独立会话，有自己连续的上下文；这里的话会离开本机，' +
-              '所以社交会话不给工具、不注入余额，记忆也只查这一间屋子。' +
-              '有消息进来就先给那个群 / 好友建一间屋子，再判断看不看、回不回；能回答、被 @、群里热闹都不是理由。',
+            '每个群 / 好友各开一间独立会话，有自己的上下文。她先判断看不看、想不想接，再决定回不回；' +
+              '被 @、群里热闹都不是必须接的理由。这里说的话会离开本机，所以社交会话不给工具、不注入余额。',
           ),
-          行('启用社交', 勾(社交.启用, (v) => 改社交('启用', v)), '关着 = 完全不走社交桥。'),
-          行('社交试运行', 勾(社交.试运行, (v) => 改社交('试运行', v)), '只记账、不开轮，不花模型钱；建议先跑几天看记录。'),
+          行('社交总开关（群 / 好友）', 勾(社交.启用, (v) => 改社交('启用', v)), '关 = 群里、好友私聊完全不看也不发。开 = 允许；总开关也必须是开。'),
+          行('社交发言试运行', 勾(社交.试运行, (v) => 改社交('试运行', v)), '开 = 只收消息、记规则判断，不调模型也不真发；关 = 真发。这个只管群 / 好友，不管主会话转发。'),
           行('模式',
             h('select', {
               style: S.input,
@@ -1203,6 +1265,9 @@ window.__ModuleLoader__.load({
             placeholder: '例如：10001, 10002（逗号或换行分隔）',
             onChange: (e) => { 设好友文本(e.target.value); 改社交('好友', 拆列表(e.target.value)) },
           }), '好友私聊也只在她感兴趣、想说话时才回；别把主人自己的号写进来（主人在上面「私聊 QQ 号」里管）。'),
+          h('details', { style: { marginTop: 6 } },
+            h('summary', { style: { cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: 0.85 } }, '按房间 / 按人细调（一般不用动）'),
+            h('div', { style: { marginTop: 8 } },
           行('每一间的规矩',
             h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
               可开房间.length === 0
@@ -1258,6 +1323,11 @@ window.__ModuleLoader__.load({
               '多聊 = 他说话更容易进视线、更愿意多接一句；不主动 = 他没点你名就不看、不接，被叫照常应；少理 = 没点你名就不看、不接，真被叫到只短答一句，不追问、不起新话题；不理 = 连 @、回复和戳一戳都不接。' +
               '每种态度都可以选「一直 / 到今晚 / 3 天」，到点自己恢复正常；「今天 N 轮」是这个人今天把她的聊天拽进去的次数，用来找谁最花 token。好友私聊要安静，用上面的「每一间的规矩」。改完记得保存。',
           ),
+            ),
+          ),
+          h('details', { style: { marginTop: 6 } },
+            h('summary', { style: { cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: 0.85 } }, '进阶：节奏、额度、模型、记忆（默认就好）'),
+            h('div', { style: { marginTop: 8 } },
           行('冷却秒', 数框(社交.冷却秒, (v) => 改社交('冷却秒', v), 1, 2, 3600), '同一目标两次开口的成熟期基础间隔（默认 15 秒）；实际会按兴致走指数曲线，想接时几秒就能开口。'),
           行('冷却曲线',
             h('div', { style: { display: 'flex', gap: 8 } },
@@ -1358,14 +1428,16 @@ window.__ModuleLoader__.load({
           行('判断冷却秒', 数框(社交.判断冷却秒, (v) => 改社交('判断冷却秒', v), 1, 0, 3600), '同一目标两次判断的最小间隔（默认 0 秒 = 每轮都判）；调大可以把消息攒起来一起判，省判断费。'),
           行('判断阈值', 数框(社交.判断阈值, (v) => 改社交('判断阈值', v), 0.05, 0.1, 1), '她“感兴趣且想说”的把握低于这个数就不接；只看不回不受影响（0.1 ~ 1）。'),
           行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认）'), '社交会话本身用哪个模型；要能看图（如 deepseek-flash），否则 QQ 图片里的内容她看不到。'),
+            ),
+          ),
         ),
 
         // —— 社交状态 ——
         h('div', { style: S.card },
-          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '她在群里的状态'),
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '运行状态（排查时看）'),
           h('div', { style: S.dim },
-            '启用：' + (社态.启用 ? '开' : '关') +
-              '｜试运行：' + (社态.试运行 ? '开' : '关') +
+            '社交：' + (社态.启用 ? '开' : '关') +
+              '｜发言：' + (社态.试运行 ? '只记账' : '真发') +
               '｜模式：' + (社态.模式 === 'mention' ? '只把被叫交给她' : 'auto') +
               '｜登录号：' + (自己 ? 自己.昵称 + '（' + 自己.号 + '）' : '还没探到') +
               '｜今天已接：' + (社态.今日已接 || 0) +
