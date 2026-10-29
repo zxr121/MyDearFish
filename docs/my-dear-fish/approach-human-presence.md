@@ -38,7 +38,7 @@ Of these seven, the first three share one root: the bridge ties “seeing” and
 
 ### Room ledger
 
-Each group and each friend keeps the latest 120 messages in memory for up to two hours; the fields are only `id`, time, speaker, QQ number, the first 120 characters of the body, the reply target, and whether the message calls her. Hard filters still run first: disabled rooms, ignored people, topics she does not discuss, and pure ads never enter the ledger. The ledger is not persisted and clears on restart; long-term memory still belongs to the fish brain's experience stream.
+Each group and each friend keeps the latest 240 messages in memory for up to one hour; the fields are only `id`, time, speaker, QQ number, the first 120 characters of the body, the reply target, and whether the message calls her. Hard filters still run first: disabled rooms, ignored people, topics she does not discuss, and pure ads never enter the ledger. The ledger is not persisted and clears on restart; long-term memory still belongs to the fish brain's experience stream.
 
 The ledger fixes three things: the judge model sees what this room has been talking about, not what she picked last round; she can pick up a topic she did not pick but that became relevant later; and questions someone already answered are not put to her again.
 
@@ -46,7 +46,7 @@ The ledger fixes three things: the judge model sees what this room has been talk
 
 Every message gets an addressee: `她`, a specific person, `大家`, or `不确定`. The evidence, in order: where the reply chain points, whether anyone is @-mentioned, whether the message opens with a name address such as `名字，` or `名字你……`, and whether the sentence contains `你觉得呢`. Names are recognized only within the first eight characters of the opening, so a person mentioned in passing in the body is not treated as being called.
 
-A message marked “addressed to someone else” gets no proactive interjection unless it also calls her. The rule already exists; what was missing was the name-based half.
+A message marked “addressed to someone else” gets no proactive interjection unless it also calls her. Both halves now live in the bridge (0.2.88): replies, @-mentions, and name-opening addresses all mark a message as addressed to someone else; such messages also enter the room ledger, so she can join a later turn on the same topic.
 
 ### Participation ladder
 
@@ -59,11 +59,13 @@ The judge model no longer answers only “reply / stay silent”; it answers wit
 | 2 join | A normal reply turn | Judge + reply |
 | 3 start | Proactively open a new topic | Reply + proactive quota |
 
-Rung 1 is the key to saving money: many group messages need only `嗯`, `确实`, `哈哈`, or one sticker, yet each currently costs another reply-model call; letting the judge model hand back a short reaction, or using an echo or sticker directly, removes that cost. Rungs 0 and 1 must genuinely be allowed to happen, or she remains the one who answers every sentence.
+Rung 1 landed in 0.2.90: besides `watch` and `reply`, the judge model may return `short` (2–12 characters); the bridge sanitizes it (strips quotes, rejects @-mentions, links, and parenthetical explanations, requires 2–20 characters), then sends it straight to the group without calling the reply model. Being called directly, being asked about herself, an affinity lookup, private chat, a room that is resting / listen-only / in dry-run, or the same line spoken within ten minutes all fall back to a normal reply. Turning `社交.短应` off sends everything through the full reply path.
+
+Rung 1 is the key to saving money: many group messages need only `嗯`, `确实`, `哈哈`, or one sticker, yet each previously cost another reply-model call; letting the judge model hand back a short reaction, or using an echo or sticker directly, removes that cost. Rungs 0 and 1 must genuinely be allowed to happen, or she remains the one who answers every sentence.
 
 ### Answered and silence
 
-After reading a batch without speaking, if someone else already answered the question, she marks it answered and it never enters her view. After she speaks, the messages accumulated so far are marked answered together, so she does not circle back turns later to a moment long gone.
+When someone in the group replies to another message that has not been judged yet, the bridge removes the replied-to message from the pending queue before the reply enters it (messages that call her, and the same person continuing their own thought, stay). Marking everything accumulated before she speaks as answered is not implemented yet; it is deferred to the thread-grouping round so an active topic is not cut off.
 
 ### Rhythm
 
@@ -156,9 +158,9 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 
 ## Implementation order
 
-1. This round: the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
-2. Next round: room ledger and threads, participation ladder, short acknowledgments without the reply model, answered markers.
-3. The round after: social battery, rhythm jitter, repair turns, read-only mood updates in groups.
+1. Done (0.2.88): the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
+2. This round (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
+3. Next round: thread-grouped ledger (each conversation strand separate, only relevant context attached), social battery, rhythm jitter, repair turns, read-only mood updates in groups.
 4. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
