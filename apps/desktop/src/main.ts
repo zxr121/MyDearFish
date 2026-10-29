@@ -38,6 +38,7 @@ import { desktopUpdateChannel, desktopUpdateDownloadPage, desktopUpdateSources }
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
+import { clearStaleHostCookies } from './host-cookies.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { openWelcomeWindow } from './welcome-window.ts'
@@ -482,6 +483,7 @@ async function main(): Promise<void> {
     return {
       start: async () => {
         const ready = await host.start()
+        await clearStaleHostCookies()
         hostCookie = await authenticateWebHost(ready.url)
         hostUrl = ready.url
         if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
