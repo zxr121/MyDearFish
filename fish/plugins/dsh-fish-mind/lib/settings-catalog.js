@@ -1,4 +1,4 @@
-// 她可以替主人改的设置：只收行为旋钮，安全、预算、名单、试运行和凭据不在里面。
+// 她可以替主人改的设置：只收行为旋钮，安全、预算、权限、试运行和凭据不在里面。
 //
 // 每个设置项都声明落点（QQ 社交段 / 主动搭话配置 / 性格倾向原文）和取值规则；
 // 写入走 config-files 的原子读-改-写，先校验再落盘，某一项不合法就一项都不写。
@@ -89,6 +89,86 @@ export const SETTING_ITEMS = Object.freeze([
     values: ['auto', 'mention'],
     default: 'auto',
     description: 'auto = 没被叫也让她自己挑消息；mention = 只把被叫到的消息交给她。',
+  },
+  {
+    key: 'qq.socialEnabled',
+    page: QQ_PAGE,
+    label: '社交开关',
+    target: 'qq',
+    field: '启用',
+    type: 'boolean',
+    default: true,
+    description: 'QQ 社交桥的单独开关；还要顶层的总开关也开着。',
+  },
+  {
+    key: 'qq.groups',
+    page: QQ_PAGE,
+    label: '群',
+    target: 'qq',
+    field: '群',
+    type: 'list',
+    minItems: 0,
+    maxItems: 50,
+    pattern: /^\d{3,20}$/,
+    itemHint: '群号',
+    default: [],
+    description: '允许她旁听和接话的群号；先用 fish_qq_roster 读鱼 QQ 当前在哪些群，再挑。',
+  },
+  {
+    key: 'qq.friends',
+    page: QQ_PAGE,
+    label: '好友',
+    target: 'qq',
+    field: '好友',
+    type: 'list',
+    minItems: 0,
+    maxItems: 50,
+    pattern: /^\d{3,20}$/,
+    itemHint: 'QQ 号',
+    default: [],
+    description: '允许私聊的 QQ 号；主人自己的号会自动跳过。',
+  },
+  {
+    key: 'qq.off',
+    page: QQ_PAGE,
+    label: '关掉',
+    target: 'qq',
+    field: '关掉',
+    type: 'list',
+    minItems: 0,
+    maxItems: 50,
+    pattern: /^(?:group|friend):\d{3,20}$/,
+    itemHint: 'group:群号 或 friend:QQ号',
+    default: [],
+    description: '单独关掉的房间：group:群号 / friend:QQ号；关掉 = 不看不说，配置和会话都留着。',
+  },
+  {
+    key: 'qq.only',
+    page: QQ_PAGE,
+    label: '只听',
+    target: 'qq',
+    field: '只听',
+    type: 'list',
+    minItems: 0,
+    maxItems: 50,
+    pattern: /^(?:group|friend):\d{3,20}$/,
+    itemHint: 'group:群号 或 friend:QQ号',
+    default: [],
+    description: '只听不说的房间：group:群号 / friend:QQ号；照常看、照常学，但一句都不发。',
+  },
+  {
+    key: 'qq.mix',
+    page: QQ_PAGE,
+    label: '少掺和',
+    target: 'qq',
+    field: '少掺和',
+    type: 'list',
+    minItems: 0,
+    maxItems: 50,
+    pattern: /^\d{3,20}$/,
+    itemHint: '群号',
+    default: [],
+    description: '只接叫她的群：没被叫的群友消息不进视线；主人随口说的仍照常。',
   },
   {
     key: 'qq.calls',
@@ -235,7 +315,7 @@ function rangeText(item) {
   if (item.type === 'boolean') return '开 / 关'
   if (item.type === 'enum') return item.values.join(' / ')
   if (item.type === 'integer' || item.type === 'number') return `${item.min} ~ ${item.max}`
-  if (item.type === 'list') return `最多 ${item.maxItems ?? 30} 项，每项不超过 32 字`
+  if (item.type === 'list') return `最多 ${item.maxItems ?? 30} 项，每项是 ${item.itemHint ?? '不超过 32 字的文字'}`
   if (item.type === 'tendency') return `最多 ${TENDENCY_LIMIT} 字；留空 = 清空`
   return `最多 ${item.maxLength ?? 200} 字`
 }
@@ -294,6 +374,9 @@ function coerceList(item, value) {
     const word = entry.trim()
     if (word === '') continue
     if (word.length > 32) throw new Error(`「${item.label}」里的每一项最多 32 字（「${word.slice(0, 12)}…」太长）`)
+    if (item.pattern instanceof RegExp && !item.pattern.test(word)) {
+      throw new Error(`「${item.label}」里的「${word}」格式不对，要写成 ${item.itemHint ?? '清单里的格式'}`)
+    }
     if (!out.includes(word)) out.push(word)
   }
   if (out.length < (item.minItems ?? 0)) throw new Error(`「${item.label}」至少要有 ${item.minItems} 项`)

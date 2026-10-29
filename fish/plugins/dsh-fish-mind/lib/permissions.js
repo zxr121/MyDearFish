@@ -7,6 +7,8 @@
 //     探测本机的命令、不可逆的危险命令，以及参数里夹带真凭据的调用，一律拒绝。
 //   · 开发者模式（主人从设置页打开）—— 她自己的前台会话可以用读类工具和只读 shell
 //     命令查看 DSH 目录里的日志、配置和会话；凭据、身份文件、写入和群聊会话照旧拒绝。
+//   · 创造模式（安装目录里的 cordis 会话）—— 可以写鱼自己的源码，改完由主人重启生效；
+//     鱼脑数据、凭据、身份文件和危险命令照旧拒绝。
 //   · 她自己在后台开的会话 —— 默认全拒，只放行显式 allowTools，而且只能碰鱼脑目录。
 //   · 紧急停止 —— 所有工具调用全拒，聊天本身还在。
 //
@@ -24,6 +26,8 @@ const SHELL_TOOLS = new Set(['bash', 'pwsh'])
 const WRITE_TOOLS = new Set(['write', 'edit'])
 // 她替主人改行为设置的工具：读不限制，写要开发者模式。
 const FISH_CONFIG_TOOL = 'fish_config'
+// 读鱼 QQ 当前登录账号的群和好友名单：只给开发者模式 + 主人前台会话。
+const FISH_QQ_ROSTER_TOOL = 'fish_qq_roster'
 // 开发者模式放行这些纯读工具；shell 另行走下面的只读命令白名单，编辑器一类不走这个口子。
 const READ_TOOLS = new Set(['read', 'glob', 'grep', 'read_image'])
 // 开发者模式里额外放行的只读 shell：命令名必须在白名单里，重定向、脚本块、
@@ -379,8 +383,9 @@ function collectStrings(value, out, depth = 0) {
 
 /**
  * 权限判定器。构造时把配置里的路径展开、规范化一次。
- * @param {object} options - `{ config, dshHome, audit, diag, privacy, isOwnerSession }`；
- *   `isOwnerSession(exec)` 判断这次调用是不是主人自己的前台会话（非群聊、非子代理）。
+ * @param {object} options - `{ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession }`；
+ *   `isOwnerSession(exec)` 判断这次调用是不是主人自己的前台会话（非群聊、非子代理）；
+ *   `isCreatorSession(exec)` 判断是不是安装目录里的创造模式会话（可以改鱼自己的源码）。
  * @returns {object} 判定器。
  */
 export function createBroker({
@@ -390,6 +395,7 @@ export function createBroker({
   diag = () => {},
   privacy = null,
   isOwnerSession = () => false,
+  isCreatorSession = () => false,
 }) {
   const readRoots = config.permissions.protectedReadPaths
     .map((value) => expandPath(value, { dshHome }))
@@ -607,13 +613,17 @@ export function createBroker({
       else if (credentialArgument !== null) privateRule = 'private.credential-argument'
     }
 
-    const sealedPath = write ? paths.find((pathValue) => sealedRoots.some((root) => isInside(fold(pathValue), root))) : undefined
-    const sealedCommand = commands.find((command) => !developerShellRead && sealedRoots.some((root) => shellTouchesRoot(command, root)))
+    // 创造模式可以写鱼自己的源码；鱼脑数据（记忆、预算、权限）仍然只读。
+    const creator = isCreatorSession(exec) === true
+    const sealedTargets = creator ? [mindRoot] : sealedRoots
+    const sealedPath = write ? paths.find((pathValue) => sealedTargets.some((root) => isInside(fold(pathValue), root))) : undefined
+    const sealedCommand = commands.find((command) => !developerShellRead && sealedTargets.some((root) => shellTouchesRoot(command, root)))
     const developer = (developerRead && paths.some((pathValue) => isInside(fold(pathValue), dshRoot))) || developerShellRead
     return {
       paths,
       commands,
       write,
+      creator,
       developer,
       private: privateRule !== '',
       privatePath,
@@ -657,7 +667,9 @@ export function createBroker({
       return {
         ...base,
         decision: 'deny',
-        reason: '鱼脑目录和鱼脑自己的代码是只读的：预算、配置、经历、账本、私设和权限规则只能由主人直接改文件，不能通过工具改。开发者模式下主人可以用只读命令查看；要改额度请主人直接打开 budget.json。',
+        reason: inspection.creator
+          ? '创造模式可以改鱼自己的代码，但鱼脑数据目录（记忆、预算、配置、账本）不能通过工具改；要改请主人直接打开文件。'
+          : '鱼脑目录和鱼脑自己的代码是只读的：预算、配置、经历、账本、私设和权限规则只能由主人直接改文件，不能通过工具改。开发者模式下主人可以用只读命令查看；要改额度请主人直接打开 budget.json。',
         rule: 'sealed.fish-mind',
       }
     }
@@ -691,7 +703,7 @@ export function createBroker({
       }
     }
     // 她可以读自己负责的设置；替主人改设置要先打开开发者模式，而且只能在主人自己的前台会话里。
-    // 安全、额度、名单、权限和凭据不在可改范围里，写入每次记审计。
+    // 安全、额度、权限和凭据不在可改范围里，写入每次记审计。
     if (exec?.name === FISH_CONFIG_TOOL) {
       const args = exec.arguments && typeof exec.arguments === 'object' && !Array.isArray(exec.arguments) ? exec.arguments : {}
       const writing = args.patch !== undefined && args.patch !== null
@@ -701,7 +713,7 @@ export function createBroker({
             ...base,
             decision: 'deny',
             rule: 'fish.settings.write',
-            reason: '改设置要先在「大肥鱼 → 开发者模式」里打开开发者模式，而且只能在你自己的会话里改。安全、预算、名单和凭据不开放。',
+            reason: '改设置要先在「大肥鱼 → 开发者模式」里打开开发者模式，而且只能在你自己的会话里改。安全、预算、凭据和鱼脑数据不开放。',
           }
         }
         return {
@@ -710,6 +722,22 @@ export function createBroker({
           rule: 'fish.settings.write',
           reason: '开发者模式：在主人自己的会话里替主人改行为设置。',
         }
+      }
+    }
+    if (exec?.name === FISH_QQ_ROSTER_TOOL) {
+      if (config.developer.enabled !== true || origin !== 'foreground' || isOwnerSession(exec) !== true) {
+        return {
+          ...base,
+          decision: 'deny',
+          rule: 'fish.qq.roster',
+          reason: '读鱼 QQ 的群和好友名单要先在「大肥鱼 → 开发者模式」里打开开发者模式，而且只能在你自己的前台会话里读。',
+        }
+      }
+      return {
+        ...base,
+        decision: 'allow',
+        rule: 'fish.qq.roster',
+        reason: '开发者模式：在主人自己的会话里读取鱼 QQ 的群和好友名单。',
       }
     }
     if (!config.permissions.enabled) return { ...base, decision: 'allow', reason: '权限开关关着', rule: 'permissions.disabled' }
@@ -760,7 +788,7 @@ export function createBroker({
 
   /** 记录一次判定；前台普通 allow 不记，避免审计被正常操作淹没，但从外部服务取数据、开发者模式读调试资料和改设置要留痕。 */
   function record(exec, verdict, downstream = 'allow') {
-    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read' || verdict.rule === 'developer.read' || verdict.rule === 'fish.settings.write'
+    const notable = verdict.origin === 'autonomous' || verdict.rule === 'external.mcp.read' || verdict.rule === 'developer.read' || verdict.rule === 'fish.settings.write' || verdict.rule === 'fish.qq.roster'
     if (verdict.decision === 'allow' && !notable) return
     audit({
       at: Date.now(),

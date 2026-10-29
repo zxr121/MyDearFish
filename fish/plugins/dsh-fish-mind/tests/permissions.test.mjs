@@ -3,9 +3,12 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { buildDefaults } from '../lib/config.js'
 import { createBroker } from '../lib/permissions.js'
 import { createPrivacyGuard } from '../lib/privacy.js'
+
+const SOURCE_FILE = fileURLToPath(new URL('../lib/tendency.js', import.meta.url))
 
 function makeBroker(overrides = {}) {
   const dshHome = mkdtempSync(join(tmpdir(), 'fish-mind-perm-'))
@@ -24,6 +27,11 @@ function makeBroker(overrides = {}) {
       const session = exec && exec.agent && exec.agent.session
       if (!session) return false
       return !String(session.id).startsWith('qq-social-')
+    },
+    isCreatorSession: (exec) => {
+      const session = exec && exec.agent && exec.agent.session
+      if (!session) return false
+      return overrides.creator === true && String(session.id).startsWith('creator-')
     },
   })
   return { broker, config, dshHome, audits }
@@ -360,6 +368,61 @@ test('fish_config 改设置要开发者模式加主人前台会话，读不用�
   assert.equal(autonomous.decision, 'deny')
 
   const anonymous = on.broker.evaluate(exec('fish_config', { patch: { 'qq.proactivePerDay': 60 } }, { agent: false }))
+  assert.equal(anonymous.decision, 'deny')
+})
+
+test('创造模式可以写鱼自己的源码，鱼脑数据、凭据和危险命令照旧拒绝', () => {
+  const plain = makeBroker()
+  const blocked = plain.broker.evaluate(exec('edit', { file_path: SOURCE_FILE, old_string: 'a', new_string: 'b' }))
+  assert.equal(blocked.decision, 'deny', '普通会话改不了鱼脑源码')
+  assert.equal(blocked.rule, 'sealed.fish-mind')
+
+  const { broker, dshHome } = makeBroker({ creator: true })
+  const source = exec('edit', { file_path: SOURCE_FILE, old_string: 'a', new_string: 'b' }, { sessionId: 'creator-1' })
+  const allowed = broker.evaluate(source)
+  assert.equal(allowed.decision, 'allow', '创造模式可以改鱼脑源码')
+  assert.equal(allowed.inspection.creator, true)
+
+  const shell = broker.evaluate(exec('pwsh', { command: `Set-Content '${SOURCE_FILE}' -Value 'x'` }, { sessionId: 'creator-1' }))
+  assert.equal(shell.decision, 'allow', '创造模式的 shell 也能写源码')
+
+  const mind = broker.evaluate(exec('edit', { file_path: join(dshHome, 'fish-mind', 'config.json'), old_string: 'a', new_string: 'b' }, { sessionId: 'creator-1' }))
+  assert.equal(mind.decision, 'deny')
+  assert.equal(mind.rule, 'sealed.fish-mind')
+  assert.match(mind.reason, /鱼脑数据/)
+
+  const credentials = broker.evaluate(exec('read', { file_path: join(homedir(), '.ssh', 'id_rsa') }, { sessionId: 'creator-1' }))
+  assert.equal(credentials.decision, 'deny')
+
+  const dangerous = broker.evaluate(exec('bash', { command: 'rm -rf /' }, { sessionId: 'creator-1' }))
+  assert.equal(dangerous.decision, 'deny')
+  assert.equal(dangerous.rule, 'dangerous.command')
+})
+
+test('fish_qq_roster 要开发者模式加主人前台会话，读一次记一次审计', () => {
+  const off = makeBroker()
+  const denied = off.broker.evaluate(exec('fish_qq_roster', {}))
+  assert.equal(denied.decision, 'deny')
+  assert.equal(denied.rule, 'fish.qq.roster')
+  assert.match(denied.reason, /开发者模式/)
+
+  const on = makeBroker({ developer: true })
+  const call = exec('fish_qq_roster', {})
+  const allowed = on.broker.evaluate(call)
+  assert.equal(allowed.decision, 'allow')
+  assert.equal(allowed.rule, 'fish.qq.roster')
+  on.broker.record(call, allowed)
+  assert.equal(on.audits.at(-1).rule, 'fish.qq.roster')
+  assert.equal(on.audits.at(-1).tool, 'fish_qq_roster')
+
+  const social = on.broker.evaluate(exec('fish_qq_roster', {}, { sessionId: 'qq-social-group-1' }))
+  assert.equal(social.decision, 'deny')
+
+  on.broker.markAutonomous('life-1')
+  const autonomous = on.broker.evaluate(exec('fish_qq_roster', {}, { sessionId: 'life-1' }))
+  assert.equal(autonomous.decision, 'deny')
+
+  const anonymous = on.broker.evaluate(exec('fish_qq_roster', {}, { agent: false }))
   assert.equal(anonymous.decision, 'deny')
 })
 

@@ -523,7 +523,7 @@ export function buildCreationBrief(compiled, text, available) {
     '- 不读不写 DSH_HOME（data 目录）、凭据、日志和会话。',
     '- 不提交、不推送，不动别人正在改的文件。',
     '- 能做成确定性规则就别只加提示词；只影响这条鱼，不改出厂默认值。',
-    '- 不要改安装目录里正在运行的那份；改源码仓库，改完说明是否需要重启或重跑 fish/sync-runtime.mjs --profile desktop。',
+    '- 创造模式默认给了完全权限，而且开在安装目录工作区里：是源码仓库就直接改这里的源码；改完说明是否需要重启或重跑 fish/sync-runtime.mjs --profile desktop。',
     '',
     '完成后报告：改了哪些文件、跑了哪些测试、需要重启还是需要重新同步运行时。',
     available

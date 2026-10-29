@@ -12,6 +12,12 @@ export const SPEAK_CONFIG_FILE = 'speak-up-config.json'
 
 /** QQ 社交段里本模块会读的字段的出厂值（跟 dsh-qq-bridge 的默认配置一致）。 */
 export const QQ_SOCIAL_DEFAULTS = Object.freeze({
+  启用: true,
+  群: Object.freeze([]),
+  好友: Object.freeze([]),
+  关掉: Object.freeze([]),
+  只听: Object.freeze([]),
+  少掺和: Object.freeze([]),
   主动每时: 6,
   主动每日: 40,
   关注上限: 12,
@@ -123,12 +129,18 @@ export function readQqSocial(dshHome) {
 /**
  * 把 QQ 社交段洗成本模块使用的数值：缺字段或字段非法时回出厂值。
  * @param {object|null} social - `readQqSocial().social`。
- * @returns {object} `{ 主动每时, 主动每日, 关注上限, 判断阈值, 学表情, 模式, 称呼, 兴趣词, 不聊话题, 冷却秒 }`。
+ * @returns {object} `{ 启用, 群, 好友, 关掉, 只听, 少掺和, 主动每时, 主动每日, 关注上限, 判断阈值, 学表情, 模式, 称呼, 兴趣词, 不聊话题, 冷却秒 }`。
  */
 export function qqSocialValues(social) {
   const source = isPlainObject(social) ? social : {}
   const defaults = QQ_SOCIAL_DEFAULTS
   return {
+    启用: booleanValue(source['启用'], defaults['启用']),
+    群: wordList(source['群'], [], 50),
+    好友: wordList(source['好友'], [], 50),
+    关掉: wordList(source['关掉'], [], 50),
+    只听: wordList(source['只听'], [], 50),
+    少掺和: wordList(source['少掺和'], [], 50),
     主动每时: Math.round(finiteNumber(source['主动每时'], defaults['主动每时'])),
     主动每日: Math.round(finiteNumber(source['主动每日'], defaults['主动每日'])),
     关注上限: Math.round(finiteNumber(source['关注上限'], defaults['关注上限'])),

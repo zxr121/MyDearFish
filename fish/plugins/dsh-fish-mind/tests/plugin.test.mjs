@@ -38,6 +38,12 @@ function fakeContext() {
     get(name) {
       return services.get(name)
     },
+    inject(names, callback) {
+      if (!names.every((name) => services.has(name))) return () => {}
+      const child = Object.create(this)
+      for (const name of names) child[name] = services.get(name)
+      return callback(child)
+    },
     async emit(event, ...args) {
       let result
       for (const handler of handlers.get(event) || []) result = await handler(...args)
@@ -665,7 +671,7 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
 
   const recall = harness.tools.get('recall')
   assert.ok(recall)
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const value = await recall.execute({ query: '海边' }, {})
   assert.equal(value.enabled, false)
   assert.equal(value.reason, 'shadow-mode')
@@ -1069,7 +1075,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   const agent = { session: session('session-new'), ctx }
   agents.push(agent)
   await ctx.emit('agent/created', { agent })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const names = harness.contexts.map((entry) => entry.name)
   for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
     assert.ok(names.includes(name), name)
@@ -1113,11 +1119,11 @@ test('社交会话只挂记忆提示，不注册记忆工具', async () => {
   const owner = { session: session('session-owner'), ctx }
   agents.push(owner)
   await ctx.emit('agent/created', { agent: owner })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
 
   await ctx.emit('agent/disposed', { agent: social })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
   ctx.dispose()
 })
 
@@ -1157,6 +1163,31 @@ test('开发者模式提示只挂主人会话，群聊和关着时都不注入',
   writeConfig(home, { mode: 'live', inject: true, developer: { enabled: false } })
   ctx.get('fishMind').reload()
   assert.equal(devEntry.text(), '', '关掉开关后下一轮就不再注入')
+  ctx.dispose()
+})
+
+test('安装目录里的创造模式会话一建好就是完全权限，别处的 cordis 会话不动', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fish-mind-install-'))
+  mkdirSync(join(root, 'fish', 'bundle'), { recursive: true })
+  mkdirSync(join(root, 'fish', 'plugins', 'dsh-fish-mind', 'lib'), { recursive: true })
+  writeFileSync(join(root, 'fish', 'bundle', 'package.json'), '{}\n')
+  writeFileSync(join(root, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js'), '//\n')
+  const home = join(root, 'data')
+  mkdirSync(home, { recursive: true })
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  const ctx = fakeContext()
+  const calls = []
+  ctx.set('permissionPresets', { set: (target, name) => calls.push([target.id, name]) })
+  apply(ctx)
+
+  await ctx.emit('session/created', session('creator-1', { agentPreset: 'cordis', cwd: root }))
+  assert.deepEqual(calls, [['creator-1', 'danger-full-access']])
+
+  await ctx.emit('session/created', session('elsewhere', { agentPreset: 'cordis', cwd: join(root, 'notes') }))
+  await ctx.emit('session/created', session('plain', { cwd: root }))
+  await ctx.emit('session/created', session('plain-cordis', { agentPreset: 'standard', cwd: root }))
+  assert.deepEqual(calls, [['creator-1', 'danger-full-access']], '只有安装目录里的 cordis 会话被改成完全权限')
   ctx.dispose()
 })
 
@@ -1514,6 +1545,28 @@ test('fish_config：读可改设置，改值写进 QQ 和主动搭话，倾向�
   await assert.rejects(() => tool.execute({ patch: { 'qq.proactivePerDay': 1000 } }, {}), /要在 0 ~ 999/)
   await assert.rejects(() => tool.execute({ patch: { nope: 1 } }, {}), /不认识/)
   assert.equal(JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8')).社交.主动每日, 60, '校验失败不落盘')
+
+  const roster = await tool.execute({
+    patch: {
+      'qq.socialEnabled': true,
+      'qq.groups': '123456、888888',
+      'qq.friends': ['654321'],
+      'qq.off': 'group:777777',
+      'qq.only': 'friend:111111',
+      'qq.mix': '888888',
+    },
+  }, {})
+  assert.equal(roster.ok, true)
+  const withRoster = JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8'))
+  assert.equal(withRoster.社交.启用, true)
+  assert.deepEqual(withRoster.社交.群, ['123456', '888888'])
+  assert.deepEqual(withRoster.社交.好友, ['654321'])
+  assert.deepEqual(withRoster.社交.关掉, ['group:777777'])
+  assert.deepEqual(withRoster.社交.只听, ['friend:111111'])
+  assert.deepEqual(withRoster.社交.少掺和, ['888888'])
+  await assert.rejects(() => tool.execute({ patch: { 'qq.groups': '主人群' } }, {}), /格式不对/)
+  await assert.rejects(() => tool.execute({ patch: { 'qq.off': '123456' } }, {}), /group:群号/)
+  assert.deepEqual(JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8')).社交.群, ['123456', '888888'], '格式不对不落盘')
 
   const tendency = await tool.execute({ patch: { 'mind.tendency': '活泼一点' } }, {})
   assert.equal(tendency.ok, true)

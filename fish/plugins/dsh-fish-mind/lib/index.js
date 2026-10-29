@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, parse } from 'node:path'
+import { basename, dirname, join, parse, resolve } from 'node:path'
 import { applyImportedFacts, applyPendingImport, buildFishArchive, importIsPending, markImportedPersona, readImportReport, stageFishImport } from './archive.js'
 import { backupIsDue, describeBackups, writeBackup } from './backup.js'
 import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, resetIdentity, saveIdentity, syncMoodNames } from './birth.js'
@@ -32,6 +32,7 @@ import { createPersonaEditor } from './persona.js'
 import { applyImportedPersona } from './portable-configs.js'
 import { createBroker } from './permissions.js'
 import { createPrivacyGuard } from './privacy.js'
+import { readQqRoster } from './qq-roster.js'
 import { applyFishSettings, listFishSettings } from './settings-catalog.js'
 import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
 import { summarize, textOfMessage } from './sanitize.js'
@@ -112,6 +113,12 @@ function isSubagentSession(session) {
   return header.origin === 'subagent' || (typeof header.delegationDepth === 'number' && header.delegationDepth > 0)
 }
 
+function sameDir(left, right) {
+  const a = resolve(String(left === undefined || left === null ? '' : left))
+  const b = resolve(String(right === undefined || right === null ? '' : right))
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+}
+
 // 主人自己的前台会话：不是群聊/好友会话，也不是子代理。开发者模式的只读放行只认这个范围。
 function isOwnerSession(exec) {
   const session = exec && exec.agent && exec.agent.session
@@ -187,7 +194,7 @@ export function apply(ctx) {
     }
   }
 
-  let broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession })
+  let broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession })
 
   function loadAutonomousState() {
     try {
@@ -706,9 +713,11 @@ export function apply(ctx) {
     return [
       '【开发者模式·只给主人自己的会话】',
       `主人刚在设置页打开了开发者模式。你可以用 read、glob、grep，以及 Get-ChildItem、Get-Content、Select-String 这类只读 shell 命令，查看 DSH 目录里的日志、配置和会话记录，帮主人排查问题；DSH 目录是 ${dshHome}。`,
-      '- 这是隐私规则里「不要主动读 DSH 目录」的唯一例外，只限主人自己的会话和只读查看。凭据文件（.env、.credentials.yaml、密钥、~/.ssh 等）、身份文件、所有写入和写入型命令仍然会被权限层拒绝。',
-      '- 读到的内容是调试资料，不是记忆，也不是主人对你说过的话：不要写进经历，不要当私设，不要复述到 QQ、B 站、语音或任何对外内容里。',
-      '- 每次这样的读取都会记进审计。不要为了绕开拒绝去用写入命令、子代理或别的路径；被拒绝就如实告诉主人。',
+      '- 这是隐私规则里「不要主动读 DSH 目录」的唯一例外，只限主人自己的会话和只读查看。凭据文件（.env、.credentials.yaml、密钥、~/.ssh 等）、身份文件、对 DSH 目录的写入和写入型命令仍然会被权限层拒绝。',
+      '- 帮主人配鱼：先用 fish_qq_roster 读鱼 QQ 现在登录的账号、群号和好友 QQ 号，再用 fish_config 把群、好友、关掉、只听、少掺和，以及主动搭话和性格倾向写进设置；B 站用 bili_config 读和改。填进去的号码要来自名单，不要猜，也不要写进记忆或任何对外内容。',
+      '- 主人从设置页「打开创造模式」时，那个会话在安装目录工作区里，默认就是完全权限（沙箱 danger-full-access、审批 never），可以改鱼自己的源码；改完告诉主人要重启还是重跑 fish/sync-runtime.mjs --profile desktop。鱼脑数据（$DSH_HOME/fish-mind）、凭据、身份文件和危险命令仍然不让工具碰。',
+      '- 读到或配好的内容是调试资料，不是记忆，也不是主人对你说过的话：不要写进经历，不要当私设，不要复述到 QQ、B 站、语音或任何对外内容里。号码跟凭据一样只在本地用。',
+      '- 每次这样的读取和改动都会记进审计。不要为了绕开拒绝去用别的路径；被拒绝就如实告诉主人。',
       '- 在本机跟主人讨论时可以引用必要的路径和报错原文；凭据的具体值仍然不要复述。给结论时说清「看到什么、说明什么、建议怎么改」，不要把整段日志糊给主人。',
     ].join('\n')
   }
@@ -1552,6 +1561,43 @@ export function apply(ctx) {
     }
   }
 
+  // 创造模式：设置页按钮在安装目录工作区里开的 cordis 会话。
+  // 这类会话可以改鱼自己的源码；普通会话和别处开的创造模式不享受这条豁免。
+  function isCreatorSession(exec) {
+    const header = exec && exec.agent && exec.agent.session && exec.agent.session.header
+    if (!header || header.agentPreset !== 'cordis') return false
+    if (typeof header.cwd !== 'string' || header.cwd === '') return false
+    return sameDir(header.cwd, installRoot())
+  }
+
+  // 创造模式默认完全权限：沙箱 danger-full-access、审批 never，改代码不会被逐条批准拦住。
+  // 监听排在 permission-presets 的默认钉选之前，创建时也只会落下一份预设记录。
+  // 鱼脑数据、凭据、身份文件和危险命令仍然由 broker 挡着，见 permissions.js。
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['permissionPresets'], (presetCtx) => {
+      presetCtx.effect(() => {
+        const presets = presetCtx.permissionPresets
+        if (!presets || typeof presets.set !== 'function') return () => {}
+        const off = presetCtx.on('session/created', (session) => {
+          try {
+            const header = session && session.header
+            if (!header || header.agentPreset !== 'cordis') return
+            if (typeof header.cwd !== 'string' || header.cwd === '' || !sameDir(header.cwd, installRoot())) return
+            presets.set(session, 'danger-full-access')
+            diag(`permission: ${session.id} 是创造模式，给了完全权限`)
+          } catch (error) {
+            diag(`permission: 创造模式完全权限没设上（${String((error && error.message) || error)}）`)
+          }
+        }, true)
+        return () => {
+          try {
+            if (typeof off === 'function') off()
+          } catch {}
+        }
+      }, 'fish-mind: 创造模式完全权限')
+    })
+  }
+
   function backupStatus() {
     return describeBackups({
       dshHome,
@@ -1830,7 +1876,7 @@ export function apply(ctx) {
       reconcileTendencyState()
       store.setConfig(config)
       innerLife.reload()
-      broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession })
+      broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession })
       budget.setConfig(config.budget)
       loadAutonomousState()
       organizeMemory('reload', { relations: true })
@@ -2450,7 +2496,7 @@ export function apply(ctx) {
     }
     const toolRuntime = agentService(agent, 'tools')
     if (!social && toolRuntime && typeof toolRuntime.register === 'function') {
-      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition(), fishConfigToolDefinition()]) {
+      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition(), fishConfigToolDefinition(), fishQqRosterToolDefinition()]) {
         try {
           offs.push(toolRuntime.register(definition))
         } catch (error) {
@@ -2473,10 +2519,12 @@ export function apply(ctx) {
     return {
       name: 'fish_config',
       description: '读 / 改大肥鱼自己的行为设置。不带 patch 就是读全部设置项和当前值；带 patch 就改。'
-        + '只开放行为旋钮：通到QQ 的主动每时、主动每日、关注上限、判断阈值、学表情、模式、称呼、兴趣词、不聊话题、冷却秒；'
+        + '开放的行为旋钮：通到QQ 的启用、群、好友、关掉、只听、少掺和、主动每时、主动每日、关注上限、判断阈值、学表情、模式、称呼、兴趣词、不聊话题、冷却秒；'
         + '主动搭话的总开关、间隔、峰谷命中线、安静时段、触发文案；以及性格倾向原文。'
+        + '群和好友填号码；关掉、只听填「group:群号」或「friend:QQ号」，少掺和填只接叫她的群号。'
         + '改设置要先让主人在「大肥鱼 → 开发者模式」打开开发者模式，而且只能在你自己的会话里改；'
-        + '安全、额度、名单、权限、凭据和代码不开放。先不带 patch 读一遍，键名照抄清单里的 key；一次可以改多项。',
+        + '名单里的号码先用 fish_qq_roster 读出来再填，不要瞎猜。'
+        + '安全、额度、权限、凭据和代码不开放。先不带 patch 读一遍，键名照抄清单里的 key；一次可以改多项。',
       parameters: {
         type: 'object',
         properties: {
@@ -2585,6 +2633,103 @@ export function apply(ctx) {
           },
         })
         return { ok: true, ...result }
+      },
+    }
+  }
+
+  // 开发者模式下读鱼 QQ 的群号和好友号：只读 OneBot 名单，给配置当依据。
+  // 权限门在 permissions.js（fish.qq.roster），号码不出主人自己的会话。
+  function fishQqRosterToolDefinition() {
+    return {
+      name: 'fish_qq_roster',
+      description: '读鱼 QQ 现在登录的账号、群号和好友 QQ 号，以及设置里已经填好的名单。只读，不发消息。'
+        + '要给主人配群/好友名单、关掉、只听或少掺和时，先用它拿到号码，再把号码交给 fish_config。'
+        + '要在「大肥鱼 → 开发者模式」打开开发者模式，而且只能在你自己的会话里读；'
+        + '号码是主人和群友的隐私，只在本机会话里用，不要写进记忆、日志或任何对外内容。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            error: { type: 'string' },
+            note: { type: 'string' },
+            qq: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+              },
+              required: ['id', 'name'],
+              additionalProperties: false,
+            },
+            groups: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  members: { type: 'number' },
+                },
+                required: ['id', 'name', 'members'],
+                additionalProperties: false,
+              },
+            },
+            friends: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                },
+                required: ['id', 'name'],
+                additionalProperties: false,
+              },
+            },
+            truncated: { type: 'boolean' },
+            configured: {
+              type: 'object',
+              properties: {
+                enabled: { type: 'boolean' },
+                groups: { type: 'array', items: { type: 'string' } },
+                friends: { type: 'array', items: { type: 'string' } },
+                off: { type: 'array', items: { type: 'string' } },
+                only: { type: 'array', items: { type: 'string' } },
+                mix: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['enabled', 'groups', 'friends', 'off', 'only', 'mix'],
+              additionalProperties: false,
+            },
+          },
+          required: ['ok', 'configured'],
+          additionalProperties: false,
+        },
+        render(_args, value) {
+          if (value.ok !== true) {
+            return [{ type: 'text', text: value.error || '没读到鱼 QQ 的名单。' }]
+          }
+          const lines = [`鱼 QQ：${value.qq.name}（${value.qq.id}）`]
+          const groups = Array.isArray(value.groups) ? value.groups : []
+          lines.push(`群 ${groups.length} 个${value.truncated ? '（只列出一部分）' : ''}：`)
+          for (const group of groups.slice(0, 80)) lines.push(`- ${group.id} · ${group.name}（${group.members} 人）`)
+          const friends = Array.isArray(value.friends) ? value.friends : []
+          lines.push(`好友 ${friends.length} 个：`)
+          for (const friend of friends.slice(0, 80)) lines.push(`- ${friend.id} · ${friend.name}`)
+          const configured = value.configured || {}
+          lines.push(`现在填的：群 ${(configured.groups || []).join('、') || '空'}；好友 ${(configured.friends || []).join('、') || '空'}；`
+            + `关掉 ${(configured.off || []).join('、') || '空'}；只听 ${(configured.only || []).join('、') || '空'}；少掺和 ${(configured.mix || []).join('、') || '空'}。`)
+          if (value.note) lines.push(value.note)
+          return [{ type: 'text', text: lines.join('\n') }]
+        },
+      },
+      async execute() {
+        return readQqRoster({ dshHome })
       },
     }
   }
