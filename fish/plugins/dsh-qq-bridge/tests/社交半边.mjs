@@ -1525,9 +1525,9 @@ await 等()
     String(回合.at(-1)?.message.content[0].text || '').includes('[引用你：吱]'))
 await 收到回复('session-qq-social-group-1012', '怎么啦')
 const 回复前一发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012).at(-1)
-报('回带引用的消息：第一条文字挂原生 reply 段',
+报('回带引用的消息：第一条文字挂原生 reply 段，引用的是回她的那条本身',
   回复前一发 && Array.isArray(回复前一发.体.message) && 回复前一发.体.message[0]?.type === 'reply' &&
-    回复前一发.体.message[0]?.data?.id === '4242' && 回复前一发.体.message[1]?.data?.text === '怎么啦',
+    回复前一发.体.message[0]?.data?.id === '2302' && 回复前一发.体.message[1]?.data?.text === '怎么啦',
   JSON.stringify(回复前一发))
 
 时间偏移 += 11_000
@@ -1575,10 +1575,48 @@ await 收到回复('session-qq-social-group-1012', '怎么啦\n\n还有一句')
 await 等到(async () => 发的.slice(多前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012).length >= 2, 4000)
 await new Promise((r) => setTimeout(r, 100))
 const 多回 = 发的.slice(多前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
-报('连发多条：reply 段只在第一条',
-  多回.length === 2 && 多回[0].体.message[0]?.type === 'reply' && 多回[0].体.message[0]?.data?.id === '4242' &&
+报('连发多条：reply 段只在第一条，挂最新叫到她的那条',
+  多回.length === 2 && 多回[0].体.message[0]?.type === 'reply' && 多回[0].体.message[0]?.data?.id === '2601' &&
     多回[1].体.message.every((b) => b.type !== 'reply'),
   JSON.stringify(多回.map((x) => x.体.message)))
+
+// 没人叫她、她自己想接一句：不自动挂引用，免得引一句却不回那句
+写配置({ 群: ['1012'], 模式: 'auto', 冷却秒: 0, 判断冷却秒: 0 })
+时间偏移 += 11_000
+群消息表.set(1012, [
+  一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
+  一条群消息('周末有人去爬山吗', { uid: 888, id: 2750 }),
+])
+设判断(['2750'], true, 0.9, '想接')
+await 轮询社交()
+await 等()
+const 自接前 = 发的.length
+await 收到回复('session-qq-social-group-1012', '爬山好呀')
+await 等到(() => 发的.slice(自接前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012))
+await new Promise((r) => setTimeout(r, 100))
+const 自接回 = 发的.slice(自接前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
+报('没人叫她、她自己接一句：回话不挂引用',
+  自接回.length === 1 && 自接回[0].体.message.every((b) => b.type !== 'reply'),
+  JSON.stringify(自接回.map((x) => x.体.message)))
+
+// 同一批里先有人回复她、后面又有人 @ 她：最新叫到她的是 @，回话不自动挂引用
+时间偏移 += 11_000
+群消息表.set(1012, [
+  一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
+  一条群消息('这条回她', { replyId: 4242, id: 2761 }),
+  一条群消息('大肥鱼 又是我叫的', { atSelf: true, id: 2762 }),
+])
+设判断([], false, 0.1, '不想接')
+await 轮询社交()
+await 等()
+const 新叫前 = 发的.length
+await 收到回复('session-qq-social-group-1012', '在呢')
+await 等到(() => 发的.slice(新叫前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012))
+await new Promise((r) => setTimeout(r, 100))
+const 新叫回 = 发的.slice(新叫前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
+报('最新叫到她的是 @ 而不是回复：回话不挂引用',
+  新叫回.length === 1 && 新叫回[0].体.message.every((b) => b.type !== 'reply'),
+  JSON.stringify(新叫回.map((x) => x.体.message)))
 
 // 她写 [戳人:QQ号] → 调 group_poke 戳那个人，标记本身不进群聊
 时间偏移 += 11_000

@@ -2924,7 +2924,7 @@ export function 摘引用标记(文字) {
   for (const m of 原.matchAll(引用标记式)) {
     if (引用) continue
     const 净 = String((m && m[1]) || '').trim()
-    const 号 = 净.match(/^#?\s*(\d{3,20})$/u)
+    const 号 = 净.match(/^#?\s*(-?\d{3,20})$/u)
     引用 = 号 ? { id: 号[1], 原文: '' } : { id: '', 原文: 净.slice(0, 200) }
   }
   const 剩 = 原
@@ -2943,7 +2943,7 @@ export function 摘引用标记(文字) {
  */
 export function 找引用消息(记录们, 引用) {
   const 列 = (Array.isArray(记录们) ? 记录们 : [])
-    .filter((m) => m && /^\d{3,20}$/.test(String(m.id || '')))
+    .filter((m) => m && /^-?\d{3,20}$/.test(String(m.id || '')))
   if (引用 && 引用.id !== '') {
     let 命中 = null
     for (const m of 列) {
@@ -7479,7 +7479,10 @@ export function apply(ctx) {
     if (!选的) return
     const agent = 选的.agent
     const sid = String((agent.session && agent.session.id) || 目标.会话id)
-    const 有人直呼 = 批.some((m) => m && !m.上下文 && !m.自己 && (m.被叫原因 !== '' || 问到她自己(m.文字)))
+    const 叫她的 = 批
+      .filter((m) => m && !m.上下文 && !m.自己 && (m.被叫原因 !== '' || 问到她自己(m.文字)))
+      .sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))
+    const 有人直呼 = 叫她的.length > 0
     const 有迟到 = 批.some((m) => m && !m.上下文 && !m.自己 && m.迟到)
     const 复读候选 = 有人直呼 || 有迟到 ? null : 挑本批复读(配置, 目标, 批)
     const 拼好 = 拼一批(目标, 批, false, 节奏, 配置, 复读候选)
@@ -7488,7 +7491,12 @@ export function apply(ctx) {
       .filter((m) => m && !m.自己 && !m.上下文)
       .map((m) => String(m.uid || ''))
       .filter((号) => /^\d{3,20}$/.test(号)))]
-    const 回复id = (批.find((m) => m && !m.上下文 && m.回复id) || {}).回复id || ''
+    // 原生引用只挂在“回复她”的那条消息本身，而且只有最新一条叫到她的消息就是这条回复时才挂。
+    // 被 @ / 叫名字、或她自己想接一句时不自动引用；要引就由她在正文里写 [引用:那句原话]。
+    // 绝不能拿被回复消息的 id 当回话目标 —— 那会变成在回更早的旧话。
+    const 最新叫 = 叫她的[叫她的.length - 1]
+    const 回谁 = 目标.类型 === 'group' && 最新叫 && 最新叫.被叫原因 === '有人在回复你' ? 最新叫 : null
+    const 回复id = 回谁 ? String(回谁.id || '') : ''
     const 待 = { 目标, 文本: '', 轮号: -1, 发起At: Date.now(), 图片们: 拼好.图片们, 对象们, 复读: 复读候选, 回复id, 迟到: 有迟到 }
     加待发(sid, 待)
     const 线 = 选的.分线号 > 0 ? `·分线${选的.分线号}` : ''
@@ -8460,8 +8468,9 @@ export function apply(ctx) {
     let 引用id = String(回复id || '')
     if (引.引用) {
       const 对上 = 找引用消息(近时缓冲(目标), 引.引用)
-      if (对上 !== '') 引用id = 对上
-      else 记账(`${目标.叫}：想引用「${引.引用.原文 || `#${引.引用.id}`}」但没对上最近的消息，这条只发正文`)
+      // 她点名要引用时只认对得上的那句；对不上就不挂，别退回到自动引用去挂错人。
+      引用id = 对上
+      if (对上 === '') 记账(`${目标.叫}：想引用「${引.引用.原文 || `#${引.引用.id}`}」但没对上最近的消息，这条只发正文`)
     }
     if (文本.length > 1200) 文本 = `${文本.slice(0, 1200)}…`
     // 回头补一句最忌讳像查岗：只憋出一句“在吗”就别发。
