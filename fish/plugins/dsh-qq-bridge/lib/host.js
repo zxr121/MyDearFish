@@ -662,6 +662,90 @@ export function 只留聊天提示(装配) {
   }
 }
 
+/**
+ * 从账本里挑这一轮要带的上下文：先补齐这批消息所在的回复串，再按时间补最近的话。
+ * 串按“回复谁”连起来；她自己说过的话靠真实消息 id 接上后来回复她的那条。
+ * @param {object[]} 账本 - 这间屋最近的聊天，旧→新。
+ * @param {object[]} 批 - 这一轮的新消息。
+ * @param {number} 条数上限 - 最多带几条。
+ * @param {number} 字数上限 - 大约多少字；不限就传 Infinity。
+ * @returns {object[]} 上下文消息，旧→新；每条都带 上下文: true。
+ */
+export function 串上下文(账本, 批, 条数上限, 字数上限) {
+  const 本 = Array.isArray(账本) ? 账本 : []
+  const 新 = Array.isArray(批) ? 批 : []
+  const 限 = Math.max(1, Math.floor(Number(条数上限) || 1))
+  const 字数 = Number(字数上限) > 0 ? Number(字数上限) : 0
+  const 位 = new Map()
+  const 序号 = new Map()
+  本.forEach((m, i) => {
+    for (const id of [m && m.id, ...((m && Array.isArray(m.消息id们)) ? m.消息id们 : [])]) {
+      const k = String(id || '')
+      if (k !== '' && !位.has(k)) 位.set(k, i)
+    }
+    const k = String((m && m.id) || '')
+    if (k !== '' && !序号.has(k)) 序号.set(k, i)
+  })
+  const 父 = 本.map((_, i) => i)
+  const 找 = (i) => {
+    while (父[i] !== i) {
+      父[i] = 父[父[i]]
+      i = 父[i]
+    }
+    return i
+  }
+  本.forEach((m, i) => {
+    const 回给 = 位.get(String((m && m.回复id) || ''))
+    if (回给 === undefined) return
+    const a = 找(回给)
+    const b = 找(i)
+    if (a !== b) 父[b] = a
+  })
+  const 新id = new Set()
+  for (const m of 新) {
+    for (const id of [m && m.id, ...((m && Array.isArray(m.消息id们)) ? m.消息id们 : [])]) {
+      const k = String(id || '')
+      if (k !== '') 新id.add(k)
+    }
+  }
+  const 串们 = new Set()
+  for (const m of 新) {
+    for (const id of [m && m.id, m && m.回复id]) {
+      const i = 位.get(String(id || ''))
+      if (i !== undefined) 串们.add(找(i))
+    }
+  }
+  const 同串上限 = 串们.size > 0 ? Math.max(4, 限 - 4) : 0
+  const 选 = []
+  const 已选 = new Set()
+  let 计 = 0
+  // 同一串里更早的话比别处刚刷过的更相关；先补串，再补最近的。
+  const 拿 = (m) => {
+    const k = String((m && m.id) || '')
+    if (k !== '' && (新id.has(k) || 已选.has(k))) return true
+    const 长 = String((m && m.文字) || '').length + String((m && m.说话人) || '').length + 8
+    if (选.length > 0 && 计 + 长 > 字数) return false
+    if (k !== '') 已选.add(k)
+    选.push({ ...m, 上下文: true })
+    计 += 长
+    return true
+  }
+  if (同串上限 > 0) {
+    for (let i = 本.length - 1; i >= 0 && 选.length < 同串上限; i -= 1) {
+      if (!串们.has(找(i))) continue
+      if (拿(本[i]) === false) break
+    }
+  }
+  for (let i = 本.length - 1; i >= 0 && 选.length < 限; i -= 1) {
+    if (拿(本[i]) === false) break
+  }
+  return 选.sort((a, b) => {
+    const ai = 序号.get(String((a && a.id) || ''))
+    const bi = 序号.get(String((b && b.id) || ''))
+    return (ai === undefined ? 0 : ai) - (bi === undefined ? 0 : bi)
+  })
+}
+
 /** "23:00-08:00" 在当刻是否生效；空串 = 不静音。支持跨午夜。 */
 export function 在静音时段(静音, 当刻 = new Date()) {
   if (typeof 静音 !== 'string' || 静音.trim() === '') return false
@@ -5393,7 +5477,7 @@ export function apply(ctx) {
         if (号们.length > 0) 判图号.set(String(m.id || ''), 号们.join(' '))
       }
     }
-    const 上下文们 = (缓冲 || []).slice(-12).map((m) => 行(
+    const 上下文们 = 串上下文(缓冲 || [], 进判, 12, Infinity).map((m) => 行(
       m,
       '[看过]' + (m.对别人说 ? '[对别人说]' : '') + (Array.isArray(m.不聊) && m.不聊.length > 0 ? `[不聊:${m.不聊.join('、')}]` : ''),
     ))
@@ -6793,19 +6877,11 @@ export function apply(ctx) {
       const k = String((m && m.id) || '')
       if (k !== '') 新id.add(k)
     }
-    const 旧 = 近时缓冲(目标).reverse()
-    const 选 = []
-    let 字数 = 0
-    for (const m of 旧) {
-      if (选.length >= 回复上下文条数) break
-      const k = String(m.id || '')
-      if (k !== '' && 新id.has(k)) continue
-      const 长 = String(m.文字 || '').length + String(m.说话人 || '').length + 8
-      if (选.length > 0 && 字数 + 长 > 回复上下文字数) break
-      选.push({ ...m, 上下文: true })
-      字数 += 长
-    }
-    选.reverse()
+    const 账本 = 近时缓冲(目标).filter((m) => {
+      const k = String((m && m.id) || '')
+      return k === '' || !新id.has(k)
+    })
+    const 选 = 串上下文(账本, 批, 回复上下文条数, 回复上下文字数)
     const 见过 = new Set()
     return 选.concat(批).filter((m) => {
       const k = String((m && m.id) || '')
@@ -7173,8 +7249,11 @@ export function apply(ctx) {
     记思绪('开口', `短应了一声「${文本}」：判断模型直接给的反应，不另开回复轮`, {
       原文: [文本], 全过: true, 档: 1,
     }, 目标.叫)
+    const 发出id = r.数据 && r.数据.data && r.数据.data.message_id !== undefined && r.数据.data.message_id !== null
+      ? String(r.数据.data.message_id) : ''
     并入社交缓冲(目标, [{
       id: `self-${Date.now()}`,
+      消息id们: 发出id === '' ? [] : [发出id],
       at: Math.floor(Date.now() / 1000),
       说话人: '大肥鱼',
       文字: 文本,
@@ -7832,6 +7911,7 @@ export function apply(ctx) {
     let 真发出 = false
     const 发出的表情 = []
     const 发出文字们 = []
+    const 发出id们 = []
     let 已带回复 = false
     for (let i = 0; i < 项们.length; i++) {
       const 项 = 项们[i]
@@ -7852,6 +7932,7 @@ export function apply(ctx) {
           const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
           if (mid !== undefined && mid !== null) {
             她的消息id.add(String(mid))
+            发出id们.push(String(mid))
             if (她的消息id.size > 500) 她的消息id.clear()
           }
         } else {
@@ -7871,6 +7952,7 @@ export function apply(ctx) {
             const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
             if (mid !== undefined && mid !== null) {
               她的消息id.add(String(mid))
+              发出id们.push(String(mid))
               if (她的消息id.size > 500) 她的消息id.clear()
             }
             记账(`✅ 在 ${目标.叫} 发了张表情包：#${贴纸.id} ${贴纸.label}`)
@@ -7915,6 +7997,8 @@ export function apply(ctx) {
     const 说出 = [干净说, ...发出的表情.map((x) => `[发了一张表情包：#${x.id} ${x.label}]`)].filter(Boolean).join(' ')
     并入社交缓冲(目标, [{
       id: `self-${Date.now()}`,
+      消息id们: 发出id们,
+      回复id: String(引用id || ''),
       at: Math.floor(Date.now() / 1000),
       说话人: '大肥鱼',
       文字: 说出,

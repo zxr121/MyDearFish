@@ -71,6 +71,10 @@ When someone in the group replies to another message that has not been judged ye
 
 Since 0.2.91, the chat prompt filter no longer drops the `feiyu-mood` context injected by the mood plugin: she enters a social room with her current mood, expressed as one line of state that explicitly tells her not to read it aloud. The mood plugin already skips judging `qq-social-*` sessions, so group chats and friend private chats never change her mood; only conversations with the owner move it.
 
+### Reply strands
+
+Since 0.2.92, context is grouped by "who this replies to": when a reply or judgment needs older words, the bridge first fills in the strand containing the quoted message, then fills the remaining count budget with the most recent chatter (20 messages / 2400 characters for replies, 12 messages for judgments), and finally orders everything by time. Every segment she sends records its real message ids, so a later reply to her can reconnect the whole strand. The budget does not grow; it just yields space to more relevant words.
+
 ### Rhythm
 
 Group reply delays stop being fixed: jitter of 0.6 to 1.6 times based on message length and mood, never below 0.8 seconds; 0.4 to 1.2 seconds between consecutive sends; when the other side keeps typing, wait for the last message. The longer the text, the likelier it splits into two messages, but anything that fits in one stays one.
@@ -164,8 +168,9 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 
 1. Done (0.2.88): the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
 2. This round (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
-3. Next round: thread-grouped ledger (each conversation strand separate, only relevant context attached), social battery, rhythm jitter, repair turns; read-only mood already reached social rooms in 0.2.91.
-4. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
+3. This round (0.2.92): the ledger groups by reply strand; replies and judgments fill the quoted strand first, then top up the budget with recent words.
+4. Next round: social battery, rhythm jitter, repair turns; read-only mood already reached social rooms in 0.2.91.
+5. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 

@@ -3431,6 +3431,30 @@ const 已答提示 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.te
   已答提示.slice(0, 700))
 await 收到回复('session-qq-social-group-1409', '看情况吧')
 
+// ---------- 35 回复串：隔了二十多条，引用旧话也能把那一串带回来 ----------
+写配置({ 群: ['1413'], 快判: false, 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 关注上限: 30 })
+const 串旧批 = [
+  一条群消息('周末有人去爬山吗', { uid: 888, id: 79601 }),
+  ...Array.from({ length: 24 }, (_, i) => 一条群消息(`闲聊第${i + 1}句`, { uid: i % 2 === 0 ? 889 : 890, id: 79602 + i })),
+]
+群消息表.set(1413, 串旧批)
+设判断(['79625'], true, 0.9, '接一句')
+const 串旧前回合 = 回合.length
+await 轮询社交()
+const 开了串旧轮 = await 等到(async () => 回合.length === 串旧前回合 + 1)
+await 收到回复('session-qq-social-group-1413', '我想去')
+await new Promise((r) => setTimeout(r, 200))
+时间偏移 += 11_000
+群消息表.set(1413, [...群消息表.get(1413), 一条群消息('大肥鱼 就定周六？', { uid: 888, id: 79626, atSelf: true, replyId: 79601 })])
+设判断(['79626'], true, 0.9, '接着定时间')
+await 轮询社交()
+const 开了串轮 = await 等到(async () => 回合.length === 串旧前回合 + 2)
+const 串判断提示 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('回复串：判断能看到被引用那条所在的串', 开了串旧轮 && 串判断提示.includes('[#79601][看过]') && 串判断提示.includes('周末有人去爬山吗'), 串判断提示.slice(0, 700))
+const 串回复文 = String(回合.at(-1)?.message.content[0].text || '')
+报('回复串：回复里也把被引用的旧话带回来', 开了串轮 && 串回复文.includes('【最近聊过】群友888：周末有人去爬山吗'), 串回复文.slice(0, 700))
+await 收到回复('session-qq-social-group-1413', '好呀')
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
