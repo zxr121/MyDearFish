@@ -362,6 +362,36 @@ const 口癖候选 = 模.挑复读([复读消息('好家伙', 801, 999_990)], {
     !模.复读文字可用('@某人 好家伙', {}) &&
     模.复读文字可用('好家伙', {}))
 
+// 表情场景只认接话的场合；带图的消息按自己的字算，纯图才借上一句。
+报('表情场景：笑、赞同、无语、接话认得出来，普通聊天认不出',
+  模.判表情场景('哈哈哈哈哈') === '笑' &&
+    模.判表情场景('笑死我了') === '笑' &&
+    模.判表情场景('确实') === '赞同' &&
+    模.判表情场景('无语了') === '无语' &&
+    模.判表情场景('嗯') === '接话' &&
+    模.判表情场景('今天食堂好难吃') === '',
+  [模.判表情场景('哈哈哈哈哈'), 模.判表情场景('确实'), 模.判表情场景('无语了'), 模.判表情场景('嗯')].join('/'))
+报('表情场景：先剥掉图片占位和 @', 模.净表情文字('[图片] @群友888 哈哈') === '哈哈', 模.净表情文字('[图片] @群友888 哈哈'))
+const 量笑 = 模.量表情语感('哈哈哈哈', [{ subType: 1 }])
+报('量表情：带表情的笑算笑场景，不是只发图', 量笑 && 量笑.张数 === 1 && 量笑.独发 === 0 && 量笑.场景 === '笑', JSON.stringify(量笑))
+const 量独发 = 模.量表情语感('[图片]', [{ subType: 1 }], '笑死')
+报('量表情：只发图时按上一句判场景', 量独发 && 量独发.独发 === 1 && 量独发.场景 === '笑', JSON.stringify(量独发))
+报('量表情：配着无关字的图不借上一句的场合', 模.量表情语感('今天食堂好难吃', [{ subType: 1 }], '笑死').场景 === '', JSON.stringify(模.量表情语感('今天食堂好难吃', [{ subType: 1 }], '笑死')))
+报('量表情：空消息不计数', 模.量表情语感('', []) === null)
+let 语感 = 模.空表情语感()
+for (let i = 0; i < 14; i += 1) {
+  const 样 = i % 2 === 0
+    ? 模.量表情语感('哈哈哈哈哈', [{ subType: 1 }])
+    : 模.量表情语感('确实', [])
+  语感 = 模.叠加表情语感(语感, 样, 1_000 + i, String(800 + (Math.floor(i / 2) % 2)))
+}
+报('表情语感：样本和带表情的条数分开累计', 语感.样本 > 12 && 语感.表情 > 6, `样本=${语感.样本} 表情=${语感.表情}`)
+const 表情提示 = 模.拼表情语感(语感)
+报('表情语感：样本够了才给出场景提示', 表情提示.includes('【群里的表情习惯') && 表情提示.includes('这个群的表情多用在：') && 表情提示.includes('笑') && 表情提示.includes('只发表情不配字也算接话'), 表情提示)
+报('表情语感：样本不够就不说', 模.拼表情语感(模.叠加表情语感(模.空表情语感(), 模.量表情语感('哈哈', [{ subType: 1 }]))) === '')
+const 纯语感 = 模.纯表情语感(语感)
+报('表情语感落盘：只有统计量，没有原话和说话人集合', !JSON.stringify(纯语感).includes('人集') && typeof 纯语感.样本 === 'number' && !('原话' in 纯语感), JSON.stringify(纯语感).slice(0, 200))
+
 // ---------- 假配置 / 假 ctx ----------
 const 写配置 = (社交 = {}) => {
   writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
@@ -369,6 +399,7 @@ const 写配置 = (社交 = {}) => {
     转私聊: false, 转群: false, NapCat: 'http://127.0.0.1:3000',
     社交: {
       启用: true, 试运行: false, 群: [], 好友: [], 模式: 'auto', 旁听: true,
+      学表情: false, // 大多数用例只验接话；学表情和自动收藏在 6f / 6g 单独开
       冷却秒: 10, 冷却最短秒: 5, 冷却最长倍率: 1.5, 余额吃紧线: 5, 余额吃紧倍率: 1.5, 最低余额: 1, 静音: '',
       称呼: ['大肥鱼'], 兴趣词: [], 关注上限: 12, 聚拢秒: 0, 探索间隔秒: 0,
       判断模型: 'fake/cheap', 判断阈值: 0.55, 判断冷却秒: 60, 回复模型: 'fake/chat',
@@ -1152,6 +1183,94 @@ const 短写发 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.u
   && 短写发[0].url.endsWith('/send_group_msg') && 短写发[0].体.message[0].data.text === 'aibo 存下的这就发'
   && 短写发[1].url.endsWith('/send_custom_face') && 短写发[1].体.emoji_id === (收藏项 && 收藏项.emojiId),
   JSON.stringify(短写发.map((x) => (x.url.endsWith('/send_custom_face') ? '[表情]' : x.体.message[0].data.text))))
+
+// ---------- 6f 学表情：量群里的表情习惯，反复见到的同一张顺手收进收藏 ----------
+const 带图说话 = (id, 文本, { uid = 801, url, 表情 = true, time } = {}) => ({
+  user_id: uid,
+  time: time === undefined ? Math.floor(Date.now() / 1000) + 100 : time,
+  message_id: id,
+  sender: { card: `群友${uid}`, nickname: 'x' },
+  message: [
+    { type: 'image', data: { url, file: 'a.jpg', summary: 表情 ? '[动画表情]' : '[图片]', sub_type: 表情 ? 1 : 0 } },
+    { type: 'text', data: { text: 文本 } },
+  ],
+})
+写配置({ 群: ['1075'], 学表情: true, 判断冷却秒: 0, 冷却秒: 1 })
+const 自动图 = 'https://multimedia.nt.qq.com.cn/auto-collect-a.jpg'
+const 其他图 = (n) => `https://multimedia.nt.qq.com.cn/auto-collect-${n}.jpg`
+固定图.set(自动图, Buffer.from([0xff, 0xd8, 0xff, 0xe1]))
+for (let n = 0; n < 5; n += 1) 固定图.set(其他图(n), Buffer.from([0xff, 0xd8, 0xff, 0xe2, n]))
+群消息表.set(1075, [
+  带图说话(4001, '嗯', { uid: 801, url: 自动图 }),
+  带图说话(4002, '哦', { uid: 802, url: 自动图 }),
+  带图说话(4003, '今天食堂好难吃', { uid: 801, url: 其他图(0) }),
+  带图说话(4004, '这个作业真多', { uid: 802, url: 其他图(1) }),
+  带图说话(4005, '明天要下雨', { uid: 801, url: 其他图(2) }),
+  带图说话(4006, '地铁又晚点', { uid: 802, url: 其他图(3) }),
+  带图说话(4007, '好', { uid: 801, url: 其他图(4) }),
+  一条群消息('今天食堂好难吃', { id: 4008, uid: 802 }),
+  一条群消息('这个作业真多', { id: 4009, uid: 801 }),
+  一条群消息('明天要下雨', { id: 4010, uid: 802 }),
+  一条群消息('地铁又晚点', { id: 4011, uid: 801 }),
+  一条群消息('我刚到家', { id: 4012, uid: 802 }),
+  一条群消息('嗯', { id: 4013, uid: 801 }),
+  一条群消息('好', { id: 4014, uid: 802 }),
+])
+const 收藏数前6f = QQ收藏.size
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等()
+const 状态6f = await 目标状态('group:1075')
+报('学表情：样本和带表情的条数分开累计', 状态6f && 状态6f.画像 && 状态6f.画像.表情 && 状态6f.画像.表情.样本 >= 12 && 状态6f.画像.表情.表情条数 >= 2, JSON.stringify(状态6f && 状态6f.画像 && 状态6f.画像.表情))
+报('学表情：反复见到的同一张表情收进 QQ 收藏', QQ收藏.size === 收藏数前6f + 1, `收藏 +${QQ收藏.size - 收藏数前6f}`)
+const 自存项 = [...QQ收藏.values()].at(-1)
+const 自存索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.at(-1) || {}
+报('自动收藏用场景当短名字，并标明是自动收的', 自存项 && 自存项.desc === '接话' && String(自存索引.source).includes('·自动'), JSON.stringify({ desc: 自存项 && 自存项.desc, source: 自存索引.source }))
+报('自动收藏写进日志', String(await 日志文本()).includes('又见到同一张 2 次'))
+群消息表.set(1075, [一条群消息('大肥鱼 你看看这个', { id: 4015, atSelf: true, uid: 801 })])
+设判断(['4015'], true, 0.9, '叫她了')
+await 轮询社交()
+await 等()
+const 学表情轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1075').at(-1)
+const 学表情提示 = String(学表情轮?.message?.content?.[0]?.text || '')
+报('学表情：回复提示带上这个群的表情习惯', 学表情提示.includes('【群里的表情习惯') && 学表情提示.includes('这个群的表情多用在：接话'), 学表情提示.slice(0, 900))
+报('学表情：判断提示说明只发一张表情也算接上', String(判断调用.at(-1)?.system).includes('只发一张表情接住也算接上了'))
+报('表情包当接话方式的场景提示挂上了', 场景提示.some((s) => 提示文本(s).includes('表情包也是一种接话方式')))
+
+// ---------- 6g 学表情关掉：不量、不自动收藏、提示里也不提群里的表情习惯 ----------
+写配置({ 群: ['1076'], 学表情: false, 判断冷却秒: 0 })
+const 关图 = 'https://multimedia.nt.qq.com.cn/auto-collect-off.jpg'
+固定图.set(关图, Buffer.from([0xff, 0xd8, 0xff, 0xe3]))
+const 收藏数前6g = QQ收藏.size
+群消息表.set(1076, [
+  带图说话(4101, '嗯', { uid: 801, url: 关图 }),
+  带图说话(4102, '嗯', { uid: 801, url: 关图 }),
+  一条群消息('大肥鱼 在吗', { id: 4103, atSelf: true }),
+])
+设判断(['4103'], true, 0.9, '叫她了')
+await 轮询社交()
+await 等()
+const 状态6g = await 目标状态('group:1076')
+报('学表情关掉：不量表情习惯', 状态6g && 状态6g.画像 && 状态6g.画像.表情 && 状态6g.画像.表情.样本 === 0, JSON.stringify(状态6g && 状态6g.画像 && 状态6g.画像.表情))
+报('学表情关掉：同一张表情反复出现也不收进收藏', QQ收藏.size === 收藏数前6g, `收藏 +${QQ收藏.size - 收藏数前6g}`)
+const 关提示 = String(回合.filter((r) => r.sid === 'session-qq-social-group-1076').at(-1)?.message?.content?.[0]?.text || '')
+报('学表情关掉：回复提示不提群里的表情习惯', 关提示 !== '' && !关提示.includes('【群里的表情习惯'), 关提示.slice(0, 400))
+
+// ---------- 6h 只发表情：光一张表情也算完整回话，不配字 ----------
+写配置({ 群: ['1077'], 判断冷却秒: 0 })
+群消息表.set(1077, [一条群消息('来张表情', { id: 4201 })])
+设判断(['4201'], true, 0.9, '发个表情')
+await 轮询社交()
+await 等()
+const 纯表情轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1077').at(-1)
+const 纯表情提示 = String(纯表情轮?.message?.content?.[0]?.text || '')
+报('只发表情：回复提示说明表情也算回了', 纯表情提示.includes('只发一张收藏里的表情（[发表情:#编号]）也算回了'), 纯表情提示.slice(0, 400))
+报('只发表情：判断提示说明只发一张也算接上', String(判断调用.at(-1)?.system).includes('只发一张表情接住也算接上了'))
+const 纯表情前 = 发的.length
+await 收到回复('session-qq-social-group-1077', '[发表情:#1]')
+await new Promise((r) => setTimeout(r, 800))
+const 纯表情发 = 发的.slice(纯表情前).filter((x) => x.体 && (x.体.group_id === 1077 || x.url.endsWith('/send_custom_face')))
+报('只发表情：只发一张收藏表情，不发文字', 纯表情发.length === 1 && 纯表情发[0].url.endsWith('/send_custom_face') && 纯表情发[0].体.emoji_id === (收藏项 && 收藏项.emojiId) && !发的.slice(纯表情前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1077), JSON.stringify(纯表情发))
 
 // 判断模型回了坏 JSON：这批消息要留着下轮再判，不能丢
 写配置({ 群: ['1018'] })
