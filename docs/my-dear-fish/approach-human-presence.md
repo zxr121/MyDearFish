@@ -67,6 +67,10 @@ Rung 1 is the key to saving money: many group messages need only `嗯`, `确实`
 
 When someone in the group replies to another message that has not been judged yet, the bridge removes the replied-to message from the pending queue before the reply enters it (messages that call her, and the same person continuing their own thought, stay). Marking everything accumulated before she speaks as answered is not implemented yet; it is deferred to the thread-grouping round so an active topic is not cut off.
 
+### Read-only mood
+
+Since 0.2.91, the chat prompt filter no longer drops the `feiyu-mood` context injected by the mood plugin: she enters a social room with her current mood, expressed as one line of state that explicitly tells her not to read it aloud. The mood plugin already skips judging `qq-social-*` sessions, so group chats and friend private chats never change her mood; only conversations with the owner move it.
+
 ### Rhythm
 
 Group reply delays stop being fixed: jitter of 0.6 to 1.6 times based on message length and mood, never below 0.8 seconds; 0.4 to 1.2 seconds between consecutive sends; when the other side keeps typing, wait for the last message. The longer the text, the likelier it splits into two messages, but anything that fits in one stays one.
@@ -138,7 +142,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 | Silent learning, volume, person attitudes | Done | Keep |
 | Balance priced at official peak and off-peak rates | Done | Keep |
 | Automatic backups, install-directory data | Done | Keep |
-| Mood and proactive talk in groups | Mood skips social rooms; proactive talk excludes social rooms | First let mood update read-only in groups, then discuss proactive talk |
+| Mood and proactive talk in groups | Mood skips social rooms; proactive talk excludes social rooms | 0.2.91 made mood read-only in social rooms; proactive talk still excludes them |
 | Multi-group concurrency cost | Only the global quota | Adds energy and judge cooldowns this round |
 | Overlong sessions, failure recovery | Compression threshold, reset route, and consecutive-failure pause done | Keep |
 | White text in dark-theme dropdowns | Fixed only on the “Reach QQ” page | Audit the remaining dropdowns page by page |
@@ -160,7 +164,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 
 1. Done (0.2.88): the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
 2. This round (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
-3. Next round: thread-grouped ledger (each conversation strand separate, only relevant context attached), social battery, rhythm jitter, repair turns, read-only mood updates in groups.
+3. Next round: thread-grouped ledger (each conversation strand separate, only relevant context attached), social battery, rhythm jitter, repair turns; read-only mood already reached social rooms in 0.2.91.
 4. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.

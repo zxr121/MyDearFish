@@ -642,7 +642,8 @@ const 聊天提示段 = new Set([
 ])
 
 /**
- * 把一份提示装配收成聊天用的：段只留人格和场景，动态上下文只留鱼脑记忆。
+ * 把一份提示装配收成聊天用的：段只留人格和场景，动态上下文只留鱼脑记忆和当前心情。
+ * 心情在社交房间里只读：心情插件对 qq-social-* 会话不判心情，这里只把她的状态带进去。
  * 工具、变量和其余装配字段原样保留，模型路由和工具权限不受影响。
  * @param {object} 装配 - system-prompt/assemble 产出的装配。
  * @returns {object} 收过之后的装配；字段不全时原样返回。
@@ -650,7 +651,10 @@ const 聊天提示段 = new Set([
 export function 只留聊天提示(装配) {
   if (!装配 || typeof 装配 !== 'object') return 装配
   const 留段 = (项) => 聊天提示段.has(String(项 && 项.name))
-  const 留上下文 = (项) => String((项 && 项.name) || '').startsWith('fish-mind-')
+  const 留上下文 = (项) => {
+    const 名 = String((项 && 项.name) || '')
+    return 名.startsWith('fish-mind-') || 名 === 'feiyu-mood'
+  }
   return {
     ...装配,
     ...(Array.isArray(装配.sections) ? { sections: 装配.sections.filter(留段) } : {}),

@@ -211,12 +211,13 @@ const 收过装配 = 模.只留聊天提示({
   ],
   contexts: [
     { name: 'fish-mind-self', text: '私设' },
+    { name: 'feiyu-mood', text: '（此刻你）心情不错。' },
     { name: 'cwd', text: 'D:/x' },
   ],
   tools: [{ name: 'bash' }],
   variables: { provider: 'fake' },
 })
-报('只留聊天提示：去掉编码助手段和运行环境', 收过装配.sections.length === 2 && 收过装配.contexts.length === 1, JSON.stringify({ 段: 收过装配.sections.map((s) => s.name), 上下文: 收过装配.contexts.map((c) => c.name) }))
+报('只留聊天提示：去掉编码助手段和运行环境', 收过装配.sections.length === 2 && 收过装配.contexts.map((c) => c.name).join(',') === 'fish-mind-self,feiyu-mood', JSON.stringify({ 段: 收过装配.sections.map((s) => s.name), 上下文: 收过装配.contexts.map((c) => c.name) }))
 报('只留聊天提示：工具和模型变量原样', 收过装配.tools.length === 1 && 收过装配.variables.provider === 'fake')
 报('只留聊天提示：空装配不炸', 模.只留聊天提示(undefined) === undefined)
 
