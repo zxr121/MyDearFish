@@ -6,7 +6,7 @@ This document answers three questions: why she still does not feel human in a gr
 
 ## In one sentence
 
-Let her actually be present in a group: every message enters a room ledger first, and a graded participation decision (not watching / short acknowledgment / joining / starting) decides what happens next; treat the balance as energy that runs down, so when she is tired she speaks less and shorter instead of mechanically shutting up; the savings come from not re-judging, not re-feeding context, and keeping cache hits, not from flattening replies into perfunctory lines.
+Let her actually be present in a group: every message enters a room ledger first, and a graded participation decision (not watching / short acknowledgment / joining / starting) decides what happens next; treat the balance as energy that runs down, so when she is tired she speaks less and shorter instead of mechanically shutting up; the savings come from not re-judging, not re-feeding context, and keeping cache hits, not from flattening replies into perfunctory lines. The next step adds time continuity: when she wants to answer but this is not the moment, the thread stays open and she comes back to it later or the next day, instead of forcing a reply or losing it forever.
 
 ## Her seven current breakpoints
 
@@ -91,6 +91,18 @@ Since 0.2.93, how many messages other people sent in the room during the last te
 
 Since 0.2.94, when someone replies "?", "what did you say", "didn't catch that", or "what do you mean", and that message is a private chat, a reply to her, or an @ of her within ten minutes of her last line, the bridge skips judgment, carries her original sentence into the reply turn, and asks her to rephrase it: no verbatim repeat, no bare "huh?", no long apology. A question that sounds like a mishearing deserves an answer anyway, and this turn saves one judgment call. Question marks outside the ten-minute window or not aimed at her still go through judgment; listen-only and resting rooms stay silent. Turning `社交.重说` off sends everything through judgment.
 
+### Time continuity (next round)
+
+Right now she lives only inside "this batch of messages": a batch arrives, one judgment runs, and within seconds she replies or does not; proactive speech is a dice roll weighted by time and mood. People are not like that. They see a message and answer later, come back with "was busy, what did you say earlier", and the next day ask "how did that interview go". None of this needs a model running in the background; the existing room ledger, fish-mind memory, and proactive quota are enough.
+
+Three steps, with only the small one first:
+
+1. **Keep the thread (0.2.96)**: when judgment picks a message and she has something to say, but cooldown, low battery, quota, quiet hours, or a busy room blocks the moment, she does not force a reply. The message becomes an open thread in the room; listen-only, resting, and closed rooms keep nothing. About ten minutes later, when the room is quiet and she is present again, one cheap judgment decides whether to add a line; that line carries the original words and whatever others said since, and she may naturally say she just saw it without explaining where she was. It shares the proactive quota, holds at most three threads per room, and drops them overnight.
+2. **Late replies (later)**: widen open threads from ten minutes to a few hours and persist them with fish-mind so they survive a restart; when she returns she looks at these before deciding which to pick up.
+3. **Next-day callbacks (later)**: turn facts that invite a follow-up (an interview, a trip, a pet, an exam, a promise) into time-aware openers, replacing the random dice roll in proactive speech — a callback with a reason feels more human and wastes less money.
+
+Guards: expiry, a confidence threshold, and a per-room cap; if someone else already answered the thread in the meantime, she drops it instead of adding a duplicate; a late line never interrogates, echoes, or asks "are you there". The settings page shows how many threads each room holds and when she last came back, and turning `社交.迟到` off disables late replies entirely. Late replies get their own acceptance spot check: stale, aimed at the wrong person, or repeated all count as failures.
+
 ## Energy: the balance is strength
 
 ### Three layers
@@ -171,6 +183,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 | Answered questions | She never re-answers a question someone else answered; spot checks find zero | Spot check |
 | Energy tiers | All six tiers visible in diagnostics and behavior matches the table | Unit tests + logs |
 | Owner private chat | Reply quality and latency unaffected by lower energy | Comparison |
+| Late replies | Stale, aimed at the wrong person, or repeated all count as failures; at most three threads per room at once | Spot check + settings page |
 
 ## Implementation order
 
@@ -180,6 +193,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 4. Done (0.2.93): social battery and rhythm jitter between consecutive sends.
 5. Done (0.2.94): the repair turn.
 6. Done: page-by-page audit of settings dropdowns and the private-chat sticker path. All five fish pages carry dark option backgrounds, the TTS page has no dropdown, and settings pages of non-fish plugins are outside this plugin's scope; saving, renaming, sending by number, deduplicating stickers, and being honest about a missing number all have private-chat test coverage.
+7. Next round (0.2.96): step one of time continuity — a message she wanted to answer but that cooldown, battery, quota, quiet hours, or a busy room held back is kept as an open thread, and she adds a line about ten minutes later when the room is quiet; persistence, crossing hours, and next-day callbacks wait for later rounds.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 
@@ -193,4 +207,4 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | `社交.电量` | true | Whether recent per-room speech lowers the proactive quota |
 | `社交.重说` | true | Whether a "?" or "didn't catch that" triggers a direct rephrase without another judgment |
 
-`判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value.
+`判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value. Keys for the time-continuity round (`社交.迟到`, the per-room thread cap) enter this table once they land; the plan does not write them down as current state.
