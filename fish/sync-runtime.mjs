@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // 把 profile 里安装的鱼插件按本地源码重装一遍：pnpm 的 file: 依赖是实体副本，
 // git pull 只改源码，不会自动更新 profile/node_modules。
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { dirname, join, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -41,7 +41,7 @@ function addPackage(dir) {
   if (!existsSync(pkgFile)) return
   try {
     const pkg = JSON.parse(readFileSync(pkgFile, 'utf8'))
-    if (pkg.name) localPackages.set(pkg.name, { version: pkg.version })
+    if (pkg.name) localPackages.set(pkg.name, { version: pkg.version, dir })
   } catch {
     // 源码清单坏掉时让下面的校验报出来，不在这里吞掉后假装刷新成功
   }
@@ -103,13 +103,25 @@ for (const name of declared) {
     continue
   }
   try {
-    const installed = JSON.parse(readFileSync(installedPkgFile, 'utf8'))
+    let installed = JSON.parse(readFileSync(installedPkgFile, 'utf8'))
     if (installed.version !== source.version) {
-      console.error(`✗ ${name}: 运行时 ${installed.version} ≠ 源码 ${source.version}`)
-      failed = true
-    } else {
-      console.log(`✓ ${name} ${installed.version}`)
+      // pnpm 把 file: 目录依赖按 spec 记进锁文件，源码版本变了也报 already up to date，只能整棵复制
+      const targetDir = join(profileDir, 'node_modules', ...name.split('/'))
+      rmSync(targetDir, { recursive: true, force: true })
+      cpSync(source.dir, targetDir, {
+        recursive: true,
+        filter: (entry) => !entry.split(sep).includes('node_modules'),
+      })
+      installed = JSON.parse(readFileSync(installedPkgFile, 'utf8'))
+      if (installed.version !== source.version) {
+        console.error(`✗ ${name}: 复制后仍是 ${installed.version}，源码 ${source.version}`)
+        failed = true
+      } else {
+        console.log(`✓ ${name} ${installed.version}（源码已整棵复制）`)
+      }
+      continue
     }
+    console.log(`✓ ${name} ${installed.version}`)
   } catch (err) {
     console.error(`✗ ${name}: 读不了安装清单（${err.message}）`)
     failed = true
