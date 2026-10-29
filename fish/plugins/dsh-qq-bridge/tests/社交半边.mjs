@@ -675,8 +675,9 @@ globalThis.fetch = async (url, 选项) => {
       }),
     }
   }
-  发的.push({ url: u, 体 })
-  return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: ++发送序号 } }) }
+  const 回id = ++发送序号
+  发的.push({ url: u, 体, 回id })
+  return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: 回id } }) }
 }
 
 let 消息id = 1
@@ -1181,7 +1182,8 @@ await 轮询社交()
 await 等()
 const 多表情前 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1028).length
 await 收到回复('session-qq-social-group-1028', '[发表情:#1] 拿去[发表情:#1] 再来一张')
-await new Promise((r) => setTimeout(r, 1800))
+await 等到(() => 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1028).length >= 多表情前 + 4, 5000)
+await 等(100)
 const 多表情发 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1028).slice(多表情前)
 报('连发表情：按写下顺序排（表情→话→表情→话）', 多表情发.length === 4
   && 多表情发[0].url.endsWith('/send_custom_face')
@@ -1199,7 +1201,8 @@ await 轮询社交()
 await 等()
 const 短写前 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1066).length
 await 收到回复('session-qq-social-group-1066', 'aibo 存下的这就发 [#1]')
-await new Promise((r) => setTimeout(r, 1800))
+await 等到(() => 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1066).length >= 短写前 + 2)
+await 等(100)
 const 短写发 = 发的.filter((x) => (x.url.endsWith('/send_group_msg') || x.url.endsWith('/send_custom_face')) && x.体.group_id === 1066).slice(短写前)
 报('短写 [#N]：按表情发出去，编号不留在正文', 短写发.length === 2
   && 短写发[0].url.endsWith('/send_group_msg') && 短写发[0].体.message[0].data.text === 'aibo 存下的这就发'
@@ -3488,6 +3491,44 @@ await 等()
 报('社交电量：额度用完后不再主动开口，省下判断的钱',
   判断调用.length === 电量后判断 && (await 日志文本()).includes('这小时的主动话量用完了（1/1 轮）'),
   JSON.stringify({ 判断: 判断调用.length - 电量后判断 }))
+
+// ---------- 38 修复回合：有人回“？”、“没听清”，换个说法重说，不再花判断 ----------
+写配置({ 群: ['1416'], 快判: false, 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 低信号跳过: false, 主动每时: 10 })
+群消息表.set(1416, [一条群消息('大肥鱼 三加五等于几', { atSelf: true, id: 79801 })])
+设判断(['79801'], true, 0.9, '叫她答题')
+const 修前回合 = 回合.length
+await 轮询社交()
+const 开了答轮 = await 等到(async () => 回合.length === 修前回合 + 1)
+报('修复前：先正常答一句', 开了答轮, String(回合.at(-1)?.message.content[0].text || '').slice(0, 200))
+await 收到回复('session-qq-social-group-1416', '等于八呀')
+await 等到(() => 发的.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1416))
+const 她的id = String(发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1416).at(-1)?.回id || '')
+
+// 不冲她来的“？”照常判断，不按修复处理
+时间偏移 += 11_000
+群消息表.set(1416, [一条群消息('？', { uid: 887, id: 79802 })])
+设判断(['79802'], true, 0.9, '看看他问什么')
+const 裸问前判断 = 判断调用.length
+await 轮询社交()
+const 开了裸问轮 = await 等到(async () => 回合.length === 修前回合 + 2)
+const 裸问文 = String(回合.at(-1)?.message.content[0].text || '')
+报('修复回合：不冲她来的“？”照常判断', 开了裸问轮 && 判断调用.length === 裸问前判断 + 1 && !裸问文.includes('没听清或没看懂'), JSON.stringify({ 判断: 判断调用.length - 裸问前判断, 提示: 裸问文.slice(-160) }))
+await 收到回复('session-qq-social-group-1416', '怎么啦')
+await 等(200)
+
+// 回复她上一句的“？”→ 不花判断，带着原话换个说法重说
+时间偏移 += 11_000
+群消息表.set(1416, [...群消息表.get(1416), 一条群消息('？', { replyId: 她的id, id: 79803 })])
+const 修前判断 = 判断调用.length
+const 修前发 = 发的.length
+await 轮询社交()
+const 开了修轮 = await 等到(async () => 回合.length === 修前回合 + 3)
+const 修文 = String(回合.at(-1)?.message.content[0].text || '')
+报('修复回合：回“？”不再花判断，直接进回复', 开了修轮 && 判断调用.length === 修前判断, JSON.stringify({ 判断: 判断调用.length - 修前判断, 回合: 回合.length }))
+报('修复回合：提示带上她的原话，要求换说法别复读', 修文.includes('没听清或没看懂') && 修文.includes('等于八呀') && 修文.includes('别原样复读'), 修文.slice(-500))
+await 收到回复('session-qq-social-group-1416', '我说的是五加三，一共八')
+await 等到(() => 发的.slice(修前发).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1416))
+报('修复回合：重说的话真发回群里', 发的.slice(修前发).some((x) => x.url.endsWith('/send_group_msg') && JSON.stringify(x.体.message).includes('五加三')), JSON.stringify(发的.slice(修前发).map((x) => ({ url: x.url, 体: x.体 })).slice(-2)))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

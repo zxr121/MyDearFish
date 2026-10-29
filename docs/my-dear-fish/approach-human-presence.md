@@ -87,6 +87,10 @@ Group reply delays stop being fixed: jitter of 0.6 to 1.6 times based on message
 
 Since 0.2.93, how many messages other people sent in the room during the last ten minutes becomes a heat level: twenty or more counts as chatty and cuts her proactive quota to sixty percent, forty or more counts as a flood and cuts it to thirty percent, always leaving at least one turn per hour and per day. People do not force their way into a lively conversation, and this saves money too. Being called, being asked about herself, owner messages, and friend private chats bypass this quota; turning `社交.电量` off uses the fixed quota only. Heat reads the room's activity, not how much she herself has said: consecutive-speech caps already bound that, and following the room's rhythm is what makes her look human.
 
+### Repair turn
+
+Since 0.2.94, when someone replies "?", "what did you say", "didn't catch that", or "what do you mean", and that message is a private chat, a reply to her, or an @ of her within ten minutes of her last line, the bridge skips judgment, carries her original sentence into the reply turn, and asks her to rephrase it: no verbatim repeat, no bare "huh?", no long apology. A question that sounds like a mishearing deserves an answer anyway, and this turn saves one judgment call. Question marks outside the ten-minute window or not aimed at her still go through judgment; listen-only and resting rooms stay silent. Turning `社交.重说` off sends everything through judgment.
+
 ## Energy: the balance is strength
 
 ### Three layers
@@ -173,8 +177,8 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 1. Done (0.2.88): the energy module and ledger status, name-based addressee detection in QQ, the energy line in group prompts, the new judge-cooldown default, and low-signal skipping.
 2. This round (0.2.90): room ledger, rung-1 short acknowledgments, and dropping messages someone else already answered; the ledger is scoped to the whole room, with thread grouping deferred to the next round.
 3. This round (0.2.92): the ledger groups by reply strand; replies and judgments fill the quoted strand first, then top up the budget with recent words.
-4. This round (0.2.93): social battery and rhythm jitter between consecutive sends.
-5. Next round: repair turns.
+4. Done (0.2.93): social battery and rhythm jitter between consecutive sends.
+5. This round (0.2.94): the repair turn.
 6. Last: page-by-page audit of settings dropdowns and the private-chat sticker path.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
