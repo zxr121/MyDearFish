@@ -5,6 +5,28 @@
 // 纯函数，不碰 fs 和 sqlite，方便单测。
 
 const ROLE_LABEL = { user: '主人', assistant: '我' }
+const ACTOR_LABEL = { owner: '主人', guest: '群友', friend: '好友', fish: '我', plugin: '旁白', memory: '旁白', system: '旁白' }
+
+/**
+ * 提炼时这一行是谁说的。
+ * ⚠ 只有主人自己发的话才标「主人」；QQ 群里的群友、好友私聊里的朋友都不是主人，
+ *   过去一律按 role=user 标成主人，提炼出来的事实就把别人认成了主人。
+ * @param {{ role?: string, actor?: string, source?: string }} row - 一条待提炼经历。
+ * @returns {string} 行首标签；空串表示这行不进提炼。
+ */
+function extractionLabel(row) {
+  if (!row) return '旁白'
+  if (row.role === 'assistant') return '我'
+  if (row.role !== 'user') return '旁白'
+  const source = String(row.source || '')
+  const actor = String(row.actor || '')
+  // 主动搭话的正文是提示，不是对话：整行丢掉（见 index.js 的入库标记）。
+  if (source === 'speak-up') return ''
+  if (source === 'qq-group') return actor === 'owner' ? '主人' : '群友'
+  if (source === 'qq-friend') return '好友'
+  if (actor !== '') return ACTOR_LABEL[actor] || '旁白'
+  return ROLE_LABEL.user
+}
 
 /** 一条短期原文最多带多少字：这是“刚聊过”，不是逐字稿。 */
 const ROW_CHARS = 240
@@ -39,7 +61,9 @@ export function shorttermText(rows, options = {}) {
     if (text === '') continue
     const label = social
       ? (row && row.role === 'assistant' ? '我：' : '')
-      : ROLE_LABEL[row && row.role] || '旁白'
+      : extractionLabel(row)
+    // 主动搭话的提示行不进短期窗口（窗口那边也按来源挡了一道）。
+    if (!social && label === '') continue
     const clipped = text.length > ROW_CHARS ? `${text.slice(0, ROW_CHARS)}…` : text
     // 群/好友的一行摘录里可能有好几个人的话；一人一行，别把谁说的揉成一句。
     const 句们 = social
@@ -95,7 +119,7 @@ export function planConsolidation(rows, options = {}) {
 
 /**
  * 提炼用的提示词。只准她记“关于人和关系的事实”，并且明确把秘密和闲聊挡在外面。
- * @param {{ at: number, role: string, text: string }[]} rows - 待提炼窗口。
+ * @param {{ at: number, role: string, actor?: string, source?: string, text: string }[]} rows - 待提炼窗口。
  * @param {{ knownFacts?: { subject: string, predicate: string, object: string }[], maxFacts?: number }} [options]
  * @returns {{ system: string, user: string }}
  */
@@ -103,24 +127,28 @@ export function extractionPrompt(rows, options = {}) {
   const max = Math.min(Math.max(1, Number(options.maxFacts) || 8), 20)
   const known = Array.isArray(options.knownFacts) ? options.knownFacts : []
   const transcript = rows.map((row) => {
+    const label = extractionLabel(row)
+    if (label === '') return ''
     const text = String((row && row.text) ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)
-    return `${shortWhen(row && row.at)} ${ROLE_LABEL[row && row.role] || '旁白'}：${text}`
-  }).join('\n')
+    if (text === '') return ''
+    return `${shortWhen(row && row.at)} ${label}：${text}`
+  }).filter(Boolean).join('\n')
   const knownText = known.length === 0
     ? '（还没有记住过任何事实）'
     : known.slice(0, 40).map((fact) => `- ${fact.subject} · ${fact.predicate} · ${fact.object}`).join('\n')
   return {
     system: [
       '你在帮大肥鱼把刚才的对话整理成能长期记住的事实。',
-      '只整理确实从对话里读出来的东西：主人的称呼、身份、喜好、约定、她自己的情况。',
-      '对话里「主人」是跟她说话的人，「我」是大肥鱼自己。subject 只写「主人」「大肥鱼」或者聊天里点名的第三者，别把主人的名字写成大肥鱼的称呼。',
+      '只整理确实从对话里读出来的东西：主人的称呼、身份、喜好、约定、她自己的情况；别人说的话也可以记，但要记在说这话的人自己头上。',
+      '行首标签是谁说的：「主人」只有一个人，就是她自己的主人；「群友」「好友」是别人，「我」是大肥鱼自己。',
+      '群友和好友不是主人：别把他们的话记成主人说的，也别把主人的名字、昵称写成对他们的称呼，更别把主人的名字写成大肥鱼的称呼。',
       '不整理：闲聊的玩笑、一次性的任务细节、你的猜测、你没听说过的事。',
       '密码、密钥、令牌、余额、住址这类私密内容一律不写，宁可少写。',
       '只输出 JSON 数组，不要解释、不要代码块。每项形如',
       '{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}',
       `最多 ${max} 条；没有值得记的就输出 []。`,
     ].join('\n'),
-    user: `已经记住的（同样的事不要再写一遍）：\n${knownText}\n\n刚才的对话：\n${transcript}`,
+    user: `已经记住的（同样的事不要再写一遍）：\n${knownText}\n\n刚才的对话：\n${transcript === '' ? '（这段时间只有她自己的主动开口提示，没有可提炼的对话）' : transcript}`,
   }
 }
 

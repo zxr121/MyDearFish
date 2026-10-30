@@ -144,6 +144,48 @@ test('提炼提示带上已记住的事实和对话原文', () => {
   assert.ok(prompt.user.includes('第 1 句'))
 })
 
+test('提炼按来源标说话人：群友、好友不是主人，主动搭话的脚手架整行不进去', () => {
+  const prompt = extractionPrompt([
+    { at: BASE, role: 'user', actor: 'owner', source: 'user', text: '你以后叫我小鱼' },
+    { at: BASE + 1000, role: 'assistant', actor: 'fish', source: 'model', text: '好呀' },
+    { at: BASE + 2000, role: 'user', actor: 'guest', source: 'qq-group', text: '群友甲：今天食堂好难吃' },
+    { at: BASE + 3000, role: 'user', actor: 'friend', source: 'qq-friend', text: '好友：在吗' },
+    { at: BASE + 4000, role: 'user', actor: 'fish', source: 'speak-up', text: '你很想把这件事讲给主人听' },
+  ])
+  assert.ok(prompt.user.includes('主人：你以后叫我小鱼'))
+  assert.ok(prompt.user.includes('我：好呀'))
+  assert.ok(prompt.user.includes('群友：群友甲：今天食堂好难吃'))
+  assert.ok(prompt.user.includes('好友：好友：在吗'))
+  assert.ok(!prompt.user.includes('讲给主人听'), '主动搭话的提示不是对话，不能进提炼')
+  assert.match(prompt.system, /群友和好友不是主人/)
+  assert.match(prompt.system, /别把他们的话记成主人说的/)
+})
+
+test('整批都是主动搭话的提示时，明确说没有可提炼的对话', () => {
+  const prompt = extractionPrompt([
+    { at: BASE, role: 'user', actor: 'fish', source: 'speak-up', text: '你很想把这件事讲给主人听' },
+  ])
+  assert.ok(!prompt.user.includes('讲给主人听'))
+  assert.match(prompt.user, /没有可提炼的对话/)
+})
+
+test('非社交短期窗口里，别人的话不会被标成主人', () => {
+  const text = shorttermText([
+    { at: BASE, role: 'user', actor: 'owner', source: 'user', text: '我回来了' },
+    { at: BASE + 1000, role: 'user', actor: 'plugin', source: 'bili-duty-scan', text: 'B站有新动态' },
+  ])
+  assert.ok(text.includes('主人：我回来了'))
+  assert.ok(!text.includes('主人：B站有新动态'))
+  assert.ok(text.includes('旁白：B站有新动态'))
+})
+
+test('主动搭话的提示不混进短期窗口', () => {
+  const text = shorttermText([
+    { at: BASE, role: 'user', actor: 'fish', source: 'speak-up', text: '你很想把这件事讲给主人听' },
+  ])
+  assert.equal(text, '')
+})
+
 test('事实解析容错：代码围栏、坏条目、可信度越界都能收住', () => {
   const wrapped = '```json\n[\n{"subject":"主人","predicate":"昵称","object":"EMT","confidence":1.8},\n{"subject":"","predicate":"x","object":"y"},\n"跳过我"\n]\n```'
   const facts = parseFacts(wrapped, { max: 8 })

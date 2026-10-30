@@ -563,13 +563,13 @@ window.__ModuleLoader__.load({
         h('div', { style: S.card },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '触发文案'),
           行(
-            '掷中之后送出去的那句话',
+            '掷中之后送出去的那句话（只用于主人自己的会话；QQ 群/好友另用房间提示）',
             h('textarea', {
               style: S.ta,
               value: 配置.触发文案 === undefined ? '' : String(配置.触发文案),
               onChange: (e) => 改('触发文案', e.target.value),
             }),
-            '要用她自己的口吻写（这是她的动机，不是系统提示）。',
+            '要用她自己的口吻写（这是她的动机，不是系统提示）。QQ 群/好友房间里换用房间提示，这句话不会原样端给外人。',
           ),
         ),
 

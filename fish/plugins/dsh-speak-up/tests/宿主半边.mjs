@@ -80,7 +80,28 @@ const 假qq社交 = {
     return 房.agent
   },
 }
-const 全部agent = () => [甲, 乙, ...假qq房们.map((x) => x.agent).filter(Boolean)]
+const 额外agent们 = []
+const 全部agent = () => [甲, 乙, ...额外agent们, ...假qq房们.map((x) => x.agent).filter(Boolean)]
+
+// 假的鱼脑内心层：默认关着（老用例不受影响）；打开后有一件想讲给主人听的由头。
+const 假鱼脑 = {
+  开: false,
+  用掉的由头: [],
+  拼好的提示次数: 0,
+  urge: () => ({
+    enabled: true,
+    at: Date.now(),
+    strength: 0.9,
+    cue: { id: 41, text: '今天想跟主人说说阳台那盆花开了' },
+    affect: { phrase: '心里有点软' },
+    urges: [],
+  }),
+  confidePrompt(inner) {
+    this.拼好的提示次数 += 1
+    return `【没人说话，你自己待着。心里正惦记着：${inner.cue ? inner.cue.text : ''}。你很想把这件事讲给主人听。不要把这条提示说出来。】`
+  },
+  spoke(cueId) { this.用掉的由头.push(cueId) },
+}
 
 const 假ctx = {
   agents: { get: (id) => 全部agent().find((a) => a.id === String(id)), list: () => 全部agent() },
@@ -103,6 +124,7 @@ const 假ctx = {
       return { inspect: async () => ({ events: [] }), create: async () => ({ sessionId: 'sess-新建的' }) }
     }
     if (n === 'qqSocial') return 假qq社交
+    if (n === 'fishMind') return 假鱼脑.开 ? 假鱼脑 : undefined
     return undefined
   },
 }
@@ -213,6 +235,7 @@ await 滴答()
 报('时机因子：1 小时没说话 → 因子 1', 日志.at(-1).includes('时机因子 1'), 日志.at(-1))
 
 await 调('/dsh-speak-up/save', { 峰时命中线: 0, 谷时命中线: 0, 近阈值分钟: 0 })
+甲.收到的.length = 0
 await 滴答()
 报('两格命中线都是 0 → 永远掷不中（掷出永远 ≥ 0）',
   甲.收到的.length === 0 && 日志.at(-1).includes('没掷中'), 日志.at(-1))
@@ -476,6 +499,67 @@ const 开房数前 = 开房记录.length
 r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
 报('取消 QQ 群后就不再主动（连开房都不会发生）',
   开房记录.length === 开房数前 && r.日志.at(-1).文本.includes('一个勾着的房间都没有'), r.日志.at(-1).文本)
+
+// ---------- QQ 房间里不能把对方叫主人（2026-10-30 的事故）----------
+假qq房们.length = 0
+const QQ好友 = 'session-qq-social-friend-2643125141'
+假qq房们.push({ key: 'friend:2643125141', 类型: 'friend', 号: '2643125141', 会话id: QQ好友, 叫: '好友 2643125141', 名: '小鱿鱼的朋友', 能开口: true, 不能因: '' })
+假鱼脑.开 = true
+await 调('/dsh-speak-up/save', {
+  全选: true, 目标会话: [], 不主动的会话: ['sess-abc', ID_长, ID_裸, ID_首条, 'sess-没名字'],
+})
+假鱼脑.用掉的由头.length = 0
+假鱼脑.拼好的提示次数 = 0
+开房记录.length = 0
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+const 好友agent = 假qq房们[0].agent
+const 好友文案 = 好友agent && 好友agent.收到的[0] ? 好友agent.收到的[0].content[0].text : ''
+报('QQ 好友私聊里开口：提示说清屋里的人不是主人，用房间自己的名字',
+  好友文案.includes('QQ 好友「小鱿鱼的朋友」') && 好友文案.includes('不是你的主人') && 好友文案.includes('别叫主人'), 好友文案)
+报('QQ 好友私聊里不塞鱼脑「讲给主人听」的私房话（也不带由头）',
+  !好友文案.includes('讲给主人听') && !好友文案.includes('阳台那盆花') && 假鱼脑.拼好的提示次数 === 0, 好友文案)
+报('在 QQ 房间里开口不消耗主人由头（spoke 收到 null，由头 41 还在）',
+  假鱼脑.用掉的由头.at(-1) === null && !假鱼脑.用掉的由头.includes(41), JSON.stringify(假鱼脑.用掉的由头))
+报('记账里写明由头留给主人', r.日志.at(-1).文本.includes('由头留给主人'), r.日志.at(-1).文本)
+
+// 群聊同样：点明是 QQ 群，让人接群里的气氛，而不是“找主人说话”
+假qq房们.length = 0
+const QQ群2 = 'session-qq-social-group-654321'
+假qq房们.push({ key: 'group:654321', 类型: 'group', 号: '654321', 会话id: QQ群2, 叫: '群 654321', 名: '另一个群', 能开口: true, 不能因: '' })
+await 调('/dsh-speak-up/save', {
+  全选: true, 目标会话: [], 不主动的会话: ['sess-abc', ID_长, ID_裸, ID_首条, 'sess-没名字'],
+})
+假鱼脑.用掉的由头.length = 0
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+const 群agent = 假qq房们[0].agent
+const 群文案 = 群agent && 群agent.收到的[0] ? 群agent.收到的[0].content[0].text : ''
+报('QQ 群里的开口提示带群名、让人接群里的话，也不叫主人',
+  群文案.includes('QQ 群「另一个群」') && 群文案.includes('群里正在聊什么') && !群文案.includes('讲给主人听'), 群文案)
+
+// 本机会话照旧用鱼脑的由头：这才是“讲给主人听”该出现的地方
+假qq房们.length = 0
+await 调('/dsh-speak-up/save', { 全选: false, 目标会话: ['sess-abc'], 不主动的会话: [] })
+假鱼脑.用掉的由头.length = 0
+假鱼脑.拼好的提示次数 = 0
+甲.收到的.length = 0
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+报('本机会话照旧用鱼脑的由头（讲给主人听的私房话）',
+  甲.收到的.length === 1 && 甲.收到的[0].content[0].text.includes('讲给主人听') && 假鱼脑.拼好的提示次数 === 1,
+  JSON.stringify(甲.收到的[0] || null))
+报('本机会话开口后由头确实被用掉（spoke 收到 41）',
+  假鱼脑.用掉的由头.at(-1) === 41, JSON.stringify(假鱼脑.用掉的由头))
+
+// 桥里已经删掉、但会话还活着的 QQ 房间：清单里没有它，id 仍然说明屋里是外人
+const QQ旧 = 'session-qq-social-group-777777'
+const 丙 = 造agent(QQ旧)
+额外agent们.push(丙)
+await 调('/dsh-speak-up/save', { 全选: false, 目标会话: [QQ旧], 不主动的会话: [] })
+r = await 调('/dsh-speak-up/roll', { 模式: '真发' })
+报('清单里没有、但 id 是 QQ 房间的活会话：宁可不动，也不把主人由头端进去',
+  丙.收到的.length === 0 && r.日志.at(-1).文本.includes('都不能开口'), r.日志.at(-1).文本)
+额外agent们.length = 0
+
+假鱼脑.开 = false
 
 假qq房们.length = 0
 await 调('/dsh-speak-up/save', { 全选: false, 目标会话: ['sess-abc'], 不主动的会话: [] })

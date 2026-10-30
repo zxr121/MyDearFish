@@ -1,6 +1,6 @@
 {
   "name": "dsh-fish-mind",
-  "version": "0.7.9",
+  "version": "0.7.10",
   "description": "大肥鱼的鱼脑：把每次会话写成经历，并把她的权限关进笼子里。",
   "license": "MIT",
   "type": "module",

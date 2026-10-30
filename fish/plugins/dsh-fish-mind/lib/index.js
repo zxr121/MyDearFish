@@ -74,6 +74,8 @@ const BALANCE_TICK = 60 * 1000
 const BACKUP_TICK = 60 * 1000
 // 社交通道的来源：主人私下的对话不能跟着这些会话走，短期窗口也一样要挡。
 const SOCIAL_SOURCE_KINDS_LIST = ['qq-group', 'qq-friend']
+// 主动搭话送的是「想讲给主人听」的脚手架，不是对话原文；短期窗口里不能当成人说的话。
+const PROACTIVE_SOURCE_KIND = 'speak-up'
 
 function appendRotated(path, line, maxBytes) {
   try {
@@ -524,7 +526,10 @@ export function apply(ctx) {
       const excerpt = SOCIAL_SOURCE_KINDS.has(classified.kind)
         ? String((data.source && data.source.excerpt) || '').trim().slice(0, 2000)
         : ''
-      const text = excerpt === '' ? full : excerpt
+      let text = excerpt === '' ? full : excerpt
+      // 主动搭话的正文是给鱼自己看的提示（「你很想把这件事讲给主人听……」），
+      // 不是谁说的话。原样落库会被短期窗口和提炼当成主人说的，把人认错。
+      if (classified.kind === 'proactive') text = '（我自己主动开的口）'
       if (text === '') return
       try {
         biliQuota.noteUser(session && session.id, classified.kind, Number(event.time) || Date.now())
@@ -972,8 +977,17 @@ export function apply(ctx) {
     const since = Date.now() - config.working.ttlMinutes * 60_000
     if (social) {
       // 群里/好友只看得见这间屋子刚才的事，主人私下的对话不跟出去。
+      // 主动搭话的脚手架也排除：她在那间屋里真说的话在 assistant 那一侧。
       const base = sessionId.replace(/-p\d+$/, '')
-      return { rows: store.recentWindow({ since, rows: config.working.rows, onlySessionPrefix: base }), social: true }
+      return {
+        rows: store.recentWindow({
+          since,
+          rows: config.working.rows,
+          onlySessionPrefix: base,
+          excludeSources: [PROACTIVE_SOURCE_KIND],
+        }),
+        social: true,
+      }
     }
     return {
       social: false,
@@ -981,7 +995,7 @@ export function apply(ctx) {
         since,
         rows: config.working.rows,
         excludeSessionId: sessionId,
-        excludeSources: SOCIAL_SOURCE_KINDS_LIST,
+        excludeSources: [...SOCIAL_SOURCE_KINDS_LIST, PROACTIVE_SOURCE_KIND],
       }),
     }
   }

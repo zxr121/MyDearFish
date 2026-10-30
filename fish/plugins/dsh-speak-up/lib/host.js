@@ -401,6 +401,21 @@ function 短id(id) {
 }
 
 /**
+ * 从会话 id 认出 QQ 群/好友房间（`session-qq-social-group-<号>`，分线带 `-p2`）。
+ * 桥里删掉的房间、或桥不在时的老会话，`qqSocial` 清单里没有，但 id 仍然说明屋里是外人：
+ * 这类会话宁可不动，也不能把「讲给主人听」的由头端进去。
+ * @param {string} id - 会话 id。
+ * @returns {{ 类型: 'group'|'friend', 号: string, 叫: string, 名: string } | null}
+ */
+function 从会话id认房(id) {
+  const m = String(id || '').match(/qq-social-(group|friend)-(\d+)/)
+  if (!m) return null
+  const 类型 = m[1]
+  const 号 = m[2]
+  return { 类型, 号, 叫: `${类型 === 'group' ? '群' : '好友'} ${号}`, 名: '' }
+}
+
+/**
  * 按 id 找活着的 agent，**两种写法都认**。
  *
  * ⚠ 实测（2026-10-16，她这台机器上）：`ctx.sessions.list()` / `agents.list()` 给出的 id
@@ -666,11 +681,11 @@ function 造执行体(ctx) {
       }
     }
     for (const id of 按最近活跃排序(ctx, 活着的会话(ctx))) {
-      if (勾着(配置, id)) 加候选(id)
+      if (勾着(配置, id)) 加候选(id, 从会话id认房(id))
     }
     // 老名单里勾着的会话可能已经关掉了：也留着，下面会标「没活着」。
     if (!配置.全选) {
-      for (const id of 配置.目标会话) 加候选(id)
+      for (const id of 配置.目标会话) 加候选(id, 从会话id认房(id))
     }
     if (候选会话.length === 0) {
       return 记账(
@@ -708,7 +723,7 @@ function 造执行体(ctx) {
           不可用.push(`${短id(id)}(忙)`)
           continue
         }
-        可用.push({ id, agent: a === undefined ? null : a, qq: true })
+        可用.push({ id, agent: a === undefined ? null : a, qq: true, 房: 候.房 })
         continue
       }
       if (a === undefined) {
@@ -756,10 +771,17 @@ function 造执行体(ctx) {
       ? Math.max(0, Math.min(1, Number(心里.strength)))
       : 0
     const 倾述加成 = Math.min(配置.倾述加成, Math.round(心里强度 * 配置.倾述加成))
-    const 由头语 = 心里 && 心里.cue ? `（由头：${String(心里.cue.text || '').slice(0, 48)}）` : ''
+    const 由头语 = 心里 && 心里.cue
+      ? (挑中.qq
+          ? '（由头留给主人，这间屋不端出去）'
+          : `（由头：${String(心里.cue.text || '').slice(0, 48)}）`)
+      : ''
     const 心里语 = 心里强度 > 0 ? `｜倾述欲 ${Math.round(心里强度 * 100)}%${由头语}` : ''
     let 文案 = 配置.触发文案
-    if (心里 && 心里.cue && mind && typeof mind.confidePrompt === 'function') {
+    if (挑中.qq) {
+      // QQ 群/好友：屋里的人不是主人，鱼脑那份「讲给主人听」的私房话不能端到这儿来。
+      文案 = 群友开口提示(挑中.房)
+    } else if (心里 && 心里.cue && mind && typeof mind.confidePrompt === 'function') {
       try {
         const 拼出来 = mind.confidePrompt(心里)
         if (typeof 拼出来 === 'string' && 拼出来.trim() !== '') 文案 = 拼出来
@@ -835,7 +857,10 @@ function 造执行体(ctx) {
       agent.followup(消息)
       自己上次开口 = Date.now()
       try {
-        if (mind && typeof mind.spoke === 'function') mind.spoke(心里 && 心里.cue ? 心里.cue.id : null)
+        if (mind && typeof mind.spoke === 'function') {
+          // QQ 房间里开口不是「把心里那件事讲给主人听」：由头没被用掉，不替她销账。
+          mind.spoke(挑中.qq ? null : (心里 && 心里.cue ? 心里.cue.id : null))
+        }
       } catch (error) {
         记账(`内心层没记上这次开口：${String((error && error.message) || error)}`)
       }
@@ -1063,6 +1088,26 @@ function 取标题(ctx, id, 会话) {
 }
 
 // ---------- 插件本体 ----------
+
+/**
+ * QQ 群/好友房间里的开口提示。
+ *
+ * ⚠ 跟鱼脑的 confidePrompt 分开：那一份是「想讲给主人听」的私房话，端到外人面前
+ *   就会把人叫成主人（2026-10-30 的事故：好友私聊里她开口就是「主人，忙不忙呀」）。
+ *   这一份只交代房间本身，并点明屋里的人都不是主人。
+ * @param {{ 类型?: string, 叫?: string, 名?: string }} 房 - qqSocial.房间们() 的一项。
+ * @returns {string} 送进 followup 的文本。
+ */
+export function 群友开口提示(房) {
+  const 是群 = !!房 && 房.类型 === 'group'
+  const 名 = String((房 && 房.名) || '').trim()
+  const 屋名 = 名 !== '' ? 名 : String((房 && 房.叫) || '').trim()
+  const 屋 = 是群 ? `QQ 群「${屋名}」` : `QQ 好友「${屋名}」的私聊`
+  const 接话 = 是群
+    ? '看一眼群里正在聊什么，用自己的口气接一句、冒个泡；'
+    : '用自己的口气起个话头或接一句；'
+  return `【你自己想开口，现在在${屋}里。这间屋里的人都不是你的主人：「主人」只指你自己的主人，不在这间屋里；对这里的人别叫主人，也别把主人的昵称、称呼安到他们头上。${接话}一两句就够，别自我介绍，别解释你为什么来，也不要把这条提示说出来。】`
+}
 
 export function apply(ctx) {
   const 体 = 造执行体(ctx)
