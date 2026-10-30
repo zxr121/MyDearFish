@@ -122,6 +122,19 @@ const 图片段 = 模.解析消息段({
 const 收藏标注 = 模.标收藏表情('[图片]', [{ 收藏号: 16, 收藏名: '天青色瞪眼鱼' }])
 报('收藏表情：正文后面带编号', 收藏标注 === '[图片]（你收藏的 #16 天青色瞪眼鱼）', 收藏标注)
 报('收藏表情：没收藏过的图不加注', 模.标收藏表情('[图片]', [{}]) === '[图片]', 模.标收藏表情('[图片]', [{}]))
+const 收藏解析 = 模.归QQ收藏表情([
+  { emoji_id: '700_a_0123456789abcdef0123456789abcdef_0_0', md5: '', desc: ' [笑] \n 鱼 ' },
+  '700_b_fedcba9876543210fedcba9876543210_0_0',
+  { resId: '700_a_0123456789abcdef0123456789abcdef_0_0', desc: '' },
+  null,
+  '',
+  { emoji_id: '' },
+])
+报('QQ 收藏解析：对象和编号都认，按编号去重、备注收干净',
+  收藏解析.length === 2 && 收藏解析[0].label === '笑 鱼'
+    && 收藏解析[0].md5 === '0123456789abcdef0123456789abcdef'
+    && 收藏解析[1].md5 === 'fedcba9876543210fedcba9876543210',
+  JSON.stringify(收藏解析))
 const 转发段 = 模.解析消息段({
   message: [{ type: 'forward', data: { id: 'res-1' } }],
 }, '999')
@@ -1136,6 +1149,33 @@ const 追问轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1032')
 const 追问文 = String(追问轮?.message?.content?.[0]?.text || '')
 报('后续上下文保留别人发来的表情编号', 追问文.split('\n').some((line) => line.includes('主人：[图片]（你收藏的 #1 测试表情）')), 追问文.slice(0, 900))
 报('后续上下文保留她自己发的表情编号', 追问文.split('\n').some((line) => line.includes('[发了一张表情包：#1 测试表情]')), 追问文.slice(0, 900))
+
+// ---------- 6c-2b QQ 里手动加的表情：对账后自动记住，能按编号发出去 ----------
+const 手动表情号 = '700_manual_0123456789abcdef0123456789abcdef_0_0'
+const 手动空名号 = '700_manual_fedcba9876543210fedcba9876543210_0_0'
+QQ收藏.set(手动表情号, { emojiId: 手动表情号, md5: '0123456789abcdef0123456789abcdef', desc: '手动加的海獭' })
+QQ收藏.set(手动空名号, { emojiId: 手动空名号, md5: 'fedcba9876543210fedcba9876543210', desc: '' })
+// 对账有 5 分钟节流；这里把钟往前拨够，再拨回去，别让别的屋子的消息游标停在将来。
+const 同步前偏移 = 时间偏移
+时间偏移 += 11 * 60_000
+写配置({ 群: ['1032'], 判断冷却秒: 0, 冷却秒: 1 })
+群消息表.set(1032, [一条群消息('你收藏里都有什么', { id: 1612 })])
+设判断(['1612'], true, 0.9, '说说收藏')
+await 轮询社交()
+await 等()
+const 同步索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 手动项 = 同步索引.items.find((x) => x.emojiId === 手动表情号)
+const 空名项 = 同步索引.items.find((x) => x.emojiId === 手动空名号)
+报('手动加进 QQ 收藏的表情自动进她的清单', !!手动项 && 手动项.label === '手动加的海獭' && 手动项.source === 'QQ收藏·同步', JSON.stringify(同步索引.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
+报('QQ 里没备注的表情也记住，先叫未命名', !!空名项 && 空名项.label === '未命名', JSON.stringify(空名项))
+const 同步轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1032').at(-1)
+const 同步文 = String(同步轮?.message?.content?.[0]?.text || '')
+报('回复提示列出全部收藏，手动加的表情也在', !!手动项 && 同步文.includes(`#${手动项.id} 手动加的海獭`), 同步文.slice(0, 900))
+await 收到回复('session-qq-social-group-1032', `[发表情:#${手动项?.id}] 这张`, 91)
+await new Promise((r) => setTimeout(r, 800))
+const 手动发 = 发的.filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1032 && x.体.emoji_id === 手动表情号)
+报('手动加的表情能按编号发出去', 手动发.length === 1, JSON.stringify(手动发.map((x) => x.体.emoji_id)))
+时间偏移 = 同步前偏移
 
 // ---------- 6c-3 有人回头问“图里那个”：旧图重新附上，不拿这轮新图硬套 ----------
 写配置({ 群: ['1040'], 判断冷却秒: 0, 冷却秒: 1 })

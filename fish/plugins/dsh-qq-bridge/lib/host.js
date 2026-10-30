@@ -41,6 +41,10 @@ const 表情目录 = join(目录, 'qq-stickers')
 const 表情索引文件 = join(目录, 'qq-stickers.json')
 const 表情上限 = 200
 const 表情单张上限 = 5 * 1024 * 1024
+// QQ 收藏里手动加的表情也要认：隔几分钟对一次账，不靠她一张张见过。
+const 表情同步毫秒 = 5 * 60_000
+const 表情同步失败毫秒 = 2 * 60_000
+const 表情同步超时毫秒 = 4000
 const 路由前缀 = '/dsh-qq-bridge'
 const 戳收报路径 = '/dsh-qq/event'
 const 日志上限 = 60
@@ -1013,6 +1017,51 @@ export function 标收藏表情(文字, 图们) {
     .map((图) => `#${图.收藏号} ${图.收藏名 || '表情'}`)
   if (注.length === 0) return String(文字 || '')
   return `${String(文字 || '')}（你收藏的 ${注.join('、')}）`
+}
+
+/** 把 QQ 收藏里的备注收成能写进索引的短名；空备注留给同步时叫“未命名”。 */
+function 净表情备注(文) {
+  return String(文 || '').replace(/[\[\]\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24)
+}
+
+/** SnowLuma 的 emoji_id 里嵌着图片 md5；没有单独给 md5 时从编号里认。 */
+function 从表情号取MD5(emojiId) {
+  const m = String(emojiId || '').match(/[a-f0-9]{32}/i)
+  return m ? m[0].toLowerCase() : ''
+}
+
+/**
+ * 把 OneBot 回的收藏表情列表收成 `{emojiId, md5, label}`：
+ * `fetch_custom_face_detail` 给对象，`fetch_custom_face` 只给编号字符串。
+ * @param {unknown} 数据 - 接口的 data 字段。
+ * @returns {{emojiId: string, md5: string, label: string}[]} 去空、按编号去重后的收藏。
+ */
+export function 归QQ收藏表情(数据) {
+  const 按号 = new Map()
+  for (const 项 of Array.isArray(数据) ? 数据 : []) {
+    if (typeof 项 === 'string') {
+      const emojiId = 项.trim()
+      if (emojiId === '') continue
+      if (!按号.has(emojiId)) 按号.set(emojiId, { emojiId, md5: 从表情号取MD5(emojiId), label: '' })
+      continue
+    }
+    if (!项 || typeof 项 !== 'object') continue
+    const emojiId = String(项.emoji_id || 项.emojiId || 项.resId || '').trim()
+    if (emojiId === '') continue
+    const 裸md5 = String(项.md5 || '').trim().toLowerCase()
+    const 远 = {
+      emojiId,
+      md5: /^[a-f0-9]{32}$/.test(裸md5) ? 裸md5 : 从表情号取MD5(emojiId),
+      label: 净表情备注(项.desc),
+    }
+    const 旧 = 按号.get(emojiId)
+    if (!旧) 按号.set(emojiId, 远)
+    else {
+      if (旧.label === '' && 远.label !== '') 旧.label = 远.label
+      if (旧.md5 === '' && 远.md5 !== '') 旧.md5 = 远.md5
+    }
+  }
+  return [...按号.values()]
 }
 
 /**
@@ -3230,6 +3279,10 @@ export function apply(ctx) {
   let 表情下一个id = 1
   let 上次迁移表情At = 0
   let 上次存表情At = 0
+  let 上次同步表情At = 0
+  let 上次同步表情成 = false
+  let 表情同步中 = false
+  let 表情同步报过At = 0
   // 主人说了“存这几个”但图还没到：记几分钟，下一批图来了补存。
   const 主人存表情待办 = new Map()
   const 主人存表情期限 = 5 * 60_000
@@ -5753,7 +5806,7 @@ export function apply(ctx) {
     // 判断模型的 short 只能发文字；想用一张表情接住时，让它挑收藏编号，走 face。
     const 表情可短应 = !是好友 && 表情们.length > 0 && 配置.社交.短应 !== false && 倾向.stickerSend.mode !== 'off'
     const 表情短应行 = 表情可短应
-      ? `她 QQ 收藏里的表情：${表情们.slice(-12).map((x) => `#${x.id} ${x.label}`).join(' · ')}。这一句如果只用一张表情接最自然（大家在笑、刚有人发表情、只是应一声、无语、赞同），别写 short，改在 face 里写最贴的那张编号：只发这张表情、不配字，同样算接上了。face 和 short 只选一个，一轮最多一张；被叫、被问、查好感度时不写 face，也别连着几轮都只发表情。${倾向.stickerSend.mode === 'less' ? '主人希望她少发表情：只有特别合适时才用 face，多数时候还是打字。' : 倾向.stickerSend.mode === 'more' ? '主人希望她多用表情接话：合适的短句可以直接用一张表情代替。' : ''}`
+      ? `她 QQ 收藏里的表情：${表情清单(12)}。这一句如果只用一张表情接最自然（大家在笑、刚有人发表情、只是应一声、无语、赞同），别写 short，改在 face 里写最贴的那张编号：只发这张表情、不配字，同样算接上了。face 和 short 只选一个，一轮最多一张；被叫、被问、查好感度时不写 face，也别连着几轮都只发表情。${倾向.stickerSend.mode === 'less' ? '主人希望她少发表情：只有特别合适时才用 face，多数时候还是打字。' : 倾向.stickerSend.mode === 'more' ? '主人希望她多用表情接话：合适的短句可以直接用一张表情代替。' : ''}`
       : ''
     const 群规 = 是好友 ? '' : 公告文本(目标.号)
     const 群规行 = 群规
@@ -6381,15 +6434,24 @@ export function apply(ctx) {
 
   // ---------- 表情包收藏：直接写进 QQ 账号的收藏表情，聊天时从那里挑着发 ----------
 
+  /** 同一类表情（同名）合并编号，200 张也不至于把提示撑成一屏名字。 */
   function 表情清单(最多 = 8) {
-    return 表情们.slice(-最多).map((x) => `#${x.id} ${x.label}`).join(' · ')
+    const 选 = 最多 > 0 && 表情们.length > 最多 ? 表情们.slice(-最多) : 表情们
+    const 组 = new Map()
+    for (const x of 选) {
+      const 名 = String(x.label || '表情')
+      if (!组.has(名)) 组.set(名, [])
+      组.get(名).push(`#${x.id}`)
+    }
+    return [...组.entries()].map(([名, 号们]) => `${号们.join(' ')} ${名}`).join(' · ')
   }
 
   function 表情提示() {
     if (表情们.length === 0) return ''
-    const 更多 = 表情们.length > 12 ? `（共 ${表情们.length} 张，这里列最近 12 张）` : ''
-    return `【你在 QQ 收藏的表情包】${更多}${表情清单(12)}。想发就写 [发表情:#编号]：能和话混着写，按顺序发，一轮最多两张；主人让发哪张、连发几张就照编号写。编号只从上面列的和图注里“你收藏的 #编号”挑，别自己往后数。这批图写 [发表情:图N]。`
+    const 有未命名 = 表情们.some((x) => !x.label || String(x.label) === '未命名')
+    return `【你在 QQ 收藏的表情包】（共 ${表情们.length} 张）${表情清单(表情上限)}。想发就写 [发表情:#编号]：能和话混着写，按顺序发，一轮最多两张；主人让发哪张、连发几张就照编号写。编号只从上面列的和图注里“你收藏的 #编号”挑，别自己往后数。这批图写 [发表情:图N]。`
       + '\n只写 [发表情:#编号] 不配字也算接话；短回复可以只发一张表情，不用先打字；一轮最多两张，别每句都发。'
+      + (有未命名 ? '\n“未命名”的表情只有编号、看不出内容，别猜着发；图注里标着“你收藏的 #编号”，或主人点到编号时再用。' : '')
   }
 
   /** 主人明确让存表情、图还没到时先记着；过期就不算数。 */
@@ -6454,7 +6516,7 @@ export function apply(ctx) {
   /** 自动收藏用的通用名，后面她真给了短名字时可以覆盖；场景名也算通用名。 */
   function 泛标签(名) {
     const s = String(名 || '')
-    return ['表情', '主人让收藏', '主人让存', '主人存的', '主人要的', '这一批的'].includes(s) || 表情场景名.includes(s)
+    return ['表情', '未命名', '主人让收藏', '主人让存', '主人存的', '主人要的', '这一批的'].includes(s) || 表情场景名.includes(s)
   }
 
   /**
@@ -6811,6 +6873,133 @@ export function apply(ctx) {
       }
     }
     if (改了) 存表情索引()
+  }
+
+  /**
+   * 把 QQ 收藏里现成的表情并进她的清单：手动在 QQ 里加的那些也算。
+   * 只认列表里真有的那张，按编号和 md5 对上；收藏满了先让位给 QQ 里已经删掉的旧条目。
+   * @param {{emojiId: string, md5: string, label: string}[]} 远端 - 归一化后的 QQ 收藏。
+   * @returns {{新增: number, 认回: number, 改名: number}} 这轮改动了几张。
+   */
+  function 并入QQ收藏表情(远端) {
+    const 远端号 = new Set(远端.map((x) => x.emojiId))
+    const 按号 = new Map()
+    const 按哈希 = new Map()
+    for (const x of 表情们) {
+      if (x.emojiId) 按号.set(x.emojiId, x)
+      if (x.md5) 按哈希.set(x.md5, x)
+    }
+    const 已认 = new Set()
+    let 新增 = 0
+    let 认回 = 0
+    let 改名 = 0
+    for (const 远 of 远端) {
+      let 项 = 按号.get(远.emojiId) || null
+      if (!项 && 远.md5) {
+        const 候选 = 按哈希.get(远.md5)
+        if (候选 && !已认.has(候选)) 项 = 候选
+      }
+      if (项) {
+        已认.add(项)
+        if (远.emojiId && 项.emojiId !== 远.emojiId) {
+          if (项.emojiId) 按号.delete(项.emojiId)
+          项.emojiId = 远.emojiId
+          认回 += 1
+        }
+        if (!项.md5 && 远.md5) 项.md5 = 远.md5
+        if (远.label && (!项.label || 泛标签(项.label)) && 远.label !== 项.label) {
+          项.label = 远.label
+          改名 += 1
+        }
+        if (项.file && 项.emojiId) {
+          try { unlinkSync(join(表情目录, 项.file)) } catch (error) {}
+          delete 项.file
+        }
+        按号.set(项.emojiId, 项)
+        if (项.md5) 按哈希.set(项.md5, 项)
+        continue
+      }
+      if (表情们.length >= 表情上限) {
+        const 位 = 表情们.findIndex((x) => x.emojiId && !远端号.has(x.emojiId) && !已认.has(x))
+        if (位 < 0) continue
+        const 让位 = 表情们.splice(位, 1)[0]
+        if (让位.emojiId) 按号.delete(让位.emojiId)
+        if (让位.md5) 按哈希.delete(让位.md5)
+      }
+      const 条目 = {
+        id: 表情下一个id++,
+        label: 远.label || '未命名',
+        emojiId: 远.emojiId,
+        md5: 远.md5 || '',
+        bytes: 0,
+        addedAt: Date.now(),
+        source: 'QQ收藏·同步',
+      }
+      表情们.push(条目)
+      已认.add(条目)
+      按号.set(条目.emojiId, 条目)
+      if (条目.md5) 按哈希.set(条目.md5, 条目)
+      新增 += 1
+    }
+    return { 新增, 认回, 改名 }
+  }
+
+  /**
+   * 隔一阵和 QQ 账号里的收藏对一次账：手动加的表情自动记住，改过的备注也会带回来。
+   * 只读，不改 QQ 收藏本身；连不上就照旧用本机清单，不挡聊天。
+   * @param {object} 配置 - 归一化配置。
+   * @returns {Promise<void>}
+   */
+  async function 同步QQ收藏表情(配置) {
+    if (!配置 || !配置.总开关 || !配置.NapCat) return
+    if (表情同步中) return
+    const 现在 = Date.now()
+    const 间隔 = 上次同步表情成 ? 表情同步毫秒 : 表情同步失败毫秒
+    if (上次同步表情At !== 0 && 现在 - 上次同步表情At < 间隔) return
+    表情同步中 = true
+    上次同步表情At = 现在
+    try {
+      // 换过 QQ 账号时别把另一个号的收藏并进来；先确认现在登的就是她。
+      const 选的号 = String(配置.账号 || '').trim()
+      if (选的号 !== '') {
+        const 自己 = await 取自己()
+        if (自己.号 !== '' && 自己.号 !== 选的号) return
+      }
+      let 远端 = null
+      const 详 = await 发一个(配置.NapCat, 'fetch_custom_face_detail', { count: 表情上限 }, 表情同步超时毫秒)
+      if (详.ok) 远端 = 归QQ收藏表情(详.数据 && 详.数据.data)
+      else {
+        // NapCat 之类只有编号列表的后端：没有备注就先按编号记住。
+        const 简 = await 发一个(配置.NapCat, 'fetch_custom_face', { count: 表情上限, return_type: 'id' }, 表情同步超时毫秒)
+        if (简.ok) 远端 = 归QQ收藏表情(简.数据 && 简.数据.data)
+      }
+      if (远端 === null) {
+        上次同步表情成 = false
+        if (现在 - 表情同步报过At > 30 * 60_000) {
+          表情同步报过At = 现在
+          记账('同步 QQ 收藏表情没成功：OneBot 没给收藏列表，先照旧用本机清单')
+        }
+        return
+      }
+      上次同步表情成 = true
+      const 改 = 并入QQ收藏表情(远端)
+      if (改.新增 + 改.认回 + 改.改名 > 0) {
+        存表情索引()
+        const 说 = []
+        if (改.新增 > 0) 说.push(`新记住 ${改.新增} 张`)
+        if (改.认回 > 0) 说.push(`对上 ${改.认回} 张`)
+        if (改.改名 > 0) 说.push(`补名 ${改.改名} 张`)
+        记账(`同步 QQ 收藏：${说.join('，')}（共 ${表情们.length} 张）`)
+      }
+    } catch (error) {
+      上次同步表情成 = false
+      if (现在 - 表情同步报过At > 30 * 60_000) {
+        表情同步报过At = 现在
+        记账(`同步 QQ 收藏表情出错：${String((error && error.message) || error)}`)
+      }
+    } finally {
+      表情同步中 = false
+    }
   }
 
   /**
@@ -8500,6 +8689,7 @@ export function apply(ctx) {
     if (!配置.总开关 || !配置.社交.启用) return
     const 目标们 = 社交目标们(配置)
     if (目标们.length === 0) return
+    await 同步QQ收藏表情(配置)
     // 配置里删掉的房间，挂着的对话头也跟着清掉，别留在内存和本机文件里。
     const 还在 = new Set(目标们.map((t) => t.key))
     let 清掉屋 = 0
@@ -8836,12 +9026,13 @@ export function apply(ctx) {
     }
   }
 
-  async function 发一个(base, action, 体) {
+  async function 发一个(base, action, 体, 超时毫秒 = 0) {
     try {
       const r = await fetch(`${base}/${action}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(体),
+        ...(超时毫秒 > 0 ? { signal: AbortSignal.timeout(超时毫秒) } : {}),
       })
       const j = await r.json()
       return { action, ok: !!(j && j.status === 'ok' && j.retcode === 0), 数据: j }
@@ -10154,6 +10345,7 @@ export function apply(ctx) {
       上次群时间 = Math.floor(Date.now() / 1000)
       return
     }
+    await 同步QQ收藏表情(配置)
     const 她的号 = Number(配置.私聊QQ) || 0
 
     const 拉 = async (action, 体) => {
