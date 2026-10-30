@@ -247,6 +247,7 @@ const 默认配置 = {
     后台密码: '', // SnowLuma 后台登录密码；只落本机配置，不进仓库
     同意协议: false, // 必须由设置页明确勾选，不替用户接受
     自动启动: true, // DSH 启动时如果 SnowLuma 没在跑就拉起来
+    账号: '', // 她自己的 QQ 号：SnowLuma 里登着好几个号时，只有这个号接 DSH
   },
   戳一戳: {
     启用: true, // 只在本机开一个收报口；SnowLuma 的 HTTP 上报填这个地址
@@ -573,6 +574,7 @@ function 归一化SnowLuma(原始) {
     后台密码: 裁(混.后台密码, 64),
     同意协议: 布(混.同意协议, 兜.同意协议),
     自动启动: 布(混.自动启动, 兜.自动启动),
+    账号: /^\d{5,10}$/.test(裁(混.账号, 20)) ? 裁(混.账号, 20) : 兜.账号,
   }
 }
 
@@ -4558,7 +4560,7 @@ export function apply(ctx) {
   // 「安静一点」的硬门槛今天拦下了几轮；只给状态页看，重启归零。
   let 安静跳过今日 = { 日: '', 数: 0 }
   let 社交轮询中 = false
-  let 自己号缓存 = { at: 0, 号: '', 昵称: '', 已记: false }
+  let 自己号缓存 = { at: 0, 号: String((读配置().SnowLuma && 读配置().SnowLuma.账号) || ''), 昵称: '', 已记: false }
   let OneBot对账 = { at: 0, 地址: '', 报过: 0 }
 
   /** 刚听到的群消息只在内存里留几分钟，够接龙复读判断就行；不落盘。 */
@@ -9633,6 +9635,22 @@ export function apply(ctx) {
     回(res, { ...出, 状态: snowluma.快照() })
   })
 
+  // SnowLuma 里登着好几个 QQ 时，由主人挑她该用哪个；换完把「自己是谁」的缓存一起换掉，
+  // 不然收消息还会按旧号排除自己、对账也认着旧地址。
+  路线(`${路由前缀}/snowluma/account`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    const 出 = await snowluma.选账号(String((来 && 来.号) || '').trim())
+    if (出.ok) {
+      const 号 = String((出.账号 && 出.账号.号) || '')
+      自己号缓存 = { at: Date.now(), 号, 昵称: String((出.账号 && 出.账号.昵称) || ''), 已记: false }
+      OneBot对账 = { at: Date.now(), 地址: 读配置().NapCat, 报过: 0 }
+      房间名缓存.clear()
+      记账(`鱼 QQ 换成 ${String((出.账号 && 出.账号.昵称) || '')}（${号}）：${String(出.说 || '')}`)
+    }
+    回(res, { ...出, 状态: await snowluma.状态() })
+  })
+
   路线(`${路由前缀}/people`, async (req, res) => {
     if (!要方法(req, 'GET', res)) return
     await 读体(req)
@@ -10009,7 +10027,10 @@ export function apply(ctx) {
   async function 收戳(事件) {
     const 配置 = 读配置()
     if (!配置.戳一戳.启用) return
-    let 自己 = String(自己号缓存.号 || (事件 && 事件.self_id) || '').trim()
+    // SnowLuma 里可能还登着主人的号：别的号推来的事件一律不认。
+    const 事件自己 = String((事件 && 事件.self_id) || '').trim()
+    if (自己号缓存.号 !== '' && 事件自己 !== '' && 事件自己 !== 自己号缓存.号) return
+    let 自己 = String(自己号缓存.号 || 事件自己 || '').trim()
     if (自己 === '' && 事件 && 事件.target_id !== undefined) 自己 = (await 取自己()).号
     const 戳 = 解析戳一戳(事件, 自己)
     if (!戳) return

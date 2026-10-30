@@ -239,9 +239,15 @@ export function 写后台密码(目录, 密码) {
   return 文件
 }
 
-/** 把 OneBot HTTP 服务收到本机指定端口，并加一个把事件推给 DSH 的 httpClient。 */
-export function 写OneBot配置(文件, 事件地址, 端口 = 默认OneBot端口) {
-  const 原 = 读JSON(文件, {})
+/**
+ * 把 OneBot 配置改成「只给 DSH 用」：HTTP 服务收到本机指定端口，事件推给 DSH，关掉 #sl。
+ * 别的键、别的网络节点原样保留。
+ * @param {object} 原 - 读出来的 OneBot 配置对象。
+ * @param {string} 事件地址 - DSH 的本机收报地址。
+ * @param {number} 端口 - OneBot HTTP 监听端口。
+ * @returns {object} 要写回文件的新配置。
+ */
+export function 套OneBot配置(原, 事件地址, 端口 = 默认OneBot端口) {
   const 源 = 原 && typeof 原 === 'object' && !Array.isArray(原) ? 原 : {}
   const 网 = 源.networks && typeof 源.networks === 'object' && !Array.isArray(源.networks) ? 源.networks : {}
 
@@ -280,16 +286,61 @@ export function 写OneBot配置(文件, 事件地址, 端口 = 默认OneBot端�
   // 状态在鱼的设置页看，装好 / 升级后都保持关闭。
   const 状态指令 = 源.statusCommand && typeof 源.statusCommand === 'object' && !Array.isArray(源.statusCommand) ? 源.statusCommand : {}
 
-  写JSON(文件, {
+  return {
     ...源,
     statusCommand: { ...状态指令, enabled: false },
     networks: { ...网, httpServers: 服务器们, httpClients: 客户端们 },
-  })
+  }
+}
+
+/** 把 OneBot 配置写到文件；返回文件名。 */
+export function 写OneBot配置(文件, 事件地址, 端口 = 默认OneBot端口) {
+  写JSON(文件, 套OneBot配置(读JSON(文件, {}), 事件地址, 端口))
   return 文件
 }
 
-/** 写运行端口、全局 OneBot，以及所有已经在用的 per-UIN 快照。 */
-export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端口) {
+/**
+ * 不是她的号：摘掉 DSH 的事件上报；HTTP 服务要是占着她要用的端口，就挪到空出来的端口。
+ * 别的设置一律不动，主人的号照常自己用。
+ * @param {object} 原 - 这个号的 OneBot 配置。
+ * @param {number} 占着端口 - 她的号要用的 OneBot 端口。
+ * @param {Set<number>} 已用端口 - 其他配置文件里已经出现的端口。
+ * @returns {object} 要写回文件的新配置。
+ */
+export function 让出OneBot(原, 占着端口, 已用端口 = new Set()) {
+  const 源 = 原 && typeof 原 === 'object' && !Array.isArray(原) ? 原 : {}
+  const 网 = 源.networks && typeof 源.networks === 'object' && !Array.isArray(源.networks) ? 源.networks : {}
+  const 服务器们 = Array.isArray(网.httpServers) ? 网.httpServers.map((x) => ({ ...x })) : []
+  const 服务器 = 服务器们.find((x) => x && x.name === 'http-default')
+  if (服务器 && 服务器.enabled !== false && Number(服务器.port) === Number(占着端口)) {
+    服务器.port = 挑空闲端口(占着端口, 已用端口)
+  }
+  const 客户端们 = (Array.isArray(网.httpClients) ? 网.httpClients : []).filter((x) => x && x.name !== 事件客户端名)
+  return { ...源, networks: { ...网, httpServers: 服务器们, httpClients: 客户端们 } }
+}
+
+/** 3002 起往后挑一个没在别处出现过的端口；3000/3001 留给别的程序，不动。 */
+function 挑空闲端口(占着端口, 已用端口) {
+  for (let 端口 = 3002; 端口 <= 3020; 端口++) {
+    if (端口 === 3000 || 端口 === 3001) continue
+    if (端口 === Number(占着端口)) continue
+    if (已用端口.has(端口)) continue
+    return 端口
+  }
+  return 3002 === Number(占着端口) ? 3003 : 3002
+}
+
+/**
+ * 写运行端口、全局 OneBot，以及所有已经在用的 per-UIN 快照。
+ * 选了「她的号」时只有她那份拿到 DSH 的端口和事件上报；别的号摘掉事件上报、
+ * 占着她端口的挪开，免得两台号抢同一个口、或者别的号的消息也流进来。
+ * @param {string} 目录 - SnowLuma 安装目录。
+ * @param {string} 事件地址 - DSH 的本机收报地址。
+ * @param {number} 端口 - 她的号用的 OneBot 端口。
+ * @param {{账号?: string}} [选项] - 她的 QQ 号；空 = 没挑过，沿用旧行为。
+ * @returns {string[]} 写过的配置文件。
+ */
+export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端口, 选项 = {}) {
   const 配置目录 = join(目录, 'config')
   mkdirSync(配置目录, { recursive: true })
 
@@ -302,15 +353,51 @@ export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端
   })
 
   const 写了 = [运行文件]
-  写了.push(写OneBot配置(join(配置目录, 'onebot.json'), 事件地址, 端口))
-
   let 账号文件 = []
   try {
     账号文件 = readdirSync(配置目录).filter((名) => /^onebot_\d+\.json$/.test(名))
   } catch (error) {}
+
+  const 账号 = String(选项.账号 || '').trim()
+  // 没挑过号（老配置）沿用旧行为：每份都接 DSH，哪个号先抢到端口就哪个连上。
+  // 挑过号以后只有她那份额到端口和事件上报。
+  const 她的文件 = 账号 === '' ? '' : `onebot_${账号}.json`
+  // 她有自己的 per-UIN 文件时，全局那份是「别的号」的后备；没有时全局就是她的。
+  const 全局归她 = 账号 === '' || !账号文件.includes(她的文件)
+
+  const 读到的 = new Map()
+  for (const 名 of ['onebot.json', ...账号文件]) {
+    读到的.set(名, 读JSON(join(配置目录, 名), {}))
+  }
+  const 已用端口 = new Set([Number(端口)])
+  for (const 原 of 读到的.values()) {
+    const 网 = 原 && typeof 原 === 'object' && 原.networks && typeof 原.networks === 'object' ? 原.networks : {}
+    for (const 服务器 of Array.isArray(网.httpServers) ? 网.httpServers : []) {
+      const 号 = Number(服务器 && 服务器.port)
+      if (Number.isInteger(号) && 号 > 0) 已用端口.add(号)
+    }
+  }
+
+  const 写一个 = (名, 归她) => {
+    const 文件 = join(配置目录, 名)
+    if (归她) {
+      写OneBot配置(文件, 事件地址, 端口)
+    } else {
+      const 新 = 让出OneBot(读到的.get(名), 端口, 已用端口)
+      写JSON(文件, 新)
+      // 让开时挑的新端口也算进占用，后面的文件不会又撞上同一个。
+      const 网 = 新.networks && typeof 新.networks === 'object' ? 新.networks : {}
+      for (const 服务器 of Array.isArray(网.httpServers) ? 网.httpServers : []) {
+        const 号 = Number(服务器 && 服务器.port)
+        if (Number.isInteger(号) && 号 > 0) 已用端口.add(号)
+      }
+    }
+    写了.push(文件)
+  }
+  写一个('onebot.json', 全局归她)
   for (const 名 of 账号文件) {
     try {
-      写了.push(写OneBot配置(join(配置目录, 名), 事件地址, 端口))
+      写一个(名, 账号 === '' || 名 === 她的文件)
     } catch (error) {}
   }
   return 写了
@@ -449,7 +536,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     刷新探测()
   }
 
-  async function 探OneBot(地址) {
+  async function 探OneBot(地址, 超时 = 2500) {
     const 基 = 规范OneBot地址(地址)
     let 谁 = 基
     try {
@@ -460,7 +547,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(超时),
       })
       const 文本 = await r.text().catch(() => '')
       let j = null
@@ -506,6 +593,249 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       if (await 端口空着(端口)) return { 地址: `http://127.0.0.1:${端口}`, 探: null, 沿用: false }
     }
     throw new Error('本机找不到空闲的 OneBot HTTP 端口（3000–3099 都被占了）')
+  }
+
+  // ---------- SnowLuma 后台：登录、看登着哪些号、把她要用的号接到 DSH ----------
+  const 后台基 = `http://127.0.0.1:${后台端口}`
+  let 后台令牌 = ''
+  // SnowLuma 后台连错 5 次密码会锁 15 分钟：同一个错密码先记住，别把主人自己的后台锁死。
+  let 登录挡 = { 密码: '', at: 0, 错: '' }
+  let 账号缓存 = { at: 0, 值: { ok: false, 列表: [], 错: '' } }
+  const 账号缓存毫秒 = 8000
+  const 账号失败缓存毫秒 = 120_000
+  const 登录挡毫秒 = 15 * 60_000
+
+  /** 用存着的后台密码登录；两步验证开着时没法替主人过，直接说清楚。 */
+  async function 后台登录() {
+    const 密码 = String((读配置().SnowLuma && 读配置().SnowLuma.后台密码) || '')
+    if (密码 === '') throw new Error('还没配 SnowLuma 后台密码：在「高级」里填上，或点「重置后台密码」')
+    if (登录挡.密码 === 密码 && Date.now() - 登录挡.at < 登录挡毫秒) throw new Error(登录挡.错)
+    let r
+    try {
+      r = await fetch(`${后台基}/api/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password: 密码 }),
+        signal: AbortSignal.timeout(3000),
+      })
+    } catch (error) {
+      throw new Error(`SnowLuma 后台没回应（${后台基}）：先确认它还在跑`)
+    }
+    const j = await r.json().catch(() => null)
+    if (!j || j.success !== true || typeof j.token !== 'string') {
+      const 说 = j && j.needsTotp
+        ? 'SnowLuma 开了两步验证：先去后台登录一次，或关掉两步验证再试'
+        : `SnowLuma 后台登录失败：${String((j && j.message) || `HTTP ${r.status}`)}`
+      登录挡 = { 密码, at: Date.now(), 错: 说 }
+      throw new Error(说)
+    }
+    后台令牌 = j.token
+    登录挡 = { 密码: '', at: 0, 错: '' }
+  }
+
+  /** 调后台接口；没令牌先登录，令牌过期（401）就重登一次。 */
+  async function 后台请求(路径, 选项 = {}) {
+    const 发 = () => fetch(`${后台基}${路径}`, {
+      method: 选项.method || 'GET',
+      headers: {
+        'content-type': 'application/json',
+        ...(后台令牌 === '' ? {} : { 'x-snowluma-token': 后台令牌 }),
+      },
+      ...(选项.body === undefined ? {} : { body: JSON.stringify(选项.body) }),
+      signal: AbortSignal.timeout(选项.超时 || 8000),
+    })
+    if (后台令牌 === '') await 后台登录()
+    let r
+    try {
+      r = await 发()
+    } catch (error) {
+      throw new Error(`SnowLuma 后台没回应（${后台基}）：先确认它还在跑`)
+    }
+    if (r.status === 401) {
+      后台令牌 = ''
+      await 后台登录()
+      try {
+        r = await 发()
+      } catch (error) {
+        throw new Error(`SnowLuma 后台没回应（${后台基}）：先确认它还在跑`)
+      }
+    }
+    const j = await r.json().catch(() => null)
+    if (!r.ok || !j) throw new Error(`SnowLuma 后台 ${路径} 失败：HTTP ${r.status}`)
+    return j
+  }
+
+  /**
+   * SnowLuma 里登着的 QQ。可能不止一个：主人自己的号和她的号都开着时要能挑。
+   * @param {boolean} [强制] - 跳过缓存，切号 / 刚点重新检测时用。
+   * @returns {Promise<{ok: boolean, 列表: {号: string, 昵称: string, 状态: string, 在线: boolean, 已接入: boolean, pid: number}[], 错: string}>} 账号列表。
+   */
+  async function 列账号(强制 = false) {
+    const 现在 = Date.now()
+    const 缓存毫秒 = 账号缓存.值.ok ? 账号缓存毫秒 : 账号失败缓存毫秒
+    if (!强制 && 现在 - 账号缓存.at < 缓存毫秒) return 账号缓存.值
+    try {
+      const j = await 后台请求('/api/processes')
+      const 见过 = new Set()
+      const 列表 = []
+      for (const 项 of Array.isArray(j.list) ? j.list : []) {
+        const 号 = String((项 && 项.account && 项.account.uin) || (项 && 项.uin) || '').trim()
+        if (!/^\d{5,10}$/.test(号) || 见过.has(号)) continue
+        见过.add(号)
+        列表.push({
+          号,
+          昵称: String((项.account && 项.account.nickname) || 项.nickname || ''),
+          状态: String(项.status || ''),
+          在线: String(项.status || '') === 'online',
+          已接入: !!项.injected,
+          pid: Number(项.pid) || 0,
+        })
+      }
+      账号缓存 = { at: Date.now(), 值: { ok: true, 列表, 错: '' } }
+    } catch (错误) {
+      账号缓存 = { at: Date.now(), 值: { ok: false, 列表: [], 错: String((错误 && 错误.message) || 错误) } }
+    }
+    return 账号缓存.值
+  }
+
+  /** 本机现在真正在听、而且登了 QQ 的 OneBot：号 → 地址。 */
+  async function 谁在听(配置) {
+    const 地址们 = [规范OneBot地址(配置 && 配置.NapCat)]
+    for (const 端口 of 认得的OneBot端口) {
+      const 地址 = `http://127.0.0.1:${端口}`
+      if (!地址们.includes(地址)) 地址们.push(地址)
+    }
+    for (let 端口 = 3004; 端口 <= 3008; 端口++) {
+      const 地址 = `http://127.0.0.1:${端口}`
+      if (!地址们.includes(地址)) 地址们.push(地址)
+    }
+    const 出 = new Map()
+    for (const 地址 of 地址们) {
+      const 探 = await 探OneBot(地址, 800)
+      if (探.ok && 探.用户 !== '' && !出.has(探.用户)) 出.set(探.用户, 地址)
+    }
+    return 出
+  }
+
+  /** 这个 OneBot 配置会不会真的去绑那个端口。 */
+  function 占着端口(某配置, 端口) {
+    const 网 = 某配置 && 某配置.networks && typeof 某配置.networks === 'object' ? 某配置.networks : {}
+    const 服务器 = (Array.isArray(网.httpServers) ? 网.httpServers : []).find((x) => x && x.name === 'http-default')
+    return !!(服务器 && 服务器.enabled !== false && Number(服务器.port) === Number(端口))
+  }
+
+  /** 她这个号用哪个 OneBot 端口：她自己配过的口空着就沿用，占着就挑一个空闲的。 */
+  async function 挑她的端口(她的配置, 在听, 配置) {
+    const 别人占着 = new Set()
+    for (const 地址 of 在听.values()) 别人占着.add(取端口(地址))
+    const 想用 = []
+    const 网 = 她的配置 && 她的配置.networks && typeof 她的配置.networks === 'object' ? 她的配置.networks : {}
+    const 服务器 = (Array.isArray(网.httpServers) ? 网.httpServers : []).find((x) => x && x.name === 'http-default')
+    const 她配的 = Number(服务器 && 服务器.enabled !== false ? 服务器.port : 0)
+    if (Number.isInteger(她配的) && 她配的 > 0) 想用.push(她配的)
+    想用.push(取端口(配置 && 配置.NapCat))
+    for (const 端口 of 认得的OneBot端口) 想用.push(端口)
+    for (const 端口 of 想用) {
+      if (端口 === 3001 || 别人占着.has(端口)) continue
+      if (await 端口空着(端口)) return 端口
+    }
+    for (let 端口 = 3002; 端口 <= 3099; 端口++) {
+      if (端口 === 3001 || 别人占着.has(端口) || 想用.includes(端口)) continue
+      if (await 端口空着(端口)) return 端口
+    }
+    throw new Error('本机找不到空闲的 OneBot HTTP 端口（3000–3099 都被占了）')
+  }
+
+  /** 等她的号在某个端口上应答；SnowLuma 热重载要一两秒。 */
+  async function 等她应答(端口, 号, 毫秒) {
+    const 截止 = Date.now() + 毫秒
+    while (Date.now() < 截止) {
+      const 探 = await 探OneBot(`http://127.0.0.1:${端口}`, 1200)
+      if (探.ok && 探.用户 === 号) return true
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    return false
+  }
+
+  /**
+   * 把她要用的那个 QQ 接到 DSH：她的 OneBot 收到本机端口、事件推过来；
+   * 别的号摘掉事件上报、占着这个端口的挪开。已经接好的号只改地址。
+   * @param {string} 号 - QQ 号。
+   * @returns {Promise<{ok: boolean, 说: string, 账号?: {号: string, 昵称: string}, 地址?: string}>} 切换结果。
+   */
+  async function 选账号(号) {
+    const 目标号 = String(号 || '').trim()
+    if (!/^\d{5,10}$/.test(目标号)) return { ok: false, 说: '先给一个 QQ 号' }
+    账号缓存.at = 0
+    const 账号们 = await 列账号(true)
+    if (!账号们.ok) return { ok: false, 说: 账号们.错 || '读不到 SnowLuma 里的 QQ 列表' }
+    const 她 = 账号们.列表.find((x) => x.号 === 目标号)
+    if (!她) return { ok: false, 说: `SnowLuma 里没看到 ${目标号}：先在后台登录这个 QQ，再回来选` }
+
+    const 配置 = 读配置()
+    const 在听 = await 谁在听(配置)
+    const 现成 = 在听.get(目标号)
+    if (现成) {
+      改配置({ NapCat: 现成, 账号: 目标号 })
+      return { ok: true, 说: `已经接上：${她.昵称}（${目标号}）`, 账号: { 号: 目标号, 昵称: 她.昵称 }, 地址: 现成 }
+    }
+
+    let 她的配置
+    try {
+      她的配置 = (await 后台请求(`/api/config/${目标号}`)).config
+    } catch (错误) {
+      return { ok: false, 说: `读不到 ${目标号} 的 OneBot 设置：${String((错误 && 错误.message) || 错误)}` }
+    }
+    let 端口
+    try {
+      端口 = await 挑她的端口(她的配置, 在听, 配置)
+    } catch (错误) {
+      return { ok: false, 说: String((错误 && 错误.message) || 错误) }
+    }
+
+    // 别的号要是也指着这个口，先挪开；不然她的号绑不上。
+    // 不占口的号也把事件上报摘掉：她的号切好以后，只该有她这一路消息进来。
+    const 已占端口 = new Set([端口])
+    for (const 地址 of 在听.values()) 已占端口.add(取端口(地址))
+    for (const 其他 of 账号们.列表) {
+      if (其他.号 === 目标号) continue
+      try {
+        const 别的 = (await 后台请求(`/api/config/${其他.号}`)).config
+        const 占着 = 占着端口(别的, 端口)
+        const 有事件 = ((别的.networks && 别的.networks.httpClients) || []).some((x) => x && x.name === 事件客户端名)
+        if (!占着 && !有事件) continue
+        const 让开 = 让出OneBot(别的, 端口, 已占端口)
+        for (const 服 of ((让开.networks && 让开.networks.httpServers) || [])) 已占端口.add(Number(服.port))
+        await 后台请求(`/api/config/${其他.号}`, { method: 'POST', body: 让开, 超时: 15_000 })
+      } catch (错误) {
+        return { ok: false, 说: `别的号让不出 ${端口}：${String((错误 && 错误.message) || 错误)}` }
+      }
+    }
+
+    try {
+      await 后台请求(`/api/config/${目标号}`, {
+        method: 'POST',
+        body: 套OneBot配置(她的配置, 事件地址(), 端口),
+        超时: 15_000,
+      })
+    } catch (错误) {
+      return { ok: false, 说: `写不进 ${目标号} 的 OneBot 设置：${String((错误 && 错误.message) || 错误)}` }
+    }
+
+    if (!她.已接入 && 她.pid > 0) {
+      try {
+        await 后台请求(`/api/processes/${她.pid}/load`, { method: 'POST', body: {}, 超时: 20_000 })
+      } catch (错误) {
+        return { ok: false, 说: `设置写好了，但接不上 ${目标号}：先去 SnowLuma 后台把它接上（${String((错误 && 错误.message) || 错误)}）` }
+      }
+    }
+
+    const 地址 = `http://127.0.0.1:${端口}`
+    if (!(await 等她应答(端口, 目标号, 8000))) {
+      return { ok: false, 说: `设置已写进 SnowLuma，但 ${端口} 上还没问到 ${目标号}：看后台是不是把它接上了，再点「重新检测」` }
+    }
+    改配置({ NapCat: 地址, 账号: 目标号 })
+    return { ok: true, 说: `换好了：${她.昵称}（${目标号}）现在在 ${端口} 上收发`, 账号: { 号: 目标号, 昵称: 她.昵称 }, 地址 }
   }
 
   async function 探后台() {
@@ -575,6 +905,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     const 目录 = 目标目录(配置)
     const 已安装 = 是SnowLuma目录(目录)
     const 探 = await 探测()
+    const 账号们 = 探.后台在跑 ? await 列账号() : { ok: false, 列表: [], 错: 'SnowLuma 后台没在跑' }
     return {
       ...快照(),
       运行中: 探.运行中,
@@ -585,6 +916,11 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       昵称: 探.昵称 || '',
       用户: 探.用户 || '',
       错: 探.ok ? '' : String(探.错 || ''),
+      账号们: {
+        当前: 探.ok ? String(探.用户 || '') : '',
+        列表: 账号们.列表,
+        错: 账号们.ok ? '' : String(账号们.错 || ''),
+      },
     }
   }
 
@@ -800,7 +1136,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       }
 
       const 选定 = await 选OneBot地址(配置)
-      写SnowLuma配置(目录, 事件地址(), 取端口(选定.地址))
+      写SnowLuma配置(目录, 事件地址(), 取端口(选定.地址), { 账号: 配置.SnowLuma && 配置.SnowLuma.账号 })
       改配置({
         目录,
         后台密码: 新密码,
@@ -863,7 +1199,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     const 目录 = 目标目录(配置)
     if (!是SnowLuma目录(目录)) return { ok: false, 说: '还没装 SnowLuma' }
     if (!(配置.SnowLuma && 配置.SnowLuma.同意协议)) return { ok: false, 说: '先在上面的安装向导里勾选同意协议' }
-    写SnowLuma配置(目录, 事件地址(), 取端口(配置.NapCat))
+    写SnowLuma配置(目录, 事件地址(), 取端口(配置.NapCat), { 账号: 配置.SnowLuma && 配置.SnowLuma.账号 })
     const pid = 启动(目录, true)
     return { ok: true, 说: `SnowLuma 已启动（PID ${pid}）`, pid }
   }
@@ -907,7 +1243,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     if (!是SnowLuma目录(目录)) return
     const 探 = await 探测()
     if (探.运行中) return
-    写SnowLuma配置(目录, 事件地址(), 取端口(配置.NapCat))
+    写SnowLuma配置(目录, 事件地址(), 取端口(配置.NapCat), { 账号: 配置.SnowLuma && 配置.SnowLuma.账号 })
     启动(目录, true)
     记账('SnowLuma 没在跑，已按设置自动启动')
   }
@@ -971,6 +1307,8 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     自动启动,
     自动准备,
     探测,
+    列账号,
+    选账号,
     目标目录,
     候选目录,
     是SnowLuma目录,

@@ -552,6 +552,14 @@ window.__ModuleLoader__.load({
       const 雪安装 = 雪.安装 || {}
       const 雪后台 = 雪.后台 || {}
       const 雪OneBot = String(雪.OneBot || 配置.NapCat || 'http://127.0.0.1:3000')
+      const 雪账号们 = 雪.账号们 && Array.isArray(雪.账号们.列表) ? 雪.账号们.列表 : []
+      const 雪当前号 = String((雪.账号们 && 雪.账号们.当前) || '')
+      const 号状态字 = (a) => a.状态 === 'available' ? '没接上'
+        : a.状态 === 'connecting' ? '连接中'
+          : a.状态 === 'loaded' ? '接上了但没登录'
+            : a.状态 === 'disconnected' ? '掉线了'
+              : a.状态 === 'loading' ? '正在接'
+                : a.状态 === 'error' ? '出错了' : ''
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
       const 现有私聊 = String(配置.私聊QQ || '').trim()
@@ -891,6 +899,17 @@ window.__ModuleLoader__.load({
         await 拉雪()
       }
 
+      // 她该用哪个号：SnowLuma 里登着的号都列出来，由主人挑一个。
+      const 选号 = async (号) => {
+        设雪忙(true)
+        设雪说('正在把 ' + 号 + ' 接到这里…')
+        const s = await post('/snowluma/account', { 号 })
+        设雪忙(false)
+        设雪说((s && s.说) || '没反应')
+        if (s && s.状态) 吃雪(s.状态)
+        await 拉雪()
+      }
+
       const 打开雪后台 = () => {
         const 址 = String(雪后台.地址 || 'http://127.0.0.1:5099/')
         if (typeof window !== 'undefined') window.open(址, '_blank', 'noopener,noreferrer')
@@ -1107,7 +1126,7 @@ window.__ModuleLoader__.load({
             h('div', null,
               h('div', { style: S.dim },
                 'SnowLuma 不会替你登录 QQ：先在这台电脑登录「鱼的 QQ」，再打开后台，在「进程」里选中这个 QQ 并接上' +
-                  '（不同版本可能叫接入 / 注入 / 启用）。',
+                  '（不同版本可能叫接入 / 注入 / 启用）。这台电脑上还登着别的 QQ 也没关系，下一步由你挑她用哪个。',
               ),
               h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
                 按钮('打开 SnowLuma 后台', 打开雪后台, true, !雪装好),
@@ -1125,6 +1144,28 @@ window.__ModuleLoader__.load({
                   ? '✓ 已经连上：' + String(雪.昵称 || '') + '（' + String(雪.用户 || '') + '）'
                   : '还没连上' + (雪.错 ? '：' + 雪.错 : '（SnowLuma 没在跑，或后台还没接上 QQ）'),
               ),
+              雪装好
+                ? h('div', { style: { marginTop: 8 } },
+                    h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 } }, '她要用哪个 QQ'),
+                    雪账号们.length > 0
+                      ? h('div', { style: S.card },
+                          ...雪账号们.map((a) => h('div', {
+                            key: String(a.号),
+                            style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 },
+                          },
+                            h('div', { style: { ...S.dim, flex: '1 1 260px', minWidth: 0 } },
+                              String(a.昵称 || '') + '（' + String(a.号) + '）' +
+                                (a.号 === 雪当前号 ? '　✓ 正在用' : (号状态字(a) ? '　' + 号状态字(a) : ''))),
+                            按钮(a.号 === 雪当前号 ? '正在用' : '用这个号', () => 选号(String(a.号)), a.号 !== 雪当前号, 雪忙 || a.号 === 雪当前号),
+                          )),
+                          h('div', { style: { ...S.dim, marginTop: 4 } },
+                            '她只在选中的这个号上收发消息；换号会把那个号的 OneBot 接到本机，原来占着端口的号自动让开。'),
+                        )
+                      : h('div', { style: S.hint },
+                          (雪在跑 ? '还没读到 SnowLuma 里的 QQ 列表' : 'SnowLuma 没在跑：先把它启动、登录 QQ，才能挑号') +
+                            (雪.账号们 && 雪.账号们.错 ? '：' + String(雪.账号们.错) : '。')),
+                  )
+                : null,
               h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
                 按钮('重新检测', 拉雪, true, 雪忙),
               ),

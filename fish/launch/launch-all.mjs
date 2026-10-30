@@ -104,8 +104,16 @@ async function 主() {
     拉起(QQ, [], {}, null)
   }
   记('等待 QQ 登录并自动注入（最多 120 秒）…')
-  if (await 等端口(3002, 120)) 记('QQ 已登录并注入，OneBot 3002 就绪')
-  else 记('3002 未就绪：可能停在登录页；登录 QQ 后会自动注入')
+  const OneBot端口 = (() => {
+    try {
+      const 址 = new URL(String(JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8')).NapCat || ''))
+      return Number(址.port) || 3002
+    } catch (error) {
+      return 3002
+    }
+  })()
+  if (await 等端口(OneBot端口, 120)) 记(`QQ 已登录并注入，OneBot ${OneBot端口} 就绪`)
+  else 记(`${OneBot端口} 未就绪：可能停在登录页；登录 QQ 后会自动注入`)
 
   if (进程在跑('electron.exe')) {
     记('DSH 桌面端已在运行')
