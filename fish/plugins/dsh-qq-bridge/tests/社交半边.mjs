@@ -470,6 +470,10 @@ const 设短应 = (watch, 短, confidence = 0.8, reason = '顺手应一声') => 
   判断输出 = JSON.stringify({ watch, reply: true, confidence, reason, short: 短 })
 }
 
+const 设表情短应 = (watch, 表情, confidence = 0.8, reason = '发张表情就够') => {
+  判断输出 = JSON.stringify({ watch, reply: true, confidence, reason, short: '', face: 表情 })
+}
+
 const 假llm = {
   async *stream(选项) {
     // 风格摘要走的是同一个判断模型，但不算一次“接话判断”，别混进判断调用里。
@@ -3380,6 +3384,12 @@ const 存人态 = (存盘态度.社交.人的态度 || {})['group:1304'] || {}
   JSON.stringify(['@小王 哈哈', '看这个 http://x', '好的（笑）', '确实[图]', '真不错。'].map((x) => [x, 模.收拾短应(x)])))
 报('判断提示教她用 short 短应，别为一句“嗯”开回复轮',
   String(判断调用.at(-1)?.system || '').includes('"short"') && String(判断调用.at(-1)?.system || '').includes('2~12 个字'))
+报('表情短应清洗：只认收藏编号，没挑或写歪了都当没有',
+  模.收拾表情短应(16) === 16 && 模.收拾表情短应('16') === 16 && 模.收拾表情短应('#16') === 16 &&
+    模.收拾表情短应(undefined) === 0 && 模.收拾表情短应(null) === 0 && 模.收拾表情短应('') === 0 &&
+    模.收拾表情短应(0) === 0 && 模.收拾表情短应(-3) === 0 && 模.收拾表情短应('第16张') === 0 &&
+    模.收拾表情短应(1_000_000_000) === 0,
+  JSON.stringify([16, '16', '#16', undefined, null, '', 0, -3, '第16张', 1_000_000_000].map((x) => [String(x), 模.收拾表情短应(x)])))
 
 // ---------- 32 档位 1：判断直接短应，不叫回复模型 ----------
 写配置({ 群: ['1401'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
@@ -3440,6 +3450,143 @@ await 等(60)
     发的.slice(发前32d).every((x) => !(x.url.endsWith('/send_group_msg') && x.体?.group_id === 1411)),
   JSON.stringify({ 回合: 回合.length - 回合前32d }))
 await 收到回复('session-qq-social-group-1411', '像鲸鱼')
+
+// ---------- 32b 档位 1：判断只挑一张收藏表情，也算接上了 ----------
+const 表情表32 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.filter((x) => x && x.emojiId)
+const 表情乙 = 表情表32.at(-1)
+const 表情甲 = 表情表32.at(-2) || 表情乙
+报('测试前提：收藏里至少两张能发的表情', 表情表32.length >= 2 && 表情甲.id !== 表情乙.id, `收藏=${表情表32.length}`)
+
+写配置({ 群: ['1420'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+鱼脑.availableCny = 5
+群消息表.set(1420, [一条群消息('哈哈这也太逗了', { uid: 888, id: 79201 })])
+设表情短应(['79201'], 表情甲.id)
+const 回合前32e = 回合.length
+const 发前32e = 发的.length
+await 轮询社交()
+await 等(60)
+const 表情发32e = 发的.slice(发前32e).filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1420)
+报('表情短应：判断挑的那张直接发进群，不叫回复模型',
+  表情发32e.length === 1 && 表情发32e[0].体.emoji_id === 表情甲.emojiId && 回合.length === 回合前32e &&
+    发的.slice(发前32e).every((x) => !(x.url.endsWith('/send_group_msg') && x.体?.group_id === 1420)),
+  JSON.stringify({ 发: 表情发32e.map((x) => x.体.emoji_id), 回合: 回合.length - 回合前32e }))
+报('表情短应：账本写明白，鱼脑也记得她只发了这一张',
+  (await 日志文本()).includes(`短应只发了一张表情包：#${表情甲.id}`) &&
+    String(注入们.at(-1)?.message?.source?.excerpt || '').includes(`我：[发了一张表情包：#${表情甲.id}`),
+  String(注入们.at(-1)?.message?.source?.excerpt || '').slice(-260))
+报('表情短应：判断提示列出收藏，并教她 face 和 short 只选一个',
+  String(判断调用.at(-1)?.system || '').includes('她 QQ 收藏里的表情') &&
+    String(判断调用.at(-1)?.system || '').includes('"face"') &&
+    String(判断调用.at(-1)?.system || '').includes(`#${表情甲.id}`),
+  String(判断调用.at(-1)?.system || '').slice(-600))
+
+时间偏移 += 11_000
+群消息表.set(1420, [...群消息表.get(1420), 一条群消息('笑死我了', { uid: 889, id: 79202 })])
+设表情短应(['79202'], 表情乙.id)
+const 回合前32f = 回合.length
+const 发前32f = 发的.length
+await 轮询社交()
+await 等(60)
+报('表情短应：十分钟内不连着只发图，退回正常回复',
+  回合.length === 回合前32f + 1 &&
+    发的.slice(发前32f).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1420)) &&
+    (await 日志文本()).includes('这轮先不连着只发表情'),
+  JSON.stringify({ 回合: 回合.length - 回合前32f, 发: 发的.slice(发前32f).map((x) => x.url) }))
+await 收到回复('session-qq-social-group-1420', '哈哈')
+
+时间偏移 += 11 * 60_000
+群消息表.set(1420, [...群消息表.get(1420), 一条群消息('这张图太配了', { uid: 890, id: 79203 })])
+设表情短应(['79203'], 表情乙.id)
+const 回合前32g = 回合.length
+const 发前32g = 发的.length
+await 轮询社交()
+await 等(60)
+const 表情发32g = 发的.slice(发前32g).filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1420)
+报('表情短应：隔了十来分钟换一张，又能只发图',
+  表情发32g.length === 1 && 表情发32g[0].体.emoji_id === 表情乙.emojiId && 回合.length === 回合前32g,
+  JSON.stringify({ 发: 表情发32g.map((x) => x.体.emoji_id), 回合: 回合.length - 回合前32g }))
+
+时间偏移 += 11 * 60_000
+群消息表.set(1420, [...群消息表.get(1420), 一条群消息('又在发这张', { uid: 888, id: 79204 })])
+设表情短应(['79204'], 表情乙.id)
+const 回合前32h = 回合.length
+const 发前32h = 发的.length
+await 轮询社交()
+await 等(60)
+报('表情短应：同一张半小时内不重样，退回正常回复',
+  回合.length === 回合前32h + 1 &&
+    发的.slice(发前32h).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1420)) &&
+    (await 日志文本()).includes('同一张刚发过'),
+  JSON.stringify({ 回合: 回合.length - 回合前32h }))
+await 收到回复('session-qq-social-group-1420', '嗯')
+
+时间偏移 += 11_000
+群消息表.set(1420, [...群消息表.get(1420), 一条群消息('你说呢', { uid: 889, id: 79205 })])
+判断输出 = JSON.stringify({ watch: ['79205'], reply: true, confidence: 0.8, reason: '应一声', short: '确实', face: 999999 })
+const 回合前32i = 回合.length
+const 发前32i = 发的.length
+await 轮询社交()
+await 等(60)
+const 短发32i = 发的.slice(发前32i).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1420)
+报('表情短应：收藏里没有的编号不发假表情，退回一句短应',
+  短发32i.length === 1 && 短发32i[0].体.message[0].data.text === '确实' &&
+    发的.slice(发前32i).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1420)) &&
+    回合.length === 回合前32i,
+  JSON.stringify({ 发: 短发32i.map((x) => x.体.message), 回合: 回合.length - 回合前32i }))
+
+倾向态.policy = 偏({ stickerSend: { mode: 'off' } })
+写配置({ 群: ['1421'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+群消息表.set(1421, [一条群消息('哈哈哈', { uid: 888, id: 79211 })])
+设表情短应(['79211'], 表情甲.id)
+const 回合前32j = 回合.length
+const 发前32j = 发的.length
+await 轮询社交()
+await 等(60)
+报('表情短应：主人希望少发表情时，判断挑了也不发图，照常开回复轮',
+  回合.length === 回合前32j + 1 &&
+    发的.slice(发前32j).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1421)) &&
+    (await 日志文本()).includes('主人希望少发表情') &&
+    !String(判断调用.at(-1)?.system || '').includes('她 QQ 收藏里的表情'),
+  JSON.stringify({ 回合: 回合.length - 回合前32j, 发: 发的.slice(发前32j).map((x) => x.url) }))
+await 收到回复('session-qq-social-group-1421', '嗯嗯')
+
+倾向态.policy = 偏({ stickerSend: { mode: 'less' } })
+写配置({ 群: ['1422'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+群消息表.set(1422, [一条群消息('这表情哪来的', { uid: 888, id: 79221 })])
+设表情短应(['79221'], 表情甲.id)
+const 回合前32k = 回合.length
+const 发前32k = 发的.length
+await 轮询社交()
+await 等(60)
+报('表情短应：少发表情时第一张照发',
+  发的.slice(发前32k).filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1422).length === 1 &&
+    回合.length === 回合前32k,
+  JSON.stringify({ 回合: 回合.length - 回合前32k }))
+时间偏移 += 11 * 60_000
+群消息表.set(1422, [...群消息表.get(1422), 一条群消息('还有吗', { uid: 889, id: 79222 })])
+设表情短应(['79222'], 表情乙.id)
+const 回合前32l = 回合.length
+const 发前32l = 发的.length
+await 轮询社交()
+await 等(60)
+报('表情短应：少发表情要隔半小时，十一分钟后换一张也不发',
+  回合.length === 回合前32l + 1 &&
+    发的.slice(发前32l).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1422)) &&
+    (await 日志文本()).includes('离上一张太近'),
+  JSON.stringify({ 回合: 回合.length - 回合前32l }))
+await 收到回复('session-qq-social-group-1422', '有呀')
+时间偏移 += 20 * 60_000
+群消息表.set(1422, [...群消息表.get(1422), 一条群消息('再发一张', { uid: 890, id: 79223 })])
+设表情短应(['79223'], 表情乙.id)
+const 回合前32m = 回合.length
+const 发前32m = 发的.length
+await 轮询社交()
+await 等(60)
+报('表情短应：隔够半小时换一张就能发',
+  发的.slice(发前32m).filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1422).length === 1 &&
+    回合.length === 回合前32m,
+  JSON.stringify({ 回合: 回合.length - 回合前32m }))
+倾向态.policy = null
 
 // ---------- 33 房间账本：没挑中的、对别人说的也在场，下一轮判断看得到 ----------
 写配置({ 群: ['1405'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
