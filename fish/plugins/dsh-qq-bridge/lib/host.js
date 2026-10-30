@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
 import { isTrustedLocalRequest } from './http-trust.js'
 import { 创建历史导入 } from './import.js'
-import { 创建SnowLuma } from './snowluma.js'
+import { 创建SnowLuma, 认得的OneBot端口 } from './snowluma.js'
 
 export const name = 'qq-bridge'
 
@@ -4544,6 +4544,7 @@ export function apply(ctx) {
   let 安静跳过今日 = { 日: '', 数: 0 }
   let 社交轮询中 = false
   let 自己号缓存 = { at: 0, 号: '', 昵称: '', 已记: false }
+  let OneBot对账 = { at: 0, 地址: '', 报过: 0 }
 
   /** 刚听到的群消息只在内存里留几分钟，够接龙复读判断就行；不落盘。 */
   function 记近闻(目标, 消息) {
@@ -4941,23 +4942,64 @@ export function apply(ctx) {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
 
-  /** 登录的是哪个 QQ；缓存 10 分钟，群消息靠它排除她自己的发言。 */
-  async function 取自己() {
-    if (自己号缓存.号 !== '' && Date.now() - 自己号缓存.at < 10 * 60_000) return 自己号缓存
+  /** 问一次某个地址上登录的是哪个 QQ；连不上或不是 OneBot 都算没问到。 */
+  async function 探OneBot登录(地址) {
     try {
-      const 配置 = 读配置()
-      const r = await fetch(`${配置.NapCat}/get_login_info`, {
+      const r = await fetch(`${地址}/get_login_info`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+        signal: AbortSignal.timeout(2500),
       })
       const j = await r.json()
       if (j && j.status === 'ok' && j.data) {
-        自己号缓存 = {
-          at: Date.now(),
+        return {
+          ok: true,
           号: String(j.data.user_id === undefined ? '' : j.data.user_id),
           昵称: String(j.data.nickname || ''),
         }
       }
     } catch (error) {}
+    return { ok: false }
+  }
+
+  /**
+   * 配置里的 OneBot 没回应时，再问一遍本机常见的端口，找到就写回配置。
+   * SnowLuma 重启时原端口被占会顺延到下一个；不跟着换，群消息就一直收不到。
+   * @returns {Promise<string>} 当刻该用的 OneBot 地址。
+   */
+  async function 校准OneBot地址() {
+    const 配置 = 读配置()
+    const 现在 = Date.now()
+    if (OneBot对账.地址 === 配置.NapCat && 现在 - OneBot对账.at < 30_000) return 配置.NapCat
+    const 本机 = await 探OneBot登录(配置.NapCat)
+    if (本机.ok) {
+      OneBot对账 = { ...OneBot对账, at: 现在, 地址: 配置.NapCat }
+      return 配置.NapCat
+    }
+    for (const 端口 of 认得的OneBot端口) {
+      const 地址 = `http://127.0.0.1:${端口}`
+      if (地址 === 配置.NapCat) continue
+      const 试 = await 探OneBot登录(地址)
+      if (!试.ok) continue
+      // 已经见过自己的号，就只认同一张脸，别接上另一台 SnowLuma。
+      if (自己号缓存.号 !== '' && 试.号 !== 自己号缓存.号) continue
+      写配置({ ...配置, NapCat: 地址 })
+      自己号缓存 = { at: 现在, 号: 试.号, 昵称: 试.昵称 }
+      记账(`OneBot 地址从 ${配置.NapCat} 换到 ${地址}：原来的没回应（SnowLuma 重启后换了端口）`)
+      OneBot对账 = { at: 现在, 地址, 报过: 0 }
+      return 地址
+    }
+    if (现在 - OneBot对账.报过 > 10 * 60_000) {
+      OneBot对账 = { at: 现在, 地址: 配置.NapCat, 报过: 现在 }
+      记账(`OneBot 没回应：${配置.NapCat} 和备用端口都连不上，群消息和转发先收不到`)
+    }
+    return 配置.NapCat
+  }
+
+  /** 登录的是哪个 QQ；缓存 10 分钟，群消息靠它排除她自己的发言。 */
+  async function 取自己() {
+    if (自己号缓存.号 !== '' && Date.now() - 自己号缓存.at < 10 * 60_000) return 自己号缓存
+    const 登录 = await 探OneBot登录(读配置().NapCat)
+    if (登录.ok) 自己号缓存 = { at: Date.now(), 号: 登录.号, 昵称: 登录.昵称 }
     return 自己号缓存
   }
 
@@ -8379,7 +8421,11 @@ export function apply(ctx) {
 
   async function 轮询社交() {
     if (社交轮询中) return
-    const 配置 = 读配置()
+    let 配置 = 读配置()
+    if (!配置.总开关 || !配置.社交.启用) return
+    if (社交目标们(配置).length === 0) return
+    await 校准OneBot地址()
+    配置 = 读配置()
     if (!配置.总开关 || !配置.社交.启用) return
     const 目标们 = 社交目标们(配置)
     if (目标们.length === 0) return
@@ -10002,9 +10048,17 @@ export function apply(ctx) {
    * ⚠ 只认 `私聊QQ` 这个人发的（群也一样按这个号过滤），自己的回话不会自我繁殖。
    */
   async function 轮询收消息() {
-    const 配置 = 读配置()
-    const 目标 = 解析目标(配置)
+    let 配置 = 读配置()
+    let 目标 = 解析目标(配置)
     // 总开关关 / 没有会话：只把「上次时间」推到此刻，别开的时候就补一大串旧的
+    if (!配置.总开关 || !目标) {
+      上次私聊时间 = Math.floor(Date.now() / 1000)
+      上次群时间 = Math.floor(Date.now() / 1000)
+      return
+    }
+    await 校准OneBot地址()
+    配置 = 读配置()
+    目标 = 解析目标(配置)
     if (!配置.总开关 || !目标) {
       上次私聊时间 = Math.floor(Date.now() / 1000)
       上次群时间 = Math.floor(Date.now() / 1000)

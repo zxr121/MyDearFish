@@ -611,8 +611,10 @@ const 转发表 = new Map()
 const 引用消息表 = new Map()
 const 固定图 = new Map() // URL → 固定字节：验证同一张表情再发一次时按 md5 认出来
 let 收藏上传失败 = false // 模拟 QQ 收藏写不进去（验证她说“存好了”会被改成实情）
+let 封住的OneBot端口 = 0 // 模拟这个端口没人应答（验证配置地址漂了会自己换）
 globalThis.fetch = async (url, 选项) => {
   const u = String(url)
+  if (封住的OneBot端口 !== 0 && u.startsWith(`http://127.0.0.1:${封住的OneBot端口}`)) throw new Error('ECONNREFUSED')
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
   if (u.includes('get_login_info')) {
     return { json: async () => ({ status: 'ok', retcode: 0, data: { user_id: 999, nickname: '大肥鱼' } }) }
@@ -4134,6 +4136,24 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
     JSON.stringify({ id: 开出的 && 开出的.session && 开出的.session.id, 登记: 登记的会话.size - 开前登记 }))
   const 再开 = await 服务.开房('session-qq-social-group-1501')
   报('qqSocial 开房：已经开着就不重复建', 再开 === 开出的 && 登记的会话.size === 开前登记 + 1)
+}
+
+{
+  // ---------- OneBot 端口漂移：配置里的地址没人应答，自动换到在听的那个 ----------
+  写配置({ 群: ['1604'] })
+  const 漂 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+  漂.NapCat = 'http://127.0.0.1:3002'
+  writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify(漂, null, 2), 'utf8')
+  封住的OneBot端口 = 3002
+  const 读NapCat = () => JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8')).NapCat
+  // 上一轮可能还在跑（轮询会自己跳过重叠的那次），多敲几次直到它换过去。
+  await 等到(async () => {
+    if (读NapCat() === 'http://127.0.0.1:3003') return true
+    await 轮询社交()
+    return 读NapCat() === 'http://127.0.0.1:3003'
+  }, 3000)
+  报('OneBot 没回应时自动换到在听的端口并写回配置', 读NapCat() === 'http://127.0.0.1:3003', 读NapCat())
+  封住的OneBot端口 = 0
 }
 
 Date.now = 真Now

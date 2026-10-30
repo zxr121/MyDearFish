@@ -10,6 +10,7 @@ import { scryptSync } from 'node:crypto'
 import {
   后台端口,
   默认OneBot端口,
+  认得的OneBot端口,
   取端口,
   规范OneBot地址,
   是SnowLuma目录,
@@ -32,6 +33,8 @@ const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 
 const 家 = mkdtempSync(join(tmpdir(), 'snowluma-'))
 try {
   报('端口常量没跑偏', 后台端口 === 5099 && 默认OneBot端口 === 3000, `${后台端口}/${默认OneBot端口}`)
+  报('认已有实例的端口含 3003：SnowLuma 在 3002 被占时会顺延到这个口',
+    JSON.stringify(认得的OneBot端口) === JSON.stringify([3002, 3003, 3000]), JSON.stringify(认得的OneBot端口))
   报('从 OneBot 地址取端口', 取端口('http://127.0.0.1:3002') === 3002 && 取端口('http://127.0.0.1') === 80, '3002/80')
   报('地址去掉末尾斜杠', 规范OneBot地址(' http://127.0.0.1:3002/ ') === 'http://127.0.0.1:3002')
   报('坏地址回退默认端口', 规范OneBot地址('不是地址') === `http://127.0.0.1:${默认OneBot端口}`)

@@ -73,6 +73,7 @@ const 造agent = (sid) => ({
 const ctx = {
   on: () => () => {},
   effect: (fn) => { const 摘 = fn(); 收摊们.push(摘); return () => { try { 摘 && 摘() } catch (error) {} } },
+  provide: () => {},
   webServer: { register: () => {} },
   logger: { info: () => {} },
   agents: {

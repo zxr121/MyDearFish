@@ -28,8 +28,8 @@ import { createServer } from 'node:net'
 
 export const 后台端口 = 5099
 export const 默认OneBot端口 = 3000
-/** 认已有实例时先看这两个常见端口；3000 可能被 Grafana 之类的程序占着。 */
-const 认得的OneBot端口 = [3002, 3000]
+/** 认已有实例时先看这几个常见端口；3000 可能被 Grafana 之类的程序占着，SnowLuma 在 3002 被占时会顺延到 3003。 */
+export const 认得的OneBot端口 = [3002, 3003, 3000]
 const 发行接口 = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest'
 const 镜像前缀 = [
   'https://gh-proxy.com/',

@@ -337,6 +337,7 @@ const 标题重命名 = []
 const 建的工作区 = []
 const 挂工作区记录 = []
 const 工作区们 = []
+const 提供的服务 = new Map()
 const 造工作区 = (路径) => ({
   path: 路径,
   sessionIds: [],
@@ -348,6 +349,7 @@ const 造工作区 = (路径) => ({
 const ctx = {
   on: (名字, cb) => { if (名字 === 'session/event') 监听.push(cb); return () => {} },
   effect: (fn) => { const 摘 = fn(); return () => { try { 摘 && 摘() } catch {} } },
+  provide: (名字, 值) => { 提供的服务.set(名字, 值) },
   webServer: { register: (o) => 路由.set(o.path, o.handler) },
   logger: { info: () => {} },
   agents: {
@@ -427,6 +429,9 @@ const 假附件 = {
 
 const 宿主 = 模.apply(ctx)
 报('session/event 监听挂上了', 监听.length >= 1)
+const qq社交 = 提供的服务.get('qqSocial')
+报('qqSocial 服务挂上了（主动搭话借它认房间、按需开房）',
+  !!qq社交 && typeof qq社交.房间们 === 'function' && typeof qq社交.能不能说 === 'function' && typeof qq社交.开房 === 'function')
 
 const 会话 = { id: 'session-X' }
 const 别的会话 = { id: 'session-Y' }
