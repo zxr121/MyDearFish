@@ -87,6 +87,38 @@ test('考梗：问句片段、单字梗和近义标题都能对到词条', () =>
   assert.ok(social.length <= 900)
 })
 
+test('平时聊天：标题开头片段、句尾三字梗和点名都能认', () => {
+  const found = createMemeWiki({ dir: scratch() })
+  const hit = (text, options) => found.findMention(text, options)
+
+  const strong = hit('建议对他使用炎拳')
+  assert.equal(strong?.entry.title, '对他使用炎拳吧')
+  assert.equal(strong.matchedBy, 'fragment')
+  assert.equal(strong.quiz, false)
+  assert.equal(strong.guess, false)
+
+  const short = hit('群里有人说下次一定')
+  assert.equal(short?.entry.title, '下次一定的大饼')
+  assert.equal(short.quiz, false)
+  assert.equal(short.guess, true)
+
+  const called = hit('大肥鱼 你应该对他使用什么')
+  assert.equal(called?.entry.title, '对他使用炎拳吧')
+  assert.equal(called.quiz, false)
+  assert.equal(called.guess, true)
+
+  assert.equal(hit('你应该对他使用什么'), null)
+  assert.equal(hit('你应该对他使用什么', { relaxed: true })?.entry.title, '对他使用炎拳吧')
+  assert.equal(hit('英雄联盟都打不开'), null)
+  assert.equal(hit('你怎么还盗我图呢'), null)
+  assert.equal(hit('这个最重要的区别是'), null)
+  assert.equal(hit('他真是个显眼包')?.entry.title, '显眼包')
+
+  const guess = found.injectionText(short, { social: true })
+  assert.match(guess, /拿不准就别硬套/)
+  assert.doesNotMatch(guess, /考你懂不懂/)
+})
+
 test('社交提示再长也保留最后的提醒', () => {
   const memes = createMemeWiki({
     dir: scratch(),

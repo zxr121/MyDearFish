@@ -941,8 +941,9 @@ export function apply(ctx) {
   }
 
   /**
-   * 梗百科预查：只有像在问梗、整句就是一个词条，或命中了足够长的标题时，
-   * 才把资料放进这一轮。难过、生病、冲突和正事一律不打断。
+   * 梗百科预查：问梗、整句就是一个词条、标题出现在句子里，或句子用了梗标题的开头半句时，
+   * 把资料放进这一轮；主人私聊里四字片段也认，群里只在句首句尾、被点名或考试语气时认。
+   * 难过、生病、冲突和正事一律不打断。
    * @param {object} assembly - 系统提示组装上下文。
    * @returns {string} 提示正文；空串表示这轮不注入。
    */
@@ -955,7 +956,7 @@ export function apply(ctx) {
     if (social && !settings.socialInject) return ''
     const tone = humorTone(last.text)
     if (tone === 'crisis' || tone === 'serious' || tone === 'heavy') return ''
-    const hit = memes.findMention(last.text)
+    const hit = memes.findMention(last.text, { relaxed: !social })
     return hit === null ? '' : memes.injectionText(hit, { social })
   }
 
