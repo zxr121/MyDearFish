@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for approach-group-friend-clone.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/approach-group-friend-clone.md
+/a-group-friend-twin-from-real-chat-records:
+  en: 297007c218b5b421
+  zh: fb8ce5a2836ec261
+/a-group-friend-twin-from-real-chat-records/the-corpus-already-on-disk:
+  en: 4a6f31a8e41aff4f
+  zh: 82db0dd6321f90d7
+/a-group-friend-twin-from-real-chat-records/gaps-and-acquisition-routes:
+  en: 3c2e9718313d660b
+  zh: b88721d991322f9a
+/a-group-friend-twin-from-real-chat-records/why-not-fine-tuning:
+  en: 1e37b8e677413550
+  zh: a892c0d64794dac7
+/a-group-friend-twin-from-real-chat-records/three-layers:
+  en: 09d7f79d89f4cadc
+  zh: 8947bd926523f861
+/a-group-friend-twin-from-real-chat-records/three-layers/corpus-layer:
+  en: 3af4f0002a1d8798
+  zh: 0a89dd299a12da41
+/a-group-friend-twin-from-real-chat-records/three-layers/profile-layer:
+  en: 634a02596ca5d500
+  zh: ced4b141d963aa88
+/a-group-friend-twin-from-real-chat-records/three-layers/performance-layer:
+  en: 67b970a3c9e95757
+  zh: b7d53a132209405a
+/a-group-friend-twin-from-real-chat-records/milestones:
+  en: 7a08080b7c1293c6
+  zh: 868c320fb334206f
+/a-group-friend-twin-from-real-chat-records/privacy-and-disclosure:
+  en: 108a25c382df6948
+  zh: 50907ea29c965006
+/a-group-friend-twin-from-real-chat-records/acceptance-discipline:
+  en: 1b08f21f305aca69
+  zh: 3eeba91be935ba0f
