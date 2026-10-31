@@ -331,6 +331,10 @@ const 风格主人提示 = 模.拼风格贴合(主人短风格, { 名: '阿明',
     !风格主人提示.includes('多拆成短句') && !风格主人提示.includes('拆成两三条') &&
     风格主人提示.includes('把想说的说完整') && 风格主人提示.includes('句号'),
   风格主人提示)
+const 风格主人群提示 = 模.拼风格贴合(主人短风格, { 名: '阿明', 阶段: '生人', 主人: true, 群: true })
+报('风格贴合：主人在群里只接一句，不再教把话展开',
+  风格主人群提示.includes('接住那一句') && !风格主人群提示.includes('把想说的说完整') &&
+    !风格主人群提示.includes('多拆成短句') && !风格主人群提示.includes('拆成两三条'), 风格主人群提示)
 
 // ---------- 群语感 / 口癖 / 复读 ----------
 const 空语感 = 模.空群语感()
@@ -845,6 +849,12 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
 报('场景提示先对齐对方在同意还是反对', 社交文字.includes('对方补的理由要是正好支持你刚说的') && 社交文字.includes('别一边坚持自己没错'))
 报('场景提示别复读对方的理由', 社交文字.includes('别把对方刚说的理由换个说法重复一遍'))
 报('场景提示要求不当辩论赛', 社交文字.includes('不争输赢') && 社交文字.includes('不要求证据'))
+报('群场景：一次只接一件，两件事要连起来说',
+  社交文字.includes('只接最该回的那件') && 社交文字.includes('别分成两段各说各的'))
+报('群场景：第二条要接着第一条',
+  社交文字.includes('第二条要接着第一条') && 社交文字.includes('想到补充再发一条'))
+报('群场景：被说逻辑不对先接那句',
+  社交文字.includes('我是不是人') && 社交文字.includes('逻辑不对'))
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
 报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('你说的是 xx 发的那张吗'))
@@ -987,6 +997,8 @@ await 等()
 报('好友私聊来源是 qq-friend', 回合.at(-1).message.source.kind === 'qq-friend' && 回合.at(-1).message.source.sender === '小鱼')
 await 收到回复('session-qq-social-friend-777', '在摸鱼')
 报('回好友用 send_private_msg', 发的.some((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 777 && x.体.message[0].data.text === '在摸鱼'), JSON.stringify(发的.at(-1)))
+const 好友场景 = 场景提示.map((s) => 提示文本(s)).filter((t) => t.includes('【场景·QQ 好友私聊（对方 QQ 777）】')).at(-1) || ''
+报('好友场景：第二条要接着第一条', 好友场景.includes('第二条要接着第一条') && 好友场景.includes('想到补充再发一条'), 好友场景.slice(0, 240))
 
 // ---------- 5b 名片乱码：用干净昵称进提示和来源，别污染会话 ----------
 写配置({ 群: ['1006'] })
@@ -1028,9 +1040,12 @@ await 等()
 报('判断挑中 → 记进社交上下文', 注入们.length === 注入之前6 + 1 && String(注入们.at(-1).message.content[0].text).includes('【主人】'))
 报('主人上下文来源标了主人', 注入们.at(-1) && 注入们.at(-1).message.source.owner === true)
 
-// 主人 @ 她：不走兴趣判断，直接优先开一轮
+// 主人 @ 她：不走兴趣判断，直接优先开一轮；同批还有一句无关的话，只当背景。
 写配置({ 群: ['1024'] })
-群消息表.set(1024, [一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true })])
+群消息表.set(1024, [
+  一条群消息('今天食堂好难吃', { id: 1600 }),
+  一条群消息('在吗', { atSelf: true, id: 1602, 是主人: true }),
+])
 设判断([], false, 0.1, '不该被问到')
 const 判断之前6b = 判断调用.length
 const 注入之前6b = 注入们.length
@@ -1043,6 +1058,10 @@ const 群1024轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1024'
 const 主人叫轮 = 群1024轮.at(-1)
 报('主人 @ 的批次里带着主人消息', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('在吗') && String(主人叫轮.message.content[0].text).includes('【主人】'), JSON.stringify(主人叫轮 && String(主人叫轮.message.content[0].text).slice(0, 160)))
 报('主人 @ 的提示说明优先接', 主人叫轮 && String(主人叫轮.message.content[0].text).includes('主人在群里点名叫你'))
+const 主人叫文 = String(主人叫轮?.message?.content?.[0]?.text || '')
+报('主人 @ 同批还有别的话 → 提示只回点的那句',
+  主人叫文.includes('只回他这一句') && 主人叫文.includes('别挨个接') && 主人叫文.includes('今天食堂好难吃'), 主人叫文.slice(-400))
+报('主人 @ 的提示不逐条回', !主人叫文.includes('逐条'), 主人叫文.slice(-400))
 报('主人 @ 的消息来源仍标主人', 主人叫轮 && 主人叫轮.message.source.owner === true)
 报('主人 @ 不塞进只看不发的上下文', 注入们.length === 注入之前6b)
 const 群发之前 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1024).length
