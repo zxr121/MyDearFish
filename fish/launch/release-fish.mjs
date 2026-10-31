@@ -3,7 +3,7 @@
 // 常用：node fish/launch/release-fish.mjs [--tag <已有标签>] [--again] [--dry-run] [--out <目录>] [--timeout <分钟>]
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
 import { tmpdir } from 'node:os'
@@ -349,6 +349,57 @@ async function 下载安装包({ url, 文件, 大小, sha }) {
   return 目标
 }
 
+function 源码插件版本() {
+  const 目录 = join(REPO, 'fish', 'plugins')
+  const 表 = new Map()
+  for (const 名 of readdirSync(目录).sort()) {
+    const 清单 = join(目录, 名, 'package.json')
+    if (!existsSync(清单)) continue
+    const pkg = JSON.parse(readFileSync(清单, 'utf8'))
+    if (pkg.name && pkg.version) 表.set(pkg.name, pkg.version)
+  }
+  return 表
+}
+
+function 打印插件版本() {
+  const 源码 = 源码插件版本()
+  说(`源码插件：${[...源码].map(([名, 版本]) => `${名} ${版本}`).join(' · ')}`)
+  const 根们 = [join(REPO, 'data', 'profiles')]
+  if (process.env.DSH_HOME) 根们.push(join(process.env.DSH_HOME, 'profiles'))
+  const 提醒 = []
+  for (const 根 of [...new Set(根们)]) {
+    if (!existsSync(根)) continue
+    for (const 档 of readdirSync(根).sort()) {
+      const 偏 = []
+      for (const [名, 版本] of 源码) {
+        const 清单 = join(根, 档, 'node_modules', 名, 'package.json')
+        if (!existsSync(清单)) continue
+        const 运行时 = JSON.parse(readFileSync(清单, 'utf8')).version
+        偏.push(`${名} ${运行时}${运行时 === 版本 ? '' : `（源码 ${版本}）`}`)
+        if (运行时 !== 版本) {
+          提醒.push(`注意：${档} 里的 ${名} 是 ${运行时}，源码是 ${版本}；打版打包源码，但本机自测可能跑的是旧副本`)
+        }
+      }
+      if (偏.length > 0) 说(`运行时 ${档}：${偏.join(' · ')}`)
+    }
+  }
+  for (const 文 of 提醒) 说(文)
+}
+
+function 跑鱼测试() {
+  说('跑大肥鱼测试（鱼脑、各插件冒烟、组合提示词快照）…')
+  try {
+    execFileSync(process.execPath, [join(REPO, 'scripts', 'test-fish.mjs')], {
+      cwd: REPO,
+      env: git环境,
+      stdio: 'inherit',
+      timeout: 10 * 60_000,
+    })
+  } catch {
+    失败('大肥鱼测试没通过，先修好再打版。')
+  }
+}
+
 async function 主流程() {
   说('打版开始')
   阶段(1, 6, '预检')
@@ -361,6 +412,8 @@ async function 主流程() {
   if (!参数.tag) {
     if (git(['status', '--porcelain']).trim()) 失败('工作区有未提交改动，先提交或 stash 再打版。')
     说('工作区干净')
+    打印插件版本()
+    跑鱼测试()
   }
   说('读取远端标签（ssh）…')
   let 标签表 = 远端标签()

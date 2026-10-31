@@ -47,3 +47,7 @@ pre-push:
   jobs:
     - name: typecheck
       run: pnpm run typecheck
+
+    - name: fish tests
+      glob: '{fish/**,scripts/test-fish.mjs}'
+      run: pnpm run test:fish

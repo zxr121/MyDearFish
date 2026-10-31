@@ -1413,36 +1413,36 @@ await 等()
 // 判断模型没配、也没有普通会话时跟 DSH 默认模型走（桌面刚启动、主人还没开会话）
 const 原会话列表 = ctx.agents.list
 ctx.agents.list = () => []
-写配置({ 群: ['1040'], 判断模型: '', 回复模型: '' })
-群消息表.set(1040, [一条群消息('默认模型也能判吗', { id: 1610 })])
-设判断(['1610'], true, 0.9, '想接')
+写配置({ 群: ['1050'], 判断模型: '', 回复模型: '', 判断冷却秒: 0 })
+群消息表.set(1050, [一条群消息('默认模型也能判吗', { id: 1910 })])
+设判断(['1910'], true, 0.9, '想接')
 const 默认判之前 = 判断调用.length
 await 轮询社交()
 await 等()
-报('判断模型回落到 DSH 默认模型', 判断调用.length === 默认判之前 + 1 && 判断调用.at(-1).provider === 'fake' && 判断调用.at(-1).model === 'cheap', JSON.stringify({ provider: 判断调用.at(-1)?.provider, model: 判断调用.at(-1)?.model }))
-报('回落后的判断照常开一轮', 回合.some((r) => r.sid === 'session-qq-social-group-1040'))
-const 建1040 = 建会话选项.find((项) => 项.sessionId === 'session-qq-social-group-1040')
-报('新建社交会话继承主人的推理档', 建1040?.agentOptions?.provider === 'fake' && 建1040?.agentOptions?.model === 'cheap' && 建1040?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1040?.agentOptions))
+报('判断模型回落到 DSH 默认模型', 判断调用.length === 默认判之前 + 1 && 判断调用.at(-1).provider === 'fake' && 判断调用.at(-1).model === 'cheap', JSON.stringify({ 之前: 默认判之前, 现在: 判断调用.length, provider: 判断调用.at(-1)?.provider, model: 判断调用.at(-1)?.model }))
+报('回落后的判断照常开一轮', 回合.some((r) => r.sid === 'session-qq-social-group-1050'))
+const 建1050 = 建会话选项.filter((项) => 项.sessionId === 'session-qq-social-group-1050').at(-1)
+报('新建社交会话继承主人的推理档', 建1050?.agentOptions?.provider === 'fake' && 建1050?.agentOptions?.model === 'cheap' && 建1050?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1050?.agentOptions))
 报('判断调用不跟着用最高推理档', 判断调用.at(-1)?.reasoningEffort === undefined, String(判断调用.at(-1)?.reasoningEffort))
 
 // 连默认模型都没有：这批消息不能丢，等模型回来再判
 默认模型选择 = null
 ctx.agents.list = () => []
-写配置({ 群: ['1042'], 判断模型: '', 回复模型: '' })
-群消息表.set(1042, [一条群消息('没模型的时候别丢我', { id: 1611 })])
+写配置({ 群: ['1052'], 判断模型: '', 回复模型: '' })
+群消息表.set(1052, [一条群消息('没模型的时候别丢我', { id: 1911 })])
 const 没模之前 = 判断调用.length
 await 轮询社交()
 await 等()
-报('没模型 → 不调模型、不开轮', 判断调用.length === 没模之前 && !回合.some((r) => r.sid === 'session-qq-social-group-1042'))
-报('没模型 → 消息留在待看', (await 目标状态('group:1042')).待看 >= 1, JSON.stringify(await 目标状态('group:1042')))
+报('没模型 → 不调模型、不开轮', 判断调用.length === 没模之前 && !回合.some((r) => r.sid === 'session-qq-social-group-1052'))
+报('没模型 → 消息留在待看', (await 目标状态('group:1052')).待看 >= 1, JSON.stringify(await 目标状态('group:1052')))
 报('没模型写进日志', String(await 日志文本()).includes('没有可用的判断模型'))
 默认模型选择 = { provider: 'fake', model: 'cheap', reasoningEffort: 'max' }
 ctx.agents.list = 原会话列表
-设判断(['1611'], true, 0.9, '现在能判了')
+设判断(['1911'], true, 0.9, '现在能判了')
 时间偏移 += 61_000
 await 轮询社交()
 await 等()
-报('模型恢复后重判攒下的消息', 回合.some((r) => r.sid === 'session-qq-social-group-1042'))
+报('模型恢复后重判攒下的消息', 回合.some((r) => r.sid === 'session-qq-social-group-1052'))
 时间偏移 = 0
 
 // ---------- 7 她自己的发言不接 ----------
