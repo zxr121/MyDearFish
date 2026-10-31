@@ -107,16 +107,10 @@ const EXCERPT_SOURCE_KINDS = new Set(['qq-group', 'qq-friend', 'qq'])
 const SOCIAL_SESSION_PREFIX = 'qq-social-'
 // QQ 房间（群、好友、主人私聊）各有自己的短期上下文，别把整间屋子的独白灌进桌面会话。
 const QQ_ROOM_SESSION_PREFIXES = ['qq-social-', 'session-qq-social-', 'qq-private-', 'session-qq-private-']
-const QQ_SOCIAL_SESSION_PREFIXES = ['qq-social-', 'session-qq-social-']
 
 function isSocialSessionId(id) {
   const session = String(id === undefined || id === null ? '' : id)
   return session.startsWith(SOCIAL_SESSION_PREFIX) || session.startsWith(`session-${SOCIAL_SESSION_PREFIX}`)
-}
-
-function isQqRoomSessionId(id) {
-  const session = String(id === undefined || id === null ? '' : id)
-  return QQ_ROOM_SESSION_PREFIXES.some((prefix) => session.startsWith(prefix))
 }
 
 function isSubagentSession(session) {
@@ -999,9 +993,8 @@ export function apply(ctx) {
         social: true,
       }
     }
-    // 桌面会话不夹带 QQ 房间的独白：assistant 行的来源是 model，只按来源过滤挡不住。
-    // 私聊房自己例外，它还要看桌面刚才聊了什么；自己的话由 excludeSessionId 排掉。
-    const room = isQqRoomSessionId(sessionId)
+    // 桌面和私聊房都不夹带别的 QQ 房间的独白：assistant 行的来源是 model，只按来源过滤挡不住。
+    // 私聊房仍能看桌面刚才聊了什么；自己的话由 excludeSessionId 排掉，其他 QQ 房按前缀排掉。
     return {
       social: false,
       rows: store.recentWindow({
@@ -1009,7 +1002,7 @@ export function apply(ctx) {
         rows: config.working.rows,
         excludeSessionId: sessionId,
         excludeSources: [...SOCIAL_SOURCE_KINDS_LIST, PROACTIVE_SOURCE_KIND],
-        excludeSessionPrefixes: room ? QQ_SOCIAL_SESSION_PREFIXES : QQ_ROOM_SESSION_PREFIXES,
+        excludeSessionPrefixes: QQ_ROOM_SESSION_PREFIXES,
       }),
     }
   }
