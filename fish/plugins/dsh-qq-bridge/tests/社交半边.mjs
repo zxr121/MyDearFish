@@ -1643,6 +1643,7 @@ await 收到回复('session-qq-social-group-1012', '嗯嗯')
   一条群消息('没人叫她的新消息', { id: 2304 }),
   一条群消息('大肥鱼 再回这条', { atSelf: true, id: 2305 }),
   一条群消息('这条也回复', { replyId: 4242, id: 2601 }),
+  一条群消息('之后又有人说话了', { id: 2602 }),
 ])
 设判断([], false, 0.1, '不想接')
 await 轮询社交()
@@ -1657,7 +1658,7 @@ const 多回 = 发的.slice(多前).filter((x) => x.url.endsWith('/send_group_ms
     多回[1].体.message.every((b) => b.type !== 'reply'),
   JSON.stringify(多回.map((x) => x.体.message)))
 
-// 没人叫她、她自己想接一句：不自动挂引用，免得引一句却不回那句
+// 叫她之后又有人说了别的：她回话时引用叫她的那条，因为中间隔了别人的话
 写配置({ 群: ['1012'], 模式: 'auto', 冷却秒: 0, 判断冷却秒: 0 })
 时间偏移 += 11_000
 群消息表.set(1012, [
@@ -1672,11 +1673,11 @@ await 收到回复('session-qq-social-group-1012', '爬山好呀')
 await 等到(() => 发的.slice(自接前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012))
 await new Promise((r) => setTimeout(r, 100))
 const 自接回 = 发的.slice(自接前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
-报('没人叫她、她自己接一句：回话不挂引用',
-  自接回.length === 1 && 自接回[0].体.message.every((b) => b.type !== 'reply'),
+报('叫她之后隔了别人的话：回话挂引用',
+  自接回.length === 1 && 自接回[0].体.message[0]?.type === 'reply' && 自接回[0].体.message[0]?.data?.id === '2301',
   JSON.stringify(自接回.map((x) => x.体.message)))
 
-// 同一批里先有人回复她、后面又有人 @ 她：最新叫到她的是 @，回话不自动挂引用
+// 叫她的那条就是批里最新的：紧挨着，不自动挂引用
 时间偏移 += 11_000
 群消息表.set(1012, [
   一条群消息('大肥鱼 先吱一声', { atSelf: true, id: 2301 }),
@@ -1691,7 +1692,7 @@ await 收到回复('session-qq-social-group-1012', '在呢')
 await 等到(() => 发的.slice(新叫前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012))
 await new Promise((r) => setTimeout(r, 100))
 const 新叫回 = 发的.slice(新叫前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1012)
-报('最新叫到她的是 @ 而不是回复：回话不挂引用',
+报('叫她的是最新一条：紧挨着不挂引用',
   新叫回.length === 1 && 新叫回[0].体.message.every((b) => b.type !== 'reply'),
   JSON.stringify(新叫回.map((x) => x.体.message)))
 
@@ -3539,8 +3540,9 @@ await 轮询社交()
 await 等(60)
 const 短发32 = 发的.slice(发前32).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1401)
 报('短应：判断给的一句直接发进群，不叫回复模型',
-  短发32.length === 1 && 短发32[0].体.message.length === 1 &&
-    短发32[0].体.message[0].data.text === '馋了' && 回合.length === 回合前32,
+  短发32.length === 1 && 短发32[0].体.message.length === 2 &&
+    短发32[0].体.message[0].type === 'reply' && 短发32[0].体.message[0].data.id === '79001' &&
+    短发32[0].体.message[1].data.text === '馋了' && 回合.length === 回合前32,
   JSON.stringify({ 发: 短发32.map((x) => x.体.message), 回合: 回合.length - 回合前32 }))
 报('短应：账本写明短应，鱼脑也记下她说了什么',
   (await 日志文本()).includes('短应了一声「馋了」') &&
@@ -3666,7 +3668,9 @@ await 轮询社交()
 await 等(60)
 const 短发32i = 发的.slice(发前32i).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1420)
 报('表情短应：收藏里没有的编号不发假表情，退回一句短应',
-  短发32i.length === 1 && 短发32i[0].体.message[0].data.text === '确实' &&
+  短发32i.length === 1 && 短发32i[0].体.message.length === 2 &&
+    短发32i[0].体.message[0].type === 'reply' && 短发32i[0].体.message[0].data.id === '79205' &&
+    短发32i[0].体.message[1].data.text === '确实' &&
     发的.slice(发前32i).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1420)) &&
     回合.length === 回合前32i,
   JSON.stringify({ 发: 短发32i.map((x) => x.体.message), 回合: 回合.length - 回合前32i }))
