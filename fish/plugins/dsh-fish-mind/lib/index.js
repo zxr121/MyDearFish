@@ -102,11 +102,21 @@ function classifyUserSource(source) {
 }
 
 const SOCIAL_SOURCE_KINDS = new Set(['qq-group', 'qq-friend'])
+// 入站只记干净对话：群/好友用桥的摘录，主人 QQ 私聊现在也带摘录；正文里的提示不进记忆。
+const EXCERPT_SOURCE_KINDS = new Set(['qq-group', 'qq-friend', 'qq'])
 const SOCIAL_SESSION_PREFIX = 'qq-social-'
+// QQ 房间（群、好友、主人私聊）各有自己的短期上下文，别把整间屋子的独白灌进桌面会话。
+const QQ_ROOM_SESSION_PREFIXES = ['qq-social-', 'session-qq-social-', 'qq-private-', 'session-qq-private-']
+const QQ_SOCIAL_SESSION_PREFIXES = ['qq-social-', 'session-qq-social-']
 
 function isSocialSessionId(id) {
   const session = String(id === undefined || id === null ? '' : id)
   return session.startsWith(SOCIAL_SESSION_PREFIX) || session.startsWith(`session-${SOCIAL_SESSION_PREFIX}`)
+}
+
+function isQqRoomSessionId(id) {
+  const session = String(id === undefined || id === null ? '' : id)
+  return QQ_ROOM_SESSION_PREFIXES.some((prefix) => session.startsWith(prefix))
 }
 
 function isSubagentSession(session) {
@@ -522,8 +532,8 @@ export function apply(ctx) {
       const classified = classifyUserSource(data.source)
       if (classified === null) return
       const full = textOfMessage(data)
-      // 社交桥的提示带着公告、人物卡这些脚手架；有干净摘录就只记真正的对话。
-      const excerpt = SOCIAL_SOURCE_KINDS.has(classified.kind)
+      // 群、好友和主人 QQ 私聊的正文带着公告、人物卡或贴合提示；有干净摘录就只记真正的对话。
+      const excerpt = EXCERPT_SOURCE_KINDS.has(classified.kind)
         ? String((data.source && data.source.excerpt) || '').trim().slice(0, 2000)
         : ''
       let text = excerpt === '' ? full : excerpt
@@ -989,6 +999,9 @@ export function apply(ctx) {
         social: true,
       }
     }
+    // 桌面会话不夹带 QQ 房间的独白：assistant 行的来源是 model，只按来源过滤挡不住。
+    // 私聊房自己例外，它还要看桌面刚才聊了什么；自己的话由 excludeSessionId 排掉。
+    const room = isQqRoomSessionId(sessionId)
     return {
       social: false,
       rows: store.recentWindow({
@@ -996,6 +1009,7 @@ export function apply(ctx) {
         rows: config.working.rows,
         excludeSessionId: sessionId,
         excludeSources: [...SOCIAL_SOURCE_KINDS_LIST, PROACTIVE_SOURCE_KIND],
+        excludeSessionPrefixes: room ? QQ_SOCIAL_SESSION_PREFIXES : QQ_ROOM_SESSION_PREFIXES,
       }),
     }
   }

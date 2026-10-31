@@ -915,6 +915,14 @@ const 风格文 = 转进的.at(-1)?.content?.[0]?.text || ''
   转进的.length === 之前风格转 + 7 && 风格文.includes('说话节奏') && 风格文.includes('内部提示') &&
     风格文.includes('别复述') && 风格文.includes('别让对方看出来'),
   JSON.stringify(风格文.slice(0, 240)))
+报('私聊：主人短句不再被教成“几个字就停”，也没有摘要替她定句长',
+  !风格文.includes('几个字就停') && !风格文.includes('多拆成短句') && !风格文.includes('拆成两三条') &&
+    风格文.includes('把想说的说完整'),
+  JSON.stringify(风格文.slice(0, 320)))
+const 风格摘录 = 转进的.at(-1)?.source?.excerpt || ''
+报('私聊：入站带干净摘录，鱼脑只记主人原话',
+  风格摘录 === '好诶' && !风格摘录.includes('说话节奏') && !风格摘录.includes('【'),
+  JSON.stringify(风格摘录))
 
 // ⑯e 私聊：主人说“存下来” → 当场写进 QQ 收藏，提示里带收藏号
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({

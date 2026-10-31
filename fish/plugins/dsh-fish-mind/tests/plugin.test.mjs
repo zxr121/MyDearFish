@@ -211,6 +211,34 @@ test('经历里的本机路径换成标签，而不是把整条丢掉', () => {
   ctx.dispose()
 })
 
+test('QQ 私聊有干净摘录时只记主人真正说的话，旧桥没摘录仍退回全文', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  const ctx = fakeContext()
+  apply(ctx)
+  await ctx.emit('session/event', session('session-qq-private-1'), messageEvent(
+    'user/message',
+    '【说话节奏·内部提示，不是对方说的话，别复述】句子短一点，几个字就停\n明天记得带伞',
+    { seq: 1, source: { kind: 'qq', excerpt: '明天记得带伞' } },
+  ))
+  await ctx.emit('session/event', session('session-qq-private-1'), messageEvent(
+    'user/message',
+    '【说话节奏·内部提示，不是对方说的话，别复述】旧桥没有摘录\n今天风大',
+    { seq: 2, source: { kind: 'qq' } },
+  ))
+
+  const store = openStore({ dir: join(process.env.DSH_HOME, 'fish-mind'), diag: () => {} })
+  if (!store.degraded) {
+    const rows = store.search('明天', 5)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].text, '明天记得带伞', '只留干净摘录，贴合提示不进记忆')
+    const legacy = store.search('今天风大', 5)
+    assert.equal(legacy.length, 1)
+    assert.ok(legacy[0].text.includes('说话节奏'), '旧桥没带摘录时保持原样，兼容存量数据')
+  }
+  store.close()
+  ctx.dispose()
+})
+
 test('前台正常调用被放行，敏感路径直接拒绝', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()
@@ -1274,11 +1302,24 @@ test('短期窗口只补别的窗口刚说过的话，过时效就不占提示',
     time: now - 3 * 60_000,
     source: { kind: 'qq-group' },
   }))
-  await ctx.emit('session/event', session('session-long-ago'), messageEvent('user/message', '很久以前聊过的潜水', {
+  await ctx.emit('session/event', session('session-qq-social-group-7'), messageEvent('assistant/message', '她回群里：好呀', {
     seq: 4,
+    time: now - 2.5 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-qq-private-837263217'), messageEvent('user/message', '在忙吗', {
+    seq: 5,
+    time: now - 2 * 60_000,
+    source: { kind: 'qq', excerpt: '在忙吗' },
+  }))
+  await ctx.emit('session/event', session('session-qq-private-837263217'), messageEvent('assistant/message', '她私聊回：在呢', {
+    seq: 6,
+    time: now - 1 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-long-ago'), messageEvent('user/message', '很久以前聊过的潜水', {
+    seq: 7,
     time: now - 3 * 3_600_000,
   }))
-  await ctx.emit('session/event', session('session-current'), messageEvent('user/message', '我是谁', { seq: 5 }))
+  await ctx.emit('session/event', session('session-current'), messageEvent('user/message', '我是谁', { seq: 8 }))
 
   const shortTerm = harness.contexts.find((entry) => entry.name === 'fish-mind-shortterm')
   const text = shortTerm.text({ agent: { session: session('session-current') } })
@@ -1287,11 +1328,17 @@ test('短期窗口只补别的窗口刚说过的话，过时效就不占提示',
   assert.ok(text.includes('主人：'), '标是谁说的')
   assert.ok(!text.includes('我是谁'), '当前会话自己的话不进短期窗口')
   assert.ok(!text.includes('晚上开黑'), '群里的话不跟到私下')
+  assert.ok(!text.includes('她回群里'), '她在群里的回复也不跟到私下')
+  assert.ok(!text.includes('在忙吗') && !text.includes('她私聊回'), '别的 QQ 房间的话不夹带进桌面窗口')
   assert.ok(!text.includes('很久以前聊过的潜水'), '过了 TTL 就不再当场想起')
 
   const inGroup = shortTerm.text({ agent: { session: session('session-qq-social-group-7') } })
   assert.ok(inGroup.includes('晚上开黑'), '群里只看得到这间屋子刚才的事')
   assert.ok(!inGroup.includes('我叫EMT'), '主人私下的对话不进群')
+
+  const inPrivate = shortTerm.text({ agent: { session: session('session-qq-private-837263217') } })
+  assert.ok(inPrivate.includes('我叫EMT'), '私聊房还能看到桌面刚才聊的')
+  assert.ok(!inPrivate.includes('晚上开黑') && !inPrivate.includes('她回群里'), '私聊房看不到群里的对话')
 
   // 关掉短期注入就一个字都不给；影子模式同样不注入。
   writeConfig(home, { mode: 'live', inject: true, working: { ttlMinutes: 30, inject: false } })

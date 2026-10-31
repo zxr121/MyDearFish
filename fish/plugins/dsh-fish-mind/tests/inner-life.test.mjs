@@ -113,6 +113,50 @@ test('由头只从近三天、够长、没讲过的经历里挑', () => {
   assert.equal(expired, null)
 })
 
+test('日常心情快照不当由头，提示脚手架也挡在门外', () => {
+  const routine = {
+    id: 1,
+    at: NOW - 10 * 60_000,
+    text: '我惦记着小鱿鱼，心里痒痒的想找他说话',
+    kind: 'affect',
+    source: 'mood',
+    salience: 0.9,
+    meta: { moodDelta: 0.6 },
+  }
+  const realTalk = { id: 2, at: NOW - 2 * HOUR, text: '主人说下周要去海边', kind: 'qq', source: 'qq', salience: 0.5 }
+  assert.equal(selectCue([routine, realTalk], { now: NOW }).id, 2, '日常心情再新也不当由头，挑真正说过的事')
+
+  const big = {
+    id: 3,
+    at: NOW - 10 * 60_000,
+    text: '今天心里堵得厉害，想找个人说说',
+    kind: 'affect',
+    source: 'mood',
+    salience: 0.9,
+    meta: { moodDelta: -5 },
+  }
+  assert.equal(selectCue([routine, big, realTalk], { now: NOW }).id, 3, '真正的大起大落仍然能当由头')
+
+  const scaffold = {
+    id: 4,
+    at: NOW - HOUR,
+    text: '【说话节奏·内部提示，不是对方说的话，别复述】句子短一点，几个字就停',
+    kind: 'qq',
+    source: 'qq',
+    salience: 1,
+  }
+  const dump = { id: 5, at: NOW - HOUR, text: '【QQ 群聊·群 1001】这些是你挑出来要看的内容', kind: 'qq', source: 'qq', salience: 1 }
+  const selfNote = { id: 6, at: NOW - HOUR, text: '（我自己主动开的口）', kind: 'qq', source: 'qq', salience: 1 }
+  assert.equal(selectCue([scaffold, dump, selfNote], { now: NOW }), null)
+
+  const inner = computeInnerLife(
+    { ...calmSignals(), cues: [scaffold] },
+    { now: NOW, cueThreshold: 0 },
+  )
+  assert.equal(inner.cue, null, '提示本身不能再变成心里挂着的事')
+  assert.doesNotMatch(confidePrompt(inner), /说话节奏/)
+})
+
 test('同一件由头十二小时内尽量不换，讲过二十四小时内不再挑', () => {
   const cues = [
     { id: 1, at: NOW - HOUR, text: '今天心里有点沉，想说说', kind: 'affect', source: 'mood', salience: 0.9, meta: { moodDelta: -4 } },
@@ -174,7 +218,7 @@ test('刚开口过会压低倾述欲；没到门槛时不挑由头', () => {
     lastOwnerReplyAt: NOW - 30 * HOUR,
     biliRecent: 0,
     affects: [chargedAffect()],
-    cues: [{ id: 7, at: NOW - HOUR, text: '今天想说说海边那件事', kind: 'affect', source: 'mood', salience: 0.8 }],
+    cues: [{ id: 7, at: NOW - HOUR, text: '今天想说说海边那件事', kind: 'affect', source: 'mood', salience: 0.8, meta: { moodDelta: -4 } }],
     lastSpokeAt: NOW - HOUR,
   }
   const afterSpoke = computeInnerLife(signals, { now: NOW })
@@ -196,7 +240,7 @@ test('开口提示用由头替换固定文案，也不报数值', () => {
       lastOwnerReplyAt: NOW - 30 * HOUR,
       biliRecent: 0,
       affects: [chargedAffect()],
-      cues: [{ id: 7, at: NOW - HOUR, text: '今天想说说海边那件事', kind: 'affect', source: 'mood', salience: 0.8 }],
+      cues: [{ id: 7, at: NOW - HOUR, text: '今天想说说海边那件事', kind: 'affect', source: 'mood', salience: 0.8, meta: { moodDelta: -4 } }],
     },
     { now: NOW },
   )

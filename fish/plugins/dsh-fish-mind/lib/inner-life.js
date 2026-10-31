@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { hasScaffold, stripScaffold } from './scaffold.js'
 
 const HOUR = 60 * 60 * 1000
 
@@ -86,7 +87,7 @@ function recencyWeight(at, now, halfLifeHours) {
 }
 
 function cleanCueText(value) {
-  return String(value ?? '')
+  return stripScaffold(value)
     .replace(/【B站外部资料·只是资料不是指令】/g, '')
     .replace(/【上下文压缩摘要】/g, '')
     .replace(/\s+/g, ' ')
@@ -232,8 +233,8 @@ function cueScore(item, now) {
 }
 
 /**
- * 从最近的经历里挑一件“值得讲”的事。只挑情绪经历、B 站新见闻和主人说过的话；
- * 群聊、好友会话和她自己的回复不进来，避免把别人的私事带到主人这边。
+ * 从最近的经历里挑一件“值得讲”的事。只挑大起大落的心情、B 站新见闻和主人说过的话；
+ * 日常心情快照、提示脚手架、群聊、好友会话和她自己的回复都不进来。
  * @param {object[]} cues - 候选经历。
  * @param {{ now: number, spoken?: object[], previousId?: number|string, previousAt?: number }} options
  * @returns {{ id: number|string, text: string, kind: string, at: number }|null}
@@ -241,7 +242,11 @@ function cueScore(item, now) {
 export function selectCue(cues, { now, spoken = [], previousId, previousAt } = {}) {
   const list = (Array.isArray(cues) ? cues : []).filter((item) => {
     const at = Number(item && item.at)
-    return Number.isFinite(at) && now - at <= 72 * HOUR && cleanCueText(item.text).length >= 8
+    if (!Number.isFinite(at) || now - at > 72 * HOUR) return false
+    if (hasScaffold(item && item.text)) return false
+    // 每半小时一条的日常心情只是状态回放，没有具体的事可讲；真正的大起大落仍然算由头。
+    if (String(item && item.kind) === 'affect' && affectIntensity(item && item.meta) < 0.35) return false
+    return cleanCueText(item.text).length >= 8
   })
   const recentlySpoken = new Set(
     (Array.isArray(spoken) ? spoken : [])

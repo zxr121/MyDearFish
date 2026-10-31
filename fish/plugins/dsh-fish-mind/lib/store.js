@@ -17,6 +17,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
+import { extractRecentChat, hasScaffold, stripScaffold } from './scaffold.js'
 
 const require = createRequire(import.meta.url)
 
@@ -28,6 +29,8 @@ try {
 }
 
 export const SCHEMA_VERSION = 4
+
+const SCAFFOLD_CLEANUP_KEY = 'scaffold_cleanup_v1'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PARAMETERS = {
@@ -735,8 +738,9 @@ export function openStore({ dir, config, diag = () => {} }) {
   const innerCueStmt = db && db.prepare(`
     SELECT id, ts, content, kind, source_kind, salience, meta FROM experiences
     WHERE dropped IS NULL AND content <> '' AND ts >= ?
+      AND source_kind <> 'speak-up'
       AND (kind = 'affect' OR kind = 'user' OR kind = 'qq' OR source_kind = 'bili')
-    ORDER BY ts DESC, id DESC LIMIT 80
+    ORDER BY ts DESC, id DESC LIMIT 200
   `)
   const factActiveStmt = db && db.prepare(`
     SELECT id, object, valid_from FROM facts
@@ -2075,7 +2079,7 @@ export function openStore({ dir, config, diag = () => {} }) {
   /**
    * 短期窗口：最近一段时间里还“当场想得起”的对话原文。
    * 只读 experiences，不写派生表——它是长期记忆的取景框，不是第二份存储。
-   * @param {{ since?: number, rows?: number, onlySessionId?: string, onlySessionPrefix?: string, excludeSessionId?: string, excludeSources?: string[] }} [options]
+   * @param {{ since?: number, rows?: number, onlySessionId?: string, onlySessionPrefix?: string, excludeSessionId?: string, excludeSessionPrefixes?: string[], excludeSources?: string[] }} [options]
    * @returns {{ at: number, sessionId: string, role: string, actor: string, source: string, text: string }[]} 按时间正序
    */
   function recentWindow(options = {}) {
@@ -2085,10 +2089,17 @@ export function openStore({ dir, config, diag = () => {} }) {
     const only = typeof options.onlySessionId === 'string' ? options.onlySessionId : ''
     const prefix = typeof options.onlySessionPrefix === 'string' ? options.onlySessionPrefix : ''
     const exclude = typeof options.excludeSessionId === 'string' ? options.excludeSessionId : ''
+    const excludePrefixes = Array.isArray(options.excludeSessionPrefixes)
+      ? options.excludeSessionPrefixes.map(String).filter(Boolean)
+      : []
     const skip = new Set(Array.isArray(options.excludeSources) ? options.excludeSources : [])
+    // 有排除条件时多取一些原始行：热闹的 QQ 群可能在这段窗口里堆了几百条，
+    // 只按 want*3 取会让被排除的行把真正的行挤出读取范围。
+    const filtered = only !== '' || prefix !== '' || exclude !== '' || excludePrefixes.length > 0 || skip.size > 0
+    const rawLimit = filtered ? Math.max(want * 3, 600) : want * 3
     let raw
     try {
-      raw = windowStmt.all(since, want * 3)
+      raw = windowStmt.all(since, rawLimit)
     } catch (error) {
       diag(`store: 短期窗口读失败（${String((error && error.message) || error)}）`)
       return []
@@ -2104,6 +2115,7 @@ export function openStore({ dir, config, diag = () => {} }) {
         if (!/^-p\d+$/.test(suffix)) continue
       }
       if (exclude !== '' && sessionId === exclude) continue
+      if (excludePrefixes.some((item) => sessionId.startsWith(item))) continue
       if (skip.has(source)) continue
       out.push({
         at: Number(row.ts) || 0,
@@ -2359,6 +2371,84 @@ export function openStore({ dir, config, diag = () => {} }) {
   }
 
   /**
+   * 一次性清掉旧版 QQ 桥写进经历的提示脚手架：主人私聊只留真正说的话，
+   * 群/好友提示转储只留【最近聊过】，她自己主动开口的旁注整条丢弃。
+   * 改动同步 FTS；丢弃的行删掉索引。完成标记写在 store_meta，重建后需要 force 再跑。
+   * @param {{ force?: boolean }} [options] - force 时忽略已完成的标记。
+   * @returns {{ cleaned: number, dropped: number, skipped?: string, error?: string }}
+   */
+  function scrubScaffolding({ force = false } = {}) {
+    if (db === null) return { cleaned: 0, dropped: 0 }
+    if (!force) {
+      try {
+        if (String(metaGetStmt.get(SCAFFOLD_CLEANUP_KEY)?.value ?? '') !== '') {
+          return { cleaned: 0, dropped: 0, skipped: 'done' }
+        }
+      } catch (error) {
+        diag(`store: 读清理标记失败（${String((error && error.message) || error)}）`)
+      }
+    }
+    const candidates = db.prepare(`
+      SELECT id, hash, kind, source_kind, content FROM experiences
+      WHERE dropped IS NULL AND content <> '' AND (
+        source_kind = 'qq'
+        OR (source_kind IN ('qq-group', 'qq-friend') AND content LIKE '【QQ %')
+        OR ((source_kind = 'speak-up' OR kind = 'proactive') AND content LIKE '【没人说话，你自己待着%')
+      )
+    `)
+    const updateStmt = db.prepare('UPDATE experiences SET content = ? WHERE id = ?')
+    const dropStmt = db.prepare("UPDATE experiences SET dropped = 1, content = '' WHERE id = ?")
+    let cleaned = 0
+    let dropped = 0
+    try {
+      const rows = candidates.all()
+      db.exec('BEGIN IMMEDIATE')
+      for (const row of rows) {
+        const text = String(row.content ?? '')
+        const source = String(row.source_kind ?? '')
+        const kind = String(row.kind ?? '')
+        let next = ''
+        let drop = false
+        if (source === 'speak-up' || kind === 'proactive') {
+          if (!text.startsWith('【没人说话，你自己待着')) continue
+          drop = true
+        } else if (source === 'qq') {
+          if (!hasScaffold(text)) continue
+          next = stripScaffold(text)
+          drop = next.length < 2
+        } else {
+          next = extractRecentChat(text)
+          drop = next.length < 2
+        }
+        if (drop) {
+          dropStmt.run(row.id)
+          deleteFtsStmt.run(row.hash)
+          dropped += 1
+        } else if (next !== text) {
+          updateStmt.run(next, row.id)
+          deleteFtsStmt.run(row.hash)
+          ftsStmt.run(row.hash, tokenize(next.slice(0, parameters.indexChars)).join(' '))
+          cleaned += 1
+        }
+      }
+      db.exec('COMMIT')
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {}
+      const reason = String((error && error.message) || error)
+      diag(`store: 清理旧提示脚手架失败（${reason}）`)
+      return { cleaned: 0, dropped: 0, error: reason }
+    }
+    try {
+      metaSetStmt.run(SCAFFOLD_CLEANUP_KEY, JSON.stringify({ cleaned, dropped, at: Date.now() }))
+    } catch (error) {
+      diag(`store: 写清理标记失败（${String((error && error.message) || error)}）`)
+    }
+    return { cleaned, dropped }
+  }
+
+  /**
    * 从 experience.jsonl 全量重放。清空派生表后再写回，不改 JSONL；
    * 情景、实体和显著性也会按同一套规则重新生成。
    * @returns {Promise<{ count: number, lines: number, digest: string }>} 重放结果。
@@ -2409,6 +2499,8 @@ export function openStore({ dir, config, diag = () => {} }) {
       } catch {}
       throw error
     }
+    // 重放会把旧脚手架又带回来；store_meta 不会随重放清空，所以这里强制再清一次。
+    const scrubbed = scrubScaffolding({ force: true })
     // 章节和关系边也是派生物：重放完经历后按同一套规则重建。
     let chapters = 0
     let relations = 0
@@ -2419,7 +2511,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     } catch (error) {
       diag(`store: 重建章节或关系边失败（${String((error && error.message) || error)}）`)
     }
-    return { count, lines, digest: contentDigest(), chapters, relations }
+    return { count, lines, digest: contentDigest(), chapters, relations, cleaned: scrubbed.cleaned, dropped: scrubbed.dropped }
   }
 
   // 打开时就补齐 JSONL 里有、库里没有的记录（上次异常退出留下的尾巴）。
@@ -2453,6 +2545,8 @@ export function openStore({ dir, config, diag = () => {} }) {
       } catch {}
       diag(`store: 补齐 JSONL 失败（${String((error && error.message) || error)}）`)
     }
+    // 补齐的尾巴里也可能带着旧脚手架；标记已经写过，这里强制再跑一遍。
+    if (added > 0) scrubScaffolding({ force: true })
     return added
   }
 
@@ -2537,6 +2631,14 @@ export function openStore({ dir, config, diag = () => {} }) {
     db = null
   }
 
+  // 启动时清一次旧版提示脚手架；标记存在后不再重复扫库。
+  {
+    const scrubbed = scrubScaffolding()
+    if (scrubbed.error === undefined && (scrubbed.cleaned > 0 || scrubbed.dropped > 0)) {
+      diag(`store: 清掉旧提示脚手架（还原 ${scrubbed.cleaned} 条，丢弃 ${scrubbed.dropped} 条）`)
+    }
+  }
+
   return {
     dbPath,
     jsonlPath,
@@ -2567,6 +2669,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     countToday,
     countBetween,
     contentDigest,
+    scrubScaffolding,
     rebuild,
     catchUpFromJsonl,
     setConfig,

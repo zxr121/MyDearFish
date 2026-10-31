@@ -473,6 +473,64 @@ test('短期窗口能只看某个会话，也能排除某个会话或来源', ()
   store.close()
 })
 
+test('短期窗口能按会话前缀排除整间 QQ 房，包括分线和她的回复', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  store.insert(record('桌面上的话', { sessionId: 'session-desk', seq: 1, at: now - 6_000 }))
+  store.insert(record('群里她回的', {
+    sessionId: 'session-qq-social-group-1001', seq: 1, at: now - 5_000, kind: 'assistant', role: 'assistant', source: 'model',
+  }))
+  store.insert(record('群里别人说的', {
+    sessionId: 'session-qq-social-group-1001', seq: 2, at: now - 4_000, kind: 'qq-group', source: 'qq-group',
+  }))
+  store.insert(record('分线里她回的', {
+    sessionId: 'session-qq-social-group-1001-p2', seq: 1, at: now - 3_000, kind: 'assistant', role: 'assistant', source: 'model',
+  }))
+  store.insert(record('私聊房里她回的', {
+    sessionId: 'session-qq-private-837263217', seq: 1, at: now - 2_000, kind: 'assistant', role: 'assistant', source: 'model',
+  }))
+  store.insert(record('另一间屋子的', { sessionId: 'session-other', seq: 1, at: now - 1_000 }))
+
+  const rows = store.recentWindow({
+    since: now - 60_000,
+    rows: 10,
+    excludeSessionPrefixes: ['qq-social-', 'session-qq-social-', 'qq-private-', 'session-qq-private-'],
+  })
+  assert.deepEqual(rows.map((row) => row.text), ['桌面上的话', '另一间屋子的'])
+  store.close()
+})
+
+test('旧库清理只留主人真正说的话，提示转储和主动开口旁注丢掉', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  const hint = '【说话节奏·内部提示，不是对方说的话，别复述】句子短一点，几个字就停\n明天记得带伞'
+  const imageOnly = '【说话节奏·内部提示，不是对方说的话，别复述】少打句号\n[图片]\n【图 1·主人】\n【存表情】看到本批的表情图觉得有意思'
+  const groupDump = '【QQ 群聊·群 1049180426】这些是你挑出来要看的内容\n【群公告/群规】禁言规则\n【最近聊过】【主人】@EMT@：今晚吃什么\n【最近聊过】【你】大肥鱼：吃鱼\n【你在 QQ 收藏的表情包】#1 摸头'
+  const proactive = '【没人说话，你自己待着。心里正惦记着：我惦记着小鱿鱼】'
+
+  store.insert(record(hint, { sessionId: 'session-qq-private-1', seq: 1, at: now - 5_000, kind: 'qq', source: 'qq' }))
+  store.insert(record(imageOnly, { sessionId: 'session-qq-private-1', seq: 2, at: now - 4_000, kind: 'qq', source: 'qq' }))
+  store.insert(record(groupDump, { sessionId: 'session-qq-social-group-1', seq: 1, at: now - 3_000, kind: 'qq-group', source: 'qq-group' }))
+  store.insert(record(proactive, { sessionId: 'session-auto', seq: 1, at: now - 2_000, kind: 'proactive', source: 'speak-up' }))
+
+  const result = store.scrubScaffolding({ force: true })
+  assert.equal(result.cleaned, 2)
+  assert.equal(result.dropped, 2)
+
+  const rows = store._db().prepare('SELECT content, dropped FROM experiences ORDER BY id').all()
+  assert.equal(rows[0].content, '明天记得带伞')
+  assert.ok(rows[1].dropped, '纯提示和图注没有可留的话')
+  assert.equal(rows[2].content, '【主人】@EMT@：今晚吃什么\n【你】大肥鱼：吃鱼')
+  assert.ok(rows[3].dropped, '主动开口的提示整条丢掉')
+  assert.equal(store.search('带伞').length, 1)
+  assert.equal(store.search('吃鱼').length, 1)
+  assert.equal(store.search('说话节奏').length, 0)
+
+  const again = store.scrubScaffolding({ force: true })
+  assert.deepEqual(again, { cleaned: 0, dropped: 0 })
+  store.close()
+})
+
 test('短期窗口能按屋子取，分线和主线算同一间', () => {
   const { store } = tempStore()
   const now = Date.now()
