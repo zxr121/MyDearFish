@@ -240,14 +240,13 @@ test('主会话组合：群聊回合只看得到这间屋，主人私下的往�
       主人: true,
       群: true,
     })
-    assert.ok(hint.includes('把想说的说完整'), '群聊贴合也要把话说完')
+    // 群聊的完整性护栏措辞随场景调整（和私聊不是同一句），这里只钉住“必须有一句别把话截掉”。
+    assert.match(hint, /把想说的说完整|把意思说清楚|把意思说完整/u, '群聊贴合也要把话说完')
     assertNoForbiddenInOwnerText(hint, '群聊贴合提示')
     assert.ok(!hint.includes('句尾偶尔带'), '群里不按某一个人的语气词带节奏')
 
-    const payload = {
-      components,
-      styleHints: { group: hint },
-    }
+    // 风格提示的整段措辞由 风格贴合.mjs 的 golden 负责；这里只比较鱼脑提示段。
+    const payload = { components }
     assert.deepEqual(normalizeSurface(payload, harness.home), expectedSurface('social-group', normalizeSurface(payload, harness.home)))
   } finally {
     harness.dispose()
@@ -300,10 +299,7 @@ test('主会话组合：好友私聊回合只看得到好友这间屋，主人�
     assert.ok(hint.includes('把意思说完整'), '好友贴合也要把话说完')
     assertNoForbiddenInOwnerText(hint, '好友贴合提示')
 
-    const payload = {
-      components,
-      styleHints: { friend: hint },
-    }
+    const payload = { components }
     assert.deepEqual(normalizeSurface(payload, harness.home), expectedSurface('social-friend', normalizeSurface(payload, harness.home)))
   } finally {
     harness.dispose()
