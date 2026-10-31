@@ -132,7 +132,8 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-speak-up
 
 ## 自测（不装插件也能跑）
 
-两个冒烟测试**不碰 DSH、不碰会话**（`DSH_HOME` 指向系统临时目录，agent 是假的；
+整套 fish 检查用 `pnpm run test:fish`（含组合提示词快照）；只跑下面两个冒烟也可以。
+它们**不碰 DSH、不碰会话**（`DSH_HOME` 指向系统临时目录，agent 是假的；
 峰谷那几条**全都喂假时间**，所以半夜跑也不会红）：
 
 ```bat

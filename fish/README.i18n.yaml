@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write fish/README.md
+/fish-companion-runtime:
+  en: f3198cb29ec45ee3
+  zh: d1aa414aa8fc31d1
+/fish-companion-runtime/layout:
+  en: 024695094d5752c7
+  zh: 6054734ad3c67d00
+/fish-companion-runtime/tests:
+  en: 21d7077a93c57753
+  zh: 5cbec712d1e3e4bc
+/fish-companion-runtime/behavior-changes:
+  en: 9b39eceffe8a1a77
+  zh: d38f058205fdb784

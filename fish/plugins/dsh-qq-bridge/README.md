@@ -508,6 +508,7 @@ POST http://127.0.0.1:19388/dsh-qq/event
 ## 自测（不装插件也能跑）
 
 ```bash
+pnpm run test:fish        # 整套 fish 检查（推荐；含组合提示词快照）
 node tests/宿主半边.mjs
 node tests/网页半边.mjs
 node tests/社交半边.mjs

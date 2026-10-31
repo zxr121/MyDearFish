@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 0005-fish-companion-short-reply-regression.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/postmortem/0005-fish-companion-short-reply-regression.md
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments:
+  en: 781fc958fa883499
+  zh: 0ea4fd1a0111d7a9
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/executive-summary:
+  en: 8f726540adc1754f
+  zh: ce773d1492cc56d2
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/summary:
+  en: e040e2ddca7369ba
+  zh: 86a8fb2d840cc805
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/impact:
+  en: c2e7e9d79630694f
+  zh: ca3b2ae9eb1c1b19
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/timeline:
+  en: a7c7459164d5a92f
+  zh: cff3cee5cd264017
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/root-cause:
+  en: a65b64bdc1c18967
+  zh: a76791306e7b8b3f
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/guardrails-added:
+  en: 252f3eb59de1ab99
+  zh: 303c6faed6185ba9
+/post-mortem-0005-fish-companion-replies-collapsed-into-short-fragments/lessons:
+  en: bec92e789dfe8b23
+  zh: c0966f0d4684af66

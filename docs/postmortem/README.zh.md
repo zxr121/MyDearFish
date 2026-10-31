@@ -16,3 +16,4 @@
 | [0002](0002-js-expression-disabled-filesystem-tools.zh.md) | 文件系统快照工具被一个字面量 `!!js` 对象永久禁用 |
 | [0003](0003-web-agent-gui-feedback-loop.zh.md) | Web agent（智能体）验证了替代服务器，而非承载其会话的 GUI |
 | [0004](0004-landlock-partial-notice-misclassified-child-failures.zh.md) | Landlock 部分强制执行通知导致子进程失败被误归类 |
+| [0005](0005-fish-companion-short-reply-regression.zh.md) | 风格提示与房间窗口叠成正反馈，大肥鱼的回复退化成一截一截的短句 |
