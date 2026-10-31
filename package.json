@@ -60,6 +60,8 @@
     "test": "pnpm run build:native-system && vitest run",
     "test:fish": "node scripts/test-fish.mjs",
     "test:fish:canary": "node fish/tools/conversation-canary.mjs",
+    "fish:doctor": "node fish/tools/doctor.mjs",
+    "fish:health": "node fish/tools/conversation-health.mjs",
     "test:coverage": "pnpm run build:native-system && vitest run --coverage",
     "build:native-system": "tsx native/system/scripts/build.ts --host-addon-only",
     "test:coverage:partitioned": "tsx scripts/run-coverage-partitions.ts",

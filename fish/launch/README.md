@@ -35,3 +35,12 @@ node fish/sync-runtime.mjs --profile desktop
 ```
 
 默认使用的同样是 `data` 家目录。
+
+## 测试、诊断和观测
+
+- `pnpm run test:fish`：鱼脑、QQ 桥、组合提示词快照、说话风格契约、朗读和 B 站的整套无 key 测试。改到 `fish/**` 时 pre-push 会跑，打包 workflow 和 `release-fish.mjs` 也会在打版前跑；没过就不打包。
+- `pnpm run test:fish:canary`：真模型金丝雀，夜间或改过提示词后手动跑，需要 `DEEPSEEK_API_KEY`。固定 8 条客观上要求说完整的主人消息，当前提示词和仓库里冻结的 known-good 各跑一遍，比中位字数、开头重复率和线索命中；连续两轮当前中位不到对照一半才失败。没有 key 会明确打印“跳过（不是通过）”并退出 2。提示词有意改动后，确认新提示更好，再用 `-- --freeze` 刷新 known-good。
+- `pnpm run fish:doctor [-- --home <数据目录>]`：对比源码插件和 `data/profiles/*/node_modules` 里实际加载的副本（版本和 lib 内容），打印配置与最近一次请求的模型/effort、近 7 天主人回复中位。不一致时退出 1；测到旧代码、发错版本先在这里露出来。启动器每次启动也会把同一行写进 `启动日志.txt`。
+- `pnpm run fish:health [-- --home <数据目录>] [--days 30] [--json]`：按天看主人回复的字数中位、思考中位、重复开头，主人提示里的教截短禁句和缺护栏，以及只剩「我：」的短期窗口。最近一天比前 7 天跌 40%，或出现退化信号时退出 1。发布后和每周各跑一次；安装版的数据目录是 `<安装目录>\data`（本机 `C:\MyDearFish\data`）。
+
+三个工具都只读，不加锁、不改会话日志。

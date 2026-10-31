@@ -5,6 +5,7 @@ import { openSync, closeSync, appendFileSync, mkdirSync, readFileSync, existsSyn
 import { connect } from 'node:net'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { 诊断一行 } from '../tools/doctor.mjs'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const 家 = join(REPO, 'data')
@@ -85,6 +86,11 @@ function 拉起(命令, 参数, 选项, 日志文件) {
 async function 主() {
   记('=== 开始启动 ===')
   记(`运行数据目录：${家}`)
+  try {
+    记(诊断一行(家))
+  } catch (error) {
+    记('诊断没跑成：' + (error && error.message ? error.message : String(error)))
+  }
 
   if (await 端口在听(5099)) {
     记('SnowLuma 已在运行')
