@@ -3349,6 +3349,7 @@ export function apply(ctx) {
         bytes: Math.max(0, Number(项.bytes) || 0),
         addedAt: Math.max(0, Number(项.addedAt) || 0),
         source: String(项.source || '').slice(0, 40),
+        scenes: 归一表情场景(项.scenes),
       })
     }
     表情们.sort((a, b) => a.id - b.id)
@@ -4707,6 +4708,33 @@ export function apply(ctx) {
       String(消息.uid || 消息.说话人 || ''),
     )
     存社交画像()
+  }
+
+  /**
+   * 把一条消息里认出的收藏表情叠进该表情的场景统计：0.99 衰减，命中场景 +1。
+   * 只记已经收进收藏的表情（有 收藏号 的）；场景为空时不记，认不出场合就不瞎学。
+   * @param {object[]} 图片们 - 处理后的图片数组（试自动存表情跑完，收藏号已写上）。
+   * @param {string} 场景 - 判表情场景 的结果，空串表示认不出。
+   */
+  function 记表情场景观察(图片们, 场景) {
+    if (!场景 || !表情场景名.includes(场景)) return
+    const 图们 = Array.isArray(图片们) ? 图片们 : []
+    let 改了 = false
+    for (const 图 of 图们) {
+      if (!图 || !图.收藏号) continue
+      const 贴 = 表情们.find((x) => x.id === 图.收藏号)
+      if (!贴) continue
+      if (!贴.scenes || typeof 贴.scenes !== 'object') 贴.scenes = {}
+      for (const 名 of Object.keys(贴.scenes)) {
+        贴.scenes[名] = Number(贴.scenes[名]) * 0.99
+        if (贴.scenes[名] < 0.01) delete 贴.scenes[名]
+      }
+      贴.scenes[场景] = (Number(贴.scenes[场景]) || 0) + 1
+      const 排 = Object.entries(贴.scenes).sort((a, b) => b[1] - a[1]).slice(0, 表情场景每贴上限)
+      贴.scenes = Object.fromEntries(排)
+      改了 = true
+    }
+    if (改了) 存表情索引()
   }
 
   function 复读状态of(key) {
@@ -6481,12 +6509,48 @@ export function apply(ctx) {
 
   // ---------- 表情包收藏：直接写进 QQ 账号的收藏表情，聊天时从那里挑着发 ----------
 
+  /** 表情的展示名：学过场景的就带上场景标签，没有就用原来的 label。 */
+  function 表情展示名(贴) {
+    const 原 = String(贴.label || '表情')
+    const 学的 = Object.entries(贴.scenes || {})
+      .filter(([, c]) => Number(c) >= 表情场景最少观察)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([名]) => 名)
+    if (学的.length === 0) return 原
+    return 学的.includes(原) ? 原 : `${原}(${学的.join(',')})`
+  }
+
+  /** 把收藏里学过的场景经验折成一句提示：哪个场景配哪张编号。 */
+  function 拼表情场景提示() {
+    if (表情们.length === 0) return ''
+    const 场景贴 = new Map()
+    for (const 贴 of 表情们) {
+      if (!贴.scenes || typeof 贴.scenes !== 'object') continue
+      for (const [名, 值] of Object.entries(贴.scenes)) {
+        if (Number(值) < 表情场景最少观察) continue
+        if (!场景贴.has(名)) 场景贴.set(名, [])
+        场景贴.get(名).push({ id: 贴.id, 重: Number(值) })
+      }
+    }
+    if (场景贴.size === 0) return ''
+    const 行 = [...场景贴.entries()]
+      .sort((a, b) => Math.max(...b[1].map((x) => x.重)) - Math.max(...a[1].map((x) => x.重)))
+      .slice(0, 3)
+      .map(([名, 贴们]) => {
+        const 顶 = 贴们.sort((a, b) => b.重 - a.重).slice(0, 2).map((x) => `#${x.id}`).join('、')
+        return `${名}→${顶}`
+      })
+    if (行.length === 0) return ''
+    return `【表情场景经验·内部提示】群里看来的搭配：${行.join('；')}。挑 face 编号时优先从对应场景里选。`
+  }
+
   /** 同一类表情（同名）合并编号，200 张也不至于把提示撑成一屏名字。 */
   function 表情清单(最多 = 8) {
     const 选 = 最多 > 0 && 表情们.length > 最多 ? 表情们.slice(-最多) : 表情们
     const 组 = new Map()
     for (const x of 选) {
-      const 名 = String(x.label || '表情')
+      const 名 = 表情展示名(x)
       if (!组.has(名)) 组.set(名, [])
       组.get(名).push(`#${x.id}`)
     }
@@ -6496,9 +6560,11 @@ export function apply(ctx) {
   function 表情提示() {
     if (表情们.length === 0) return ''
     const 有未命名 = 表情们.some((x) => !x.label || String(x.label) === '未命名')
-    return `【你在 QQ 收藏的表情包】（共 ${表情们.length} 张）${表情清单(表情上限)}。想发就写 [发表情:#编号]：能和话混着写，按顺序发，一轮最多两张；主人让发哪张、连发几张就照编号写。编号只从上面列的和图注里“你收藏的 #编号”挑，别自己往后数。这批图写 [发表情:图N]。`
+    const 偏好 = 配置 && 配置.社交 && typeof 配置.社交.表情偏好 === 'string' ? 配置.社交.表情偏好.trim() : ''
+    return `【你在 QQ 收藏的表情包】（共 ${表情们.length} 张）${表情清单(表情上限)}。想发就写 [发表情:#编号]：能和话混着写，按顺序发，一轮最多两张；主人让发哪张、连发几张就照编号写。编号只从上面列的和图注里”你收藏的 #编号”挑，别自己往后数。这批图写 [发表情:图N]。`
       + '\n只写 [发表情:#编号] 不配字也算接话；短回复可以只发一张表情，不用先打字；一轮最多两张，别每句都发。'
-      + (有未命名 ? '\n“未命名”的表情只有编号、看不出内容，别猜着发；图注里标着“你收藏的 #编号”，或主人点到编号时再用。' : '')
+      + (有未命名 ? '\n”未命名”的表情只有编号、看不出内容，别猜着发；图注里标着”你收藏的 #编号”，或主人点到编号时再用。' : '')
+      + (偏好 ? `\n【表情偏好】${偏好}` : '')
   }
 
   /** 主人明确让存表情、图还没到时先记着；过期就不算数。 */
@@ -6663,7 +6729,7 @@ export function apply(ctx) {
 
   function 存表情索引() {
     try {
-      writeFileSync(表情索引文件, JSON.stringify({ version: 2, nextId: 表情下一个id, items: 表情们 }, null, 2), 'utf8')
+      writeFileSync(表情索引文件, JSON.stringify({ version: 3, nextId: 表情下一个id, items: 表情们 }, null, 2), 'utf8')
     } catch (error) {
       记账(`存表情索引失败：${String((error && error.message) || error)}`)
     }
@@ -6829,6 +6895,8 @@ export function apply(ctx) {
   // 自动收藏的账：同一张在半小时内又见到、或者这屋常用的场景在配表情，才值得存。
   const 表情近见 = new Map() // md5 → { 次, at }
   let 表情自存日 = { 日: '', 存: 0 }
+  let 上次场景改名At = 0
+  const 场景改名间隔 = 10 * 60_000
 
   /**
    * 自动收藏的三个数跟着主人倾向走：勤存放宽、少存收紧、不存关掉。
@@ -6852,6 +6920,14 @@ export function apply(ctx) {
     if (表情自存日.存 >= 策略.每日上限) return null
     const 净文 = 净表情文字(文字)
     const 场景 = 净文 === '' ? 判表情场景(上文) : 判表情场景(净文)
+    const 禁止词 = Array.isArray(配置.社交.不存表情) ? 配置.社交.不存表情 : []
+    if (禁止词.length > 0) {
+      const 命中 = 禁止词.some((词) => 命中兴趣词(场景, 词) || 命中兴趣词(净文, 词) || 命中兴趣词(上文, 词))
+      if (命中) {
+        记账(`这轮表情命中禁止词，不存`)
+        return null
+      }
+    }
     const 画像 = 社交画像.get(目标.key) || {}
     const 语感 = 画像.表情 || 空表情语感()
     const 场景热 = 场景 !== '' && Number((语感.场景[场景] || {}).重) >= 表情自存场景次
@@ -6880,6 +6956,26 @@ export function apply(ctx) {
       }
     }
     return 最后
+  }
+
+  /** 场景数据够清楚、标签还通用的贴纸，按主导场景改名；改完同步到 QQ 收藏。 */
+  async function 试场景改名(配置) {
+    if (!配置 || !配置.NapCat) return
+    let 改了 = false
+    for (const 贴 of 表情们) {
+      if (!贴.scenes || typeof 贴.scenes !== 'object') continue
+      if (!泛标签(贴.label)) continue
+      const entries = Object.entries(贴.scenes)
+        .filter(([, c]) => Number(c) >= 表情场景最少观察 * 2)
+      if (entries.length === 0) continue
+      entries.sort((a, b) => b[1] - a[1])
+      const 主导 = entries[0][0]
+      if (主导 === 贴.label) continue
+      贴.label = 主导
+      if (贴.emojiId) await 改QQ表情备注(配置, 贴.emojiId, 主导)
+      改了 = true
+    }
+    if (改了) 存表情索引()
   }
 
   /** 旧版存在本机的表情：连上 QQ 后逐张写进账号收藏，成功就删掉本地图片。 */
@@ -7522,6 +7618,9 @@ export function apply(ctx) {
     const 表情语感 = !只看 && 目标.类型 === 'group' && 配置 && 配置.社交 && 配置.社交.学表情
       ? 拼表情语感((社交画像.get(目标.key) || {}).表情)
       : ''
+    const 表情场景行 = !只看 && 目标.类型 === 'group' && 配置 && 配置.社交 && 配置.社交.学表情
+      ? 拼表情场景提示()
+      : ''
     const 复读行 = !只看 && 复读候选
       ? `【可以复读】群里正有人刷同一句短话（${复读候选.来源 === '接龙' ? `${复读候选.人数} 个人在接` : '这个群常说'}）：「${复读候选.文字}」。真接不上、又不想装没看见，就只输出 [复读]，跟着复读这一句；别改字、别加解释。想自己回就正常回，不用非复读。`
       : ''
@@ -7682,6 +7781,7 @@ export function apply(ctx) {
       存提示,
       表情行,
       表情语感,
+      表情场景行,
       落空行,
       分寸,
       风格,
@@ -8704,6 +8804,17 @@ export function apply(ctx) {
       const 消息 = { id, at, 说话人, uid, 文字: 段.文字, 主人, 被叫原因: 本次被叫, 图片, 对别人说, 不聊, 回复id: 段.回复id || '' }
       // 群友/好友反复发的表情、常用场景配的表情，顺手收进 QQ 收藏；主人自己发的图不自动收。
       await 试自动存表情(配置, 目标, 段.文字, 图片, 上一句)
+      // 群消息里见过的收藏表情，记下它出现在什么场合：试自动存表情跑完后图片上已有收藏号
+      if (配置.社交.学表情 && 目标.类型 === 'group') {
+        const 净文 = 净表情文字(段.文字)
+        const 当前场景 = 净文 === '' ? 判表情场景(上一句) : 判表情场景(净文)
+        记表情场景观察(图片, 当前场景)
+        // 场景数据攒够后，给通用标签的贴纸按主导场景改名；十分钟一次就够
+        if (Date.now() - 上次场景改名At >= 场景改名间隔) {
+          上次场景改名At = Date.now()
+          await 试场景改名(配置)
+        }
+      }
       记一次人见(配置, 目标, 消息)
       记自认账号(配置, 目标, 消息)
       新消息.push(消息)
@@ -9781,6 +9892,8 @@ export function apply(ctx) {
       表情包: {
         数量: 表情们.length,
         最近: 表情们.slice(-8).map((x) => ({ id: x.id, label: x.label })),
+        偏好: (配置.社交 && 配置.社交.表情偏好) || '',
+        不存: (配置.社交 && Array.isArray(配置.社交.不存表情)) ? 配置.社交.不存表情 : [],
         selfSave: {
           count: 表情自存日.日 === 今日() ? 表情自存日.存 : 0,
           cap: 表情自存策略().每日上限,

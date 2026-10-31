@@ -119,7 +119,7 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 20)
+  assert.equal(routes.length, 21)
 
   const blocked = await call(routes, '/dsh-fish-mind/overview', {
     headers: { 'sec-fetch-site': 'cross-site' },
@@ -366,7 +366,7 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 20)
+  assert.equal(routes.length, 21)
 
   const search = await call(routes, '/dsh-fish-mind/memes', {
     url: '/dsh-fish-mind/memes?query=%E5%86%85%E5%8D%B7&page=1&pageSize=5',
@@ -470,7 +470,7 @@ test('性格倾向接口：读写、预览不落盘、创造模式说明', async
   ctx.set('agents', { list: () => [] })
   ctx.set('webServer', fakeServer(routes))
   apply(ctx)
-  assert.equal(routes.length, 20)
+  assert.equal(routes.length, 21)
 
   const initial = await call(routes, '/dsh-fish-mind/tendency')
   assert.equal(initial.res.status, 200)

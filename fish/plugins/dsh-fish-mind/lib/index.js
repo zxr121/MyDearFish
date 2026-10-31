@@ -2068,6 +2068,17 @@ export function apply(ctx) {
         sendJson(res, 200, { ok: true, ...result, status })
       })
 
+      route('/dsh-fish-mind/wallet', async (req, res) => {
+        if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
+        const body = await readJsonLimited(req)
+        const result = budget.setWalletCny(body && body.walletCny)
+        const status = budget.status()
+        if (result.changed) {
+          diag(`budget: 主人把余额从 ${formatCny(result.previousCny)} 改成 ${formatCny(result.walletCny)}`)
+        }
+        sendJson(res, 200, { ok: true, ...result, status })
+      })
+
       route('/dsh-fish-mind/phrases', async (req, res) => {
         if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
         const body = await readJsonLimited(req)
@@ -2541,7 +2552,7 @@ export function apply(ctx) {
     return {
       name: 'fish_config',
       description: '读 / 改大肥鱼自己的行为设置。不带 patch 就是读全部设置项和当前值；带 patch 就改。'
-        + '开放的行为旋钮：通到QQ 的启用、群、好友、关掉、只听、少掺和、主动每时、主动每日、关注上限、判断阈值、学表情、模式、称呼、兴趣词、不聊话题、冷却秒；'
+        + '开放的行为旋钮：通到QQ 的启用、群、好友、关掉、只听、少掺和、主动每时、主动每日、关注上限、判断阈值、学表情、表情偏好、不存表情、模式、称呼、兴趣词、不聊话题、冷却秒；'
         + '主动搭话的总开关、间隔、峰谷命中线、安静时段、触发文案；以及性格倾向原文。'
         + '群和好友填号码；关掉、只听填「group:群号」或「friend:QQ号」，少掺和填只接叫她的群号。'
         + '改设置要先让主人在「大肥鱼 → 开发者模式」打开开发者模式，而且只能在你自己的会话里改；'

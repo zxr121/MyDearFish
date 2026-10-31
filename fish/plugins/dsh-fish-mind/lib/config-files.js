@@ -23,6 +23,8 @@ export const QQ_SOCIAL_DEFAULTS = Object.freeze({
   关注上限: 12,
   判断阈值: 0.4,
   学表情: true,
+  表情偏好: '',
+  不存表情: Object.freeze([]),
   模式: 'auto',
   称呼: Object.freeze(['大肥鱼', '肥鱼']),
   兴趣词: Object.freeze([]),
@@ -129,7 +131,7 @@ export function readQqSocial(dshHome) {
 /**
  * 把 QQ 社交段洗成本模块使用的数值：缺字段或字段非法时回出厂值。
  * @param {object|null} social - `readQqSocial().social`。
- * @returns {object} `{ 启用, 群, 好友, 关掉, 只听, 少掺和, 主动每时, 主动每日, 关注上限, 判断阈值, 学表情, 模式, 称呼, 兴趣词, 不聊话题, 冷却秒 }`。
+ * @returns {object} `{ 启用, 群, 好友, 关掉, 只听, 少掺和, 主动每时, 主动每日, 关注上限, 判断阈值, 学表情, 表情偏好, 不存表情, 模式, 称呼, 兴趣词, 不聊话题, 冷却秒 }`。
  */
 export function qqSocialValues(social) {
   const source = isPlainObject(social) ? social : {}
@@ -146,6 +148,8 @@ export function qqSocialValues(social) {
     关注上限: Math.round(finiteNumber(source['关注上限'], defaults['关注上限'])),
     判断阈值: finiteNumber(source['判断阈值'], defaults['判断阈值']),
     学表情: booleanValue(source['学表情'], defaults['学表情']),
+    表情偏好: typeof source['表情偏好'] === 'string' ? source['表情偏好'].trim().slice(0, 200) : defaults['表情偏好'],
+    不存表情: wordList(source['不存表情'], [], 30),
     模式: source['模式'] === 'mention' ? 'mention' : 'auto',
     称呼: wordList(source['称呼'], defaults['称呼']),
     兴趣词: wordList(source['兴趣词'], []),
