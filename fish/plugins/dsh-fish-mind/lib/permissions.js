@@ -189,6 +189,14 @@ function fold(pathValue) {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
+/** 命令文本里可能用别名写同一个目录（Windows 8.3 短名、软链接），字符串匹配要把配置原样路径也算上。 */
+function foldVariants(pathValue) {
+  const folded = fold(pathValue)
+  const raw = resolve(pathValue)
+  const rawFolded = process.platform === 'win32' ? raw.toLowerCase() : raw
+  return rawFolded === folded ? [folded] : [folded, rawFolded]
+}
+
 function isInside(candidate, root) {
   const rel = relative(root, candidate)
   return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel))
@@ -413,16 +421,22 @@ export function createBroker({
     regex: compileNamePattern(pattern),
   }))
   const mindRoot = fold(join(dshHome, 'fish-mind'))
+  const mindShellRoots = foldVariants(join(dshHome, 'fish-mind'))
   // 鱼脑自己的代码同样是固定内核：私设、安全规则、隐私规则和权限规则都写在这里。
   // 工具能改源码就等于能改自己的出生和笼子，所以源码和鱼脑数据一样只读。
   const sourceRoot = fold(join(fileURLToPath(new URL('..', import.meta.url)), 'lib'))
   // 鱼脑目录里的预算、配置、经历、账本和以后的核心只能由内部流程写。
   // 工具写进去就等于她可以改自己的额度和记忆，必须硬拒，不能只弹审批。
   const sealedRoots = [mindRoot, sourceRoot]
+  const sealedShellRoots = [...new Set([...mindShellRoots, sourceRoot])]
   const dshRoot = fold(dshHome)
+  const dshShellRoots = foldVariants(dshHome)
   // 这些探针只代表“命令提到了 DSH 目录本身”；开发者模式的只读命令可以放过它们，
   // 凭据、身份文件和敏感文件名的探针仍然照常拒绝。
-  const dshProbes = new Set([dshRoot, dshRoot.split(sep).join('/'), dshRoot.split('/').join(sep)])
+  const dshProbes = new Set()
+  for (const root of dshShellRoots) {
+    for (const form of [root, root.split(sep).join('/'), root.split('/').join(sep)]) dshProbes.add(form)
+  }
   if (basename(dshRoot).startsWith('.')) dshProbes.add(basename(dshRoot))
   const homeRoot = fold(homedir())
   const protectedRoots = [...new Set([...readRoots, ...writeRoots])]
@@ -435,7 +449,7 @@ export function createBroker({
     hardProbes.add(value.split(sep).join('/'))
     hardProbes.add(value.split('/').join(sep))
   }
-  addProbe(dshRoot)
+  for (const root of dshShellRoots) addProbe(root)
   for (const root of protectedRoots) {
     addProbe(root)
     const base = basename(root)
@@ -516,9 +530,12 @@ export function createBroker({
     if (typeof command !== 'string' || command === '') return false
     const windows = process.platform === 'win32'
     const haystack = windows ? command.toLowerCase() : command
-    const variants = new Set([root, root.split(sep).join('/'), root.split('/').join(sep)])
-    for (const variant of variants) {
-      if (variant.length > 3 && haystack.includes(windows ? variant.toLowerCase() : variant)) return true
+    const roots = Array.isArray(root) ? root : [root]
+    for (const item of roots) {
+      const variants = new Set([item, item.split(sep).join('/'), item.split('/').join(sep)])
+      for (const variant of variants) {
+        if (variant.length > 3 && haystack.includes(windows ? variant.toLowerCase() : variant)) return true
+      }
     }
     return false
   }
@@ -590,7 +607,7 @@ export function createBroker({
       && isOwnerSession(exec) === true
       && commands.length > 0
       && commands.every((command) => isReadOnlyShellCommand(command, exec.name))
-      && commands.some((command) => shellTouchesRoot(command, dshRoot) || sealedRoots.some((root) => shellTouchesRoot(command, root)))
+      && commands.some((command) => shellTouchesRoot(command, dshShellRoots) || sealedShellRoots.some((root) => shellTouchesRoot(command, root)))
 
     let privatePath = null
     let privateRule = ''
@@ -616,8 +633,9 @@ export function createBroker({
     // 创造模式可以写鱼自己的源码；鱼脑数据（记忆、预算、权限）仍然只读。
     const creator = isCreatorSession(exec) === true
     const sealedTargets = creator ? [mindRoot] : sealedRoots
+    const sealedShellTargets = creator ? mindShellRoots : sealedShellRoots
     const sealedPath = write ? paths.find((pathValue) => sealedTargets.some((root) => isInside(fold(pathValue), root))) : undefined
-    const sealedCommand = commands.find((command) => !developerShellRead && sealedTargets.some((root) => shellTouchesRoot(command, root)))
+    const sealedCommand = commands.find((command) => !developerShellRead && sealedShellTargets.some((root) => shellTouchesRoot(command, root)))
     const developer = (developerRead && paths.some((pathValue) => isInside(fold(pathValue), dshRoot))) || developerShellRead
     return {
       paths,

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { mkdtempSync, mkdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +12,7 @@ import { createPrivacyGuard } from '../lib/privacy.js'
 const SOURCE_FILE = fileURLToPath(new URL('../lib/tendency.js', import.meta.url))
 
 function makeBroker(overrides = {}) {
-  const dshHome = mkdtempSync(join(tmpdir(), 'fish-mind-perm-'))
+  const dshHome = overrides.home || mkdtempSync(join(tmpdir(), 'fish-mind-perm-'))
   const config = buildDefaults(dshHome)
   Object.assign(config.permissions, overrides.permissions || {})
   if (overrides.autonomous) Object.assign(config.permissions.autonomous, overrides.autonomous)
@@ -339,6 +340,39 @@ test('开发者模式关着时，只读 shell 查鱼脑目录仍然拒绝', () =
   const verdict = broker.evaluate(exec('pwsh', { command: `Get-ChildItem '${join(dshHome, 'fish-mind')}'` }))
   assert.equal(verdict.decision, 'deny')
   assert.equal(verdict.rule, 'sealed.fish-mind')
+})
+
+test('命令里用别名写 DSH 目录，也按同一个目录判权限', (t) => {
+  const real = mkdtempSync(join(tmpdir(), 'fish-mind-alias-'))
+  const alias = join(tmpdir(), `fish-mind-link-${randomUUID()}`)
+  try {
+    symlinkSync(real, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch {
+    t.skip('这台机器建不了目录别名')
+    return
+  }
+  try {
+    const mind = join(alias, 'fish-mind')
+    const on = makeBroker({ developer: true, home: alias })
+    const listing = on.broker.evaluate(exec('pwsh', { command: `Get-ChildItem '${mind}'` }))
+    assert.equal(listing.decision, 'allow')
+    assert.equal(listing.rule, 'developer.read')
+
+    const write = on.broker.evaluate(exec('pwsh', { command: `Set-Content '${join(mind, 'config.json')}' -Value '{}'` }))
+    assert.equal(write.decision, 'deny')
+    assert.equal(write.rule, 'sealed.fish-mind')
+
+    const off = makeBroker({ home: alias })
+    const closed = off.broker.evaluate(exec('pwsh', { command: `Get-ChildItem '${mind}'` }))
+    assert.equal(closed.decision, 'deny')
+    assert.equal(closed.rule, 'sealed.fish-mind')
+  } finally {
+    try {
+      if (process.platform === 'win32') rmdirSync(alias)
+      else unlinkSync(alias)
+    } catch {}
+    rmSync(real, { recursive: true, force: true })
+  }
 })
 
 test('fish_config 改设置要开发者模式加主人前台会话，读不用开发者模式', () => {
