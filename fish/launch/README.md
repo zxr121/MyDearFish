@@ -24,7 +24,8 @@ node fish/launch/release-fish.mjs
 
 - `--tag fish-release-<日期>`：标签已经推过，只等发布、下载并校验。
 - `--again`：这个提交已经打过版，仍要再打一版（默认会提示并退出）。
-- `--dry-run`：只预检并打印计划，不推标签。
+- `--dry-run`：只预检并打印计划，不本地打包、不推标签。
+- `--skip-local`：跳过本地打包，直接推标签等 CI（本机没装 VS C++ Build Tools 时用）。
 - `--out <目录>`：安装包下载目录，默认 `Downloads`。
 - `--timeout <分钟>`：等 CI 的上限，默认 60。
 

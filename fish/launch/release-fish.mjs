@@ -19,13 +19,14 @@ const DOWNLOADS = join(process.env.USERPROFILE || 'C:\\Users\\83726', 'Downloads
 const 桌面配置 = join(REPO, 'apps', 'desktop', '.env.windows')
 const 本地产物目录 = join(REPO, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64', 'unsigned-artifacts')
 
-const 参数 = { tag: '', again: false, dryRun: false, out: DOWNLOADS, timeoutMin: 60 }
+const 参数 = { tag: '', again: false, dryRun: false, skipLocal: false, out: DOWNLOADS, timeoutMin: 60 }
 const argv = process.argv.slice(2)
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
   if (a === '--tag') 参数.tag = argv[++i] || ''
   else if (a === '--again') 参数.again = true
   else if (a === '--dry-run') 参数.dryRun = true
+  else if (a === '--skip-local') 参数.skipLocal = true
   else if (a === '--out') 参数.out = resolve(argv[++i] || DOWNLOADS)
   else if (a === '--timeout') 参数.timeoutMin = Math.max(5, Number(argv[++i]) || 60)
   else if (a === '-h' || a === '--help') {
@@ -35,6 +36,7 @@ for (let i = 0; i < argv.length; i++) {
   --tag <标签>     标签已经推过，只等发布、下载并校验（跳过本地打包）
   --again          这个提交已经打过版，仍要再打一版
   --dry-run        只预检并打印计划，不本地打包、不推标签
+  --skip-local     跳过本地打包，直接推标签等 CI（本机没装 VS C++ Build Tools 时用）
   --out <目录>     安装包下载目录（默认 ${DOWNLOADS}）
   --timeout <分>   等 CI 的上限分钟数（默认 60）`)
     process.exit(0)
@@ -504,10 +506,14 @@ async function 主流程() {
       return
     }
     阶段(2, 7, '本地打包')
-    本地包 = await 本地打一版()
-    说(`  本地安装包 ${本地包.文件}`)
-    说(`  大小 ${本地包.大小.toLocaleString('en-US')} 字节（${MB(本地包.大小)}）`)
-    说(`  SHA-512 ${本地包.sha}`)
+    if (参数.skipLocal) {
+      说('  按 --skip-local 跳过本地打包，直接推标签等 CI')
+    } else {
+      本地包 = await 本地打一版()
+      说(`  本地安装包 ${本地包.文件}`)
+      说(`  大小 ${本地包.大小.toLocaleString('en-US')} 字节（${MB(本地包.大小)}）`)
+      说(`  SHA-512 ${本地包.sha}`)
+    }
     if (!本地.has(tag)) git(['tag', tag])
     说('推送标签；pre-push 会先跑 typecheck（约 30 秒）')
     const 推送开始 = Date.now()
