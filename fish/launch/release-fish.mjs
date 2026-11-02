@@ -439,11 +439,21 @@ async function 本地打一版() {
   保证本地打包配置()
   const 开始 = Date.now()
   说('  跑 package:desktop:win:x64:unsigned（不签名，通常 15–30 分钟）…')
+  // Windows 自带的 bsdtar 认得 D:\ 开头的归档路径；Git 的 GNU tar 会把盘符冒号当成远程主机。
+  // GitHub 直连不稳时，Electron / electron-builder 的二进制走 npmmirror；环境变量可覆盖。
+  const 打包环境 = {
+    ...git环境,
+    ELECTRON_MIRROR: process.env.ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/',
+    ELECTRON_BUILDER_BINARIES_MIRROR: process.env.ELECTRON_BUILDER_BINARIES_MIRROR || 'https://npmmirror.com/mirrors/electron-builder-binaries/',
+    ...(process.platform === 'win32'
+      ? { [PATH键]: [join(process.env.SystemRoot || 'C:\\Windows', 'System32'), git环境[PATH键]].join(分隔符) }
+      : {}),
+  }
   try {
     execFileSync(process.execPath, [
       join(REPO, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
       'run', 'package:desktop:win:x64:unsigned', '--', '--build-version', 'auto',
-    ], { cwd: REPO, env: git环境, stdio: 'inherit', timeout: 60 * 60_000 })
+    ], { cwd: REPO, env: 打包环境, stdio: 'inherit', timeout: 60 * 60_000 })
   } catch {
     失败('本地打包失败；没有推标签，也没有构建。')
   }
