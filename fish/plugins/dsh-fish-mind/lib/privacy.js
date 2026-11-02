@@ -229,6 +229,7 @@ const GENERIC = [
 ]
 
 const OUTBOUND_WORDS = /密码|口令|密钥|令牌|凭证|账号|帐号|账户|用户名|登录|验证码|主机|电脑|计算机|本机|内网|局域网|IP\s*地址|端口|部署|路径|目录|工作区|邮箱|手机号|电话|身份证|银行卡|住址|地址|服务器|数据库|SSH|VPN|Cookie|Token|API\s*Key/i
+const OUTBOUND_WORDS_ALL = new RegExp(OUTBOUND_WORDS.source, 'gi')
 
 function splitSentences(text) {
   const parts = String(text).split(/([。！？!?；;\n]+)/)
@@ -350,8 +351,10 @@ export function createPrivacyGuard({ dshHome = join(homedir(), '.dsh'), diag = (
       out = splitSentences(out)
         .map(([body, delimiter]) => {
           if (!OUTBOUND_WORDS.test(body)) return body + delimiter
-          if (/不方便说|不想说|不能说/.test(body) && !hasConcreteValue(body)) return body + delimiter
-          if (!hasConcreteValue(body) && !hasCopula(body)) return body + delimiter
+          // 关键词本身不算具体值，否则「token 也要慢慢啃」这种玩梗会被当成机密整句删掉。
+          const 其余 = body.replace(OUTBOUND_WORDS_ALL, ' ')
+          if (/不方便说|不想说|不能说/.test(body) && !hasConcreteValue(其余)) return body + delimiter
+          if (!hasConcreteValue(其余) && !hasCopula(其余)) return body + delimiter
           bump('outbound-private')
           dropped = true
           // 换行分隔必须留住，否则删掉中间一句会把前后两句粘成一句。

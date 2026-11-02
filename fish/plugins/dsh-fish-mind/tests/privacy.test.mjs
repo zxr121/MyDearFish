@@ -61,6 +61,18 @@ test('outbound：盘符路径和账号密码都留不下', () => {
   assert.ok(!result.text.includes('D:\\work'), result.text)
 })
 
+test('outbound：玩梗里的 token 不整句删掉', () => {
+  const guard = makeGuard()
+  const text = '饭要慢慢吃，token 也要慢慢啃，急不来的'
+  assert.equal(guard.redact(text, 'outbound').text, text)
+})
+
+test('outbound：真 token 赋值仍然不发', () => {
+  const guard = makeGuard()
+  const result = guard.redact('我的 token 是 sk-abcdefghijklmnopqrstuvwxyz123456', 'outbound')
+  assert.equal(result.text, '')
+})
+
 test('hasCredential：只认高置信度凭据，代码引用和雪花 id 不算', () => {
   const guard = makeGuard()
   for (const text of [
