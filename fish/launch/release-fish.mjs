@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// 打版：推 fish-release 标签 → 等 CI 发布 → 下载安装包 → 对照 nightly.yml 校验 → 交付路径。
+// 打版：本地先打 unsigned 安装包 → 推 fish-release 标签 → 等 CI 发布 → 下载安装包 → 对照 nightly.yml 校验 → 交付路径。
 // 常用：node fish/launch/release-fish.mjs [--tag <已有标签>] [--again] [--dry-run] [--out <目录>] [--timeout <分钟>]
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
 import { tmpdir } from 'node:os'
@@ -16,6 +16,8 @@ const SLUG = 'zxr121/MyDearFish'
 const PROXY = 'https://gh-proxy.com/'
 const WORKFLOW = `https://github.com/${SLUG}/actions/workflows/build-fish-exe.yml`
 const DOWNLOADS = join(process.env.USERPROFILE || 'C:\\Users\\83726', 'Downloads')
+const 桌面配置 = join(REPO, 'apps', 'desktop', '.env.windows')
+const 本地产物目录 = join(REPO, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64', 'unsigned-artifacts')
 
 const 参数 = { tag: '', again: false, dryRun: false, out: DOWNLOADS, timeoutMin: 60 }
 const argv = process.argv.slice(2)
@@ -29,9 +31,10 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '-h' || a === '--help') {
     console.log(`用法：node fish/launch/release-fish.mjs [选项]
 
-  --tag <标签>     标签已经推过，只等发布、下载并校验
+默认先在本地打一版 unsigned exe，成功后才推 fish-release 标签、等 CI 发布。
+  --tag <标签>     标签已经推过，只等发布、下载并校验（跳过本地打包）
   --again          这个提交已经打过版，仍要再打一版
-  --dry-run        只预检并打印计划，不推标签
+  --dry-run        只预检并打印计划，不本地打包、不推标签
   --out <目录>     安装包下载目录（默认 ${DOWNLOADS}）
   --timeout <分>   等 CI 的上限分钟数（默认 60）`)
     process.exit(0)
@@ -400,9 +403,63 @@ function 跑鱼测试() {
   }
 }
 
+/** 开发桌面端占着 .desktop-build/targets/win-x64/runtime；本地打包会重写它。 */
+function 桌面端在跑() {
+  if (process.platform !== 'win32') return false
+  try {
+    const 出 = execFileSync('powershell', ['-NoProfile', '-Command',
+      "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*MyDearFish*apps*desktop*' } | Measure-Object | Select-Object -ExpandProperty Count",
+    ], { encoding: 'utf8', windowsHide: true, timeout: 15_000 })
+    return Number(出.trim()) > 0
+  } catch {
+    return false
+  }
+}
+
+/** 本地 unsigned 打包只读 .env.windows；缺文件时补一份能直接打的最小设置。 */
+function 保证本地打包配置() {
+  if (existsSync(桌面配置)) return
+  mkdirSync(dirname(桌面配置), { recursive: true })
+  writeFileSync(桌面配置, [
+    'DSH_DESKTOP_APP_ID=com.deepseek.harness',
+    `DSH_DESKTOP_UPDATE_FEED_URL=https://github.com/${SLUG}/releases/latest/download/`,
+    `DSH_DESKTOP_UPDATE_DOWNLOAD_PAGE=https://github.com/${SLUG}/releases/latest`,
+    'DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY=4',
+    '',
+  ].join('\n'))
+  说('  已生成 apps/desktop/.env.windows（已 gitignore）')
+}
+
+/** 先在本机打一版 unsigned exe；失败就不推标签，免得 CI 先跑起来。 */
+async function 本地打一版() {
+  if (process.platform !== 'win32') 失败('本地打包只支持 Windows 主机。')
+  if (桌面端在跑()) 失败('开发桌面端还在运行；先完全退出 DSH，再打版（本地打包会重写 .desktop-build/targets/win-x64/runtime）。')
+  保证本地打包配置()
+  const 开始 = Date.now()
+  说('  跑 package:desktop:win:x64:unsigned（不签名，通常 15–30 分钟）…')
+  try {
+    execFileSync(process.execPath, [
+      join(REPO, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
+      'run', 'package:desktop:win:x64:unsigned', '--', '--build-version', 'auto',
+    ], { cwd: REPO, env: git环境, stdio: 'inherit', timeout: 60 * 60_000 })
+  } catch {
+    失败('本地打包失败；没有推标签，也没有构建。')
+  }
+  const 新包 = readdirSync(本地产物目录)
+    .filter((名) => 名.endsWith('-win-x64-unsigned.exe'))
+    .map((名) => join(本地产物目录, 名))
+    .filter((文件) => statSync(文件).isFile() && statSync(文件).mtimeMs >= 开始 - 60_000)
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+  if (新包.length === 0) 失败(`本地打包结束但没找到新安装包：${本地产物目录}`)
+  const 文件 = 新包[0]
+  const 大小 = statSync(文件).size
+  const sha = await SHA512(文件)
+  return { 文件, 大小, sha }
+}
+
 async function 主流程() {
   说('打版开始')
-  阶段(1, 6, '预检')
+  阶段(1, 7, '预检')
   const HEAD = git(['rev-parse', 'HEAD']).trim()
   const 短 = HEAD.slice(0, 7)
   const 分支 = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim()
@@ -420,10 +477,12 @@ async function 主流程() {
   说(`远端标签 ${标签表.size} 个`)
 
   let tag = 参数.tag
+  let 本地包 = null
   if (tag) {
     if (!标签表.has(tag)) 失败(`远端没有标签 ${tag}`)
     const 指向 = 标签表.get(tag)
     if (指向 !== HEAD) 说(`注意：${tag} 指向 ${指向.slice(0, 7)}，不是当前 HEAD ${短}`)
+    说('--tag 只等已发布的包，跳过本地打包')
   } else {
     const 已发布 = [...标签表].find(([名, sha]) => sha === HEAD && (名.startsWith('fish-release-') || 名.startsWith('v')))
     if (已发布 && !参数.again) {
@@ -441,9 +500,14 @@ async function 主流程() {
     tag = 候选
     说(`将打标签 ${tag} → ${短}`)
     if (参数.dryRun) {
-      说('--dry-run：不推送，到此为止')
+      说('--dry-run：不本地打包、不推送，到此为止')
       return
     }
+    阶段(2, 7, '本地打包')
+    本地包 = await 本地打一版()
+    说(`  本地安装包 ${本地包.文件}`)
+    说(`  大小 ${本地包.大小.toLocaleString('en-US')} 字节（${MB(本地包.大小)}）`)
+    说(`  SHA-512 ${本地包.sha}`)
     if (!本地.has(tag)) git(['tag', tag])
     说('推送标签；pre-push 会先跑 typecheck（约 30 秒）')
     const 推送开始 = Date.now()
@@ -458,7 +522,7 @@ async function 主流程() {
     return
   }
 
-  阶段(2, 6, '等 CI 构建')
+  阶段(3, 7, '等 CI 构建')
   let 版本 = ''
   const 已有发布 = [...标签表].find(([名, sha]) => 名.startsWith('v') && sha === 目标提交)
   if (已有发布) 版本 = 已有发布[0].slice(1)
@@ -493,7 +557,7 @@ async function 主流程() {
   }
   说(`发布完成：v${版本}`)
 
-  阶段(3, 6, '取 nightly.yml')
+  阶段(4, 7, '取 nightly.yml')
   const 安装包名 = `deepseek-harness-${版本}-win-x64-unsigned.exe`
   const 发布地址 = `https://github.com/${SLUG}/releases/download/v${版本}/${安装包名}`
   const nightly = await 取小文件(`https://github.com/${SLUG}/releases/download/v${版本}/nightly.yml`, 'nightly.yml')
@@ -501,19 +565,23 @@ async function 主流程() {
   if (!清单.sha || !清单.size) 失败(`nightly.yml 里没找到 ${安装包名} 的大小或 SHA-512`)
   说(`  安装包 ${basename(清单.url || 安装包名)} · ${MB(清单.size)}`)
 
-  阶段(4, 6, '下载安装包')
+  阶段(5, 7, '下载安装包')
   说(`  目标目录 ${参数.out}`)
   const 安装包 = await 下载安装包({ url: 发布地址, 文件: 安装包名, 大小: 清单.size, sha: 清单.sha })
 
-  阶段(5, 6, '校验')
+  阶段(6, 7, '校验')
   const 实际大小 = statSync(安装包).size
   const 实际sha = await SHA512(安装包)
   if (实际大小 !== 清单.size || 实际sha !== 清单.sha) 失败('安装包与 nightly.yml 对不上')
   说(`  大小 ${实际大小.toLocaleString('en-US')} 字节`)
   说(`  SHA-512 ${实际sha}`)
 
-  阶段(6, 6, '交付')
+  阶段(7, 7, '交付')
   说('──────────────────────────────')
+  if (本地包) {
+    说(`本地包    ${本地包.文件}`)
+    说(`          ${本地包.大小.toLocaleString('en-US')} 字节（${MB(本地包.大小)}）· SHA-512 ${本地包.sha}`)
+  }
   说(`版本      ${版本}`)
   说(`安装包    ${安装包}`)
   说(`大小      ${实际大小.toLocaleString('en-US')} 字节（${MB(实际大小)}）`)

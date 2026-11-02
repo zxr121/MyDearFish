@@ -16,7 +16,9 @@ Windows 快捷方式指向 `start-dsh.bat`（前台）或 `start-dsh-silent.vbs`
 node fish/launch/release-fish.mjs
 ```
 
-一条命令走完：预检工作区 → 推 `fish-release-<UTC日期>` 标签触发 CI → 等 GitHub Release → 把安装包下到 `Downloads` → 对照 `nightly.yml` 校验大小和 SHA-512，最后打印完整路径和校验值。过程中显示每个阶段的耗时、CI 的 Run 编号与状态、下载百分比和速度；下载支持断点续传和自动重试，直连不通时改走 `gh-proxy.com` 镜像。
+一条命令走完：预检工作区 → 先在本地打一版 unsigned exe（不签名，产物在 `apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts`）→ 推 `fish-release-<UTC日期>` 标签触发 CI → 等 GitHub Release → 把安装包下到 `Downloads` → 对照 `nightly.yml` 校验大小和 SHA-512，最后同时打印本地包和 CI 包的路径与校验值。过程中显示每个阶段的耗时、CI 的 Run 编号与状态、下载百分比和速度；下载支持断点续传和自动重试，直连不通时改走 `gh-proxy.com` 镜像。
+
+本地打包会重写 `apps/desktop/.desktop-build/targets/win-x64/runtime`，开发桌面端开着时脚本会先停下并提示退出；本地打包失败不会推标签，也不会触发 CI。`--tag` 只等已有发布，跳过本地打包。
 
 常用参数：
 
