@@ -27,6 +27,10 @@ window.__ModuleLoader__.load({
 
     const h = React.createElement
 
+    const 关系类名 = { 亲近: '被暖到', 轻慢: '被轻慢', 越界: '被越界', 失信: '失信', 争吵: '吵了一架', 修复: '道歉/修复' }
+    const 关系度名 = { 1: '轻', 2: '中', 3: '重' }
+    const 关系修名 = { 未修: '未修复', 观察: '观察中', 已修: '已修复', 再犯: '又犯了' }
+
     const S = {
       wrap: {
         padding: '12px 14px 24px',
@@ -1732,6 +1736,8 @@ window.__ModuleLoader__.load({
               (社交.学说话 ? '' : '（学说话已关，下面是之前量下的）') +
               (社交.学表情 ? '' : '（学表情已关，下面是之前量下的）'),
           ),
+          h('div', { style: { ...S.dim, marginTop: 4 } },
+            '阶段看认识多久，状态看现在处得怎样；综合好感会随相处升降。点开一个人能看到信/隔阂/疤和最近的关系变化。'),
           h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 } },
             h('input', {
               type: 'text',
@@ -1784,8 +1790,8 @@ window.__ModuleLoader__.load({
                     (Array.isArray(p.别名) && p.别名.length ? '也叫 ' + p.别名.join('、') + ' · ' : '') +
                       (账号们.length > 1 ? 账号们.length + ' 个号（都算同一个人）· ' : '') +
                       '认识 ' + (p.天数 || 0) + ' 天 · 见过 ' + (p.见过 || 0) + ' 次' +
-                      ' · 暖 ' + ((p.印象 && p.印象.暖) || 0) + ' / 信 ' + ((p.印象 && p.印象.信) || 0) +
-                      (总 ? ' · ' + 总.阶段 + ' · 口气' + 总.口气 : '') +
+                      ' · 暖 ' + (总 ? 总.暖 : 0) + ' / 信 ' + (总 ? 总.信 : 0) +
+                      (总 ? ' · ' + 总.阶段 + ' · ' + 总.状态 + ' · 口气' + 总.口气 : '') +
                       (房间.length ? ' · ' + 房间.length + ' 间屋子' : ' · 还没在屋里说过话') +
                       (关系们.length ? ' · ' + 关系们.length + ' 条关系' : ''),
                   ),
@@ -1806,11 +1812,23 @@ window.__ModuleLoader__.load({
                       h('div', { style: { fontWeight: 600, fontSize: 12 } }, '总的关系（群和私聊共用）'),
                       h('div', { style: S.dim },
                         '综合好感 ' + (总.综合 === undefined ? '—' : 总.综合) + ' / 100 · ' +
-                          '熟 ' + 总.熟 + ' · 暖 ' + 总.暖 + ' · 张力 ' + 总.张力 +
+                          '熟 ' + 总.熟 + ' · 暖 ' + 总.暖 + ' · 信 ' + (总.信 === undefined ? '—' : 总.信) +
+                          ' · 张力 ' + 总.张力 + ' · 隔阂 ' + (总.隔阂 === undefined ? '—' : 总.隔阂) +
+                          ' · 疤 ' + (总.疤 === undefined ? '—' : 总.疤) + ' · ' + 总.状态 +
                           ' · 聊过 ' + 总.互动 + ' 次 · 被叫 ' + 总.被叫 + ' 次' +
                           (总.最后At ? ' · 最近 ' + 时间短(总.最后At) : '') +
                           (总.上次她说At ? ' · 她上次开口 ' + 时间短(总.上次她说At) : ''),
                       ),
+                      Array.isArray(总.账) && 总.账.length
+                        ? h('div', { style: { fontSize: 12, marginTop: 4 } },
+                            '最近的关系变化：' +
+                             总.账.map((x) => 时间短(x.at) + ' ' + (关系类名[x.类] || x.类) +
+                               '（' + (关系度名[x.度] || x.度) + '）' +
+                               (x.文 && x.文 !== x.类 ? '·' + x.文 : '') +
+                               '·' + (关系修名[x.修] || x.修) +
+                               (x.房叫 ? '·' + x.房叫 : '')).join('；'),
+                          )
+                        : null,
                     )
                   : null,
                 关系们.length || 被说.length
@@ -1870,7 +1888,7 @@ window.__ModuleLoader__.load({
                         key: r.key,
                         style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' },
                       },
-                        h('div', { style: { fontWeight: 600, fontSize: 12 } }, r.叫 + ' · ' + r.阶段 + ' · ' + r.口气),
+                        h('div', { style: { fontWeight: 600, fontSize: 12 } }, r.叫 + ' · ' + r.阶段 + ' · ' + r.状态 + ' · ' + r.口气),
                         h('div', { style: S.dim },
                           '这间屋：熟 ' + r.熟 + ' · 暖 ' + r.暖 + ' · 张力 ' + r.张力 +
                             ' · 见过 ' + r.见过 + ' · 聊过 ' + r.互动 + ' 次 · 被叫 ' + r.被叫 + ' 次' +

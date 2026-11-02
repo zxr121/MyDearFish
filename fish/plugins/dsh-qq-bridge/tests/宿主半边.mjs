@@ -788,16 +788,44 @@ await 轮询回调()
 await new Promise((r) => setTimeout(r, 20))
 报('轮询：同一条消息不重复转', 转进的.length === 之前转 + 1, '转进条数=' + 转进的.length)
 
+// ⑬b 主人私聊也进人物志：明确伤人会掉，道歉进观察期，近况随批注入
+const 读主人档 = () => {
+  try { return JSON.parse(readFileSync(join(家, 'qq-social-people.json'), 'utf8')).people || {} } catch (e) { return {} }
+}
+私聊消息文本 = '你真没用，闭嘴'
+私聊消息id = 9101
+私聊消息时间 = Math.floor(Date.now() / 1000) + 105
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 主人前 = 读主人档()['123']
+报('主人私聊：进入人物志，明确伤人会让关系掉',
+  !!主人前 && 主人前.主人 === true && 主人前.关系.暖 < 80 && 主人前.关系.张力 >= 14 &&
+    主人前.关系.账.some((x) => x.类 === '轻慢'),
+  JSON.stringify(主人前 && 主人前.关系))
+报('主人私聊：关系近况随这一批注入',
+  JSON.stringify(转进的.at(-1)).includes('【关系近况】') && JSON.stringify(转进的.at(-1)).includes('没解开的别扭'),
+  JSON.stringify(转进的.at(-1)?.content?.[0]?.text || '').slice(0, 300))
+私聊消息文本 = '对不起，我不该那么说你，下次不会了'
+私聊消息id = 9102
+私聊消息时间 = Math.floor(Date.now() / 1000) + 106
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 主人后 = 读主人档()['123']
+报('主人私聊：真诚道歉让张力下降并进入观察期',
+  !!主人后 && 主人后.关系.张力 < 主人前.关系.张力 && 主人后.关系.账[0].修 === '观察',
+  JSON.stringify(主人后 && 主人后.关系))
+
 // ⑭ 轮询：总开关关 → 不转
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
   总开关: false, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
+const 关之前 = 转进的.length
 私聊消息文本 = '还开着吗'
 私聊消息id = 9002
 私聊消息时间 = Math.floor(Date.now() / 1000) + 120
 await 轮询回调()
 await new Promise((r) => setTimeout(r, 20))
-报('轮询：总开关关 → 不转', 转进的.length === 之前转 + 1, '转进条数=' + 转进的.length)
+报('轮询：总开关关 → 不转', 转进的.length === 关之前, '转进条数=' + 转进的.length)
 
 // ⑮ /receive 也挡跨站；超长正文截断，别把整段粘贴灌进上下文
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
