@@ -997,6 +997,11 @@ function 造执行体(ctx) {
           不可用.push(`${短id(id)}(QQ：${候.房.不能因 || '现在不能主动开口'})`)
           continue
         }
+        // 群里的「主动开话题」还要过桥的开头闸门：没勾选、今天用完了、屋里正热聊都不选。
+        if (候.房.类型 === 'group' && 候.房.能开头 === false) {
+          不可用.push(`${短id(id)}(QQ：${候.房.开头不能因 || '现在不适合起话'})`)
+          continue
+        }
         if (a !== undefined && a.status !== undefined && a.status !== 'idle') {
           不可用.push(`${短id(id)}(忙)`)
           continue
@@ -1066,9 +1071,27 @@ function 造执行体(ctx) {
     // 到点那一轮用保底文案；平时用触发文案。QQ 房间仍然用房间提示。
     const 基础文案 = 算 !== null && 算.保底 ? 配置.保底文案 : 配置.触发文案
     let 文案 = 基础文案
+    let 开头语 = ''
     if (挑中.qq) {
       // QQ 群/好友：屋里的人不是主人，鱼脑那份「讲给主人听」的私房话不能端到这儿来。
-      文案 = 群友开口提示(挑中.房)
+      const qq服务 = 取qq社交(ctx)
+      let 开头 = null
+      if (挑中.房 && 挑中.房.类型 === 'group' && qq服务 && typeof qq服务.开头建议 === 'function') {
+        try {
+          开头 = await qq服务.开头建议(挑中.房.会话id || 目标id, { 登记: !演练 })
+        } catch (error) {
+          记账(`群开头建议没拿到（${String((error && error.message) || error)}），这轮按旧提示走`)
+        }
+      }
+      if (开头 && 开头.ok === true && typeof 开头.提示 === 'string' && 开头.提示.trim() !== '') {
+        文案 = 开头.提示
+        开头语 = 开头.类型 ? `｜开头 ${开头.类型}` : ''
+      } else if (开头 && 开头.ok === false) {
+        return 记账(`${前缀}${心里语}这间屋这次不起话：${开头.因 || '没有合适的由头'}`)
+      } else {
+        // 桥不在 / 旧版桥没有开头建议：保留旧提示，至少不要把私房话端进群。
+        文案 = 群友开口提示(挑中.房)
+      }
     } else if (心里 && 心里.cue && mind && typeof mind.confidePrompt === 'function') {
       try {
         const 拼出来 = mind.confidePrompt(心里)
@@ -1085,7 +1108,7 @@ function 造执行体(ctx) {
     }
 
     if (演练) {
-      return 记账(`${前缀}${心里语}演练：本来要往「${目标id}」送一句「${文案}」`)
+      return 记账(`${前缀}${心里语}${开头语}演练：本来要往「${目标id}」送一句「${文案}」`)
     }
 
     try {
@@ -1109,7 +1132,7 @@ function 造执行体(ctx) {
         挑中.qq ? null : (心里 && 心里.cue ? 心里.cue.id : null),
         挑中.qq,
       )
-      记账(`${前缀}${心里语}已发起一轮，等她真的说出正文：「${文案}」`)
+      记账(`${前缀}${心里语}${开头语}已发起一轮，等她真的说出正文：「${文案}」`)
       // 让这一条先落到磁盘上，掉电也不会丢（拿不到 sessions 服务就算了）
       try {
         if (ctx.sessions && typeof ctx.sessions.flush === 'function') await ctx.sessions.flush(agent.session)

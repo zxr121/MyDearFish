@@ -1,6 +1,6 @@
 {
   "name": "dsh-speak-up",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "主动搭话（dsh-speak-up）：DSH 插件。距她上次主动开口越久，开口概率越高；到最长间隔（默认 3 小时）强制 100%，发起一轮真实主动聊天。曲线、峰谷倍率和保底都可设置，设置页带函数图。",
   "license": "MIT",
   "type": "module",

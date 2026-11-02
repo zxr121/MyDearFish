@@ -1789,6 +1789,13 @@ export function apply(ctx) {
     /** 最近活动过的会话摘要；只读，给 QQ、朗读和主动搭话选投递位置。 */
     sessions: (limit) => store.sessionOverview(limit),
     /**
+     * 群聊主动开头可安全引用的 B 站近况：只读 bili 来源、72 小时内、salience ≥0.3。
+     * 不返回主人会话、QQ 会话或私密事实；没有就返回空数组。
+     * @param {number} [limit] - 最多几条。
+     * @returns {{ id: number, at: number, text: string, meta: unknown, salience: number }[]}
+     */
+    biliSeeds: (limit) => store.groupSafeCues(Date.now(), { rows: limit }),
+    /**
      * 此刻的倾述欲：0 到 1 的强度，加一件想讲的由头。只读，不产生消息。
      * @returns {object} `{ enabled, strength, cue, affect, drives, urges }`
      */

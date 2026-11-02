@@ -90,6 +90,9 @@ const QQ_SOCIAL_KEYS = [
   '迟到',
 ]
 
+// 开头偏好可以跟着包走，但不带具体群号：导入后由新主人自己勾选允许开头的群。
+const QQ_OPENING_KEYS = ['启用', '类型', '安静分钟', '每屋每日', '冷却小时', '新鲜事', '点名每几次']
+
 const SPEAK_KEYS = [
   '间隔分钟',
   '最长间隔分钟',
@@ -291,7 +294,12 @@ export const PORTABLE_CONFIGS = Object.freeze([
       const out = {}
       if (typeof raw['转私聊'] === 'boolean') out['转私聊'] = raw['转私聊']
       if (typeof raw['转群'] === 'boolean') out['转群'] = raw['转群']
-      if (isPlainObject(raw['社交'])) out['社交'] = pickKeys(raw['社交'], QQ_SOCIAL_KEYS)
+      if (isPlainObject(raw['社交'])) {
+        out['社交'] = pickKeys(raw['社交'], QQ_SOCIAL_KEYS)
+        if (isPlainObject(raw['社交']['开头'])) {
+          out['社交']['开头'] = pickKeys(raw['社交']['开头'], QQ_OPENING_KEYS)
+        }
+      }
       return out
     },
     safe: qqSafe,

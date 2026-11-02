@@ -473,6 +473,20 @@ test('短期窗口能只看某个会话，也能排除某个会话或来源', ()
   store.close()
 })
 
+test('B 站开头种子只取 bili 来源，排除主人、QQ 群和心情行', () => {
+  const { store } = tempStore()
+  const now = Date.now()
+  store.insert(record('在 B 站看到一个讲鲸鱼娘的视频', { sessionId: 'session-a', seq: 1, at: now - 30_000, kind: 'bili', source: 'bili' }))
+  store.insert(record('主人私下说的秘密', { sessionId: 'session-a', seq: 2, at: now - 20_000, kind: 'user', source: 'user' }))
+  store.insert(record('群里别人说的', { sessionId: 'session-qq-social-group-1', seq: 1, at: now - 10_000, kind: 'qq-group', source: 'qq-group' }))
+  store.insert(record('今天心里有点软', { sessionId: 'session-a', seq: 3, at: now - 5_000, kind: 'affect', source: 'mood' }))
+
+  const seeds = store.groupSafeCues(now)
+  assert.deepEqual(seeds.map((x) => x.text), ['在 B 站看到一个讲鲸鱼娘的视频'])
+  assert.equal(seeds[0].salience >= 0.3, true)
+  store.close()
+})
+
 test('短期窗口能按会话前缀排除整间 QQ 房，包括分线和她的回复', () => {
   const { store } = tempStore()
   const now = Date.now()

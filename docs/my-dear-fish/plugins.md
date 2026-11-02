@@ -241,49 +241,59 @@ dims(t) = dims(0) × 2^(−min / 90)
 
 ## Taking initiative: dsh-speak-up
 
-The speak-up plugin lets the companion open a conversation when nobody is talking to it. It does not assemble context itself: on schedule it rolls a purely local die, and only on a hit does it put a `source.kind = speak-up` message into the target session's inbox so DSH starts a normal turn. The roll costs no tokens; only an actual opening calls the model.
+The speak-up plugin lets the companion open a conversation when nobody is talking to it. It does not assemble context itself: on schedule it computes a probability from the time since its last proactive opening divided by the maximum interval, forcing 100% at the maximum; only after actually starting a round does it put a `source.kind = speak-up` `user` message into the target session's inbox so DSH starts a normal turn. The probability is local and costs no tokens.
 
 ### Trigger chain
 
-1. The timer fires at the configured interval, 30 minutes by default.
-2. It checks the master switch, quiet hours, available sessions, and the cooldown; any failure skips this round.
-3. If targets are configured it picks among them; otherwise it picks among live, idle, non-archived non-subagent sessions and prefers the room she was most recently in; it never wakes a cold session.
-4. It takes the base hit line for peak or off-peak time, multiplies by the timing factor for how long since the owner last spoke, and adds the consecutive-miss bonus.
-5. It rolls a random number from 0 to 100 and speaks only when the roll is below the hit line.
-6. On a hit it builds a `user`-role message marked `speak-up`, hands it to `agent.followup()`, and flushes the session.
+1. The timer fires at the configured check interval, 30 minutes by default.
+2. It checks the master switch, quiet hours, and whether a previous opening is still waiting for text; any failure skips this round.
+3. It picks a live, idle, non-archived room; a QQ group must also pass the QQ bridge's `能开头` (selected, daily cap, cooldown, room quiet/not hot). It never wakes a cold session.
+4. It computes `u = time since last proactive opening / maximum interval` through the curve, multiplies by the peak/off-peak multiplier, and forces 100% at the maximum.
+5. On a hit it builds a `user`-role message marked `speak-up`, hands it to `agent.followup()`, and flushes the session.
+6. Only when she actually emits assistant text does the last-opening timer reset; a round that produces no text is logged without speaking.
 
-### Hit line
+### Probability
 
 ```
-hit = min(100, base × factor + min(cap, misses × bonus))
+u = min(1, minutes since last proactive opening / maximum interval)
+linear: u
+slow-start: (e^(k u) - 1) / (e^k - 1)
+fast-start: ln(1 + k u) / ln(1 + k)
+S-curve: 3u² - 2u³
+this round = clamp(curve × peak/off-peak multiplier, 0, 1); at maximum → 1
 ```
 
 | Parameter | Default | Effect |
 | --- | --- | --- |
-| Interval minutes | 30 | How often to roll |
-| Peak hit line | 20 | Base line on weekdays 09:00–12:00 and 14:00–18:00 |
-| Off-peak hit line | 60 | Base line at all other times, including weekends |
-| Miss bonus | 10 | Each consecutive miss adds 10 points to the next line |
-| Bonus cap | 40 | Consecutive-miss bonus stops at 40 points |
-| Near threshold / near factor | 20 / 0.15 | If the owner spoke less than 20 minutes ago, multiply the line by 0.15 |
-| Far threshold / far factor | 360 / 1.5 | If the owner has been silent for over 6 hours, multiply the line by 1.5 |
-| Quiet start / quiet end | 1 / 8 | Do not speak from 01:00 to 08:00 |
-| Cooldown minutes | 20 | Wait at least 20 minutes after speaking first |
+| Check interval | 30 | How often to inspect the curve, not the probability itself |
+| Maximum interval | 180 | Forces 100%; a hard guarantee to start |
+| Curve type / strength | slow-start / 4 | All curves rise from 0 to 1 at different speeds |
+| Peak / off-peak multiplier | 0.5 / 1 | Peak (weekdays 09:00–12:00, 14:00–18:00) ×0.5; off-peak unchanged |
+| Quiet start / end | 1 / 8 | No checks or rolls from 01:00 to 08:00; the overdue round catches up afterwards |
 
-The consecutive-miss count lives only in memory and resets on restart; a dry-run hit also resets it; the manual button neither rolls nor changes the counter. The master switch is on and the dry run is off by default, so a fresh install actually speaks when a roll hits; turn the dry run on to observe the rhythm first.
+The master switch is on and the dry run is off by default, so a fresh install actually speaks when a roll hits; turn the dry run on to observe the rhythm first. The timer state lives in `speak-up-state.json` and survives a restart.
+
+### Group opening content
+
+- When a QQ group is chosen, the concrete topic comes from the QQ bridge's `qqSocial.开头建议`: `bring-in` (real Bilibili activity or a fresh web item), `ask-the-room` (a specific question), `old-thread` (an unfinished topic from 30 minutes to 14 days ago), `own-news` (something she really did/saw on Bilibili), or `directed` (tag one recently active familiar person; at most one in three openings per room).
+- Candidates exclude the last message and anything from the last 10 minutes; a summary/paraphrase guard runs again before sending. It is not a reply to the last message and not a summary of recent chat.
+- It only opens when the room has been quiet for the configured minimum (default 10 minutes) and is not a two- or three-person hot exchange; each room defaults to twice a day with a four-hour cooldown.
+- Which groups, types, cadence, and whether web search is allowed live under Settings → QQ bridge → Proactive group topics. No group is enabled by default; the owner selects them.
+- If the bridge is absent or too old to expose `开头建议`, it falls back to the old room prompt; if the bridge says there is no suitable seed, the plugin does not follow up and does not reset the timer.
 
 ### Dry run and manual button
 
 - Dry run writes what it would have sent to the log without touching the target session, which is useful for observing the rhythm first.
-- The manual button triggers once immediately, without rolling or changing the consecutive-miss count, to confirm the target session and wording work.
-- The opening line is editable in settings; the default is “Nobody has talked to me for a while, I should go say hello”.
+- The manual button triggers once immediately, without rolling or changing the timer, to confirm the target session and wording work.
+- The opening line is editable in settings; the default is “Nobody has talked to me for a while, I should go say hello”. It applies to the owner's own sessions; QQ groups use the bridge's concrete topic and QQ friends keep the old room prompt.
 
 ### Known limits
 
 - DSH accepts only `user`-role inbox messages; the plugin explicitly refuses the `developer` role rather than corrupting the session log.
 - Cold sessions are not woken, so at least one live session must exist; with no targets it uses every live session.
 - The model is called only after a hit, so rounds that do not open cost nothing.
-- The consecutive-miss counter is not persisted, so the rhythm restarts after a restart.
+- The timer is persisted, but a round that starts and produces no text does not reset it; the next check continues along the curve.
+- Group topic opening needs the QQ bridge and this group selected in `开头.群`; speak-up alone will not start topics in groups.
 
 ## Speech: dsh-tts-bridge
 
@@ -514,7 +524,7 @@ The Bilibili plugin lets Da Feiyu browse videos, read subtitles, and skim commen
 | Morning | The owner talks, the fish brain records the experience, mood judges; speak-up may open | Fish brain, mood, speak-up |
 | 12:00–14:00 | If automatic scanning is on, a Bilibili round may run and its report enters the fish brain | Bilibili, fish brain |
 | Afternoon | Normal conversation; speech and QQ deliver each turn per their switches, after claiming the delivery | Speech, QQ |
-| After 18:00 | The Bilibili window reopens; speak-up uses the higher off-peak line | Bilibili, speak-up |
+| After 18:00 | The Bilibili window reopens; speak-up stops applying the peak multiplier off-peak | Bilibili, speak-up |
 | End of any turn | The fish brain records the turn; mood updates; speech or QQ delivers it | Fish brain, mood, speech, QQ |
 
 Read together, the loop is: the owner speaks → the fish brain records the turn as an experience (the workspace joins the prompt; if memory is turned off, shadow mode still records and encodes without recall) → mood sets the tone for this turn → the model replies → mood updates from the turn and writes back to the fish brain → speech or QQ claims the turn and delivers it → the fish brain keeps accumulating. Speak-up and Bilibili are the two entrances that can start a turn without owner input; they write into the same experience stream with different `source.kind` values, and mood interprets them differently.
@@ -530,7 +540,7 @@ Read together, the loop is: the owner speaks → the fish brain records the turn
 | QQ | Master switch on, dry run off; social switch on, social dry run off; history import on | The owner bridge makes no extra model call; during social learning every message takes one short judge call, and once the profile matures the fast pass moves unrelated traffic behind the cap; person facts piggyback on that same judge call with no extra request; each reply is a normal call, all metered by the allowance ledger | NapCat/SnowLuma, QQ login, Tulpa (import only) | Requires a local backend; text only; social judgement can reply when it should not or stay silent when it should; with no groups/friends filled she never actually joins chat, and with no private QQ/group filled nothing is sent to a concrete target |
 | Bilibili | Automatic scans, auto comments, and auto replies all on; direct messages off; @ name empty | One subagent per round; search and subtitles cost tokens | Bilibili login, Python venv | Automatic comments, replies, and private messages carry account risk |
 
-The feature switches ship enabled: the fish brain records, encodes, organizes chapters, recalls, and injects the workspace; speak-up speaks for real after a hit; QQ's master switch, social bridge, and history import are on; Bilibili's automatic scan, comment, and reply are on. What remains blank is **configuration tied to accounts and targets**: QQ private QQ / group / social groups and friends, Bilibili's “@ who”, the Tulpa token, and the SnowLuma agreement that only the owner can accept; Bilibili direct messages and local transcription stay off. Session targets mostly do not need to be filled in by hand: mood covers all sessions by default, speak-up picks the most recently active one, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own. An existing SnowLuma install — including a running instance and common locations such as a drive root, `Program Files`, `LocalAppData`, the desktop, or Downloads — is detected automatically; when the directory still holds a valid `consent.json` whose agreement text has not changed, DSH adopts and starts it at launch instead of downloading another copy.
+The feature switches ship enabled: the fish brain records, encodes, organizes chapters, recalls, and injects the workspace; speak-up speaks for real after a hit; QQ's master switch, social bridge, and history import are on; Bilibili's automatic scan, comment, and reply are on. What remains blank is **configuration tied to accounts and targets**: QQ private QQ / group / social groups and friends, Bilibili's “@ who”, the Tulpa token, and the SnowLuma agreement that only the owner can accept; Bilibili direct messages and local transcription stay off. Session targets mostly do not need to be filled in by hand: mood covers all sessions by default, speak-up picks randomly among eligible sessions, speech listens to all sessions, and QQ follows the most recently active session; group interjection requires an explicit group/friend number and never joins groups on its own. An existing SnowLuma install — including a running instance and common locations such as a drive root, `Program Files`, `LocalAppData`, the desktop, or Downloads — is detected automatically; when the directory still holds a valid `consent.json` whose agreement text has not changed, DSH adopts and starts it at launch instead of downloading another copy.
 
 ## Cross-plugin coupling and gaps
 
@@ -554,7 +564,7 @@ The feature switches ship enabled: the fish brain records, encodes, organizes ch
 | Meme wiki pre-lookup, social use, and tool | Settings → “Meme Wiki”; switches are stored in `fish-mind/memes.json` | Master switch stops both lookup and the tool; social use only adds room-scoped pre-lookup; the tool stays owner-session-only regardless of settings |
 | Daily allowance, rollover, and prices | `BIRTH_DAILY_GRANT_CNY` in `lib/budget.js`; prices under `budget.prices` in `config.json`, keyed by model or `provider/model`, with `offPeak` / `peakHours` / `peakDays` for peak scheduling | Changing the code amount affects all later grants; a stale pricing version reprices past days at current prices and refunds the difference to the wallet |
 | Mood dimensions, judging frequency, judge model | Mood settings and the dimension table and judge chain in `lib/index.js` | Changing dimensions changes the injected line and face tiers |
-| Speak-up frequency and hours | Hit lines, interval, and quiet hours in speak-up settings | Dry run controls whether a hit speaks for real or only logs (off by default = real); changing hit lines is safer than changing code |
+| Speak-up frequency and hours | Curve, maximum interval, and quiet hours in speak-up settings | Dry run controls whether a hit speaks for real or only logs (off by default = real); changing the curve/multipliers is safer than changing code |
 | What speech reads | Watch list and auto-speech switch in speech settings | Empty listens to all sessions; clicking one narrows it; requires the extension and a DeepSeek page |
 | QQ two-way bridge | Target session, QQ number, group number, dry run in QQ settings | An empty target follows the most recently active session; requires a local OneBot backend |
 | Whether she joins group chat | Social switch, allowlists, mode, interest words, fast pass, watch limit, and judge threshold in QQ settings | On with social dry run off by default (turn the dry run on to observe); interest words decide what she is more likely to raise on her own, the fast pass decides how much judge money matures into savings, and every added group or friend adds judge and reply costs |
@@ -573,7 +583,7 @@ Configuration covers most ways of raising the fish; only code changes alter the 
 | She suddenly only says “I cannot move today” (or the line you wrote under Custom phrases) | The allowance may be exhausted: check `walletCny` in `fish-mind/budget.json`, recent `blocked` entries in `fish-mind/budget-ledger.jsonl`, and budget blocks in `diag.log` |
 | Mood never changes | Whether the mood target was narrowed to another session; whether `feiyu-mood/diag.log` shows a failed judgement |
 | The meme wiki never triggers | Whether the fish brain is `live` with `inject`, whether the meme wiki master switch and auto-lookup are on, whether the turn is a clear term question rather than an ordinary two-character word, and whether `fish-mind/diag.log` shows a load or overlay warning |
-| Never speaks first | Master switch, dry run, quiet hours; with no target it picks the most recently active session; recent log on the `speak-up` settings page |
+| Never speaks first | Master switch, dry run, quiet hours; with no target it picks randomly among eligible rooms; recent log on the `speak-up` settings page |
 | Text exists but there is no sound | Whether the extension is installed, DeepSeek is logged in and open, the speech quota remains, and whether QQ already claimed this turn |
 | QQ does not receive or send | Whether NapCat listens on port 3000, QQ is logged in, the target session is archived, dry run is still on, and whether speech already claimed this turn |
 | A poke does nothing | Whether the “poke” card in QQ settings is listening on 19388 and its received count increases, whether it reports `EADDRINUSE` (port taken), and whether the backend has an HTTP report pointed at `http://127.0.0.1:19388/dsh-qq/event` |

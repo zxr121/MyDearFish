@@ -88,6 +88,8 @@ function 造环境({ 初始上次 = 虚拟现在, 配置 = {} } = {}) {
       const 房 = 假qq房们.find((x) => x.会话id === id)
       return 房 && 房.能开口 === false ? (房.不能因 || '现在不能主动开口') : ''
     },
+    开头建议: null,
+    开头结果: () => ({ 最近: [], 统计: {} }),
     开房: async (id) => {
       const 房 = 假qq房们.find((x) => x.会话id === id)
       if (!房) return null
@@ -161,7 +163,7 @@ function 造环境({ 初始上次 = 虚拟现在, 配置 = {} } = {}) {
     },
   }
 
-  return { 假ctx, 路由, 事件, 日志, 停表们, cleanups, 甲, 乙, 假qq房们, 假鱼脑, 全部agent }
+  return { 假ctx, 路由, 事件, 日志, 停表们, cleanups, 甲, 乙, 假qq房们, 假qq社交, 假鱼脑, 全部agent }
 }
 
 const 调 = async (环境, 路径, body) => {
@@ -415,6 +417,76 @@ const 写配置文件 = (o) => writeFileSync(join(家, 'speak-up-config.json'), 
   const qq文本 = qq消息 && qq消息.content.map((x) => x.text).join('')
   报('QQ 房间按需开房并 followup', !!qq消息, JSON.stringify(qq消息))
   报('QQ 房间用房间提示：点明不是主人、不端主人由头', /测试群/.test(qq文本) && /不是你的主人/.test(qq文本) && !/讲给主人听/.test(qq文本), qq文本)
+}
+
+// ============================================================
+// 环境 3b：QQ 群有桥的开头建议 / 桥说没由头 / 不能开头
+// ============================================================
+{
+  const 环境 = 造环境({ 初始上次: 虚拟现在 })
+  环境.假qq房们.push({
+    类型: 'group',
+    号: '123456',
+    会话id: 'session-qq-social-group-123456',
+    叫: '群 123456',
+    名: '测试群',
+    能开口: true,
+    不能因: '',
+    能开头: true,
+    开头不能因: '',
+  })
+  环境.假qq社交.开头建议 = async () => ({
+    ok: true,
+    类型: '问大家',
+    开头id: 'open-1',
+    提示: '【主动起话·这一轮不是接话】测试群的具体话头 [开头:1]',
+  })
+  插件.apply(环境.假ctx)
+  await 等(10)
+  await 调(环境, '/dsh-speak-up/save', { 全选: false, 目标会话: ['session-qq-social-group-123456'], 间隔分钟: 30, 最长间隔分钟: 180, 试运行: false, 总开关: true })
+  虚拟现在 += 200 * 60000
+  await 调(环境, '/dsh-speak-up/save', { 间隔分钟: 30 })
+  await 跑表(环境)
+  const agent = 环境.假qq房们[0].agent
+  const 消息 = agent && agent.收到的[0]
+  const 文本 = 消息 && 消息.content.map((x) => x.text).join('')
+  报('QQ 群：桥给了开头建议就用它，不再用旧的“看一眼/接一句”', /【主动起话/.test(文本) && !/看一眼群里正在聊什么/.test(文本) && !/接一句/.test(文本), 文本)
+  报('QQ 群：日志里记下开头类型', 环境.日志.some((x) => String(x).includes('开头 问大家')), 环境.日志.slice(-3).join(' | '))
+}
+
+{
+  const 环境 = 造环境({ 初始上次: 虚拟现在 })
+  环境.假qq房们.push({
+    类型: 'group', 号: '123456', 会话id: 'session-qq-social-group-123456',
+    叫: '群 123456', 名: '测试群', 能开口: true, 不能因: '', 能开头: true, 开头不能因: '',
+  })
+  环境.假qq社交.开头建议 = async () => ({ ok: false, 因: '这轮没有合适的开头由头' })
+  插件.apply(环境.假ctx)
+  await 等(10)
+  await 调(环境, '/dsh-speak-up/save', { 全选: false, 目标会话: ['session-qq-social-group-123456'], 间隔分钟: 30, 最长间隔分钟: 180, 试运行: false, 总开关: true })
+  虚拟现在 += 200 * 60000
+  await 调(环境, '/dsh-speak-up/save', { 间隔分钟: 30 })
+  await 跑表(环境)
+  const agent = 环境.假qq房们[0].agent
+  报('QQ 群：桥说没有合适由头 → 这轮不 followup', !agent || agent.收到的.length === 0, JSON.stringify(agent && agent.收到的))
+  报('QQ 群：日志里写清楚为什么不起话', 环境.日志.some((x) => String(x).includes('这轮没有合适的开头由头')), 环境.日志.slice(-3).join(' | '))
+}
+
+{
+  const 环境 = 造环境({ 初始上次: 虚拟现在 })
+  环境.假qq房们.push({
+    类型: 'group', 号: '123456', 会话id: 'session-qq-social-group-123456',
+    叫: '群 123456', 名: '测试群', 能开口: true, 不能因: '', 能开头: false, 开头不能因: '这间群没勾选主动开话题',
+  })
+  插件.apply(环境.假ctx)
+  await 等(10)
+  await 调(环境, '/dsh-speak-up/save', { 全选: false, 目标会话: ['session-qq-social-group-123456'], 间隔分钟: 30, 最长间隔分钟: 180, 试运行: false, 总开关: true })
+  虚拟现在 += 200 * 60000
+  await 调(环境, '/dsh-speak-up/save', { 间隔分钟: 30 })
+  await 跑表(环境)
+  const agent = 环境.假qq房们[0].agent
+  报('QQ 群：能开头 = false 时这轮不选它', !agent || agent.收到的.length === 0, JSON.stringify(agent && agent.收到的))
+  报('QQ 群：不能开头的原因写进日志', 环境.日志.some((x) => String(x).includes('没勾选主动开话题')), 环境.日志.slice(-3).join(' | '))
 }
 
 // ============================================================

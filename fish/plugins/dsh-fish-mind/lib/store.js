@@ -742,6 +742,12 @@ export function openStore({ dir, config, diag = () => {} }) {
       AND (kind = 'affect' OR kind = 'user' OR kind = 'qq' OR source_kind = 'bili')
     ORDER BY ts DESC, id DESC LIMIT 200
   `)
+  // 群聊主动开头只能引用她真实在 B 站看到/做过的事；主人和 QQ 会话一律不进这个查询。
+  const groupSeedStmt = db && db.prepare(`
+    SELECT id, ts, content, meta, salience FROM experiences
+    WHERE dropped IS NULL AND content <> '' AND source_kind = 'bili' AND salience >= 0.3 AND ts >= ?
+    ORDER BY ts DESC, id DESC LIMIT ?
+  `)
   const factActiveStmt = db && db.prepare(`
     SELECT id, object, valid_from FROM facts
     WHERE subject = ? AND predicate = ? AND superseded_by IS NULL
@@ -2562,6 +2568,44 @@ export function openStore({ dir, config, diag = () => {} }) {
    * @param {number} [now] - 当前时间。
    * @returns {{ lastSocialAt: number, lastOwnerAt: number, lastOwnerReplyAt: number, lastBiliAt: number, biliRecent: number, affects: object[], cues: object[] }}
    */
+  /**
+   * 群聊可安全引用的 B 站近况：只读 `source_kind='bili'`、72 小时内、salience ≥0.3 的经历。
+   * 主人会话、QQ 群/好友和私密事实都不在这个查询里；不返回原文之外的上下文。
+   * @param {number} [now] - 当前毫秒时间。
+   * @param {{ rows?: number }} [options] - 最多返回几条。
+   * @returns {{ id: number, at: number, text: string, meta: unknown, salience: number }[]} 按时间倒序。
+   */
+  function groupSafeCues(now = Date.now(), { rows = 24 } = {}) {
+    if (db === null) return []
+    const since = now - 72 * 60 * 60 * 1000
+    const want = Math.min(Math.max(1, Number(rows) || 24), 100)
+    let 原始 = []
+    try {
+      原始 = groupSeedStmt.all(since, want * 2)
+    } catch (error) {
+      diag(`store: 读 B 站开头种子失败（${String((error && error.message) || error)}）`)
+      return []
+    }
+    const 出 = []
+    const 见 = new Set()
+    for (const row of 原始) {
+      const text = String(row.content ?? '').replace(/\s+/g, ' ').trim()
+      if (text.length < 8) continue
+      const key = text.slice(0, 80)
+      if (见.has(key)) continue
+      见.add(key)
+      出.push({
+        id: Number(row.id) || 0,
+        at: Number(row.ts) || 0,
+        text: text.slice(0, 240),
+        meta: row.meta,
+        salience: Number(row.salience) || 0,
+      })
+      if (出.length >= want) break
+    }
+    return 出
+  }
+
   function innerSignals(now = Date.now()) {
     const empty = {
       lastSocialAt: 0,
@@ -2661,6 +2705,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     pendingExperiences,
     experienceById,
     innerSignals,
+    groupSafeCues,
     upsertFact,
     listFacts,
     exportFacts,

@@ -1161,7 +1161,7 @@ await new Promise((r) => setTimeout(r, 30))
 
 const 全部绪 = await 取思绪()
 报('/thoughts：回出思路流和序号', 全部绪 && 全部绪.ok === true && 全部绪.序号 > 0 && Array.isArray(全部绪.思绪), JSON.stringify(全部绪 && { 序号: 全部绪.序号, 条数: 全部绪.思绪.length }))
-报('/thoughts：类别清单给全了', JSON.stringify(全部绪.类别) === '["判断","思考","心情","记忆","开口"]', JSON.stringify(全部绪.类别))
+报('/thoughts：类别清单给全了', JSON.stringify(全部绪.类别) === '["判断","思考","心情","记忆","开口","开头"]', JSON.stringify(全部绪.类别))
 const 思考绪 = (全部绪.思绪 || []).filter((x) => x.类别 === '思考')
 报('/thoughts：模型的思路原文被记下来了', 思考绪.length >= 1 && 思考绪.some((x) => String((x.详情 && x.详情.思路) || x.文本).includes('要不要接')), JSON.stringify(思考绪.map((x) => x.文本)))
 报('/thoughts：一条思绪带得上时间、序号、谁', 全部绪.思绪.every((x) => typeof x.时间 === 'string' && x.时间.length > 0 && x.序号 > 0 && typeof x.谁 === 'string'), JSON.stringify(全部绪.思绪[0]))

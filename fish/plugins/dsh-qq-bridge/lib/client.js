@@ -393,6 +393,21 @@ window.__ModuleLoader__.load({
         })
         设脏(true)
       }
+      const 改开头 = (k, v) => {
+        设态((旧) => {
+          if (!旧) return 旧
+          const 配置 = 旧.配置 || {}
+          const 社交 = 配置.社交 || {}
+          return {
+            ...旧,
+            配置: {
+              ...配置,
+              社交: { ...社交, 开头: { ...(社交.开头 || {}), [k]: v } },
+            },
+          }
+        })
+        设脏(true)
+      }
       const 改戳一戳 = (k, v) => {
         设态((旧) => {
           if (!旧) return 旧
@@ -566,6 +581,17 @@ window.__ModuleLoader__.load({
                 : a.状态 === 'error' ? '出错了' : ''
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
+      const 开头类型们 = ['带进来', '问大家', '接旧话', '自己的事', '点名']
+      const 开头 = 社交.开头 || {
+        启用: true,
+        群: [],
+        类型: [...开头类型们],
+        安静分钟: 10,
+        每屋每日: 2,
+        冷却小时: 4,
+        新鲜事: true,
+        点名每几次: 3,
+      }
       const 现有私聊 = String(配置.私聊QQ || '').trim()
       const 现有群 = Array.isArray(社交.群) ? 社交.群 : []
       const 现有好友 = (Array.isArray(社交.好友) ? 社交.好友 : []).filter((号) => 号 !== 现有私聊)
@@ -763,6 +789,7 @@ window.__ModuleLoader__.load({
         )
       }
       const 社态 = 态.社交 || {}
+      const 开头态 = 社态.开头 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
       // 宿主读到的群名 / 好友备注：开关列表和状态行都拿它把号翻成名字。
       const 房名表 = new Map(社交目标们.map((t) => [String(t.key), String(t.名 || '')]))
@@ -978,7 +1005,7 @@ window.__ModuleLoader__.load({
 
       const 绪类别们 = Array.isArray(绪摘 && 绪摘.类别) && 绪摘.类别.length > 0
         ? 绪摘.类别
-        : ['判断', '思考', '心情', '记忆', '开口']
+        : ['判断', '思考', '心情', '记忆', '开口', '开头']
       const 显示绪 = 绪类 === '' ? 绪流 : 绪流.filter((x) => x.类别 === 绪类)
 
       const 总开 = !!配置.总开关
@@ -1487,6 +1514,89 @@ window.__ModuleLoader__.load({
           行('判断冷却秒', 数框(社交.判断冷却秒, (v) => 改社交('判断冷却秒', v), 1, 0, 3600), '同一目标两次判断的最小间隔（默认 0 秒 = 每轮都判）；调大可以把消息攒起来一起判，省判断费。'),
           行('判断阈值', 数框(社交.判断阈值, (v) => 改社交('判断阈值', v), 0.05, 0.1, 1), '她“感兴趣且想说”的把握低于这个数就不接；只看不回不受影响（0.1 ~ 1）。'),
           行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认）'), '社交会话本身用哪个模型；要能看图（如 deepseek-flash），否则 QQ 图片里的内容她看不到。'),
+            ),
+          ),
+        ),
+
+        // —— 主动开话题 ——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '主动开话题（群）'),
+          h('div', { style: S.dim },
+            '不再让她“看一眼群里在聊什么、接一句”。每次由 QQ 桥先组出 2–3 个具体话头：B 站/新鲜事、问大家、这间屋的旧话头、她自己的近况、点名一个熟人；再由她用自己口气说 1–3 句。默认不对任何群生效，先在下面勾选。',
+          ),
+          h('div', { style: { ...S.日志行, margin: '8px 0' } },
+            '主动开话题：' + (开头.启用 ? '开' : '关')
+              + '｜允许 ' + (开头.群 || []).length + ' 个群'
+              + (开头态.统计 ? '｜发出 ' + 开头态.统计.发 + ' 次 · 接住 ' + 开头态.统计.接 + ' 次' : '')
+              + (开头态.统计 && 开头态.统计.发 > 0 ? '（' + Math.round((开头态.统计.接住率 || 0) * 100) + '%）' : ''),
+          ),
+          行('主动开话题总开关', 勾(开头.启用, (v) => 改开头('启用', v)), '关 = 群里不会主动起话；总开关和社交开关仍要开。'),
+          行('允许开头的群',
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+              现有群.length === 0
+                ? h('span', { style: S.dim }, '先在「群号」里填好群，这里会列出可以勾选的群。')
+                : 现有群.map((号) => {
+                    const key = 'group:' + 号
+                    const 开 = (开头.群 || []).includes(号)
+                    const 房 = (开头态.房间们 || []).find((x) => x.key === key)
+                    return h('div', { key, style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+                      h('span', { style: { flex: '1 1 180px', minWidth: 0, fontSize: 12.5 } },
+                        (房 && 房.叫) || 房标('群', 号, key)),
+                      勾(开, (v) => {
+                        const 现 = Array.isArray(开头.群) ? 开头.群 : []
+                        改开头('群', v ? [...new Set([...现, 号])] : 现.filter((x) => x !== 号))
+                      }),
+                      房 ? h('span', { style: S.dim }, 房.能开头 ? '现在能开头' : '现在不能：' + 房.不能因) : null,
+                    )
+                  }),
+            ),
+            '勾选后这间群才允许主动开话题；不勾的群仍照常接话，只是不会自己起新话题。',
+          ),
+          行('开头类型',
+            h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+              开头类型们.map((类型) => {
+                const 开 = (开头.类型 || []).includes(类型)
+                return h('button', {
+                  key: 类型,
+                  type: 'button',
+                  'aria-pressed': 开,
+                  style: 开 ? S.btnOn : S.btn,
+                  onClick: () => {
+                    const 现 = Array.isArray(开头.类型) ? 开头.类型 : []
+                    改开头('类型', 开 ? 现.filter((x) => x !== 类型) : [...现, 类型])
+                  },
+                }, (开 ? '✓ ' : '○ ') + 类型)
+              }),
+            ),
+            '带进来 = B 站/新鲜事；问大家 = 一个具体问题；接旧话 = 30 分钟–14 天前没聊完的话题；自己的事 = 她真实近况；点名 = @ 一个最近活跃的熟人（同屋每 3 次最多 1 次）。',
+          ),
+          行('安静多久才开口',
+            h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+              数框(开头.安静分钟, (v) => 改开头('安静分钟', v), 1, 0, 1440),
+              h('span', { style: S.dim }, '分钟'),
+            ),
+            '最后一条别人消息过去这么久、屋里没有待看/待回的话，才起新话题；正聊得热的时候不插。',
+          ),
+          行('频率',
+            h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+              数框(开头.每屋每日, (v) => 改开头('每屋每日', v), 1, 0, 20),
+              h('span', { style: S.dim }, '次/天 · 冷却'),
+              数框(开头.冷却小时, (v) => 改开头('冷却小时', v), 1, 0, 168),
+              h('span', { style: S.dim }, '小时'),
+            ),
+            '每间群每天最多几次、两次之间至少隔多久；0 = 不限。默认 1 天 2 次、4 小时冷却。',
+          ),
+          行('新鲜事', 勾(开头.新鲜事, (v) => 改开头('新鲜事', v)), 'B 站没有合适材料时，允许她联网搜一次新鲜事带进群；搜不到/矛盾/敏感就换 B 站或不起话。会多一次搜索成本。'),
+          h('details', { style: { marginTop: 6 } },
+            h('summary', { style: { cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: 0.85 } }, '最近开头（她带了什么话头、有没有人接）'),
+            h('div', { style: { marginTop: 8 } },
+              (开头态.最近 || []).length === 0
+                ? h('div', { style: S.dim }, '还没有记录；勾选群并跑起来后，这里会列出每次开头。')
+                : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+                    (开头态.最近 || []).map((x, i) => h('div', { key: i, style: S.日志行 },
+                      String(new Date(x.at || 0).toLocaleString()) + '　' + String(x.房 || '') + '　[' + String(x.类型 || '') + '] ' + String(x.由头 || '') + '　→ ' + String(x.状态 || ''),
+                    )),
+                  ),
             ),
           ),
         ),
