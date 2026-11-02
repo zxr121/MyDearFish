@@ -36,11 +36,15 @@ export const QQ_SOCIAL_DEFAULTS = Object.freeze({
 export const SPEAK_DEFAULTS = Object.freeze({
   总开关: true,
   间隔分钟: 30,
-  峰时命中线: 20,
-  谷时命中线: 60,
+  最长间隔分钟: 180,
+  曲线类型: '慢热',
+  曲线强度: 4,
+  峰时倍率: 0.5,
+  谷时倍率: 1,
   安静起: 1,
   安静止: 8,
   触发文案: '好久没人跟我说话了，我该主动去打个招呼',
+  保底文案: '好久没主动说话了，我去找主人冒个泡',
 })
 
 /** QQ 桥和「主动搭话」读配置时会夹的硬范围，跟各自插件的归一化保持一致。 */
@@ -54,8 +58,10 @@ export const QQ_SOCIAL_LIMITS = Object.freeze({
 
 export const SPEAK_LIMITS = Object.freeze({
   间隔分钟: Object.freeze({ min: 1, max: 1440 }),
-  峰时命中线: Object.freeze({ min: 0, max: 100 }),
-  谷时命中线: Object.freeze({ min: 0, max: 100 }),
+  最长间隔分钟: Object.freeze({ min: 10, max: 1440 }),
+  曲线强度: Object.freeze({ min: 0.1, max: 20 }),
+  峰时倍率: Object.freeze({ min: 0, max: 1 }),
+  谷时倍率: Object.freeze({ min: 0, max: 1 }),
   安静起: Object.freeze({ min: 0, max: 23 }),
   安静止: Object.freeze({ min: 0, max: 23 }),
 })
@@ -186,10 +192,12 @@ export function readSpeakConfig(dshHome) {
   return { path, ...readJsonObject(path) }
 }
 
+const SPEAK_CURVE_TYPES = Object.freeze(['直线', '慢热', '快起', 'S形'])
+
 /**
  * 把「主动搭话」配置洗成设置页使用的数值：缺字段或字段非法时回出厂值。
  * @param {object|null} config - `readSpeakConfig().value`。
- * @returns {object} `{ 总开关, 间隔分钟, 峰时命中线, 谷时命中线, 安静起, 安静止, 触发文案 }`。
+ * @returns {object} `{ 总开关, 间隔分钟, 最长间隔分钟, 曲线类型, 曲线强度, 峰时倍率, 谷时倍率, 安静起, 安静止, 触发文案, 保底文案 }`。
  */
 export function speakUpValues(config) {
   const source = isPlainObject(config) ? config : {}
@@ -197,14 +205,24 @@ export function speakUpValues(config) {
   const trigger = typeof source['触发文案'] === 'string' && source['触发文案'].trim() !== ''
     ? source['触发文案']
     : defaults['触发文案']
+  const floor = typeof source['保底文案'] === 'string' && source['保底文案'].trim() !== ''
+    ? source['保底文案']
+    : trigger
+  const curveType = SPEAK_CURVE_TYPES.includes(String(source['曲线类型']))
+    ? String(source['曲线类型'])
+    : defaults['曲线类型']
   return {
     总开关: booleanValue(source['总开关'], defaults['总开关']),
     间隔分钟: Math.round(finiteNumber(source['间隔分钟'], defaults['间隔分钟'])),
-    峰时命中线: finiteNumber(source['峰时命中线'], defaults['峰时命中线']),
-    谷时命中线: finiteNumber(source['谷时命中线'], defaults['谷时命中线']),
+    最长间隔分钟: Math.round(finiteNumber(source['最长间隔分钟'], defaults['最长间隔分钟'])),
+    曲线类型: curveType,
+    曲线强度: finiteNumber(source['曲线强度'], defaults['曲线强度']),
+    峰时倍率: finiteNumber(source['峰时倍率'], defaults['峰时倍率']),
+    谷时倍率: finiteNumber(source['谷时倍率'], defaults['谷时倍率']),
     安静起: Math.round(finiteNumber(source['安静起'], defaults['安静起'])),
     安静止: Math.round(finiteNumber(source['安静止'], defaults['安静止'])),
     触发文案: trigger,
+    保底文案: floor,
   }
 }
 

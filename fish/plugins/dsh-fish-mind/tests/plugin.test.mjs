@@ -1444,6 +1444,7 @@ test('fish_config：读可改设置，改值写进 QQ 和主动搭话，倾向�
   assert.deepEqual(listed.changes, [])
   assert.equal(listed.items.find((item) => item.key === 'qq.proactivePerDay').value, '40')
   assert.equal(listed.items.find((item) => item.key === 'qq.mode').value, 'auto')
+  assert.equal(listed.items.find((item) => item.key === 'speakUp.maxGapMinutes').value, '180')
   assert.match(tool.output.render({}, listed)[0].text, /qq\.proactivePerDay/)
 
   const written = await tool.execute({
@@ -1452,10 +1453,11 @@ test('fish_config：读可改设置，改值写进 QQ 和主动搭话，倾向�
       'qq.avoidTopics': '抽卡、游戏',
       'speakUp.enabled': false,
       'speakUp.trigger': '过去看看大家在聊什么',
+      'speakUp.maxGapMinutes': 120,
     },
   }, {})
   assert.equal(written.ok, true)
-  assert.equal(written.changes.length, 4)
+  assert.equal(written.changes.length, 5)
   assert.match(tool.output.render({}, written)[0].text, /主动每日：40 → 60/)
   const qq = JSON.parse(readFileSync(join(home, 'qq-bridge-config.json'), 'utf8'))
   assert.equal(qq.总开关, true, '不碰不在清单里的字段')
@@ -1466,6 +1468,7 @@ test('fish_config：读可改设置，改值写进 QQ 和主动搭话，倾向�
   const speak = JSON.parse(readFileSync(join(home, 'speak-up-config.json'), 'utf8'))
   assert.equal(speak.总开关, false)
   assert.equal(speak.触发文案, '过去看看大家在聊什么')
+  assert.equal(speak.最长间隔分钟, 120)
 
   const same = await tool.execute({ patch: { 'qq.proactivePerDay': 60 } }, {})
   assert.deepEqual(same.changes, [])
