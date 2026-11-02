@@ -278,7 +278,7 @@ The master switch is on and the dry run is off by default, so a fresh install ac
 - When a QQ group is chosen, the concrete topic comes from the QQ bridge's `qqSocial.开头建议`: `bring-in` (real Bilibili activity or a fresh web item), `ask-the-room` (a specific question), `old-thread` (an unfinished topic from 30 minutes to 14 days ago), `own-news` (something she really did/saw on Bilibili), or `directed` (tag one recently active familiar person; at most one in three openings per room).
 - Candidates exclude the last message and anything from the last 10 minutes; a summary/paraphrase guard runs again before sending. It is not a reply to the last message and not a summary of recent chat.
 - It only opens when the room has been quiet for the configured minimum (default 10 minutes) and is not a two- or three-person hot exchange; each room defaults to twice a day with a four-hour cooldown.
-- Which groups, types, cadence, and whether web search is allowed live under Settings → QQ bridge → Proactive group topics. No group is enabled by default; the owner selects them.
+- Which groups, types, cadence, and whether web search is allowed live under Settings → QQ bridge → Proactive group topics. All groups that can speak are enabled by default; each can be turned off, or the default can be turned off to use an explicit allow-list.
 - If the bridge is absent or too old to expose `开头建议`, it falls back to the old room prompt; if the bridge says there is no suitable seed, the plugin does not follow up and does not reset the timer.
 
 ### Dry run and manual button

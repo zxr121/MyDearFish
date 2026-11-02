@@ -4503,10 +4503,17 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
     房们.some((x) => x.key === 'friend:1502' && x.类型 === 'friend') &&
     房们.every((x) => typeof x.会话id === 'string' && x.会话id.startsWith('session-qq-social-') && x.能开口 === true && x.不能因 === ''),
     JSON.stringify(房们))
-  报('qqSocial 房间们：主动开话题默认不对任何群生效',
-    房们.find((x) => x.类型 === 'group').能开头 === false &&
-    String(房们.find((x) => x.类型 === 'group').开头不能因).includes('没勾选'),
+  报('qqSocial 房间们：主动开话题默认对所有能说话的群生效',
+    房们.find((x) => x.类型 === 'group').能开头 === true &&
+    房们.find((x) => x.类型 === 'group').开头不能因 === '',
     JSON.stringify(房们.find((x) => x.类型 === 'group')))
+
+  写配置({ 群: ['1501'], 好友: ['1502'], 开头: { 不主动: ['1501'] } })
+  房们 = 服务.房间们()
+  报('qqSocial 房间们：默认全开时可以逐群关掉',
+    房们.find((x) => x.key === 'group:1501').能开头 === false &&
+    String(房们.find((x) => x.key === 'group:1501').开头不能因).includes('不主动'),
+    JSON.stringify(房们.find((x) => x.key === 'group:1501')))
 
   写配置({
     群: ['1501', '1503'],
