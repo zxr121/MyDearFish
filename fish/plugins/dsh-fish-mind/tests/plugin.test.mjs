@@ -1139,6 +1139,68 @@ test('梗百科按语境预查：主人聊天里认梗，社交会话用群里�
   ctx.dispose()
 })
 
+test('梗百科主动用梗：轻松句子挑说法，难过和考题不乱接，用过后冷却', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  writeFileSync(join(home, 'fish-mind', 'memes.json'), JSON.stringify({
+    version: 1,
+    config: { enabled: true, inject: true, autoInject: false, activeUse: true, socialInject: true, tool: true },
+  }), 'utf8')
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+
+  const ownerId = 'session-owner'
+  const socialId = 'session-qq-social-group-7'
+  const owner = { session: session(ownerId), ctx }
+  const social = { session: session(socialId), ctx }
+  agents.push(owner, social)
+  await ctx.emit('agent/created', { agent: owner })
+  await ctx.emit('agent/created', { agent: social })
+
+  const memes = harness.contexts.find((entry) => entry.name === 'fish-mind-memes')
+  assert.ok(memes, '梗百科提示要挂上')
+  const ownerAssembly = { agent: { session: session(ownerId) } }
+  const socialAssembly = { agent: { session: session(socialId) } }
+
+  await ctx.emit('session/event', session(ownerId), messageEvent('user/message', '哈哈哈这也太离谱了', { seq: 10 }))
+  const active = memes.text(ownerAssembly)
+  assert.match(active, /【梗百科·这轮可以顺手用的梗】/)
+  assert.match(active, /可以顺手接一句：/)
+  assert.equal(memes.text(socialAssembly), '', '主人私聊里的上下文不跟到群里')
+
+  await ctx.emit('session/event', session(socialId), messageEvent('user/message', '我真的无语了', {
+    seq: 11,
+    source: { kind: 'qq-group' },
+  }))
+  const socialActive = memes.text(socialAssembly)
+  assert.match(socialActive, /【梗百科·这轮可以顺手用的梗】/)
+  assert.match(socialActive, /群里接话时自然带上/)
+
+  await ctx.emit('session/event', session(ownerId), messageEvent('user/message', '今天太难受了', { seq: 12 }))
+  assert.equal(memes.text(ownerAssembly), '', '难过时不玩梗')
+
+  await ctx.emit('session/event', session(ownerId), messageEvent('user/message', '内卷是什么意思', { seq: 13 }))
+  assert.equal(memes.text(ownerAssembly), '', '考题不装饰')
+
+  const chosen = active.match(/可以顺手接一句：(.+)/)?.[1]?.split(' / ')[0]?.trim()
+  assert.ok(chosen, '要能从提示里拿到这一轮挑中的说法')
+  await ctx.emit('session/event', session(ownerId), messageEvent('assistant/message', chosen, { seq: 14 }))
+  await ctx.emit('session/event', session(ownerId), messageEvent('user/message', '哈哈哈这也太离谱了', { seq: 15 }))
+  const next = memes.text(ownerAssembly)
+  assert.match(next, /【梗百科·这轮可以顺手用的梗】/)
+  assert.doesNotMatch(
+    next,
+    new RegExp(`可以顺手接一句：${chosen.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+    '用过的梗进冷却',
+  )
+
+  ctx.dispose()
+})
+
 test('挂载失败不影响宿主创建，只记一条日志', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()

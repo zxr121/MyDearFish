@@ -402,6 +402,8 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
   assert.equal(search.json.ok, true)
   assert.ok(search.json.total >= 1)
   assert.ok(search.json.items.some((item) => item.title === '内卷'))
+  assert.equal(search.json.config.activeUse, true)
+  assert.ok(Array.isArray(search.json.recent))
 
   const blocked = await call(routes, '/dsh-fish-mind/memes/save', {
     method: 'POST',
@@ -478,10 +480,11 @@ test('梗百科接口：搜索、增删改、恢复和开关', async () => {
 
   const config = await call(routes, '/dsh-fish-mind/memes/config', {
     method: 'POST',
-    body: { enabled: false, tool: false },
+    body: { enabled: false, activeUse: false, tool: false },
   })
   assert.equal(config.res.status, 200)
   assert.equal(config.json.config.enabled, false)
+  assert.equal(config.json.config.activeUse, false)
   assert.equal(config.json.config.tool, false)
 
   const wrongMethod = await call(routes, '/dsh-fish-mind/memes', { method: 'POST', body: {} })

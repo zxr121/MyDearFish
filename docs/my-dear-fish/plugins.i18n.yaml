@@ -18,11 +18,11 @@
   en: 4b79b8c6afd0b293
   zh: dde9bc1c32d11042
 /how-the-plugins-keep-the-fish/the-shared-substrate/data-and-switch-locations:
-  en: c8e2789d7bf63867
-  zh: db20ebe7ad4b98c5
+  en: d51422b9f2629826
+  zh: 3afc48ae8e65ded5
 /how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind:
-  en: 422b1f083ae3eca0
-  zh: f71a5550badebf03
+  en: 3b732b12c66d5053
+  zh: 1af850e5e90fd02c
 /how-the-plugins-keep-the-fish/the-fish-brain-dsh-fish-mind/experience-stream-and-index:
   en: 5b31366569e8236b
   zh: e972dee3690d574c
@@ -75,20 +75,23 @@
   en: 796d149951c119c0
   zh: 463e99a8c636417f
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up:
-  en: e5cb72aae5d61af6
-  zh: 4759df21f7d4e319
+  en: 3017363138e82c9c
+  zh: 9d38f71649ce0b45
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/trigger-chain:
-  en: e947600e70480caa
-  zh: e24105a41b5b8d68
-/how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/hit-line:
-  en: a32fb8234ca309ff
-  zh: 39f20789197b1b5e
+  en: 150cfe66b23f1da7
+  zh: 90a7f41dd4ca35f7
+/how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/probability:
+  en: 6c02ae3a3bf2ace5
+  zh: 53901d342094f24e
+/how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/group-opening-content:
+  en: 416ca6571294c83c
+  zh: 304dd2b247ed4d53
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/dry-run-and-manual-button:
-  en: 19d9b0a9723d05ab
-  zh: bd0bbdd5d4cc0acb
+  en: 7456ee6d932c0ad7
+  zh: e2e3034faa55a010
 /how-the-plugins-keep-the-fish/taking-initiative-dsh-speak-up/known-limits:
-  en: 70b16bd88e1d3a31
-  zh: 2d1092af829294f0
+  en: 90cc9f6dcfbdcf47
+  zh: 58cb4c4ef913d348
 /how-the-plugins-keep-the-fish/speech-dsh-tts-bridge:
   en: de77129e90ff9d6e
   zh: 3cc7a81949438b6e
@@ -105,8 +108,8 @@
   en: 8296b48c097ec5b4
   zh: 0584d6fb861106f7
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/dsh-to-qq:
-  en: 7bc7665b911fa914
-  zh: 73e3062992e37695
+  en: a6c455c545cbabc4
+  zh: e8b3f9c01c10590e
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/qq-to-dsh:
   en: 81dfab94863eaaf5
   zh: e9b01fc73aaf3941
@@ -118,16 +121,16 @@
   zh: e29ab45b32b056e1
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection:
   en: da24002b1ec15212
-  zh: 339d30d962ca4bde
+  zh: 2824dc6855d69f65
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/autonomous-group-interjection/person-memory-recognizing-remembering-and-handling-relationships:
   en: 2b53e4870ad3d495
-  zh: d6edbe45ba3c2231
+  zh: 4d97ae1e6d51a7ca
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/local-routes:
   en: 305f0456404dbbd2
   zh: 1eaf9a0456f5059b
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/prerequisites-and-defaults:
   en: a0df9acf8484c3ae
-  zh: 55c247122930fd63
+  zh: 484af91216a14c09
 /how-the-plugins-keep-the-fish/qq-dsh-qq-bridge/known-limits:
   en: dc0f9a1fa85d340e
   zh: 9a25525b1ae0468d
@@ -156,20 +159,20 @@
   en: 4c97c7b70f927eb4
   zh: 714882a58e21b742
 /how-the-plugins-keep-the-fish/how-the-six-form-a-day:
-  en: 4cab2dc3bb198f32
-  zh: 0ee9328fa855fe81
+  en: 23f26b092ecc8b42
+  zh: 93c549c813d0484a
 /how-the-plugins-keep-the-fish/defaults-cost-and-risk:
-  en: 3651e352e15b05a6
-  zh: 31e8b3aa72fea96b
+  en: e7ec02118a764d00
+  zh: 7f92eac9c5cf146e
 /how-the-plugins-keep-the-fish/cross-plugin-coupling-and-gaps:
   en: 925ab4bb8b7d0af9
-  zh: 55de1510f2fcfc11
+  zh: ffb7f0535a1e8572
 /how-the-plugins-keep-the-fish/change-map:
-  en: f09bcd5b4597ca12
-  zh: 53c172d4734342be
+  en: 715c121288e02189
+  zh: 22dbc8745b4f6e31
 /how-the-plugins-keep-the-fish/observing-and-troubleshooting:
-  en: 1a647fbf4b323217
-  zh: 7f57c39fe8dcfaf6
+  en: 0e4da96929b6f301
+  zh: 3a7c18e4dc5ba6a6
 /how-the-plugins-keep-the-fish/conclusion-what-to-decide-first:
   en: 59633d6cdf8bb031
   zh: dba31fe474dc27b5

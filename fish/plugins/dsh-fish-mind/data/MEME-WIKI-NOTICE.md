@@ -2,6 +2,8 @@
 
 本目录的 `memes.json.gz` 由 [astrbot_plugin_memewiki](https://github.com/in1t1a1/astrbot_plugin_memewiki) 的本地词库 `data/memes.db` 转换而来。
 
+`memes-active.json` 是另做的一份主动用梗小词表：只引用内置词条的标题，配一两句本项目自己写的常用说法，不复制上游条目正文。它由本仓库人工维护，不由 `build-memes.mjs` 生成。
+
 - 上游插件：MIT License，Copyright (c) 2026 in1t1a1
 - 词条内容：来自 [cnmeme.wiki](https://cnmeme.wiki)，版权归 cnmeme.wiki 及原作者
 - 本项目只做本地缓存与检索，不搬运上游的在线接口、图片卡片和运行时依赖

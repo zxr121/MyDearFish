@@ -150,6 +150,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 [data-fishmw-hero]{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border-radius:12px;background:rgba(127,127,127,.08);}
 [data-fishmw-name]{font-size:18px;font-weight:600;}
 [data-fishmw-sub]{font-size:12px;opacity:.62;margin-top:4px;line-height:1.55;max-width:620px;}
+[data-fishmw-recent]{font-size:12px;opacity:.62;margin-top:4px;line-height:1.55;}
 [data-fishmw-stats]{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
 [data-fishmw-search]{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 [data-fishmw-search]>[data-fishm-input]{flex:1;min-width:220px;}
@@ -1709,9 +1710,10 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
     ]
     const MEME_PAGE_SIZE = 20
     const MEME_TOGGLES = [
-      ['enabled', '启用梗百科', '关掉后不再预查，查询工具也会停用。'],
+      ['enabled', '启用梗百科', '关掉后不再预查，主动用梗和查询工具也会停用。'],
+      ['activeUse', '主动用梗', '聊天轻松时从词库里挑一个合气氛的短说法，自然接进她自己的话；关掉后只解释别人提到的梗。'],
       ['autoInject', '自动预查', '聊天里提到词库里的梗时，自动把用法带进那一轮。'],
-      ['socialInject', '群聊和好友也预查', '只在这个群或好友自己的会话里用；主人私下的记忆不会跟出去。'],
+      ['socialInject', '群聊和好友也用', '关闭后群里和好友会话不预查、也不主动用梗；主人私下的记忆不会跟出去。'],
       ['tool', '开放查询工具', '让模型遇到没把握的新词时主动查；群聊和好友会话始终不开放。'],
     ]
 
@@ -2010,7 +2012,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         h('div', { 'data-fishmw-hero': '' },
           h('div', {},
             h('div', { 'data-fishmw-name': '' }, '梗百科'),
-            h('div', { 'data-fishmw-sub': '' }, '网络梗、流行语和黑话的本地词库。她聊天时会按语境取用；这里有完整搜索、增删改和开关。')),
+            h('div', { 'data-fishmw-sub': '' }, '网络梗、流行语和黑话的本地词库。她聊天时会按语境预查，也会挑合适的梗自己用；这里有完整搜索、增删改和开关。'),
+            data
+              ? h('div', { 'data-fishmw-recent': '' },
+                  Array.isArray(data.recent) && data.recent.length > 0
+                    ? `最近用过：${data.recent.map((item) => item.title).join('、')}`
+                    : '最近还没有主动用过梗')
+              : null),
           h('div', { 'data-fishmw-stats': '' },
             h('span', { 'data-fishm-chip': '' }, `词条 ${num(stats.total)}`),
             h('span', { 'data-fishm-chip': '' }, `内置 ${num(stats.builtin)}`),
@@ -2021,7 +2029,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         msg !== '' ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null,
         h('div', { 'data-fishm-sec': '' },
           h('div', { 'data-fishm-h': '' }, '用法开关'),
-          h('div', { 'data-fishm-note': '' }, '自动预查只在她本人聊天时生效；群聊和好友会话只取本群自己的上下文，不碰主人私下的记忆。'),
+          h('div', { 'data-fishm-note': '' }, '自动预查和主动用梗都只看这一轮的上下文；群聊和好友会话只取本群自己的上下文，不碰主人私下的记忆。'),
           h('div', { 'data-fishmw-toggles': '' }, MEME_TOGGLES.map(toggle))),
         h('div', { 'data-fishm-sec': '' },
           h('div', { 'data-fishm-h': '' }, '查词与维护'),

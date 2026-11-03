@@ -589,10 +589,15 @@ export function apply(ctx) {
     }
 
     if (event.type === 'assistant/message') {
-      if (!config.capture.assistant) return
       if (data.interrupted) return
       const text = textOfMessage(data.message)
       if (text === '') return
+      try {
+        memes.noteReply(text)
+      } catch (error) {
+        diag(`memes: 记梗使用失败（${String((error && error.message) || error)}）`)
+      }
+      if (!config.capture.assistant) return
       observe({
         at: event.time,
         sessionId: session && session.id,
@@ -951,23 +956,30 @@ export function apply(ctx) {
   }
 
   /**
-   * 梗百科预查：问梗、整句就是一个词条、标题出现在句子里，或句子用了梗标题的开头半句时，
-   * 把资料放进这一轮；主人私聊里四字片段也认，群里只在句首句尾、被点名或考试语气时认。
-   * 难过、生病、冲突和正事一律不打断。
+   * 梗百科：别人提到梗时先给资料并让她顺着用；没有现成梗时，挑一条合气氛的短说法让她自己用。
+   * 难过、生病、冲突和正事一律不打断；考题只答不装饰。
    * @param {object} assembly - 系统提示组装上下文。
    * @returns {string} 提示正文；空串表示这轮不注入。
    */
   function memesPrompt(assembly) {
     if (config.mode !== 'live' || !config.inject) return ''
     const settings = memes.config()
-    if (!settings.enabled || !settings.inject || !settings.autoInject) return ''
-    const { last, social } = workspaceSession(assembly)
+    if (!settings.enabled) return ''
+    const { sessionId, last, social } = workspaceSession(assembly)
     if (!last || String(last.text || '').trim() === '') return ''
     if (social && !settings.socialInject) return ''
     const tone = humorTone(last.text)
     if (tone === 'crisis' || tone === 'serious' || tone === 'heavy') return ''
+    const passive = settings.inject && settings.autoInject
+    if (!passive && !settings.activeUse) return ''
     const hit = memes.findMention(last.text, { relaxed: !social })
-    return hit === null ? '' : memes.injectionText(hit, { social })
+    if (hit !== null && passive) return memes.injectionText(hit, { social })
+    if (hit !== null && hit.quiz === true) return ''
+    if (!settings.activeUse) return ''
+    if (config.humor?.inject === false) return ''
+    if (tendencyState.compiled.policy.humor.mode === 'less') return ''
+    const suggestion = memes.suggest(last.text, { sessionId, social })
+    return suggestion === null ? '' : memes.usePrompt(suggestion, { social })
   }
 
   /**
