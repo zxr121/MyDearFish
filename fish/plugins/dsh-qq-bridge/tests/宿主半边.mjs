@@ -545,6 +545,60 @@ const 之前5 = 发了.length
 await new Promise((r) => setTimeout(r, 20))
 报('不是目标会话不转发', 发了.length === 之前5)
 
+// ⑤b 别的会话里的定时提醒 → 说完转到主人 QQ
+const 之前5b = 发了.length
+监听[0](别的会话, { type: 'turn/start', data: { turn: 12 } })
+监听[0](别的会话, { type: 'user/message', data: { source: { kind: 'schedule' } } })
+监听[0](别的会话, 助手消息(12, 1, [块('text', '十一点半了 该睡了，别偷偷又爬起来')], false))
+监听[0](别的会话, 转完(12))
+await 等到(() => 发了.length > 之前5b)
+报('别的会话里的定时提醒 → 发到 QQ', 发了.length === 之前5b + 1
+  && 发了.at(-1).url.endsWith('/send_private_msg')
+  && 发了.at(-1).体.message[0].data.text === '十一点半了 该睡了，别偷偷又爬起来',
+  JSON.stringify(发了.slice(之前5b).map((x) => x.体.message?.[0]?.data?.text)))
+
+// ⑤b2 同一条定时提醒发完就不再重复（turn/end 重复到达也不重发）
+const 之前5b2 = 发了.length
+监听[0](别的会话, 转完(12))
+await new Promise((r) => setTimeout(r, 20))
+报('定时提醒只转一次', 发了.length === 之前5b2)
+
+// ⑤b3 定时那一轮失败 → 不转
+const 之前5b3 = 发了.length
+监听[0](别的会话, { type: 'turn/start', data: { turn: 13 } })
+监听[0](别的会话, { type: 'user/message', data: { source: { kind: 'schedule' } } })
+监听[0](别的会话, 助手消息(13, 1, [块('text', '说到一半')], false))
+监听[0](别的会话, 转完(13, 'error'))
+await new Promise((r) => setTimeout(r, 20))
+报('定时那一轮没完成 → 不转', 发了.length === 之前5b3)
+
+// ⑤b4 定时转发关 → 不转；打开后恢复
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '',
+  转私聊: true, 转群: false, 定时转QQ: false, NapCat: 'http://127.0.0.1:3000',
+}, null, 2), 'utf8')
+const 之前5b4 = 发了.length
+监听[0](别的会话, { type: 'turn/start', data: { turn: 14 } })
+监听[0](别的会话, { type: 'user/message', data: { source: { kind: 'schedule' } } })
+监听[0](别的会话, 助手消息(14, 1, [块('text', '关着就不转')], false))
+监听[0](别的会话, 转完(14))
+await new Promise((r) => setTimeout(r, 20))
+报('定时转 QQ 关着 → 不转', 发了.length === 之前5b4)
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '',
+  转私聊: true, 转群: false, 定时转QQ: true, NapCat: 'http://127.0.0.1:3000',
+}, null, 2), 'utf8')
+
+// ⑤b5 目标会话里的定时提醒仍走原来的主人桥，只发一次
+const 之前5b5 = 发了.length
+监听[0](会话, { type: 'turn/start', data: { turn: 15 } })
+监听[0](会话, { type: 'user/message', data: { source: { kind: 'schedule' } } })
+监听[0](会话, 助手消息(15, 1, [块('text', '目标会话里的提醒')], false))
+监听[0](会话, 转完(15))
+await 等到(() => 发了.length > 之前5b5)
+await new Promise((r) => setTimeout(r, 20))
+报('目标会话里的定时提醒只发一次', 发了.length === 之前5b5 + 1, JSON.stringify(发了.slice(之前5b5).map((x) => x.体.message?.[0]?.data?.text)))
+
 // ⑥ 试运行开 → fetch 不被打
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
   总开关: true, 试运行: true, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',

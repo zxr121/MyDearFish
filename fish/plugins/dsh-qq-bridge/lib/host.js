@@ -259,6 +259,7 @@ const 默认配置 = {
   群号: '', // 发到哪个群（可空）
   转私聊: true,
   转群: false,
+  定时转QQ: true, // 别的会话里创建的定时提醒，说完也发到主人 QQ；关 = 只留在原会话
   NapCat: 'http://127.0.0.1:3000', // OneBot HTTP 接口（无 token，固定由 SnowLuma 提供；一键配置会改成实际选中的端口）
   SnowLuma: {
     目录: '', // 留空 = 自动找已有安装，找不到就装到 <DSH_HOME>/snowluma
@@ -653,6 +654,7 @@ function 归一化(原始) {
     群号: 字(混.群号),
     转私聊: 布(混.转私聊, 默认配置.转私聊),
     转群: 布(混.转群, 默认配置.转群),
+    定时转QQ: 布(混.定时转QQ, 默认配置.定时转QQ),
     NapCat: 字(混.NapCat) || 默认配置.NapCat,
     SnowLuma: 归一化SnowLuma(混.SnowLuma),
     戳一戳: 归一化戳一戳(混.戳一戳),
@@ -3517,6 +3519,9 @@ export function apply(ctx) {
   const 日志 = []
   let 上一轮 = { 轮号: -1, 文本: '' }
   const 已发轮 = new Set()
+  // 别的会话里的定时提醒：source.kind=schedule 的 user 消息开了这个记号，
+  // 一轮跑完就把最后一句转到主人 QQ；原会话不一定是目标会话。
+  const 普通会话定时 = new Map() // 会话 id → { 轮号, 文本 }
   // 主人桥这一轮带进来的图：回话里的 [存表情:图N] / [发表情:图N] 要靠它对上号，发完就清掉。
   const 入站图批 = new Map() // 会话 id → { at, 图们 }
   const 已转消息 = new Set() // 已经转发进 DSH 的 QQ 消息 id（防重复转）
@@ -10846,16 +10851,64 @@ export function apply(ctx) {
     }
   }
 
+  /**
+   * 别的会话里的定时提醒：DSH 只把提醒投回原会话，不会自己走到 QQ。
+   * 主人多半不在那间屋里，所以这一轮说完要把最后一句按主人桥的出口发到 QQ。
+   * 只认 source.kind=schedule 的轮次；普通聊天、工具任务和群 / 好友会话都不走这里。
+   */
+  function 收到普通会话的定时回复(配置, sid, event) {
+    if (!配置.定时转QQ) return
+    const 记 = 普通会话定时.get(sid)
+    if (event && event.type === 'turn/start') {
+      // 新的一轮开始：上一条定时没等到 turn/end（少见）就丢掉，别串到这一轮。
+      if (记) 普通会话定时.delete(sid)
+      return
+    }
+    if (event && event.type === 'user/message') {
+      const 源 = event.data && event.data.source
+      if (!源 || 源.kind !== 'schedule') return
+      普通会话定时.set(sid, { 轮号: -1, 文本: '' })
+      return
+    }
+    if (!记) return
+    if (event && event.type === 'assistant/message') {
+      const d = event.data || {}
+      if (d.interrupted) {
+        记.轮号 = d.turn
+        记.文本 = ''
+        return
+      }
+      const 文 = 提取正文(d.message)
+      if (文) {
+        记.轮号 = d.turn
+        记.文本 = 文
+      }
+      return
+    }
+    if (event && event.type === 'turn/end') {
+      普通会话定时.delete(sid)
+      const d = event.data || {}
+      if (!(d.reason && d.reason.kind === 'completed')) return
+      if (记.轮号 !== d.turn || !记.文本) return
+      记账(`定时提醒在别的会话说完了，转去 QQ：${记.文本.slice(0, 40)}${记.文本.length > 40 ? '…' : ''}`)
+      void 落地一发(配置, 记.文本, sid, d.turn)
+    }
+  }
+
   /** 盯会话事件：记住这一轮最后一句，在 turn/end 时落地。 */
   function 收到事件(session, event) {
-    if (是社交会话(session && session.id)) {
+    const sid = String(session && session.id)
+    if (是社交会话(sid)) {
       收到社交事件(session, event)
       return
     }
     const 配置 = 读配置()
     const 目标 = 解析目标(配置)
     if (!目标) return
-    if (String(session && session.id) !== String(目标)) return
+    if (sid !== String(目标)) {
+      收到普通会话的定时回复(配置, sid, event)
+      return
+    }
 
     if (event && event.type === 'assistant/message') {
       const d = event.data || {}
