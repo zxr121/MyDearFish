@@ -174,10 +174,10 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 [data-fishmw-count]{font-size:12px;opacity:.65;}
 [data-fishmw-attrib]{font-size:11px;line-height:1.7;opacity:.55;padding-top:10px;border-top:1px solid rgba(127,127,127,.16);}
 [data-fishmw-attrib] a{color:inherit;}
-[data-fishm-tabs]{position:sticky;top:0;z-index:3;display:flex;gap:4px;flex-wrap:wrap;padding:2px 0 8px;background:var(--dsw-alias-bg-layer-2,#1e1e1e);border-bottom:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24));}
-[data-fishm-tab]{padding:5px 12px;border-radius:999px;border:1px solid transparent;background:transparent;color:inherit;font-size:13px;line-height:1.5;cursor:pointer;opacity:.66;font-weight:400;}
-[data-fishm-tab]:hover{background:rgba(127,127,127,.12);opacity:.9;}
-[data-fishm-tab][aria-selected="true"]{background:var(--dsw-alias-bg-module-platform,rgba(127,127,127,.16));border-color:var(--dsw-alias-border-l2,rgba(127,127,127,.28));opacity:1;font-weight:500;}
+[data-fishm-tabs]{position:sticky;top:0;z-index:3;display:flex;gap:2px;flex-wrap:wrap;padding:3px;margin:0 0 12px;background:var(--dsw-alias-bg-layer-1,#f4f4f4);border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24));border-radius:10px;}
+[data-fishm-tab]{padding:7px 14px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary,rgba(127,127,127,.75));font-size:13px;line-height:20px;cursor:pointer;font-weight:400;}
+[data-fishm-tab]:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.1));color:var(--dsw-alias-label-primary,inherit);}
+[data-fishm-tab][aria-selected="true"]{background:var(--dsw-alias-bg-layer-2,#fff);box-shadow:var(--dsw-elevation-soft,0 1px 3px rgba(0,0,0,.12));color:var(--dsw-alias-label-primary,inherit);font-weight:500;}
 [data-fishm-pagehead]{display:flex;flex-direction:column;gap:5px;padding:2px 2px 0;}
 [data-fishm-pagehead-title]{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:16px;line-height:1.4;font-weight:500;}
 [data-fishm-caps]{font-size:12px;line-height:1.65;opacity:.72;}
