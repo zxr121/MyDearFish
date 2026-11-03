@@ -2,7 +2,7 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, developer mode, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, automatic backup, and the developer-mode switch are editable, everything else is read-only, and with developer mode on she can also read the fish QQ account's groups and friends and change behavior settings for you in the owner's own foreground session; a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and a wrong format writes no file; an import is always available, replaces the current fish, and backs it up in full first.
+The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, developer mode, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, the pocket-money daily allowance and current balance, automatic backup, and the developer-mode switch are editable, everything else is read-only, and with developer mode on she can also read the fish QQ account's groups and friends and change behavior settings for you in the owner's own foreground session; a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and a wrong format writes no file; an import is always available, replaces the current fish, and backs it up in full first.
 
 ## Overview
 
@@ -18,7 +18,7 @@ The page reads from “who she is” to “what she remembers”, “how she is�
 | Mood | Current value, label, latest reason, tail of the timeline | No |
 | People-book relationships | Names, aliases, familiarity, times seen, and owner flag from the QQ people book; QQ numbers are not shown | No |
 | Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; a closed voice card can be shown again here; addresses, tokens, and login state are not shown | Card visibility only |
-| Pocket money | Daily grant, available balance, spent today, and call count; Bilibili patrol spend today and its quarter-of-the-grant cap | No |
+| Pocket money | Daily allowance and current balance; spent today, call count, and Bilibili patrol spend today with its quarter-of-the-grant cap | Allowance and balance |
 | Automatic backup | Whether the whole fish is packed on a schedule, the interval (1–720 hours), the latest and next backup, and the five retained files; a backup can also be taken immediately | Yes |
 | Developer mode | Whether she may read local debugging material and the fish QQ account's groups and friends, and change behavior settings for you in the owner's foreground session; the adjacent button opens a Creator-mode debugging session | Yes |
 | Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
@@ -49,7 +49,7 @@ Owner-defined relationships are free entries in birth identity: each pairs a nam
 
 `selfPrompt()` assembles the private setting from the current identity each session instead of hardcoding a name, species, and the owner's gender. Renaming also changes how she refers to herself in the prompt, how she refuses an identity change, and the name and species named in the injection-defense prompt; changing the gender changes the third person she uses for the owner (“未说” switches to direct address or “TA”). When `$DSH_HOME/feiyu-mood/config.json` exists, saving birth identity also updates its `ownerName` and `selfName` so mood judging does not keep calling her by the old name; no other mood setting is touched.
 
-The fixed kernel does not come from settings and does not read `identity.json`: privacy, legal rules, prompt-injection defense, honesty about being an AI, the pocket-money grant, and the `sealed.fish-mind` permission rule remain in code. Tools cannot write the fish-mind directory, so the model cannot change its own identity by editing `identity.json`; the settings page is a host route, not a model tool.
+The fixed kernel does not come from settings and does not read `identity.json`: privacy, legal rules, prompt-injection defense, honesty about being an AI, the pocket-money birth grant and accumulation rule, and the `sealed.fish-mind` permission rule remain in code. Tools cannot write the fish-mind directory, so the model cannot change its own identity by editing `identity.json`; the settings page is a host route, not a model tool.
 
 ## Persona
 
@@ -57,7 +57,7 @@ The persona is the whole persona prefix of the deployment layer: the `system-pro
 
 Saving goes through the host's existing `configEditor`: it validates the complete candidate config in memory, atomically writes the active profile's `cordis.patch.yml`, and hands it to Loader for a hot apply. No restart is needed, and the next turn speaks with the new persona. Other config and comments in the file are left alone. “Reset to factory persona” deletes the override rather than copying the factory text in, so later changes to the shipped persona still flow through.
 
-Names, species, appearance, and owner-defined relationships are not here; they remain in birth identity. Privacy, legal rules, prompt-injection defense, AI honesty, the pocket-money grant, and the `sealed.fish-mind` permission rule are not here either; code still fixes them. QQ sessions include only the deployment persona, the QQ scene sections, and fish-brain memory; the persona still uses the same `deployment:persona-prefix` section, so changing it does not alter the QQ section filter.
+Names, species, appearance, and owner-defined relationships are not here; they remain in birth identity. Privacy, legal rules, prompt-injection defense, AI honesty, the pocket-money birth grant and accumulation rule, and the `sealed.fish-mind` permission rule are not here either; code still fixes them. QQ sessions include only the deployment persona, the QQ scene sections, and fish-brain memory; the persona still uses the same `deployment:persona-prefix` section, so changing it does not alter the QQ section filter.
 
 ## Custom phrases
 

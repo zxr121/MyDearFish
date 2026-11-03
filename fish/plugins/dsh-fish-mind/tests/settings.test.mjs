@@ -202,6 +202,33 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   const grantedByGet = await call(routes, '/dsh-fish-mind/budget', { method: 'GET' })
   assert.equal(grantedByGet.res.status, 405)
 
+  const wallet = await call(routes, '/dsh-fish-mind/wallet', {
+    method: 'POST',
+    body: { walletCny: 123.45 },
+  })
+  assert.equal(wallet.res.status, 200)
+  assert.equal(wallet.json.changed, true)
+  assert.equal(wallet.json.walletCny, 123.45)
+  assert.equal(wallet.json.status.availableCny, 123.45)
+  const afterWallet = await call(routes, '/dsh-fish-mind/overview')
+  assert.equal(afterWallet.json.wallet.availableCny, 123.45)
+
+  const sameWallet = await call(routes, '/dsh-fish-mind/wallet', {
+    method: 'POST',
+    body: { walletCny: 123.45 },
+  })
+  assert.equal(sameWallet.json.changed, false)
+
+  const badWallet = await call(routes, '/dsh-fish-mind/wallet', {
+    method: 'POST',
+    body: { walletCny: 10001 },
+  })
+  assert.equal(badWallet.res.status, 400)
+  assert.match(badWallet.json.error, /0 到 10000/)
+
+  const walletByGet = await call(routes, '/dsh-fish-mind/wallet', { method: 'GET' })
+  assert.equal(walletByGet.res.status, 405)
+
   const phrases = await call(routes, '/dsh-fish-mind/phrases', {
     method: 'POST',
     body: { privateDodge: '这个我私下讲', budgetBlock: '今天先到这儿，改天再聊。' },

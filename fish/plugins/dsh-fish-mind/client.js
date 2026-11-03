@@ -6,7 +6,7 @@
  *   · 性格倾向：一段话编译成设置/每轮提示，能落地的保存时写进对应设置页，改代码的交给创造模式；
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
  *   · 开发者模式：只读调试资料、读鱼 QQ 名单、在对话里帮她改行为设置的开关，以及创造模式调试会话的入口；
- *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度，其余只读；
+ *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度和当前余额，其余只读；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
  *   · 搬迁：导出整条鱼为一个 zip；导入只收合法的大肥鱼包，随时可用，覆盖前先整份备份；
  *   · 自动备份：按主人设的间隔把整条鱼写进安装目录，最多留 5 份。
@@ -263,6 +263,8 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const [msgKind, setMsgKind] = React.useState('')
       const [grantDraft, setGrantDraft] = React.useState(null)
       const [grantBusy, setGrantBusy] = React.useState(false)
+      const [walletDraft, setWalletDraft] = React.useState(null)
+      const [walletBusy, setWalletBusy] = React.useState(false)
       const [phraseForm, setPhraseForm] = React.useState(null)
       const [phraseBusy, setPhraseBusy] = React.useState(false)
       const [backupForm, setBackupForm] = React.useState(null)
@@ -625,6 +627,29 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           flash('保存失败：' + String((error && error.message) || error), 'error')
         }
         setGrantBusy(false)
+      }
+
+      const saveWallet = async () => {
+        if (walletBusy) return
+        const value = Number(walletDraft)
+        const max = Number(wallet && wallet.dailyGrantMaxCny) || 10000
+        if (walletDraft === null || String(walletDraft).trim() === '' || !Number.isFinite(value) || value < 0 || value > max) {
+          flash(`当前余额要填 0 到 ${max} 元之间的数字`, 'error')
+          return
+        }
+        setWalletBusy(true)
+        try {
+          const result = await postJson(API + '/wallet', { walletCny: value })
+          const current = result && Number.isFinite(result.walletCny) ? result.walletCny : value
+          setWalletDraft(null)
+          await load()
+          flash(result && result.changed === false
+            ? `当前余额还是 ${yen(current)}`
+            : `当前余额已改成 ${yen(current)}`)
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        }
+        setWalletBusy(false)
       }
 
       const savePhrases = async (values) => {
@@ -1292,7 +1317,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '零花钱',
-          note: '每日额度可以在这里改（单位：元）；其余只读；她对外说不了金额。',
+          note: '每日额度和当前余额可以在这里改（单位：元）；今天的花费只读；她对外说不了金额。',
         },
           wallet.available
             ? h('div', {},
@@ -1316,7 +1341,27 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                     disabled: grantBusy || grantDraft === null || String(grantDraft).trim() === '',
                     onClick: saveGrant,
                   }, grantBusy ? '保存中…' : '保存每日额度')),
-                h(Row, { label: '今天', value: `${yen(wallet.dailyGrantCny)} 额度 · 已花 ${yen(wallet.spentTodayCny)} · 还余 ${yen(wallet.availableCny)}` }),
+                h('div', { 'data-fishm-field': '' },
+                  h('span', { 'data-fishm-flabel': '' }, '当前余额（元）'),
+                  h('input', {
+                    'data-fishm-input': '',
+                    type: 'number',
+                    min: '0',
+                    max: String(num(wallet.dailyGrantMaxCny) || 10000),
+                    step: '0.01',
+                    value: walletDraft !== null ? walletDraft : String(num(wallet.availableCny)),
+                    disabled: walletBusy,
+                    onChange: (event) => setWalletDraft(event.target.value),
+                  }),
+                  h('span', { 'data-fishm-note': '' }, '用不完的每日额度会累计到这里；保存后以你填的数为准，之后每天照常发额度。')),
+                h('div', { 'data-fishm-actions': '' },
+                  h('button', {
+                    'data-fishm-btn': '',
+                    disabled: walletBusy || walletDraft === null || String(walletDraft).trim() === '',
+                    onClick: saveWallet,
+                  }, walletBusy ? '保存中…' : '保存当前余额')),
+                h(Row, { label: '今天', value: `${yen(wallet.dailyGrantCny)} 额度 · 已花 ${yen(wallet.spentTodayCny)}` }),
+                h(Row, { label: '累计余额', value: `${yen(wallet.availableCny)}（每天没花完的额度会攒进来，跨天继续用）` }),
                 h(Row, { label: '调用', value: `${num(wallet.callsToday)} 次记账 · ${num(wallet.unmeteredToday)} 次未计价` }),
                 h(Row, {
                   label: 'B 站巡检',

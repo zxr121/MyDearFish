@@ -83,6 +83,25 @@ test('同一天重开不重复发钱，花掉的还在', () => {
   assert.equal(status.callsToday, 1)
 })
 
+test('内部直调把 budgetOrigin 记进账本，普通聊天不留空标签', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+
+  const judge = budget.reserve({
+    provider: 'p', model: 'm', maxTokens: 8, budgetOrigin: 'judge',
+  }).reservation
+  assert.equal(judge.origin, 'judge')
+  budget.settle(judge, { inputTokens: 100, outputTokens: 10 })
+
+  const chat = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  budget.settle(chat, { inputTokens: 100, outputTokens: 10 })
+
+  const spends = readLedger(dir).filter((entry) => entry.type === 'spend')
+  assert.equal(spends[0].origin, 'judge')
+  assert.equal(spends[1].origin, undefined)
+})
+
 test('隔天自动累计，跳过的日子也补', () => {
   const dir = tempDir()
   let clock = clockAt()
@@ -186,6 +205,81 @@ test('每日额度必须是 0 到 10000 元之间的数字，并且落盘后重�
   const reopened = openBudget({ dir, config: baseConfig(), now: () => clock })
   assert.equal(reopened.dailyGrantCny(), 25.5)
   assert.equal(reopened.status().walletCny, 25.5)
+})
+
+test('主人直接改余额：调高调低都写 wallet-change，重开后还在', () => {
+  const dir = tempDir()
+  let clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+
+  const raised = budget.setWalletCny('123.45')
+  assert.equal(raised.changed, true)
+  assert.equal(raised.previousCny, 10)
+  assert.equal(raised.walletCny, 123.45)
+  assert.equal(raised.adjustedCny, 113.45)
+  assert.equal(budget.status().walletCny, 123.45)
+  const entry = readLedger(dir).at(-1)
+  assert.equal(entry.type, 'wallet-change')
+  assert.equal(entry.fromCny, 10)
+  assert.equal(entry.toCny, 123.45)
+  assert.equal(entry.adjustedCny, 113.45)
+  assert.equal(entry.walletAfterCny, 123.45)
+
+  const lowered = budget.setWalletCny(5)
+  assert.equal(lowered.changed, true)
+  assert.equal(lowered.adjustedCny, -118.45)
+  assert.equal(budget.status().walletCny, 5)
+
+  const reopened = openBudget({ dir, config: baseConfig(), now: () => clock })
+  assert.equal(reopened.status().walletCny, 5)
+
+  clock = clockAt(1)
+  assert.equal(reopened.status().walletCny, 15)
+})
+
+test('余额必须是 0 到 10000 元之间的数字；同值不写流水', () => {
+  const dir = tempDir()
+  const clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  const before = readLedger(dir).length
+  for (const bad of [-1, 10001, 'abc', '', null, undefined]) {
+    assert.throws(() => budget.setWalletCny(bad), /0 到 10000/)
+  }
+  assert.equal(budget.status().walletCny, 10)
+  assert.equal(readLedger(dir).length, before)
+
+  const same = budget.setWalletCny(10)
+  assert.equal(same.changed, false)
+  assert.equal(same.previousCny, 10)
+  assert.equal(same.adjustedCny, 0)
+  assert.equal(readLedger(dir).length, before)
+
+  const rounded = budget.setWalletCny('123.456')
+  assert.equal(rounded.walletCny, 123.46)
+  assert.equal(budget.status().walletCny, 123.46)
+})
+
+test('改余额前先补当天额度，负余额可以设回 0', () => {
+  const dir = tempDir()
+  let clock = clockAt()
+  const budget = openBudget({ dir, config: baseConfig(), now: () => clock })
+  const reservation = budget.reserve({ provider: 'p', model: 'm', maxTokens: 8 }).reservation
+  budget.settle(reservation, { outputTokens: 10_000_000 })
+  assert.equal(budget.status().walletCny, -150)
+
+  clock = clockAt(1)
+  const reset = budget.setWalletCny(0)
+  assert.equal(reset.changed, true)
+  assert.equal(reset.previousCny, -140)
+  assert.equal(budget.status().availableCny, 0)
+  const entries = readLedger(dir)
+  const changeIndex = entries.findIndex((entry) => entry.type === 'wallet-change')
+  assert.equal(entries[changeIndex - 1].type, 'grant')
+  assert.equal(entries[changeIndex].fromCny, -140)
+  assert.equal(entries[changeIndex].toCny, 0)
+
+  clock = clockAt(2)
+  assert.equal(budget.status().walletCny, 10)
 })
 
 test('budget.json 坏了按重新出生处理，发 ¥10 而不是继承坏档', () => {

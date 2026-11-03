@@ -553,6 +553,40 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
   }
 
   /**
+   * 主人直接设置钱包余额，用来把累计余额校准到实际充值。
+   * 之后每天仍照常发额度；设成 0 可以清掉超支，但不会追回已经花掉的部分。
+   * @param {number|string} value - 新余额（元）。
+   * @returns {{changed:boolean, walletCny:number, previousCny:number, adjustedCny:number}}
+   */
+  function setWalletCny(value) {
+    const raw = typeof value === 'number' ? value : typeof value === 'string' ? value.trim() : NaN
+    const amount = raw === '' ? NaN : Number(raw)
+    if (!Number.isFinite(amount) || amount < 0 || amount > MAX_DAILY_GRANT_CNY) {
+      const error = new Error(`余额必须是 0 到 ${MAX_DAILY_GRANT_CNY} 元之间的数字`)
+      error.statusCode = 400
+      throw error
+    }
+    ensureGrant()
+    const next = round(amount, 2)
+    const previous = state.walletCny
+    if (round(previous, 2) === next) {
+      return { changed: false, walletCny: next, previousCny: round(previous, 2), adjustedCny: 0 }
+    }
+    state.walletCny = next
+    persist()
+    const adjustedCny = round(next - previous, 6)
+    ledger({
+      type: 'wallet-change',
+      at: now(),
+      fromCny: previous,
+      toCny: next,
+      adjustedCny,
+      walletAfterCny: next,
+    })
+    return { changed: true, walletCny: next, previousCny: previous, adjustedCny }
+  }
+
+  /**
    * 账本快照：额度、余额、今天已花、B 站巡检和此刻的精力档位。
    * 精力只由余额、今日消耗和本地时间算出来，写不进账本，也不受对话影响。
    * @returns {object} 只读快照，供本机设置页和 QQ 桥使用。
@@ -865,6 +899,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
     redactOutbound,
     setConfig,
     setDailyGrantCny,
+    setWalletCny,
     dailyGrantCny: () => state.dailyGrantCny,
     isEnabled,
   }
