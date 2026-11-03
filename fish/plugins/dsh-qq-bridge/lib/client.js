@@ -94,6 +94,28 @@ window.__ModuleLoader__.load({
       ok: { color: 'var(--dsw-alias-state-business-primary)', fontSize: 12 },
       已同步: { margin: '6px 0 10px', fontSize: 12, color: 'var(--dsw-alias-state-business-primary)' },
       未保存: { margin: '6px 0 10px', fontSize: 12, color: '#c0392b', fontWeight: 600 },
+      信标: {
+        display: 'inline-block',
+        marginLeft: 6,
+        padding: '0 7px',
+        borderRadius: 10,
+        fontSize: 11,
+        lineHeight: '18px',
+        background: 'var(--dsw-alias-state-business-primary)',
+        color: '#fff',
+        fontWeight: 600,
+      },
+      信禁: {
+        display: 'inline-block',
+        marginLeft: 6,
+        padding: '0 7px',
+        borderRadius: 10,
+        fontSize: 11,
+        lineHeight: '18px',
+        background: '#c0392b',
+        color: '#fff',
+        fontWeight: 600,
+      },
       悬浮保存条: {
         position: 'sticky',
         bottom: 0,
@@ -244,6 +266,9 @@ window.__ModuleLoader__.load({
       const [全部人, 设全部人] = React.useState(false)
       const [全部关系, 设全部关系] = React.useState(false)
       const [人号草稿, 设人号草稿] = React.useState({})
+      const [信任号, 设信任号] = React.useState('')
+      const [信任忙, 设信任忙] = React.useState(false)
+      const [信任说, 设信任说] = React.useState('')
       // —— 思想活动：从 /thoughts 增量拉，绝不碰 /state（不然会冲掉没保存的表单值）——
       const [绪流, 设绪流] = React.useState([])
       const [绪摘, 设绪摘] = React.useState(null)
@@ -292,6 +317,25 @@ window.__ModuleLoader__.load({
           设人物错('')
         } else {
           设人物错((s && s.说) || '读不到人物志')
+        }
+      }
+      const 改信任 = async (动作, 号) => {
+        const 净号 = String(号 || '').trim()
+        if (!/^\d{3,20}$/.test(净号)) {
+          设信任说('填一个 QQ 号（3–20 位数字）')
+          return
+        }
+        设信任忙(true)
+        设信任说('')
+        const s = await post('/trust', { 动作, 号: 净号 })
+        设信任忙(false)
+        if (s && s.ok) {
+          设态((旧) => (旧 ? { ...旧, 配置: s.配置 || 旧.配置, 信任: s.信任 || 旧.信任 } : 旧))
+          设信任号('')
+          设信任说(s.说 || '改好了')
+          await 拉人物()
+        } else {
+          设信任说('没改成：' + ((s && s.说) || '未知错误'))
         }
       }
       // 思想活动只走 /thoughts：带上本地游标做增量，宿主不重发旧的；宿主重启过（序号回退）就整段重来。
@@ -394,6 +438,18 @@ window.__ModuleLoader__.load({
           if (!旧) return 旧
           const 配置 = 旧.配置 || {}
           return { ...旧, 配置: { ...配置, 社交: { ...(配置.社交 || {}), [k]: v } } }
+        })
+        设脏(true)
+      }
+      const 改信任规则 = (k, v) => {
+        设态((旧) => {
+          if (!旧) return 旧
+          const 配置 = 旧.配置 || {}
+          const 社交 = 配置.社交 || {}
+          return {
+            ...旧,
+            配置: { ...配置, 社交: { ...社交, 信任: { ...(社交.信任 || {}), [k]: v } } },
+          }
         })
         设脏(true)
       }
@@ -874,6 +930,15 @@ window.__ModuleLoader__.load({
       const 账号数 = 人物态 && Number(人物态.账号数)
         ? 人物态.账号数
         : 人物页.reduce((n, p) => n + (Number(p.账号数) || 0), 0)
+      const 信任态 = (人物态 && 人物态.信任) || (态 && 态.信任) || null
+      const 信任规 = 信任态 || (社交 && 社交.信任) || {}
+      const 信任手动加 = Array.isArray(信任规.手动加) ? 信任规.手动加 : []
+      const 信任手动禁 = Array.isArray(信任规.手动禁) ? 信任规.手动禁 : []
+      const 信受信 = Array.isArray(信任规.受信) ? 信任规.受信 : []
+      const 信人 = (号) => {
+        const p = 人物页.find((x) => String(x.号) === String(号))
+        return p ? String(p.名 || p.号) : ''
+      }
 
       const 兆 = (n) => (Number(n) || 0) >= 1048576
         ? (Number(n) / 1048576).toFixed(1) + ' MB'
@@ -1729,6 +1794,77 @@ window.__ModuleLoader__.load({
               )
             : null,
         ),
+        // —— 信任与收藏权限 ——
+        h('div', { style: S.card },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '信任与收藏权限'),
+          h('div', { style: S.dim },
+            '只有主人和受信的人能让她存表情、改收藏备注。主人永远可以；其他人默认按相处自动判定，不用一个个手动加，也可以在这里手动加或收回。' +
+              '自动条件看总关系：认识天数、见过多少条、她回过多少次、熟悉度、信任分、疤和张力。'),
+          h('div', { style: { ...S.dim, marginTop: 4 } },
+            '现在：受信 ' + (Number(信任规.受信数) || 信受信.length || 0) + ' 人' +
+              (Number(信任规.手动加数) ? '（手动 ' + 信任规.手动加数 + '）' : '') +
+              ' · 自动受信 ' + (Number(信任规.自动受信数) || 0) + ' 人' +
+              ' · 手动禁止 ' + (Number(信任规.手动禁数) || 信任手动禁.length || 0) + ' 人' +
+              (信任规.自动 === false ? ' · 自动受信关着' : ''),
+          ),
+          h('div', { style: { ...S.row, marginTop: 8 } },
+            h('label', { style: { ...S.lab, minWidth: 120 } }, '手动加 QQ 号'),
+            h('div', { style: S.ctl },
+              h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                h('input', {
+                  type: 'text',
+                  style: { ...S.input, flex: '1 1 180px', width: 'auto' },
+                  value: 信任号,
+                  placeholder: '填 QQ 号，直接加成受信',
+                  onChange: (e) => 设信任号(e.target.value),
+                }),
+                按钮('加为受信', () => 改信任('加', 信任号), true, 信任忙),
+              ),
+              h('div', { style: { ...S.hint, whiteSpace: 'pre-wrap' } },
+                '手动加的人不受自动门槛限制；收回也不会删掉她记得的人和关系，只是不让他动收藏。'),
+              信任说 ? h('div', { style: 信任说.includes('没') || 信任说.includes('填') ? S.未保存 : S.ok }, 信任说) : null,
+            ),
+          ),
+          h('div', { style: { fontSize: 12, marginTop: 6 } },
+            h('div', { style: { fontWeight: 600 } }, '手动受信（' + 信任手动加.length + '）'),
+            信任手动加.length === 0
+              ? h('div', { style: S.dim }, '（空）')
+              : 信任手动加.map((号) => h('div', {
+                  key: '加' + 号,
+                  style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 },
+                },
+                  h('span', null, 信人(号) ? 信人(号) + '（' + 号 + '）' : 号),
+                  按钮('撤销手动受信', () => 改信任('撤', 号), false, 信任忙),
+                )),
+          ),
+          h('div', { style: { fontSize: 12, marginTop: 6 } },
+            h('div', { style: { fontWeight: 600 } }, '手动禁止（' + 信任手动禁.length + '）'),
+            信任手动禁.length === 0
+              ? h('div', { style: S.dim }, '（空）')
+              : 信任手动禁.map((号) => h('div', {
+                  key: '禁' + 号,
+                  style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 },
+                },
+                  h('span', null, 信人(号) ? 信人(号) + '（' + 号 + '）' : 号),
+                  按钮('恢复自动判定', () => 改信任('恢复', 号), false, 信任忙),
+                )),
+          ),
+          h('details', { style: { marginTop: 8 } },
+            h('summary', { style: { cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: 0.85 } },
+              '进阶：自动受信门槛（改完记得保存）'),
+            h('div', { style: { marginTop: 8 } },
+              行('自动受信', 勾(信任规.自动 !== false, (v) => 改信任规则('自动', v)), '关掉后只有主人和手动受信的人能动收藏；已手动加的仍有效。'),
+              行('认识天数', 数框(信任规.最少天数 ?? 3, (v) => 改信任规则('最少天数', v), 1, 0, 30), '至少认识这么多天，而且要在不同日期里出现过。'),
+              行('见过消息', 数框(信任规.最少见过 ?? 25, (v) => 改信任规则('最少见过', v), 1, 0, 1000), '她见过这个人多少条消息，连群里的旁听也算。'),
+              行('她回过', 数框(信任规.最少互动 ?? 3, (v) => 改信任规则('最少互动', v), 1, 0, 200), '她真对这个人的消息开过几轮口。'),
+              行('熟悉度', 数框(信任规.最少熟 ?? 15, (v) => 改信任规则('最少熟', v), 1, 0, 100), '总关系的熟悉度门槛，越高越难自动受信。'),
+              行('信任分', 数框(信任规.最少信 ?? 52, (v) => 改信任规则('最少信', v), 1, 0, 100), '总关系的信任分门槛；失信、越界会压低它。'),
+              行('最多疤', 数框(信任规.最多疤 ?? 8, (v) => 改信任规则('最多疤', v), 1, 0, 100), '以前留下过严重伤害的人，疤高于这个数就不会自动受信。'),
+              行('最多张力', 数框(信任规.最多张力 ?? 40, (v) => 改信任规则('最多张力', v), 1, 0, 100), '最近正在闹别扭、张力高于这个数时，先不自动给收藏权限。'),
+            ),
+          ),
+        ),
+
         // —— 人物志 ——
         h('div', { style: S.card },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '人物志（她认识的人）'),
@@ -1782,6 +1918,9 @@ window.__ModuleLoader__.load({
             const 关系们 = Array.isArray(p.关系们) ? p.关系们 : []
             const 被说 = Array.isArray(p.被说) ? p.被说 : []
             const 总 = p.关系 && typeof p.关系 === 'object' ? p.关系 : null
+            const 信 = p.信任 && typeof p.信任 === 'object' ? p.信任 : null
+            const 信因 = Array.isArray(信 && 信.原因) ? 信.原因 : []
+            const 信差 = Array.isArray(信 && 信.差) ? 信.差 : []
             const 风格 = p.风格 && typeof p.风格 === 'object' ? p.风格 : null
             const 出处 = (x) => (x.房叫 || x.房 || '') + (x.密 ? '，私下' : '')
             const 来源说 = (来源) => 来源 === '自认' ? '自己说这是他的号' : 来源 === '模型' ? '看出来的' : '见过'
@@ -1798,6 +1937,8 @@ window.__ModuleLoader__.load({
                     h('span', { style: { fontWeight: 600 } }, p.主人 ? '主人' : String(p.名 || p.号)),
                     h('span', { style: S.dim }, '（' + p.号 + '）'),
                     p.主人 ? h('span', { style: { ...S.dim, marginLeft: 6 } }, '最亲近的人') : null,
+                    信 && 信.级别 === '受信' ? h('span', { style: S.信标 }, 信.手动 === '加' ? '受信·手动' : '受信') : null,
+                    信 && 信.手动 === '禁' ? h('span', { style: S.信禁 }, '已收回收藏权限') : null,
                   ),
                   h('div', { style: S.dim },
                     (Array.isArray(p.别名) && p.别名.length ? '也叫 ' + p.别名.join('、') + ' · ' : '') +
@@ -1818,6 +1959,29 @@ window.__ModuleLoader__.load({
                         账号们.map((a) => (a.主 ? '主号 ' : '') + a.号 +
                           (a.名 && a.名 !== p.名 ? ' ' + a.名 : '') +
                           '（' + 来源说(a.来源) + (a.房叫 ? ' · ' + a.房叫 : '') + '）').join('；'),
+                    )
+                  : null,
+                信
+                  ? h('div', { style: { fontSize: 12, marginTop: 4, padding: '5px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' } },
+                      h('div', null,
+                        '收藏权限：' + (p.主人 ? '主人永远可以'
+                          : 信.能收藏 ? '受信（' + (信.手动 === '加' ? '手动加' : '自动达标') + '）'
+                            : 信.手动 === '禁' ? '已手动收回' : '不在受信名单'),
+                      ),
+                      h('div', { style: S.dim },
+                        (信因.length ? '达标：' + 信因.join('；') : '') +
+                          (信差.length ? (信因.length ? ' ｜ ' : '') + '还差：' + 信差.join('；') : ''),
+                      ),
+                      p.主人
+                        ? null
+                        : h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 } },
+                            信.手动 !== '加'
+                              ? 按钮('手动受信', () => 改信任('加', p.号), false, 信任忙)
+                              : 按钮('撤销手动受信', () => 改信任('撤', p.号), false, 信任忙),
+                            信.手动 !== '禁'
+                              ? 按钮('收回信任', () => 改信任('禁', p.号), false, 信任忙)
+                              : 按钮('恢复自动判定', () => 改信任('恢复', p.号), false, 信任忙),
+                          ),
                     )
                   : null,
                 总

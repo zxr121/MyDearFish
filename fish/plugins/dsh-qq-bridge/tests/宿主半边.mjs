@@ -892,7 +892,7 @@ const 之前跨 = 转进的.length
 const 之前长 = 转进的.length
 收到 = await 收({ text: '长'.repeat(20000) })
 const 长文 = 转进的.at(-1)?.content?.[0]?.text || ''
-报('/receive：超长正文截断', 收到 && 收到.ok === true && 转进的.length === 之前长 + 1 && 长文.length <= 12200 && 长文.includes('省略'), '长度=' + 长文.length)
+报('/receive：超长正文截断', 收到 && 收到.ok === true && 转进的.length === 之前长 + 1 && 长文.length <= 12400 && 长文.includes('省略'), '长度=' + 长文.length)
 
 // ⑯ 同一次轮询的多条消息合成一轮（不按条数开回合）
 私聊消息文本 = '这条已经转过了'
@@ -1109,6 +1109,53 @@ const 改发 = 发了.slice(之前改)
 私聊消息段 = null
 私聊附加 = []
 
+// ⑯i2 主人说“存下来，备注叫…”：图当场存进收藏，备注用主人给的名字
+私聊附加 = []
+私聊消息id = 9714
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3350
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/green-note.gif', file: 'green-note.gif', summary: '[动画表情]', sub_type: 1 } },
+  { type: 'text', data: { text: '这个存下来，备注叫绿毛' } },
+]
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 存后注 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 注图 = 存后注.items.find((x) => !存后4.items.some((y) => y.id === x.id))
+报('私聊：主人让存并给备注 → 表情和备注一起落地', !!注图 && 注图.label === '绿毛' && String(注图.source).includes('主人要求'), JSON.stringify(注图))
+私聊消息段 = null
+
+// ⑯i3 主人说“把 #N 的备注改成…”：直接改已有收藏，不靠她写标记
+私聊消息id = 9715
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3360
+私聊消息文本 = `把 #${注图 ? 注图.id : 999} 的备注改成 大绿毛`
+const 之前改2 = 发了.length
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 存后改2 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 注改 = 存后改2.items.find((x) => x.id === 注图?.id)
+const 改2 = 发了.slice(之前改2)
+报('私聊：主人说改 #N 备注 → 本机备注改成新名字', !!注改 && 注改.label === '大绿毛', JSON.stringify(注改))
+报('私聊：改 #N 备注同步回 QQ 收藏', 改2.some((x) => x.url.endsWith('/modify_custom_face') && x.体.emoji_id === 注图?.emojiId && x.体.desc === '大绿毛'), JSON.stringify(改2.map((x) => x.url)))
+
+// ⑯i4 她写 [改备注:#N:名字] → 按标记改已有收藏，标记本身不发出去
+私聊消息文本 = '换个名字'
+私聊消息id = 9716
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3370
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 之前标记改 = 发了.length
+监听[0](会话, 助手消息(165, 1, [块('text', `[改备注:#${注图 ? 注图.id : 999}:小绿] 好`)], false))
+监听[0](会话, 转完(165))
+await 等到(() => 发了.slice(之前标记改).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
+const 存后标记 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 标记改 = 存后标记.items.find((x) => x.id === 注图?.id)
+const 标记发 = 发了.slice(之前标记改)
+报('私聊：[改备注:#N:名字] 改本机备注，标记不进正文', !!标记改 && 标记改.label === '小绿' &&
+  标记发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '好') &&
+  !标记发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text.includes('改备注')),
+  JSON.stringify({ 标记改, 发: 标记发.map((x) => ({ url: x.url, 体: x.体 })) }))
+
 // ⑯j 主人私聊说“你保存下这几个”：普通图也照存
 私聊附加 = []
 私聊消息id = 9721
@@ -1121,7 +1168,7 @@ const 之前普 = 转进的.length
 await 轮询回调()
 await new Promise((r) => setTimeout(r, 30))
 const 存后5 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
-const 普图 = 存后5.items.find((x) => !存后4.items.some((y) => y.id === x.id))
+const 普图 = 存后5.items.find((x) => !存后标记.items.some((y) => y.id === x.id))
 const 普文 = 转进的.at(-1)?.content?.[0]?.text || ''
 报('私聊：主人说“你保存下这几个” → 普通图也存进收藏', 转进的.length === 之前普 + 1 && !!普图 && 普图.label === '主人让存' && String(普图.source).includes('主人私聊'), JSON.stringify(存后5.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
 报('私聊：普通图存下后也标“你收藏的 #N”', !!普图 && 普文.includes(`你收藏的 #${普图.id}`), JSON.stringify(普文.slice(-300)))
