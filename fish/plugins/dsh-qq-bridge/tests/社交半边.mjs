@@ -3712,6 +3712,94 @@ await 等(60)
   JSON.stringify({ 回合: 回合.length - 回合前32d }))
 await 收到回复('session-qq-social-group-1411', '像鲸鱼')
 
+// ---------- 32a 短应只应声：评价词不当短应发；重复的空泛评价在出站前压掉 ----------
+报('评价词：含万能评价词的短句算空泛', 模.含空泛评价('猫猫泳装确实可爱') === '可爱' && 模.含空泛评价('好家伙') === '')
+报('评价词：只压整句空泛评价，不压有具体内容的句子',
+  模.只是空泛评价('好可爱的表情包') === '好可爱的表情包' &&
+    模.只是空泛评价('好可爱，这个歪头跟刚才那张一样') === '')
+报('评价词：近用词按消息计次',
+  JSON.stringify(模.数近用评价词([
+    { 自己: true, 文字: '好可爱' },
+    { 自己: true, 文字: '好可爱呀' },
+    { 自己: false, 文字: '可爱' },
+  ], 8)) === '[{"词":"可爱","次":2}]')
+报('表情场景显示名不把可爱喂回提示', 模.场景显示名('可爱') === '亲昵' && 模.场景显示名('笑') === '笑')
+
+写配置({ 群: ['1451'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0 })
+鱼脑.availableCny = 100
+群消息表.set(1451, [一条群消息('这猫好软', { uid: 888, id: 79951 })])
+设短应(['79951'], '好可爱')
+const 回合前32x1 = 回合.length
+const 发前32x1 = 发的.length
+await 轮询社交()
+await 等(80)
+报('短应：评价词不当短应发，改走正常回复',
+  回合.length === 回合前32x1 + 1 &&
+    发的.slice(发前32x1).every((x) => !(x.url.endsWith('/send_group_msg') && x.体?.group_id === 1451)) &&
+    (await 日志文本()).includes('这是评价不是应声'),
+  JSON.stringify({ 回合: 回合.length - 回合前32x1, 发: 发的.slice(发前32x1).filter((x) => x.体?.group_id === 1451).map((x) => x.体.message) }))
+await 收到回复('session-qq-social-group-1451', '软得像块年糕')
+await 等(80)
+const 正常发32x1 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1451)
+报('短应压掉后正常回复能发出去',
+  正常发32x1.length === 1 && 正常发32x1[0].体.message.some((b) => b.type === 'text' && b.data.text === '软得像块年糕'),
+  JSON.stringify(正常发32x1.map((x) => x.体.message)))
+
+写配置({ 群: ['1452'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0 })
+群消息表.set(1452, [一条群消息('今天好热', { uid: 888, id: 79961 })])
+设短应(['79961'], '好家伙')
+const 回合前32x2 = 回合.length
+const 发前32x2 = 发的.length
+await 轮询社交()
+await 等(80)
+const 短发32x2 = 发的.slice(发前32x2).filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1452)
+报('短应：纯应声照常发',
+  短发32x2.length === 1 && 短发32x2[0].体.message.some((b) => b.type === 'text' && b.data.text === '好家伙') && 回合.length === 回合前32x2,
+  JSON.stringify({ 发: 短发32x2.map((x) => x.体.message), 回合: 回合.length - 回合前32x2 }))
+
+写配置({ 群: ['1453'], 快判: false, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 连说歇秒: 0 })
+鱼脑.availableCny = 100
+群消息表.set(1453, [一条群消息('发张猫图', { uid: 888, id: 79971 })])
+设判断(['79971'], true, 0.9, '接一句')
+await 轮询社交()
+await 等(80)
+await 收到回复('session-qq-social-group-1453', '好可爱', 1)
+await 等(80)
+const 第一次发32x3 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1453)
+报('正常回复：第一次说同一个评价词放行',
+  第一次发32x3.length === 1 && 第一次发32x3[0].体.message.some((b) => b.type === 'text' && b.data.text === '好可爱'),
+  JSON.stringify(第一次发32x3.map((x) => x.体.message)))
+
+时间偏移 += 11_000
+群消息表.set(1453, [...群消息表.get(1453), 一条群消息('再来一张', { uid: 888, id: 79972 })])
+设判断(['79972'], true, 0.9, '再接一句')
+await 轮询社交()
+await 等(80)
+const 第二次发前32x3 = 发的.length
+await 收到回复('session-qq-social-group-1453', '好可爱', 2)
+await 等(80)
+报('正常回复：同一个空泛评价第二次压掉',
+  发的.slice(第二次发前32x3).every((x) => !(x.url.endsWith('/send_group_msg') && x.体?.group_id === 1453)) &&
+    (await 日志文本()).includes('压掉重复评价') && 思绪文本().includes('压掉没发'),
+  JSON.stringify(发的.slice(第二次发前32x3).filter((x) => x.体?.group_id === 1453).map((x) => x.体.message)))
+
+时间偏移 += 11_000
+群消息表.set(1453, [...群消息表.get(1453), 一条带图群消息(79973)])
+设判断(['79973'], true, 0.9, '看这张')
+const 回合前32x3 = 回合.filter((r) => r.sid === 'session-qq-social-group-1453').length
+await 轮询社交()
+await 等到(async () => 回合.filter((r) => r.sid === 'session-qq-social-group-1453').length > 回合前32x3, 2000)
+const 判提示32x3 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+const 回提示32x3 = String(回合.filter((r) => r.sid === 'session-qq-social-group-1453').at(-1)?.message?.content?.[0]?.text || '')
+const 判近评32x3 = 判提示32x3.split('\n').find((l) => l.includes('【别重复】'))
+const 回近评32x3 = 回提示32x3.split('\n').find((l) => l.includes('【别重复】'))
+报('判断提示带最近评价词约束，且不点名可爱',
+  !!判近评32x3 && 判近评32x3.includes('万能夸奖词') && !判近评32x3.includes('可爱'), 判近评32x3)
+报('回复提示带最近评价词约束，且不点名可爱',
+  !!回近评32x3 && 回近评32x3.includes('万能夸奖词') && !回近评32x3.includes('可爱'),
+  回提示32x3.slice(0, 1500))
+await 收到回复('session-qq-social-group-1453', '这张像在发呆', 3)
+
 // ---------- 32b 档位 1：判断只挑一张收藏表情，也算接上了 ----------
 const 表情表32 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.filter((x) => x && x.emojiId)
 const 表情乙 = 表情表32.at(-1)
