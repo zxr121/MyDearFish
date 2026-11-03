@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-11-03-fish-settings-ia.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-03-fish-settings-ia.md
+/agent-note-fish-settings-become-two-top-level-pages-with-searchable-sub-tabs:
+  en: 863e12eda13b12c6
+  zh: 5fec205bab1b8954
+/agent-note-fish-settings-become-two-top-level-pages-with-searchable-sub-tabs/problem:
+  en: d0c61a538d7e570f
+  zh: 844d20377ded4399
+/agent-note-fish-settings-become-two-top-level-pages-with-searchable-sub-tabs/decision:
+  en: 4d3fd26cdef1eab2
+  zh: ab9b402875c421fd
+/agent-note-fish-settings-become-two-top-level-pages-with-searchable-sub-tabs/verification:
+  en: 3d417ff9f7d26d12
+  zh: 109923806389c07a
+/agent-note-fish-settings-become-two-top-level-pages-with-searchable-sub-tabs/alternatives-considered:
+  en: 1869cc63809952bd
+  zh: 5cdbbd8192d88de7
+/agent-note-fish-settings-become-two-top-level-pages-with-searchable-sub-tabs/consequences:
+  en: 0ff29e04a00f0989
+  zh: bdc41262dccf644c

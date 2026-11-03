@@ -3,11 +3,11 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/qq-tulpa.md
 /qq-access-plan-combining-tulpa-with-my-dear-fish:
-  en: 3b0b831303cd74ab
-  zh: 3d15be2260a76221
+  en: c7cb0f335a787fc6
+  zh: 88af0e21a2820cf9
 /qq-access-plan-combining-tulpa-with-my-dear-fish/what-the-bridge-does-today:
-  en: 11ce818ff4b7bfc4
-  zh: 3cb5b4e4e86d8189
+  en: 55461066a56f96f5
+  zh: a84f3b7bb95c53c7
 /qq-access-plan-combining-tulpa-with-my-dear-fish/what-tulpa-provides:
   en: 900ca208424609aa
   zh: 99dcfb49c29f5d0c
@@ -24,5 +24,5 @@
   en: f198650f49fe120b
   zh: e10d55696d0aac55
 /qq-access-plan-combining-tulpa-with-my-dear-fish/the-chosen-path:
-  en: 5d3a857be1c32efc
-  zh: d8f8fd8b24253943
+  en: 3caf996c8a823c9c
+  zh: 02d4c6d78fbd8cd6

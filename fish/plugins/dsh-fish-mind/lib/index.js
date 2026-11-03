@@ -152,6 +152,8 @@ export function apply(ctx) {
   // 没有暂存包时这里什么都不做；应用失败只写报告，现有数据照常打开。
   applyPendingImport({ dir, dshHome, diag })
   let identity = loadIdentity(dir, diag)
+  // 心情页把这两个名字当只读展示，启动时先对齐一次，避免出厂默认和心情配置打架。
+  syncMoodNames(dshHome, identity, diag)
   const personaEditor = createPersonaEditor({
     getConfigEditor: () => (typeof ctx.get === 'function' ? ctx.get('configEditor') : undefined),
     diag,

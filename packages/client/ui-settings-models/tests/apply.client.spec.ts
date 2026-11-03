@@ -67,6 +67,20 @@ function declare(slots: SlotRegistry): () => void {
 }
 
 describe('ui-settings-models apply', () => {
+  it('registers a models search target with default-model copy', async () => {
+    const { ctx } = await bench()
+    const plugin = ctx.plugin({ inject: [...inject], apply })
+    await plugin.await()
+    const search = ctx.get('settingsSearch') as {
+      getSnapshot(): readonly { sectionId: string; label(): string; keywords(): readonly string[] }[]
+    }
+    const target = search.getSnapshot().find(item => item.sectionId === 'models')
+    expect(target).toBeDefined()
+    expect(target!.label()).toBe('模型')
+    expect(target!.keywords()).toContain('模型')
+    await plugin.dispose()
+  })
+
   it('keeps manual credential onboarding available when the native shell owns automatic onboarding', async () => {
     const { ctx, slots } = await bench()
     declare(slots)

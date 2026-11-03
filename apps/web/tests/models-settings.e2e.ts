@@ -106,7 +106,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByRole('button', { name: '模型', exact: true }).click()
-    await dialog.getByText('填入各提供商的 API 密钥即可使用其模型。').waitFor({ timeout: 10_000 })
+    await dialog.getByText('本页可以设置：提供商、API 密钥、API 地址、模型目录、推理等级。这里选的是默认模型；心情、QQ 和 B 站可以单独覆盖。').waitFor({ timeout: 10_000 })
     // The dormant pi-ai adapter contributes its whole installed catalog; no
     // provider is configured yet, so the page is one add button.
     const add = dialog.getByRole('button', { name: '添加模型提供商' })

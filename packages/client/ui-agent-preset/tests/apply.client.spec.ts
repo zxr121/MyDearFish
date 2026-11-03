@@ -297,6 +297,19 @@ async function settingsWithoutChip(initialPreset: string, settingsRosterGate?: P
 }
 
 describe('ui-agent-preset apply', () => {
+  it('registers an agent-presets search target', async () => {
+    const b = await settingsWithoutChip('standard')
+    const search = b.ctx.get('settingsSearch') as {
+      getSnapshot(): readonly { sectionId: string; label(): string; keywords(): readonly string[] }[]
+    }
+    await vi.waitFor(() => {
+      expect(search.getSnapshot().map(item => item.sectionId)).toContain('agent-presets')
+    }, { timeout: 2_000 })
+    const target = search.getSnapshot().find(item => item.sectionId === 'agent-presets')!
+    expect(target.label()).toBe('Agent 预设')
+    expect(target.keywords()).toContain('预设')
+    await b.ctx.fiber.dispose()
+  })
   const settingsActions = [
     { action: 'makeDefault', initial: 'standard', selected: 'minimal', run: (section: AgentPresetSectionInjected) => section.makeDefault('minimal') },
   ]

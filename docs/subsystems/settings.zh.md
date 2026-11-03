@@ -14,6 +14,10 @@
 
 `settings/document-updated` 在 Loader 配置变化后使表单描述符失效。这是 UI 通知；消费者仅在需要刷新注册信息时使用 `loader/volatile-update`。
 
+## 客户端搜索索引
+
+浏览器设置基座提供 `ctx.settingsSearch`，它是设置外壳与拥有设置表面的功能页共享的客户端索引。页面注册 `sectionId`、可选 `tabId`、每次查询解析的 `label`/`keywords`，以及可选的生效方式和只读标记；重复的 section/tab 组合会抛错，每次注册返回 disposer。外壳把这些条目与当前导航行合并，跳转到选中的一级页和可选子页。拥有子页的分区读取 `requestedTab`，并用 `takeRequestedTab` 确认；没有子页的分区忽略这两个字段。搜索索引只是展示状态，不进入 Host 设置文档或 Session 日志。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

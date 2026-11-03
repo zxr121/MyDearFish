@@ -20,7 +20,7 @@ Tulpa is an external MIT-licensed desktop program that auto-configures a QQ OneB
 | Backend address defaults to `http://127.0.0.1:3000` | `fish/plugins/dsh-qq-bridge/lib/host.js:67` |
 | Inbound is polling: `get_friend_msg_history`, `get_group_msg_history` | `lib/host.js:1737`, `lib/host.js:1752` |
 | Poll runs on a 4-second `ctx.interval` | `lib/host.js:1820` |
-| Settings panel is injected by the plugin client at `settings.section` | `lib/client.js:545` |
+| Settings panel is injected by the plugin client at `settings.outside.tab` | `lib/client.js:545` |
 | Local routes: `/dsh-qq-bridge/state`, `/save`, `/models`, `/receive`, `/test-send`, `/import-*` | `lib/host.js:32`, `lib/host.js:1567` |
 | Local HTTP trust check only rejects foreign origins; the backend itself has no token authentication | `lib/host.js:1370`, `README.md:121` |
 

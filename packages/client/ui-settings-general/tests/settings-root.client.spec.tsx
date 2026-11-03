@@ -4,7 +4,9 @@ import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { SettingsSearchTarget } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createSettingsShellStore } from '../src/client/shell-store.ts'
+import { buildSearchResults } from '../src/client/SettingsRoot.tsx'
 import { allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -52,6 +54,7 @@ function mount({
     { id: 'models', order: 10, label: 'Models' },
     { id: 'agent-presets', order: 20, label: 'Agent presets' },
   ],
+  searchTargets = [],
   steps = [
     { id: 'welcome', order: -100 },
     { id: 'credential', order: 0 },
@@ -65,6 +68,7 @@ function mount({
   onboardingActive?: boolean
   mainView?: boolean
   rows?: Row[]
+  searchTargets?: readonly SettingsSearchTarget[]
   steps?: Step[]
 } = {}) {
   // Mutable row source standing in for the bound useSections hook; bump()
@@ -100,6 +104,7 @@ function mount({
   const props: SettingsRootComponentProps = {
     useStore: bindSnapshotSelector(shell), actions: shell.actions,
     useShortcuts: select => select(shortcuts),
+    useSearch: select => select(searchTargets),
     useSessions: select => select(sessions),
     useSessionStatus,
     usePanelInfo, useSessionRetainInfo: () => undefined, useResource,
@@ -401,6 +406,61 @@ describe('SettingsPanel navigation', () => {
     expect(screen.queryByTestId('section-general')).toBeNull()
   })
 
+  it('searches registered sub-tabs, opens the target, and shows an empty state', () => {
+    const { renderSlot } = mount({
+      rows: [
+        { id: 'general', order: 0, label: 'General' },
+        { id: 'fish', order: 10, label: 'Big Fish' },
+        { id: 'models', order: 20, label: 'Models' },
+      ],
+      searchTargets: [
+        {
+          sectionId: 'fish', tabId: 'mood', label: () => 'Mood',
+          keywords: () => ['emotion'], applies: 'live',
+        },
+        {
+          sectionId: 'general', label: () => 'General read-only',
+          keywords: () => ['readonly'], mode: 'view',
+        },
+      ],
+    })
+    openPanel()
+    const search = screen.getByRole('searchbox', { name: 'Search settings' })
+    fireEvent.change(search, { target: { value: 'emotion' } })
+    const result = screen.getByRole('button', { name: /Mood/ })
+    fireEvent.mouseEnter(result)
+    fireEvent.click(result)
+    expect(screen.getByRole('button', { name: 'Big Fish' }).getAttribute('aria-current')).toBe('true')
+    const sectionCall = renderSlot.mock.calls.filter(call => call[0] === 'settings.section').at(-1)
+    expect(sectionCall?.[1]).toMatchObject({ requestedTab: { tabId: 'mood' } })
+    const owner = sectionCall![1] as {
+      requestedTab?: { nonce: number }
+      takeRequestedTab?: (nonce: number) => void
+    }
+    act(() => { owner.takeRequestedTab!(owner.requestedTab!.nonce + 1) })
+    expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.section').at(-1)?.[1])
+      .toHaveProperty('requestedTab')
+    act(() => { owner.takeRequestedTab!(owner.requestedTab!.nonce) })
+    expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.section').at(-1)?.[1])
+      .not.toHaveProperty('requestedTab')
+    fireEvent.change(search, { target: { value: 'Models' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Models' }))
+    expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('true')
+    fireEvent.change(search, { target: { value: 'readonly' } })
+    expect(screen.getByText('Read-only')).toBeTruthy()
+    fireEvent.change(search, { target: { value: 'Models' } })
+    expect(screen.getByRole('button', { name: 'Models' })).toBeTruthy()
+    fireEvent.change(search, { target: { value: 'zzz' } })
+    expect(screen.getByText('No matching settings')).toBeTruthy()
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    fireEvent.keyDown(search, { key: 'Enter' })
+    fireEvent.change(search, { target: { value: 'emotion' } })
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    fireEvent.keyDown(search, { key: 'ArrowUp' })
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(screen.getByRole('button', { name: 'Big Fish' }).getAttribute('aria-current')).toBe('true')
+  })
+
   it('mounts onboarding steps in order and transfers ownership only on completion', () => {
     const { renderSlot } = mount()
     const first = renderSlot.mock.calls.find(call => call[0] === 'settings.onboarding')
@@ -528,4 +588,54 @@ it('passes current Settings key labels to the launcher and removes them when unb
 
   setShortcuts([{ ...row, keys: [], aria: undefined, binding: null, modified: true }])
   expect(launcher()).not.toHaveProperty('settingsShortcut')
+})
+
+describe('buildSearchResults', () => {
+  const rows = [
+    { id: 'fish', order: 0, label: '大肥鱼' },
+    { id: 'general', order: 1, label: '通用' },
+  ]
+
+  it('matches labels, sub-tab paths, and keywords, and drops dead sections', () => {
+    const targets = [
+      {
+        sectionId: 'fish', tabId: 'mood', label: () => '心情',
+        keywords: () => ['情绪', '基线'], applies: 'live' as const,
+      },
+      {
+        sectionId: 'dead', tabId: 'gone', label: () => '死页',
+        keywords: () => ['死页'],
+      },
+    ]
+    const byKeyword = buildSearchResults('情绪', rows, targets)
+    expect(byKeyword).toHaveLength(1)
+    expect(byKeyword[0]).toMatchObject({
+      sectionId: 'fish', tabId: 'mood', label: '心情', path: '大肥鱼 · 心情', applies: 'live',
+    })
+    expect(buildSearchResults('通用', rows, targets)[0]).toMatchObject({ sectionId: 'general' })
+    expect(buildSearchResults('死页', rows, targets)).toEqual([])
+    expect(buildSearchResults('   ', rows, targets)).toEqual([])
+  })
+
+  it('keeps a page-level target without a sub-tab, its path, and its read-only mode', () => {
+    const target = {
+      sectionId: 'general', label: () => '通用设置',
+      keywords: () => ['外观'], mode: 'view' as const,
+    }
+    const [result] = buildSearchResults('设置', rows, [target])
+    expect(result).toMatchObject({
+      sectionId: 'general', label: '通用设置', path: '通用', mode: 'view',
+    })
+  })
+
+  it('prefers label prefixes over keyword matches and caps the result list', () => {
+    const targets = Array.from({ length: 20 }, (_, index) => ({
+      sectionId: 'general', tabId: `t${index}`, label: () => (index === 19 ? '外观' : `其他 ${index}`),
+      keywords: () => (index === 0 ? ['外观'] : []), applies: 'live' as const,
+    }))
+    const results = buildSearchResults('外观', rows, targets)
+    expect(results).toHaveLength(2)
+    expect(results[0]).toMatchObject({ tabId: 't19' })
+    expect(buildSearchResults('其他', rows, targets)).toHaveLength(12)
+  })
 })

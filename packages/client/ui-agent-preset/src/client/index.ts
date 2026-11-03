@@ -127,6 +127,16 @@ export function apply(ctx: ClientContext): void {
   }
 
   ctx.effect(() => ctx.locale.register('settings.agentPreset', { zh, en }), 'ui-agent-preset: settings row dictionaries')
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['settingsSearch'], (child) => {
+      child.effect(() => child.settingsSearch.register({
+        sectionId: 'agent-presets',
+        label: () => child.locale.bind('settings.agentPreset')('nav'),
+        keywords: () => child.locale.bind('settings.agentPreset')('searchKeywords').split(/\s+/),
+        applies: 'live',
+      }))
+    })
+  }
 
   ctx.effect(() => {
     let requested = 0

@@ -1,12 +1,15 @@
 - dialog "设置":
   - navigation:
     - text: 设置
+    - searchbox "搜索设置"
     - button "通用设置"
     - button "模型"
-    - button "内置插件"
     - button "Agent 预设"
+    - button "插件状态"
   - button "打开配置文件"
   - button "关闭"
+  - heading "通用" [level=2]
+  - paragraph: 本页可以设置：权限、语言、外观、字号、工作步骤、发送行为、链接打开方式、性能与用量、日志上传；版本在最下面。
   - text: 权限 选择新会话的默认权限模式
   - button "工作区内修改"
   - text: 语言

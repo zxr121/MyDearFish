@@ -102,11 +102,11 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent
 >
 > ⭐ 最省事的一条：把仓库链接贴给你自己的 dsh，说「**帮我装这个插件**」。
 
-⚠️ 装完**必须重启一次 dsh**（插件在 bundle 层组装，不重启不生效）。然后进 **设置 → 刷B站**。
+⚠️ 装完**必须重启一次 dsh**（插件在 bundle 层组装，不重启不生效）。然后进 **设置 → 她在外面 → 刷 B 站**。
 
 ## 首次使用（设置页三步）
 
-设置 → 刷B站 最上面就是「第一次接通 B站」向导，跟着三步走：
+设置 → 她在外面 → 刷 B 站 最上面就是「第一次接通 B站」向导，跟着三步走：
 
 1. **一键装好并出码** —— 没环境时点它：在插件自己的家目录建独立 venv，装
    `bilibili-api-python` / `aiohttp` / `mcp<2` / `qrcode`（走国内镜像，通常几十秒，进度写 `install.log`）。
@@ -132,7 +132,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent
 | **它的地盘** | 插件家目录、今天的报告、打开文件夹 |
 
 > 设置同时落在两处：插件自己的 `config.json` 和 DSH 原生「插件设置」。
-> **以设置页（DSH 原生那层）为准**——那才是真正生效的值。
+> **以插件专用设置页为准**——那才是真正生效的值。
 
 ## 13 个工具
 
@@ -211,7 +211,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent
 
 ## 装不上 / 用不顺时
 
-1. **设置页里根本不出现「刷B站」** —— 多半是 DSH 版本不满足（静默跳过），
+1. **设置页里根本不出现「她在外面 → 刷 B 站」** —— 多半是 DSH 版本不满足（静默跳过），
    或插件没重启。先确认版本，再重启一次。
 2. **扫码时一直不出二维码** —— 家目录里 `pythonPath` 落成了 `python`。
    设置页点一次「装主依赖」，它会自动指回插件自己的 venv。
@@ -226,7 +226,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent
 1. 先确认机器上有 `Python 3.10+` 或 `uv`（`python --version` / `uv --version`）；都没有就先装 `uv`。
 2. 装插件：`dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-bili-subagent`。
 3. ⚠️ **提醒用户重启一次 dsh**，不重启插件不生效。
-4. 重启后进 **设置 → 刷B站**：在「第一次接通 B站」里点「一键装好并出码」，装完自动出二维码；
+4. 重启后进 **设置 → 她在外面 → 刷 B 站**：在「第一次接通 B站」里点「一键装好并出码」，装完自动出二维码；
    用手机扫码（确认时选「记住我 / 长期」），最后点「测一下」。
 5. 自动评论 / 自动回复出厂默认已开；**不要**替用户填「要 @ 谁」，也不要开私信投递——公开说什么、对谁说由用户自己定（@ 留空就只发评论）。
 

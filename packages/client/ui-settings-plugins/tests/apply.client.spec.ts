@@ -19,7 +19,16 @@ async function bench() {
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  return { ctx, slots: ctx.get('slots') as SlotRegistry }
+  const targets: { sectionId: string; tabId?: string; label: () => string; keywords: () => readonly string[]; mode?: string }[] = []
+  const search = {
+    targets,
+    register(target: typeof targets[number]): () => void {
+      targets.push(target)
+      return () => {}
+    },
+  }
+  ctx.provide('settingsSearch', search as never)
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, search }
 }
 
 /** The Settings shell's section slot, as its owner declares it. */
@@ -39,6 +48,15 @@ describe('ui-settings-plugins apply', () => {
     expect(inject).toEqual(['slots', 'locale'])
   })
 
+  it('registers a read-only search target for the Plugin status page', async () => {
+    const { ctx, search } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    expect(search.targets).toHaveLength(1)
+    expect(search.targets[0]).toMatchObject({ sectionId: 'plugins', mode: 'view' })
+    expect(search.targets[0]!.label()).toBe('插件状态')
+    expect(search.targets[0]!.keywords()).toContain('插件')
+  })
+
   it('registers one Built-in plugins section and declares its tab slot, contributing no tab of its own', async () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
@@ -46,9 +64,9 @@ describe('ui-settings-plugins apply', () => {
     await ctx.plugin({ inject: [...inject], apply }).await()
 
     const section = slots.entries('settings.section')[0]!
-    expect(section.options).toMatchObject({ id: 'plugins', order: 15 })
+    expect(section.options).toMatchObject({ id: 'plugins', order: 30 })
     // The nav label is a locale-following thunk; owners resolve it at read time.
-    expect(resolveSlotLabel(section.options.label)).toBe('内置插件')
+    expect(resolveSlotLabel(section.options.label)).toBe('插件状态')
     expect(slots.spec('settings.plugins.tab')).toMatchObject({ kind: 'list', scope: 'root' })
     expect(slots.entries('settings.plugins.tab')).toHaveLength(0)
   })

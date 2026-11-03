@@ -54,17 +54,23 @@ window.__ModuleLoader__.load({
 [data-bd-page]{display:flex;flex-direction:column;gap:18px;padding:2px 2px 8px;max-width:640px;}
 [data-bd-sec]{display:flex;flex-direction:column;gap:8px;}
 [data-bd-h]{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--dsw-alias-label-tertiary,#9aa0a6);}
+[data-bd-pagehead]{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
+[data-bd-pagehead-title]{font-size:16px;line-height:1.4;font-weight:500;}
+[data-bd-caps]{font-size:12px;line-height:1.6;opacity:.72;}
+[data-bd-jump]{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:2px;}
+[data-bd-jump] button{padding:3px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.3));background:transparent;color:inherit;font-size:12px;cursor:pointer;}
+[data-bd-jump] button:hover{background:rgba(127,127,127,.12);}
 [data-bd-row]{display:flex;align-items:center;gap:10px;}
 [data-bd-grow]{flex:1;min-width:0;}
 [data-bd-label]{font-size:13px;}
 [data-bd-note]{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#9aa0a6);}
-[data-bd-sw]{flex:none;width:38px;height:22px;border-radius:11px;border:0;cursor:pointer;position:relative;
-  background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.35));transition:background .15s;padding:0;}
-[data-bd-sw][data-on]{background:#3b82f6;}
-[data-bd-sw] i{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;
-  transition:left .15s;display:block;}
-[data-bd-sw][data-on] i{left:19px;}
-[data-bd-sw][disabled]{opacity:.45;cursor:default;}
+[data-bd-pill]{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.3));border-radius:999px;flex:none;}
+[data-bd-pill] button{border:none;border-radius:999px;padding:3px 12px;font-size:12px;line-height:1.4;background:transparent;color:inherit;cursor:pointer;opacity:.5;font-weight:400;}
+[data-bd-pill] button[aria-pressed="true"]{opacity:1;font-weight:500;}
+[data-bd-pill] button[data-on="true"][aria-pressed="true"]{background:var(--dsw-alias-state-business-primary);color:var(--dsw-static-neutral-00,#fff);}
+[data-bd-pill] button[data-on="false"][aria-pressed="true"]{background:var(--dsw-alias-border-l2,rgba(127,127,127,.3));}
+[data-bd-pill] button[disabled]{cursor:default;}
+[data-bd-pill][data-disabled]{opacity:.45;}
 [data-bd-sub]{margin-left:14px;padding-left:12px;border-left:2px solid var(--dsw-alias-border-l2,rgba(255,255,255,.1));
   display:flex;flex-direction:column;gap:10px;}
 [data-bd-input]{width:100%;box-sizing:border-box;padding:7px 9px;border-radius:8px;font-size:12px;
@@ -102,13 +108,15 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
     /* ────────────── 小组件 ────────────── */
 
     function Switch({ on, onChange, disabled }) {
-      return h('button', {
-        'data-bd-sw': '',
-        'data-on': on ? '' : undefined,
+      const 段 = (text, selected, target) => h('button', {
+        type: 'button',
+        'data-on': target ? 'true' : 'false',
+        'aria-pressed': selected,
         disabled: Boolean(disabled),
-        title: on ? '已开' : '已关',
-        onClick: () => { if (!disabled) onChange(!on) },
-      }, h('i'))
+        onClick: () => { if (!disabled && !selected) onChange(target) },
+      }, text)
+      return h('div', { 'data-bd-pill': '', 'data-disabled': disabled ? '' : undefined },
+        段('开', Boolean(on), true), 段('关', !on, false))
     }
 
     function ToggleRow({ label, note, on, onChange, disabled }) {
@@ -435,7 +443,22 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
         )
 
       return h('div', { 'data-bd-page': '' },
-
+        h('div', { 'data-bd-pagehead': '' },
+          h('div', { 'data-bd-pagehead-title': '' }, '刷 B 站'),
+          h('div', { 'data-bd-caps': '' }, '本页可以设置：什么时候刷、挑什么、评论/回复/私信、日报、环境。'),
+          h('div', { 'data-bd-note': '' }, '派子代理去 B 站看视频、读字幕、翻评论，再按设置发评论、回评或私信。保存后立即生效；环境安装完成后下一轮生效。'),
+          h('div', { 'data-bd-jump': '' },
+            ...[['connect', '接通'], ['schedule', '节奏'], ['pick', '挑什么'], ['say', '说什么'], ['report', '日报'], ['env', '环境']].map(([id, label]) =>
+              h('button', {
+                key: id,
+                type: 'button',
+                onClick: () => {
+                  const node = typeof document !== 'undefined' && typeof document.querySelector === 'function'
+                    ? document.querySelector('[data-bd-sec="' + id + '"]')
+                    : null
+                  if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'start', behavior: 'smooth' })
+                },
+              }, label)))),
         /* ── 今天 ── */
         h('div', { 'data-bd-row': '' },
           h('span', { 'data-bd-badge': '' }, `今天已自动刷 ${st.autoRoundsToday ?? 0} / ${cfg.perDay} 轮`),
@@ -448,8 +471,9 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             'data-warn': runNote.tone === 'warn' ? '' : undefined }, runNote.t) : null,
 
         /* ── 第一次接通 B站 ── */
-        h('div', {
-          'data-bd-sec': '',
+        h('details', {
+          'data-bd-sec': 'connect',
+          open: (st.venvReady && st.loggedIn) ? undefined : true,
           style: {
             border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3))',
             borderRadius: 12,
@@ -457,9 +481,10 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             gap: 0,
           },
         },
+          h('summary', { style: { cursor: 'pointer', fontSize: 14, fontWeight: 500 } },
+            (st.venvReady && st.loggedIn) ? '第一次接通 B站（已接通 · 重装或换账号才展开）' : '第一次接通 B站'),
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
-              h('div', { style: { fontSize: 14, fontWeight: 600 } }, '第一次接通 B站'),
               h('div', { 'data-bd-note': '' }, '装一次运行环境、扫一次码，之后她自己刷；下面的开关才会真的生效。'),
             ),
             h('span', { 'data-bd-badge': '' }, st.loggedIn ? '✓ 已接通' : '还没接通'),
@@ -513,7 +538,7 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
         ),
 
         /* ── 定时 ── */
-        h('div', { 'data-bd-sec': '' },
+        h('div', { 'data-bd-sec': 'schedule' },
           h('div', { 'data-bd-h': '' }, '什么时候自己跑'),
           h(ToggleRow, {
             label: '峰谷时段自动刷',
@@ -605,7 +630,7 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
               onBlur: () => patch({ scanPrompt: String(scanPrompt || '') }, '子代理提示词'),
             }))),
         /* ── 一轮挑几条 ── */
-        h('div', { 'data-bd-sec': '' },
+        h('div', { 'data-bd-sec': 'pick' },
           h('div', { 'data-bd-h': '' }, '一轮挑几条'),
           h('div', { 'data-bd-row': '' },
             h('div', { 'data-bd-grow': '' },
@@ -655,7 +680,7 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             }))),
 
         /* ── 发言与转写 ── */
-        h('div', { 'data-bd-sec': '' },
+        h('div', { 'data-bd-sec': 'say' },
           h('div', { 'data-bd-h': '' }, '它会不会替你说话'),
           h(ToggleRow, {
             label: '自动在评论区留言',
@@ -720,7 +745,7 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             h('div', { 'data-bd-note': '' }, '⚠️ 建议先让这个号和收件人互关：B站 对「陌生人私信」会限流，还可能不弹提醒')) : null),
 
         /* ── 日报写多细 ── */
-        h('div', { 'data-bd-sec': '' },
+        h('div', { 'data-bd-sec': 'report' },
           h('div', { 'data-bd-h': '' }, '日报写多细'),
           h('select', {
             'data-bd-input': '', value: rl ?? 'full',
@@ -731,7 +756,7 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             h('option', { value: 'off' }, '不写 —— 只发评论，不生成日报文件'))),
 
         /* ── 环境与账号 ── */
-        h('div', { 'data-bd-sec': '' },
+        h('div', { 'data-bd-sec': 'env' },
           h('div', { 'data-bd-h': '' }, '环境与账号'),
           h('div', { 'data-bd-row': '' },
             h('button', { 'data-bd-btn': '', disabled: busy === 'install', onClick: onInstall },
@@ -776,8 +801,19 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
         // ⭐ 进「设置」：label 就是左侧导航里那一项（抄 dsh-meme 的写法）
         const slots = (typeof ctx.get === 'function' ? ctx.get('slots') : undefined) || ctx.slots
         if (!slots) return
-        slots.inject('settings.section', () => slots.register(
-          { name: 'settings.section', id: 'bili-scroll', order: 30, label: '刷B站' },
+        if (typeof ctx.inject === 'function') {
+          ctx.inject(['settingsSearch'], (child) => {
+            child.effect(() => child.settingsSearch.register({
+              sectionId: 'outside',
+              tabId: 'bili',
+              label: () => '刷 B 站',
+              keywords: () => ['B站', 'bilibili', '刷', '视频', '评论', '回复', '私信', '日报'],
+              applies: 'live',
+            }), 'dsh-bili-scroll: settings search')
+          })
+        }
+        slots.inject('settings.outside.tab', () => slots.register(
+          { name: 'settings.outside.tab', id: 'bili', order: 30, label: '刷 B 站' },
           () => h(Panel),
         ))
       },

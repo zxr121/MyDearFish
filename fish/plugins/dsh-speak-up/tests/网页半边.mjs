@@ -124,15 +124,15 @@ const 报 = (标签, 过, 详情) => { if (!过) 挂++; console.log(`${过 ? 'PA
 let 注册 = null
 let 组件 = null
 const slots = {
-  inject: (名字, cb) => { if (名字 !== 'settings.section') throw new Error('槽位名不对：' + 名字); cb() },
+  inject: (名字, cb) => { if (名字 !== 'settings.outside.tab') throw new Error('槽位名不对：' + 名字); cb() },
   register: (定义, c) => { 注册 = 定义; 组件 = c; return () => {} },
 }
 
 报('模块 id 正确', 捕获.id === 'dsh-speak-up', 捕获.id)
 报('inject 只依赖 slots', Array.isArray(exports.inject) && exports.inject.join() === 'slots')
 exports.apply({ get: (n) => (n === 'slots' ? slots : undefined) })
-报('挂到 settings.section 槽位',
-  注册 !== null && 注册.name === 'settings.section' && 注册.id === 'speak-up', JSON.stringify(注册))
+报('挂到 settings.outside.tab 槽位',
+  注册 !== null && 注册.name === 'settings.outside.tab' && 注册.id === 'speak-up', JSON.stringify(注册))
 
 const 渲染 = () => { 下标 = 0; 要重渲染 = false; return 组件() }
 const 首次渲染 = (初始态) => { 状态槽 = [初始态]; return 渲染() }

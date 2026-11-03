@@ -47,6 +47,16 @@ export function apply(ctx: Context): void {
   const desktop = 'dshDesktop' in globalThis
   ctx.effect(() => ctx.locale.register('settings.account', { en, zh }), 'account: dictionaries')
   const t = ctx.locale.bind('settings.account')
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['settingsSearch'], (child) => {
+      child.effect(() => child.settingsSearch.register({
+        sectionId: 'account',
+        label: () => t('nav'),
+        keywords: () => t('searchKeywords').split(/\s+/),
+        mode: 'view',
+      }))
+    })
+  }
   const page = globalThis as Partial<Record<typeof CONTACT_CONFIG_GLOBAL, unknown>>
   const config = ContactConfig(page[CONTACT_CONFIG_GLOBAL] ?? {})
   let snapshot: AccountSnapshot = {

@@ -11,6 +11,7 @@ export type AgentPresetSettingsKey =
   | 'headerHint'
   | 'nav'
   | 'sectionIntro'
+  | 'searchKeywords'
   | 'setDefault'
   | 'view'
   | 'presetStandardName'
@@ -38,7 +39,8 @@ export type AgentPresetSettingsKey =
 export const en: Record<AgentPresetSettingsKey, string> = {
   ...guideEn,
   builtInGroup: 'Built-in', customGroup: 'Custom',
-  sectionIntro: 'Choose the agent’s tools and how it works. Use Standard mode for everyday tasks, or Creator mode to add capabilities to DSH.',
+  sectionIntro: 'Choose the default preset for new tasks; built-in presets are read-only. Use Standard mode for everyday tasks, or Creator mode to add capabilities to DSH.',
+  searchKeywords: 'preset default standard PTC minimal creator mode agent',
 
   seatHint: 'Choose the agent preset for your new task',
   headerHint: 'The agent preset chosen when this task started',
@@ -83,7 +85,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 export const zh: Record<AgentPresetSettingsKey, string> = {
   ...guideZh,
   builtInGroup: '内置', customGroup: '自定义',
-  sectionIntro: '选择 Agent 的工具和工作方式。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。',
+  sectionIntro: '本页可以设置：新任务默认用哪个预设；内置预设只读。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。',
+  searchKeywords: '预设 默认 标准 PTC 极简 创造 模式 Agent',
 
   seatHint: '选择新任务使用的 Agent 预设',
   headerHint: '本任务的 Agent 预设，在任务开始时确定',

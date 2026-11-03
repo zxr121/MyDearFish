@@ -20,7 +20,7 @@ Tulpa 是一个 MIT 许可的外部桌面程序，它会一键配置 QQ 的 OneB
 | 后端地址默认 `http://127.0.0.1:3000` | `fish/plugins/dsh-qq-bridge/lib/host.js:67` |
 | 收消息靠轮询：`get_friend_msg_history`、`get_group_msg_history` | `lib/host.js:1737`、`lib/host.js:1752` |
 | 轮询间隔 4 秒，走 `ctx.interval` | `lib/host.js:1820` |
-| 设置页面板由插件客户端注入到 `settings.section` | `lib/client.js:545` |
+| 设置页面板由插件客户端注入到 `settings.outside.tab` | `lib/client.js:545` |
 | 本机路由：`/dsh-qq-bridge/state`、`/save`、`/models`、`/receive`、`/test-send`、`/import-*` | `lib/host.js:32`、`lib/host.js:1567` |
 | 本机路由只挡外来来源；后端本身没有 token 鉴权 | `lib/host.js:1370`、`README.md:121` |
 

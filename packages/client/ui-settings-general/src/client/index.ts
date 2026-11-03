@@ -69,7 +69,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registrations depend on their slots through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts', 'modules']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'settingsSearch', 'shortcuts', 'modules']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -102,6 +102,12 @@ export function apply(ctx: ClientContext): void {
   // seat, and the nav label is a thunk the owner resolves per render — no
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
+  ctx.effect(() => ctx.settingsSearch.register({
+    sectionId: 'general',
+    label: () => t('general.title'),
+    keywords: () => t('general.searchKeywords').split(/\s+/),
+    applies: 'live',
+  }), 'ui-settings-general: search target')
   // The shared ConfigForm mirror updates after document commits and reconnects.
   const documentController = ctx.remote.$host.isLoopback
     ? new SettingsDocumentStore(ctx, ctx.configForms.describe())
@@ -173,6 +179,10 @@ export function apply(ctx: ClientContext): void {
           return onboardingSteps
         },
         subscribe: listener => ctx.slots.subscribe('settings.onboarding', listener),
+      },
+      search: {
+        getSnapshot: () => ctx.settingsSearch.getSnapshot(),
+        subscribe: listener => ctx.settingsSearch.subscribe(listener),
       },
     },
   })

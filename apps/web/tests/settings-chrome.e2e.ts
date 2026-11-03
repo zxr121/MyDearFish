@@ -124,6 +124,13 @@ describe('web e2e: settings modal and General preferences', () => {
     // Golden of the freshly opened dialog (default zh, General active).
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd, versionCapture)
     await compareOrRefreshGolden(DIALOG_EXPECTED, snapshot, MODE)
+    // Settings search finds a page and navigates to it.
+    const search = dialog.getByRole('searchbox', { name: '搜索设置' })
+    await search.fill('模型')
+    await dialog.getByRole('button', { name: /^模型/ }).click()
+    await expect.poll(() => dialog.getByRole('button', { name: '模型', exact: true }).getAttribute('aria-current'), { timeout: 5_000 }).toBe('true')
+    expect(await dialog.getByRole('button', { name: '通用设置' }).getAttribute('aria-current')).toBeNull()
+    await dialog.getByRole('button', { name: '通用设置', exact: true }).click()
     // Section switch: aria-current moves (the Models page itself has its own scenario file).
     await dialog.getByRole('button', { name: '模型', exact: true }).click()
     await expect.poll(() => dialog.getByRole('button', { name: '模型', exact: true }).getAttribute('aria-current'), { timeout: 5_000 }).toBe('true')
@@ -134,8 +141,8 @@ describe('web e2e: settings modal and General preferences', () => {
     // drive that page over a profile runtime). Capture one stable shipped row
     // rather than the whole inventory so adding an unrelated plugin does not
     // rewrite this surface's golden.
-    await dialog.getByRole('button', { name: '内置插件', exact: true }).click()
-    await dialog.getByRole('heading', { name: '内置插件', exact: true }).waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '插件状态', exact: true }).click()
+    await dialog.getByRole('heading', { name: '插件状态', exact: true }).waitFor({ timeout: 10_000 })
     // The preset group starts open under its display-only switcher; the global group starts folded.
     const presetSwitcher = dialog.getByRole('button', { name: '选择要查看的 Agent 预设' })
     await presetSwitcher.waitFor({ timeout: 10_000 })
@@ -167,7 +174,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(await dialog.locator('[data-plugin-scope="global"] [role="img"][aria-label="运行中"]').count()).toBe(0)
     expect(await dialog.getByText('由 Agent 预设按会话组成', { exact: true }).count()).toBe(1)
     expect(await dialog.getByText('系统与所有会话共用', { exact: true }).count()).toBe(1)
-    expect(await dialog.getByRole('button', { name: '内置插件', exact: true }).getAttribute('aria-current')).toBe('true')
+    expect(await dialog.getByRole('button', { name: '插件状态', exact: true }).getAttribute('aria-current')).toBe('true')
     // One contribution shows as the page itself, without a tab row.
     expect(await dialog.getByRole('tab').count()).toBe(0)
     expect(await dialog.getByRole('button', { name: '模型', exact: true }).getAttribute('aria-current')).toBeNull()
@@ -846,7 +853,7 @@ describe('web e2e: settings modal and General preferences', () => {
       await dialog.getByRole('button', { name: 'English' }).waitFor({ timeout: 10_000 })
       // The plugin list resolves shipped preset names through the en
       // dictionaries instead of echoing the preset declarations' Chinese metadata.
-      await dialog.getByRole('button', { name: 'Built-in plugins', exact: true }).click()
+      await dialog.getByRole('button', { name: 'Plugin status', exact: true }).click()
       const presetSwitcher = dialog.getByRole('button', { name: 'Choose the agent preset to inspect' })
       await presetSwitcher.waitFor({ timeout: 10_000 })
       expect(await presetSwitcher.textContent()).toBe('Standard mode (default)')

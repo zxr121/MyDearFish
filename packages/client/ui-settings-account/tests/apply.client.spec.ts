@@ -77,6 +77,17 @@ it('registers account sign-in in a plain browser without the Desktop-only surfac
   }
 }, 60_000)
 
+it('registers an account search target with page-level copy', async ({ start }) => {
+  const c = await start()
+  const search = c.ctx.get('settingsSearch') as {
+    getSnapshot(): readonly { sectionId: string; label(): string; keywords(): readonly string[] }[]
+  }
+  const target = search.getSnapshot().find(item => item.sectionId === 'account')
+  expect(target).toBeDefined()
+  expect(target!.label()).toBe('Account')
+  expect(target!.keywords()).toContain('balance')
+}, 60_000)
+
 it('claims account balance notices from the frame-wide quota chain and declines generic quota', async ({ start }) => {
   vi.stubGlobal('dshDesktop', {})
   const c = await start()

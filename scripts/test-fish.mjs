@@ -31,9 +31,15 @@ const 组 = [
     cwd: REPO,
     文件: 找测试(join(REPO, 'fish/tests'), /\.test\.mjs$/),
   },
+  {
+    名: '鱼脑网页半边',
+    方式: 'script',
+    cwd: join(REPO, 'fish/plugins/dsh-fish-mind'),
+    文件: 找测试(join(REPO, 'fish/plugins/dsh-fish-mind/tests'), /^网页半边\.mjs$/),
+  },
 ]
 
-for (const 目录 of ['dsh-qq-bridge', 'dsh-speak-up', 'dsh-tts-bridge', 'dsh-bili-subagent']) {
+for (const 目录 of ['dsh-qq-bridge', 'dsh-speak-up', 'dsh-feiyu-mood', 'dsh-tts-bridge', 'dsh-bili-subagent']) {
   const 测试目录 = join(REPO, 'fish/plugins', 目录, 'tests')
   组.push({
     名: `${目录} 冒烟`,

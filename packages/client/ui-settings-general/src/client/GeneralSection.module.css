@@ -7,6 +7,22 @@
   width: 100%;
 }
 
+.heading {
+  margin: 0 0 4px;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.intro {
+  max-width: 760px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .section > :global([data-slot='settings.general.item']) > :last-child {
   border-bottom: none;
 }

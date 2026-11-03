@@ -34,6 +34,16 @@ export const inject = ['slots', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['settingsSearch'], (child) => {
+      child.effect(() => child.settingsSearch.register({
+        sectionId: 'plugins',
+        label: () => t('title'),
+        keywords: () => t('searchKeywords').split(/\s+/),
+        mode: 'view',
+      }))
+    })
+  }
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-plugins: section dictionaries')
 
   let tabsVersion = -1
@@ -76,7 +86,7 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'plugins',
-    order: 15,
+    order: 30,
     label: () => t('nav'),
     locale: NS,
     inject: sectionInjected,

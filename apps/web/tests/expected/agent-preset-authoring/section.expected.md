@@ -1,14 +1,15 @@
 - dialog "设置":
   - navigation:
     - text: 设置
+    - searchbox "搜索设置"
     - button "通用设置"
     - button "模型"
-    - button "内置插件"
     - button "Agent 预设"
+    - button "插件状态"
   - button "打开配置文件"
   - button "关闭"
   - heading "Agent 预设" [level=2]
-  - paragraph: 选择 Agent 的工具和工作方式。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。
+  - paragraph: 本页可以设置：新任务默认用哪个预设；内置预设只读。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。
   - heading "内置" [level=3]
   - list:
     - listitem:

@@ -90,6 +90,16 @@ export function apply(ctx: ClientContext): void {
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['settingsSearch'], (child) => {
+      child.effect(() => child.settingsSearch.register({
+        sectionId: 'models',
+        label: () => t('title'),
+        keywords: () => t('searchKeywords').split(/\s+/),
+        applies: 'live',
+      }))
+    })
+  }
   const injected = (): ModelsSectionInjected => ({
     controller,
     hooks: { snapshot: controller.store },

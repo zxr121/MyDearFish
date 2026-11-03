@@ -162,6 +162,7 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
   )
   return (
     <section className={css.section} aria-label={t('nav')}>
+      <p className={css.intro}>{t('settingsIntro')}</p>
       <div className={css.card}>
         <div className={css.identity}>
           <span className={css.avatar} data-avatar-status={signedIn ? avatar?.status : undefined}>

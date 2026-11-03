@@ -2,34 +2,29 @@
 
 English | [中文](fish-settings.zh.md)
 
-The “Big Fat Fish” settings page is an overview of the fish, not a second configuration screen: birth identity, persona, custom phrases, the current self prompt, memory, mood, relationships, channels, pocket money, automatic backup, developer mode, and fixed boundaries all appear on one page; birth identity, persona, custom phrases, the pocket-money daily allowance and current balance, automatic backup, and the developer-mode switch are editable, everything else is read-only, and with developer mode on she can also read the fish QQ account's groups and friends and change behavior settings for you in the owner's own foreground session; a closed voice card can be shown again from “Channels”. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and a wrong format writes no file; an import is always available, replaces the current fish, and backs it up in full first.
+Fish settings live under two top-level pages: **Big Fat Fish** and **Where she goes**. Each page splits settings and state into sub-tabs. Big Fat Fish → Overview is her read-only state; Who she is, Memory, Mood, Pocket money, and Meme wiki each own one kind of setting; QQ, proactive speech, and Bilibili live under Where she goes. Settings opens on Big Fat Fish → Overview. Moving a fish uses a strictly validated archive: downloaded from settings, imported from settings, and a wrong format writes no file; an import is always available, replaces the current fish, and backs it up in full first.
 
-## Overview
+## Page map
 
-The page reads from “who she is” to “what she remembers”, “how she is”, “where she is connected”, and “what cannot move”.
-
-| Block | Content | Editable |
+| Top-level page | Sub-tab | What it owns |
 | --- | --- | --- |
-| Birth identity | Name, species, appearance, how she addresses the owner, the owner's gender (female/male/unspecified), origin, extra speaking habits, free-form relationships | Yes |
-| Persona | The whole persona prefix injected by the deployment layer; hot-applied on save and effective from the next turn | Yes |
-| Custom phrases | The line used when asked for private details, and the local reply to the owner when pocket money runs out | Yes |
-| Self prompt | The full private-setting text currently injected, including fixed rules | No |
-| Memory | Experience, episode, fact, and today counts; recent facts and recent experiences | No |
-| Mood | Current value, label, latest reason, tail of the timeline | No |
-| People-book relationships | Names, aliases, familiarity, times seen, and owner flag from the QQ people book; QQ numbers are not shown | No |
-| Channels | Whether QQ, proactive speech, voice playback, and Bilibili are on; a closed voice card can be shown again here; addresses, tokens, and login state are not shown | Card visibility only |
-| Pocket money | Daily allowance and current balance; spent today, call count, and Bilibili patrol spend today with its quarter-of-the-grant cap | Allowance and balance |
-| Automatic backup | Whether the whole fish is packed on a schedule, the interval (1–720 hours), the latest and next backup, and the five retained files; a backup can also be taken immediately | Yes |
-| Developer mode | Whether she may read local debugging material and the fish QQ account's groups and friends, and change behavior settings for you in the owner's foreground session; the adjacent button opens a Creator-mode debugging session | Yes |
-| Boundaries | Shadow/inject mode, a summary of permission rules, privacy and injection counters | No |
+| Big Fat Fish | Overview | Read-only: whether she can speak, mood, pocket money, memory; about her |
+| Big Fat Fish | Who she is | Birth identity, personality tendency, custom phrases, factory persona, developer mode |
+| Big Fat Fish | Memory | Memory overview, chapters, relations, inner life, boundaries, migration, automatic backup |
+| Big Fat Fish | Mood | Switches, judge model, baseline/floor; names follow birth identity |
+| Big Fat Fish | Pocket money | Daily allowance and current balance; today's spend and the Bilibili share are read-only |
+| Big Fat Fish | Meme wiki | Five usage switches and entry maintenance |
+| Where she goes | QQ | Connect/sign in, forwarding, group social, speak first in groups, trust, people book, history import, troubleshooting |
+| Where she goes | Proactive speech | Session-level speaking when nobody has spoken for a while |
+| Where she goes | Bilibili | When to scroll, what to pick, comments/replies/DMs, report, environment |
 
-Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.
+Boundaries: Mood's names are read-only and follow Big Fat Fish → Who she is; the people book lives only under QQ; Memory no longer repeats mood or channels; Bilibili is edited only under Where she goes → Bilibili, and the Plugins page no longer generates a second form. Recent experiences are previews only: the text is truncated, and numbers following QQ, group chat, or private chat labels are masked as `***`.
 
 The overview exists only in the local settings UI. Its routes register on the DSH `webServer` and decide whether a request comes from the local UI by checking Host, `Sec-Fetch-Site`, and Origin. They establish no identity and cannot replace the owner's local file permissions.
 
 ## Developer mode
 
-Developer mode is off by default. While it is off, tools reading anything under `$DSH_HOME` are refused outright as `private.dsh-home`. When it is on, she may use read-only tools and read-only shell commands (directory listings, file reads, and searches) in the owner's own foreground session to inspect logs, configuration, and session records in the DSH directory for troubleshooting; credential files (`.env`, `.credentials.yaml`, `~/.ssh`, and the like), identity files, writes, and write-capable commands are still refused, as are group/friend sessions, subagents, and background sessions. Every allowed read is recorded in the audit log as `developer.read`.
+In Big Fat Fish → Who she is, developer mode is off by default. While it is off, tools reading anything under `$DSH_HOME` are refused outright as `private.dsh-home`. When it is on, she may use read-only tools and read-only shell commands (directory listings, file reads, and searches) in the owner's own foreground session to inspect logs, configuration, and session records in the DSH directory for troubleshooting; credential files (`.env`, `.credentials.yaml`, `~/.ssh`, and the like), identity files, writes, and write-capable commands are still refused, as are group/friend sessions, subagents, and background sessions. Every allowed read is recorded in the audit log as `developer.read`.
 
 The same switch governs reading the fish QQ account's roster: `fish_qq_roster` calls only the local OneBot's `get_login_info`, `get_group_list`, and `get_friend_list`, returning the signed-in account, group numbers, and friend QQ numbers together with the lists already saved in settings; it reads no SnowLuma password or token and sends nothing. It likewise requires developer mode plus the owner's own foreground session, is recorded in the audit log as `fish.qq.roster`, and keeps the numbers in the owner's own session records — she uses them to fill in settings but never writes them into memory or any outbound content.
 
@@ -41,7 +36,7 @@ The switch is stored as `developer.enabled` in `$DSH_HOME/fish-mind/config.json`
 
 ## Birth identity
 
-Birth identity lives in `$DSH_HOME/fish-mind/identity.json` with fixed fields, length limits, and control characters stripped. When the file is absent, factory defaults apply: the name “大肥鱼”, the species “whale girl”, long blue-white hair with a whale hood, a little blue whale nearby, and “unspecified” as the owner's gender. Saving and reset happen in settings, and writes are atomic: a temporary file is written first and then renamed over the target.
+Birth identity is edited in Big Fat Fish → Who she is and lives in `$DSH_HOME/fish-mind/identity.json` with fixed fields, length limits, and control characters stripped. When the file is absent, factory defaults apply: the name “大肥鱼”, the species “whale girl”, long blue-white hair with a whale hood, a little blue whale nearby, and “unspecified” as the owner's gender. Saving and reset happen in settings, and writes are atomic: a temporary file is written first and then renamed over the target.
 
 The owner's gender accepts exactly “女”, “男”, or “未说”, and any other submitted value is rejected by the settings page; an older identity file that only stores a pronoun (他, 她, or TA) is read as the matching gender, and the next save replaces it with `ownerGender`. It is injected with the private setting every turn, and she decides from it whether to say “他” or “她” for the owner; that decision explicitly outranks the wording in the persona, old memories, and other people's retellings. With “未说” she does not guess and addresses the owner directly or uses “TA”. The factory persona no longer hardcodes a gendered pronoun and refers to the owner as “主人” or “对方”.
 
@@ -53,7 +48,7 @@ The fixed kernel does not come from settings and does not read `identity.json`: 
 
 ## Persona
 
-The persona is the whole persona prefix of the deployment layer: the `system-prompt` plugin's `personaPrefix`, which becomes the first `deployment:persona-prefix` section of the system prompt. Settings read whichever copy is actually in effect: with no customization it shows the factory persona from `fish/bundle/cordis.patch.yml`, and after customization it shows the override in the active profile's `cordis.patch.yml`. The editor replaces the whole text, allows up to 12,000 characters, preserves line breaks, and strips control characters. The persona may not contain `{{variable}}`: the system prompt treats it as interpolation, and an unknown variable throws, so saving rejects it up front.
+Edit it in Big Fat Fish → Who she is → Advanced · factory persona. The persona is the whole persona prefix of the deployment layer: the `system-prompt` plugin's `personaPrefix`, which becomes the first `deployment:persona-prefix` section of the system prompt. Settings read whichever copy is actually in effect: with no customization it shows the factory persona from `fish/bundle/cordis.patch.yml`, and after customization it shows the override in the active profile's `cordis.patch.yml`. The editor replaces the whole text, allows up to 12,000 characters, preserves line breaks, and strips control characters. The persona may not contain `{{variable}}`: the system prompt treats it as interpolation, and an unknown variable throws, so saving rejects it up front.
 
 Saving goes through the host's existing `configEditor`: it validates the complete candidate config in memory, atomically writes the active profile's `cordis.patch.yml`, and hands it to Loader for a hot apply. No restart is needed, and the next turn speaks with the new persona. Other config and comments in the file are left alone. “Reset to factory persona” deletes the override rather than copying the factory text in, so later changes to the shipped persona still flow through.
 
@@ -61,7 +56,7 @@ Names, species, appearance, and owner-defined relationships are not here; they r
 
 ## Custom phrases
 
-Settings → “Big Fat Fish → Custom phrases” edits two local lines that used to be hardcoded:
+Settings → “Big Fat Fish → Who she is” edits two custom-phrase lines that used to be hardcoded:
 
 - **When asked for private details**: the line the QQ group and friend scene prompts teach her to use as a deflection. The bridge reads it each time it assembles the prompt, so rooms already in use pick up the new line on the next turn without a restart.
 - **When pocket money runs out**: the local reply to the owner when the ledger blocks the turn; no model request is made. Group rooms still stay silently on `[不接话]`, and internal calls still return `FISH_BUDGET_EXHAUSTED`; neither is affected by this line.
@@ -70,9 +65,9 @@ Both live under `phrases` in `fish-mind/config.json`, up to 200 characters each.
 
 ## Automatic backup
 
-The fish packs itself into `$DSH_HOME/fish-backups/` on the configured interval. In an installed desktop build `$DSH_HOME` is `<installation>\data`, so backups live in the installation directory; in development it is the repository's `data` folder. Each archive matches the settings-page export: birth identity, the experience stream, long-term facts, the short-term watermark, mood, and the people book. Configuration, credentials, the pocket-money ledger, and session records are not included.
+Automatic backup lives in Big Fat Fish → Memory. The fish packs itself into `$DSH_HOME/fish-backups/` on the configured interval. In an installed desktop build `$DSH_HOME` is `<installation>\data`, so backups live in the installation directory; in development it is the repository's `data` folder. Each archive matches the settings-page export: birth identity, the experience stream, long-term facts, the short-term watermark, mood, and the people book. Configuration, credentials, the pocket-money ledger, and session records are not included.
 
-The switch and interval live in Settings → “Big Fat Fish → Automatic backup”; the interval runs from 1 to 720 hours and takes effect immediately without a restart. A check runs every minute and writes a new archive only once the interval has passed since the latest backup, so restarts do not pile up duplicates. With automatic backup off, “Back up now” still writes one manually.
+The switch and interval live in Big Fat Fish → Memory; the interval runs from 1 to 720 hours and takes effect immediately without a restart. A check runs every minute and writes a new archive only once the interval has passed since the latest backup, so restarts do not pile up duplicates. With automatic backup off, “Back up now” still writes one manually.
 
 At most five archives are kept; older ones are deleted first. Only the plugin's own `mydearfish-YYYY-MM-DD-HHMMSS.zip` files (a same-second second archive carries a `-2` suffix) are pruned; any other file placed in `fish-backups` is left alone. Each archive is written to a temporary file and then renamed, so an interrupted write leaves no half zip; if a regular file occupies the `fish-backups` path, that round fails loudly instead of overwriting it. While an import waits for a restart or the search index is rebuilding, the automatic round is skipped and retried at the next check.
 

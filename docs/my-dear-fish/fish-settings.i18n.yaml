@@ -3,26 +3,26 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/my-dear-fish/fish-settings.md
 /fish-settings-and-migration:
-  en: 93332e32f5491a98
-  zh: f3ec6979910c1964
-/fish-settings-and-migration/overview:
-  en: 7b824fc6937448cf
-  zh: cf68e19412f39230
+  en: 61d06c81f0fd054b
+  zh: 6d4f062b287e27e7
+/fish-settings-and-migration/page-map:
+  en: 23ae20d8717ae17f
+  zh: 0113cefa15bde254
 /fish-settings-and-migration/developer-mode:
-  en: 75a6747e97196b77
-  zh: 3675d71b624f5785
+  en: 34e9d1c4e1f2da66
+  zh: de5b2d607db03e9e
 /fish-settings-and-migration/birth-identity:
-  en: b9b570183708aae1
-  zh: f442e807ba5a1d7a
+  en: 7740cabb07546db1
+  zh: a57fc2c8c5902106
 /fish-settings-and-migration/persona:
-  en: f64bfd3a2f93bc0b
-  zh: b702b9e4cf5e17ef
+  en: 933d9e4e754ab802
+  zh: b83454cde680defe
 /fish-settings-and-migration/custom-phrases:
-  en: ba36be4f4923b43a
-  zh: 64ee7902e1a94440
+  en: 9d28be00b1a423d9
+  zh: b970802d3858d192
 /fish-settings-and-migration/automatic-backup:
-  en: ba08998d5f7a6359
-  zh: 5f0013165a1876e9
+  en: 6c25061d9ef46601
+  zh: 35fe63ddd8fd12c4
 /fish-settings-and-migration/what-travels-and-what-does-not:
   en: a8a140a7a27d29fb
   zh: 96eaf32f8963c662

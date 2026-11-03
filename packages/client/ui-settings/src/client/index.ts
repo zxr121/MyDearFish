@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-settings/types'
 import { SettingsSchemaService } from './schema.ts'
 import { ConfigForms } from './config-form.ts'
 import { SettingsDescribeMirror } from './settings-mirror.ts'
+import { SettingsSearch } from './settings-search.ts'
 
 export type {
   SettingsLauncherOwnerProps, SettingsGeneralItemOwnerProps, SettingsHeaderOwnerProps, SettingsOnboardingOwnerProps,
@@ -23,6 +24,9 @@ export type { SchemaNode } from './schema.ts'
 export type {
   SettingsDescribeFace, SettingsDescribeView, SettingsMirrorSnapshot,
 } from './settings-mirror.ts'
+export type {
+  SettingsSearchApplies, SettingsSearchMode, SettingsSearchTarget,
+} from './settings-search.ts'
 
 /**
  * Required services: the Remote namespace the mirror reads through and the
@@ -51,4 +55,5 @@ export function apply(ctx: Context): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings: describe mirror invalidations')
   new ConfigForms(ctx, { mirror, schema })
+  new SettingsSearch(ctx)
 }

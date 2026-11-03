@@ -131,6 +131,11 @@ export function apply(ctx, config) {
   }
   const stateDir = stateDirOf(ctx)
 
+  // 自带设置页，别再让插件页按 schema 生成第二份表单。
+  ctx.inject(['settings'], (child) => {
+    child.effect(() => child.settings.configure({ auto: false }, ctx.fiber))
+  })
+
   // ⭐ "就绪"必须检查依赖真的装上了，不能只看目录存不存在
   //    （2026-10-15：只看目录，害一位真实用户"显示就绪但其实装失败"白折腾 ✗）
   const sitePkgs = (venvRoot) => {

@@ -11,7 +11,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StrictMode, type ReactNode } from 'react'
 import { createNavigationStore } from '../src/client/navigation-store.ts'
-import { PluginManagerPage } from '../src/client/PluginManagerPage.tsx'
+import { generatedConfigAvailable, PluginManagerPage } from '../src/client/PluginManagerPage.tsx'
 import { PluginRefreshToast } from '../src/client/PluginRefreshToast.tsx'
 import type { PluginManagerPageProps } from '../src/client/index.ts'
 import type { PluginTab } from '../src/client/tab-ledger.ts'
@@ -206,6 +206,17 @@ function renderTab(
 }
 
 describe('PluginManagerPage', () => {
+  it('generates a configuration form only when the namespace allows it', () => {
+    const configurations = [
+      { ns: 'has-page', autoGenerate: false },
+      { ns: 'no-page', autoGenerate: true },
+    ] as const
+    expect(generatedConfigAvailable(configurations, 'has-page')).toBe(false)
+    expect(generatedConfigAvailable(configurations, 'no-page')).toBe(true)
+    expect(generatedConfigAvailable(configurations, 'missing')).toBe(false)
+    expect(generatedConfigAvailable(undefined, 'no-page')).toBe(false)
+  })
+
   it('shows no tabs without contributions, and switches between Installed and a contributed tab', () => {
     const { actions, navigation, setTabs, set } = renderTab({ packages: [pkg()] }, {}, {
       'plugins.tab:discover': (_view, owner) => {

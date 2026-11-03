@@ -44,6 +44,8 @@ window.__ModuleLoader__.load({
       },
       h: { fontSize: 14, fontWeight: 600, margin: '16px 0 8px' },
       dim: { opacity: 0.62, fontSize: 12 },
+      页头: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 },
+      页标题: { fontSize: 16, lineHeight: 1.4, fontWeight: 500 },
       card: {
         border: '1px solid var(--dsw-alias-border-l2)',
         borderRadius: 8,
@@ -716,7 +718,13 @@ window.__ModuleLoader__.load({
         'div',
         { style: S.wrap },
 
-        h('div', { style: S.h }, '主动搭话'),
+        h('div', { style: S.页头 },
+          h('div', { style: S.页标题 }, '主动搭话'),
+          h('div', { style: S.dim }, '本页可以设置：开关、试运行、曲线、安静时段、房间、文案、角色。'),
+          h('div', { style: S.dim }, '会话里很久没人说话时，她主动开口；群里的主动开口在「她在外面 → 通到 QQ → 在群里先开口」，两边不重复。保存后立即生效；勾选房间不用点保存。'),
+          h('div', { style: S.dim }, '现在：总开关 ' + (配置.总开关 ? '开' : '关') +
+            ' · 试运行 ' + (配置.试运行 ? '开' : '关') +
+            ' · 安静 ' + (配置.安静起 === 配置.安静止 ? '不设' : 配置.安静起 + '–' + 配置.安静止 + ' 点'))),
         h(
           'div',
           { style: S.dim },
@@ -730,7 +738,7 @@ window.__ModuleLoader__.load({
           (脏 ? '⚠ 上面有改动还没保存 —— 数字/文案改完要点「保存设置」' : '设置' + (同步话 || '已同步 ✓')) +
             '（勾选会话不用点保存，点一下立刻生效）'),
         h('div', { style: S.未保存 }, '⚠ 图上纵轴就是每轮真正会用的概率，没有隐藏加成；到最长间隔那一点是 100%。安静时段/总开关/房间开关/QQ 额度会让这一轮根本不掷，记录里会写原因，不会偷偷改概率。'),
-        h('div', { style: S.dim }, '群里的「主动开话题」内容在「通到 QQ → 主动开话题」里管：默认所有能说话的群都开、可逐群关掉，开头类型、安静多久、每屋每天几次也在那里。这里只管概率、间隔、安静时段和房间勾选。'),
+        h('div', { style: S.dim }, '群里的主动开口在「她在外面 → 通到 QQ → 在群里先开口」里管：默认所有能说话的群都开、可逐群关掉，开头类型、安静多久、每屋每天几次也在那里。这里只管会话里长时间没人说话时的概率、间隔、安静时段和房间勾选，两边不重复。'),
 
         // —— 总开关 + 试运行 ——
         h('div', { style: S.card },
@@ -828,7 +836,7 @@ window.__ModuleLoader__.load({
           行(
             '安静时段（起 / 止，小时）',
             h('div', null, 数(配置.安静起, (v) => 改('安静起', v)), h('span', { style: S.dim }, ' 点 ~ '), 数(配置.安静止, (v) => 改('安静止', v)), h('span', { style: S.dim }, ' 点')),
-            '默认 1 ~ 8 点不检查（含 1 点、不含 8 点）。跨午夜也行（比如 23 ~ 7）。安静时段顺延保底：结束后如果已超过最长间隔，立即补一次。',
+            '默认 1 ~ 8 点不检查（含 1 点、不含 8 点）。跨午夜也行（比如 23 ~ 7）。安静时段顺延保底：结束后如果已超过最长间隔，立即补一次。这里只管会话里的主动搭话；QQ 群/好友的外发静音在「她在外面 → 通到 QQ → 静音时段」。',
           ),
           h('div', { style: S.未保存 }, '⚠ 两个数字填成一样（比如 8 和 8）= 不启用安静时段：整天都可能检查'),
           h('div', { style: S.dim }, '安静时段不检查，所以夜里最长沉默可能 = 最长间隔 + 安静时长。'),
@@ -980,9 +988,20 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const slots = ctx.get('slots')
       if (slots === undefined) return
-      slots.inject('settings.section', () =>
+      if (typeof ctx.inject === 'function') {
+        ctx.inject(['settingsSearch'], (child) => {
+          child.effect(() => child.settingsSearch.register({
+            sectionId: 'outside',
+            tabId: 'speak-up',
+            label: () => '主动搭话',
+            keywords: () => ['主动', '搭话', '没人说话', '概率', '曲线', '安静时段', '房间', '文案'],
+            applies: 'live',
+          }), 'dsh-speak-up: settings search')
+        })
+      }
+      slots.inject('settings.outside.tab', () =>
         slots.register(
-          { name: 'settings.section', id: 'speak-up', order: 53, label: () => '主动搭话' },
+          { name: 'settings.outside.tab', id: 'speak-up', order: 20, label: () => '主动搭话' },
           Section,
         ),
       )

@@ -126,6 +126,14 @@ export interface SettingsHeaderOwnerProps {
 export interface SettingsSectionOwnerProps {
   /** Close the settings panel (the shell owns the open state). */
   close: () => void
+  /**
+   * A sub-tab requested by settings search. Sections with sub-tabs apply it
+   * once and acknowledge it through `takeRequestedTab`; sections without
+   * sub-tabs ignore both fields.
+   */
+  requestedTab?: { tabId: string; nonce: number }
+  /** Acknowledge the requested sub-tab by nonce so it is not applied again. */
+  takeRequestedTab?: (nonce: number) => void
 }
 
 /** Owner share of the currently active settings-backed onboarding step. */

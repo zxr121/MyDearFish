@@ -54,12 +54,21 @@ window.__ModuleLoader__.load({
 [data-fm-sec]{display:flex;flex-direction:column;gap:8px;}
 [data-fm-h]{font-size:13px;font-weight:600;opacity:.85;padding-top:6px;border-top:1px solid rgba(127,127,127,.18);}
 [data-fm-note]{font-size:12px;opacity:.62;line-height:1.5;}
+[data-fm-pagehead]{display:flex;flex-direction:column;gap:4px;}
+[data-fm-pagehead-title]{font-size:16px;line-height:1.4;font-weight:500;}
+[data-fm-caps]{font-size:12px;line-height:1.6;opacity:.72;}
 [data-fm-row]{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 [data-fm-grow]{flex:1;min-width:180px;}
 [data-fm-label]{font-size:13px;}
+[data-fm-value]{font-size:13px;opacity:.85;}
 [data-fm-input]{padding:6px 9px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;min-width:120px;}
 select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);color:var(--dsw-alias-label-primary,inherit);}
 [data-fm-num]{width:88px;min-width:88px;}
+[data-fm-pill]{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28));border-radius:999px;}
+[data-fm-pill] button{border:none;border-radius:999px;padding:3px 12px;font-size:12px;line-height:1.4;background:transparent;color:inherit;cursor:pointer;opacity:.5;font-weight:400;}
+[data-fm-pill] button[aria-pressed="true"]{opacity:1;font-weight:500;}
+[data-fm-pill] button[data-on="true"][aria-pressed="true"]{background:var(--dsw-alias-state-business-primary);color:var(--dsw-static-neutral-00,#fff);}
+[data-fm-pill] button[data-on="false"][aria-pressed="true"]{background:var(--dsw-alias-border-l2,rgba(127,127,127,.28));}
 [data-fm-btn]{padding:6px 12px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;cursor:pointer;}
 [data-fm-btn]:hover{background:rgba(127,127,127,.12);}
 [data-fm-btn][disabled]{opacity:.5;cursor:default;}
@@ -121,11 +130,16 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
 
       if (!cfg) return h('div', { 'data-fm-wrap': '' }, h('div', { 'data-fm-note': '' }, '读取中…'))
 
-      const sw = (key) => h('input', {
-        type: 'checkbox',
-        checked: Boolean(cfg[key]),
-        onChange: (e) => patch({ [key]: e.target.checked }, key === 'injectMood' ? '心情注入' : '自动判断'),
-      })
+      const 勾 = (值, onChange) => {
+        const 开 = !!值
+        const 段 = (文本, 选中, 目标) => h('button', {
+          type: 'button',
+          'data-on': 目标 ? 'true' : 'false',
+          'aria-pressed': 选中,
+          onClick: () => { if (!选中) onChange(目标) },
+        }, 文本)
+        return h('div', { 'data-fm-pill': '' }, 段('开', 开, true), 段('关', !开, false))
+      }
 
       const numInput = (key, label, note, min, max) => h('div', { 'data-fm-row': '' },
         h('div', { 'data-fm-grow': '' },
@@ -142,6 +156,10 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
         }))
 
       return h('div', { 'data-fm-wrap': '' },
+        h('div', { 'data-fm-pagehead': '' },
+          h('div', { 'data-fm-pagehead-title': '' }, '心情'),
+          h('div', { 'data-fm-caps': '' }, '本页可以设置：开关、判断模型、基线/下限；名字跟「大肥鱼 → 她是谁」走。'),
+          h('div', { 'data-fm-note': '' }, '这是她此刻的状态；性格倾向在「她是谁」，记忆在「记忆」。保存后立即生效。')),
 
         /* ── 当前心情 ── */
         h('div', { 'data-fm-hero': '' },
@@ -157,23 +175,13 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
         /* ── 称呼 ── */
         h('div', { 'data-fm-sec': '' },
           h('div', { 'data-fm-h': '' }, '称呼'),
-          h('div', { 'data-fm-note': '' }, '这两个名字会写进判断提示词；换了名字，心情描述里也跟着换。'),
+          h('div', { 'data-fm-note': '' }, '名字跟「大肥鱼 → 她是谁」走，改那边会自动同步过来；这里只读。'),
           h('div', { 'data-fm-row': '' },
-            h('div', { 'data-fm-grow': '' }, h('div', { 'data-fm-label': '' }, 'TA 叫什么（被关心的那个人）')),
-            h('input', {
-              'data-fm-input': '', value: cfg.ownerName || '',
-              placeholder: '小鱿鱼',
-              onChange: (e) => setCfg((c) => ({ ...c, ownerName: e.target.value })),
-              onBlur: () => patch({ ownerName: cfg.ownerName }, '称呼'),
-            })),
+            h('div', { 'data-fm-grow': '' }, h('div', { 'data-fm-label': '' }, '被关心的那个人')),
+            h('span', { 'data-fm-value': '' }, cfg.ownerName || '—')),
           h('div', { 'data-fm-row': '' },
-            h('div', { 'data-fm-grow': '' }, h('div', { 'data-fm-label': '' }, 'TA 自己叫什么（有心情的那个人）')),
-            h('input', {
-              'data-fm-input': '', value: cfg.selfName || '',
-              placeholder: '大肥鱼',
-              onChange: (e) => setCfg((c) => ({ ...c, selfName: e.target.value })),
-              onBlur: () => patch({ selfName: cfg.selfName }, '称呼'),
-            })),
+            h('div', { 'data-fm-grow': '' }, h('div', { 'data-fm-label': '' }, '她自己叫什么')),
+            h('span', { 'data-fm-value': '' }, cfg.selfName || '—')),
           h('div', { 'data-fm-row': '' },
             h('div', { 'data-fm-grow': '' },
               h('div', { 'data-fm-label': '' }, 'TA 平时怎么叫你（昵称）'),
@@ -216,7 +224,7 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
                 patch({ judgeProvider: v, judgeModel: nextModel }, '判断模型')
               },
             },
-              h('option', { value: '' }, '（跟着会话走）'),
+              h('option', { value: '' }, '（跟随当前会话）'),
               (models || []).map((p) => h('option', { key: p.id, value: p.id }, p.name || p.id)),
               cfg.judgeProvider && !(models || []).some((p) => p.id === cfg.judgeProvider)
                 ? h('option', { value: cfg.judgeProvider }, cfg.judgeProvider)
@@ -227,7 +235,7 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
               'data-fm-input': '', value: cfg.judgeModel || '', disabled: !cfg.judgeProvider,
               onChange: (e) => { const v = e.target.value; setCfg((c) => ({ ...c, judgeModel: v })); patch({ judgeModel: v }, '判断模型') },
             },
-              h('option', { value: '' }, '（默认）'),
+              h('option', { value: '' }, '（跟随默认模型）'),
               (((models || []).find((p) => p.id === cfg.judgeProvider) || {}).models || [])
                 .map((m) => h('option', { key: m.id, value: m.id }, m.name || m.id)),
               cfg.judgeModel && !((((models || []).find((p) => p.id === cfg.judgeProvider) || {}).models) || []).some((m) => m.id === cfg.judgeModel)
@@ -241,12 +249,12 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             h('div', { 'data-fm-grow': '' },
               h('div', { 'data-fm-label': '' }, '每轮判断心情'),
               h('div', { 'data-fm-note': '' }, '关掉就完全不判断、不改数值（也不花判断的 token）')),
-            sw('autoJudge')),
+            勾(cfg.autoJudge, (v) => patch({ autoJudge: v }, '自动判断'))),
           h('div', { 'data-fm-row': '' },
             h('div', { 'data-fm-grow': '' },
               h('div', { 'data-fm-label': '' }, '把当前心情注入对话'),
               h('div', { 'data-fm-note': '' }, '关掉她就不会被心情影响口气（挂饰还照常显示）')),
-            sw('injectMood'))),
+            勾(cfg.injectMood, (v) => patch({ injectMood: v }, '心情注入')))),
 
         /* ── 数值 ── */
         h('div', { 'data-fm-sec': '' },
@@ -282,8 +290,19 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
 
         const slots = (typeof ctx.get === 'function' ? ctx.get('slots') : undefined) || ctx.slots
         if (!slots) return
-        slots.inject('settings.section', () => slots.register(
-          { name: 'settings.section', id: 'mood', order: 40, label: '鱼的心情' },
+        if (typeof ctx.inject === 'function') {
+          ctx.inject(['settingsSearch'], (child) => {
+            child.effect(() => child.settingsSearch.register({
+              sectionId: 'fish',
+              tabId: 'mood',
+              label: () => '心情',
+              keywords: () => ['心情', '情绪', '判断', '模型', '基线', '下限', '称呼', '昵称'],
+              applies: 'live',
+            }), 'dsh-feiyu-mood: settings search')
+          })
+        }
+        slots.inject('settings.fish.tab', () => slots.register(
+          { name: 'settings.fish.tab', id: 'mood', order: 30, label: '心情' },
           () => h(Panel),
         ))
       },

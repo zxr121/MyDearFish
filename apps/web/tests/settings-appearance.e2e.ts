@@ -86,7 +86,7 @@ it('shares settings card materials and control sizes in both palettes', async ()
     await compareOrRefreshGolden(join(EXPECTED, 'account.expected.md'),
       await captureStableAria(page, 'section[aria-label="账号与余额"]', scaffold.workspaceCwd), webSnapshotMode())
 
-    await dialog.getByRole('button', { name: '内置插件', exact: true }).click()
+    await dialog.getByRole('button', { name: '插件状态', exact: true }).click()
     await dialog.getByRole('button', { name: /^全局/ }).click()
     const plugin = dialog.locator('[data-plugin-scope="global"] [data-plugin-entry]').first()
     await plugin.waitFor()

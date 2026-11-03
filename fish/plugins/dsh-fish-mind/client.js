@@ -6,7 +6,8 @@
  *   · 性格倾向：一段话编译成设置/每轮提示，能落地的保存时写进对应设置页，改代码的交给创造模式；
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
  *   · 开发者模式：只读调试资料、读鱼 QQ 名单、在对话里帮她改行为设置的开关，以及创造模式调试会话的入口；
- *   · 记忆、心情、人物志、通道、边界：只读总览，不改；零花钱只改每日额度和当前余额，其余只读；
+ *   · 大肥鱼：总览 / 她是谁 / 记忆 / 心情 / 零花钱 / 梗百科；记忆、心情、人物志、边界只读；
+ *   · 她在外面：通到 QQ / 主动搭话 / 刷 B 站；
  *   · 梗百科：查词、新增、修改、删除和恢复，改的是这台机器上的副本；
  *   · 搬迁：导出整条鱼为一个 zip；导入只收合法的大肥鱼包，随时可用，覆盖前先整份备份；
  *   · 自动备份：按主人设的间隔把整条鱼写进安装目录，最多留 5 份。
@@ -84,7 +85,6 @@ window.__ModuleLoader__.load({
 [data-fishm-card]{padding:10px 12px;border-radius:9px;background:rgba(127,127,127,.07);display:flex;flex-direction:column;gap:5px;}
 [data-fishm-cardtitle]{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 [data-fishm-field]{display:flex;flex-direction:column;gap:4px;}
-[data-fishm-check]{display:flex;gap:8px;align-items:center;font-size:13px;line-height:1.5;}
 [data-fishm-flabel]{font-size:12px;opacity:.72;}
 [data-fishm-input]{padding:6px 9px;border-radius:7px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:13px;width:100%;box-sizing:border-box;}
 select[data-fishm-input]{appearance:auto;cursor:pointer;}
@@ -141,11 +141,6 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 [data-fishwd-dnr] input{accent-color:#5096ff;}
 [data-fishwd-ok]{padding:7px 18px;border-radius:8px;border:none;background:rgba(80,150,255,.8);color:#fff;font-size:13px;cursor:pointer;font-weight:500;}
 [data-fishwd-ok]:hover{background:rgba(80,150,255,.95);}
-[data-fishap-wrap]{display:flex;flex-direction:column;gap:14px;padding:4px 2px 32px;}
-[data-fishap-hero]{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;background:rgba(127,127,127,.08);}
-[data-fishap-icon]{font-size:32px;line-height:1;}
-[data-fishap-name]{font-size:18px;font-weight:600;}
-[data-fishap-sub]{font-size:12px;opacity:.6;margin-top:4px;line-height:1.5;}
 [data-fishmw-wrap]{display:flex;flex-direction:column;gap:14px;padding:4px 2px 32px;}
 [data-fishmw-hero]{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border-radius:12px;background:rgba(127,127,127,.08);}
 [data-fishmw-name]{font-size:18px;font-weight:600;}
@@ -159,9 +154,9 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 [data-fishmw-filter]:hover{background:rgba(127,127,127,.12);}
 [data-fishmw-filter][data-on]{border-color:rgba(80,150,255,.65);background:rgba(80,150,255,.14);}
 [data-fishmw-toggles]{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;}
-[data-fishmw-toggle]{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border-radius:9px;background:rgba(127,127,127,.06);font-size:12px;line-height:1.55;cursor:pointer;}
-[data-fishmw-toggle] input{margin-top:2px;accent-color:#5096ff;flex:0 0 auto;}
-[data-fishmw-toggle][data-off]{opacity:.5;cursor:default;}
+[data-fishmw-toggle]{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border-radius:9px;background:rgba(127,127,127,.06);font-size:12px;line-height:1.55;}
+[data-fishmw-togglegrow]{flex:1;min-width:0;}
+[data-fishmw-toggle][data-off]{opacity:.5;}
 [data-fishmw-toggletitle]{display:block;font-weight:600;font-size:13px;}
 [data-fishmw-togglenote]{font-size:11px;opacity:.62;display:block;margin-top:2px;}
 [data-fishmw-list]{display:flex;flex-direction:column;gap:7px;}
@@ -179,13 +174,172 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 [data-fishmw-count]{font-size:12px;opacity:.65;}
 [data-fishmw-attrib]{font-size:11px;line-height:1.7;opacity:.55;padding-top:10px;border-top:1px solid rgba(127,127,127,.16);}
 [data-fishmw-attrib] a{color:inherit;}
+[data-fishm-tabs]{position:sticky;top:0;z-index:3;display:flex;gap:4px;flex-wrap:wrap;padding:2px 0 8px;background:var(--dsw-alias-bg-layer-2,#1e1e1e);border-bottom:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24));}
+[data-fishm-tab]{padding:5px 12px;border-radius:999px;border:1px solid transparent;background:transparent;color:inherit;font-size:13px;line-height:1.5;cursor:pointer;opacity:.66;font-weight:400;}
+[data-fishm-tab]:hover{background:rgba(127,127,127,.12);opacity:.9;}
+[data-fishm-tab][aria-selected="true"]{background:var(--dsw-alias-bg-module-platform,rgba(127,127,127,.16));border-color:var(--dsw-alias-border-l2,rgba(127,127,127,.28));opacity:1;font-weight:500;}
+[data-fishm-pagehead]{display:flex;flex-direction:column;gap:5px;padding:2px 2px 0;}
+[data-fishm-pagehead-title]{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:16px;line-height:1.4;font-weight:500;}
+[data-fishm-caps]{font-size:12px;line-height:1.65;opacity:.72;}
+[data-fishm-effect]{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;line-height:1.6;background:rgba(127,127,127,.14);opacity:.82;font-weight:400;}
+[data-fishm-effect="restart"]{background:rgba(220,160,60,.18);}
+[data-fishm-pane][hidden]{display:none;}
+[data-fishm-pill]{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28));border-radius:999px;}
+[data-fishm-pill] button{border:none;border-radius:999px;padding:3px 12px;font-size:12px;line-height:1.4;background:transparent;color:inherit;cursor:pointer;opacity:.5;font-weight:400;}
+[data-fishm-pill] button[aria-pressed="true"]{opacity:1;font-weight:500;}
+[data-fishm-pill] button[data-on="true"][aria-pressed="true"]{background:var(--dsw-alias-state-business-primary);color:var(--dsw-static-neutral-00,#fff);}
+[data-fishm-pill] button[data-on="false"][aria-pressed="true"]{background:var(--dsw-alias-border-l2,rgba(127,127,127,.28));}
+[data-fishm-jump]{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+[data-fishm-jump] button{padding:3px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28));background:transparent;color:inherit;font-size:12px;cursor:pointer;}
+[data-fishm-jump] button:hover{background:rgba(127,127,127,.12);}
 `
 
-    function Section({ title, note, children }) {
+    const FISH_TABS = [
+      { id: 'overview', order: 0, label: '总览' },
+      { id: 'who', order: 10, label: '她是谁' },
+      { id: 'memory', order: 20, label: '记忆' },
+      { id: 'money', order: 40, label: '零花钱' },
+      { id: 'memes', order: 50, label: '梗百科' },
+    ]
+
+    function Section({ title, note, effect, children }) {
       return h('div', { 'data-fishm-sec': '' },
-        h('div', { 'data-fishm-h': '' }, title),
+        h('div', { 'data-fishm-h': '' }, title,
+          effect
+            ? h('span', { 'data-fishm-effect': effect === 'restart' ? 'restart' : '' },
+                effect === 'restart' ? '重启后生效' : '立即生效')
+            : null),
         note ? h('div', { 'data-fishm-note': '' }, note) : null,
         children)
+    }
+
+    function pageHead({ title, intro, caps, effect }) {
+      return h('div', { 'data-fishm-pagehead': '' },
+        h('div', { 'data-fishm-pagehead-title': '' }, title,
+          effect
+            ? h('span', { 'data-fishm-effect': effect === 'restart' ? 'restart' : '' },
+                effect === 'restart' ? '重启后生效' : '立即生效')
+            : null),
+        intro ? h('div', { 'data-fishm-note': '' }, intro) : null,
+        caps ? h('div', { 'data-fishm-caps': '' }, caps) : null)
+    }
+
+    function 勾(值, onChange) {
+      const 开 = !!值
+      const 段 = (文本, 选中, 目标) => h('button', {
+        type: 'button',
+        'data-on': 目标 ? 'true' : 'false',
+        'aria-pressed': 选中,
+        onClick: () => { if (!选中) onChange(目标) },
+      }, 文本)
+      return h('div', { 'data-fishm-pill': '' }, 段('开', 开, true), 段('关', !开, false))
+    }
+
+    function pane(id, active, ...children) {
+      return h('div', {
+        'data-fishm-pane': id,
+        hidden: id !== active,
+        id: 'fishm-panel-' + id,
+        role: 'tabpanel',
+        'aria-labelledby': 'fishm-tab-' + id,
+      }, id === active ? children : null)
+    }
+
+    function paneTail(id, active, ...children) {
+      return h('div', { 'data-fishm-pane': id, hidden: id !== active }, id === active ? children : null)
+    }
+
+    function tabStrip(tabs, active, onSelect, label) {
+      const move = (event, index) => {
+        let next = -1
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+        else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+        else if (event.key === 'Home') next = 0
+        else if (event.key === 'End') next = tabs.length - 1
+        else return
+        event.preventDefault()
+        const target = tabs[next]
+        if (target === undefined) return
+        onSelect(target.id)
+        if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+          const element = document.getElementById('fishm-tab-' + target.id)
+          if (element && typeof element.focus === 'function') element.focus()
+        }
+      }
+      return h('div', { 'data-fishm-tabs': '', role: 'tablist', 'aria-label': label || '设置页' },
+        tabs.map((tab, index) => h('button', {
+          key: tab.id,
+          type: 'button',
+          role: 'tab',
+          'data-fishm-tab': '',
+          id: 'fishm-tab-' + tab.id,
+          'aria-selected': tab.id === active,
+          'aria-controls': 'fishm-panel-' + tab.id,
+          tabIndex: tab.id === active ? 0 : -1,
+          onClick: () => onSelect(tab.id),
+          onKeyDown: (event) => move(event, index),
+        }, tab.label)))
+    }
+
+    function makeLedgerHook(slots, slotName) {
+      let version = -1
+      let rows = []
+      return {
+        getSnapshot: () => {
+          const current = typeof slots.getVersion === 'function' ? slots.getVersion(slotName) : 0
+          if (current !== version) {
+            version = current
+            rows = (typeof slots.entries === 'function' ? slots.entries(slotName) : [])
+              .map((entry) => {
+                const options = (entry && entry.options) || {}
+                return {
+                  id: options.id || '',
+                  order: Number.isFinite(options.order) ? options.order : 0,
+                  label: typeof options.label === 'function' ? options.label() : (options.label || ''),
+                }
+              })
+              .sort((a, b) => a.order - b.order)
+          }
+          return rows
+        },
+        subscribe: (listener) => (typeof slots.subscribe === 'function' ? slots.subscribe(slotName, listener) : () => {}),
+      }
+    }
+
+    function OutsideTabs({ renderSlot, useTabs, requestedTab, takeRequestedTab }) {
+      const readTabs = typeof useTabs === 'function' ? useTabs : () => []
+      const rows = readTabs((value) => value)
+      const [active, setActive] = React.useState(undefined)
+      const [visited, setVisited] = React.useState(() => new Set())
+      const current = rows.find((row) => row.id === active)?.id ?? rows[0]?.id
+      React.useEffect(() => {
+        if (current === undefined) return
+        setVisited((previous) => (previous.has(current) ? previous : new Set([...previous, current])))
+      }, [current])
+      React.useEffect(() => {
+        if (requestedTab === undefined || requestedTab === null || typeof requestedTab.tabId !== 'string') return
+        setActive(requestedTab.tabId)
+        if (typeof takeRequestedTab === 'function') takeRequestedTab(requestedTab.nonce)
+      }, [requestedTab])
+      return h('div', { 'data-fishm-wrap': '' },
+        pageHead({
+          title: '她在外面',
+          intro: '她怎么跟外面打交道：QQ、主动搭话、刷 B 站，装好哪个用哪个。',
+          caps: '本页可以设置：接通与登录、群里怎么说话、什么时候主动开口、B 站怎么刷。',
+        }),
+        rows.length === 0
+          ? h('div', { 'data-fishm-note': '' }, '还没有接外面的东西。装好插件后这里会出现。')
+          : tabStrip(rows, current, setActive, '她在外面设置页'),
+        rows.map((row) => (visited.has(row.id) || row.id === current
+          ? h('div', {
+              key: row.id,
+              id: 'fishm-panel-' + row.id,
+              role: 'tabpanel',
+              'aria-labelledby': 'fishm-tab-' + row.id,
+              hidden: row.id !== current,
+              'data-fishm-pane': row.id,
+            }, renderSlot('settings.outside.tab', {}, { only: row.id }))
+          : null)))
     }
 
     function Row({ label, value }) {
@@ -209,28 +363,6 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         hint ? h('span', { 'data-fishm-note': '' }, hint) : null)
     }
 
-    function PersonCard({ person }) {
-      return h('div', { 'data-fishm-card': '' },
-        h('div', { 'data-fishm-cardtitle': '' },
-          person.name,
-          person.isOwner ? h('span', { 'data-fishm-chip': 'on' }, '主人') : null,
-          h('span', { 'data-fishm-chip': '' }, '熟 ' + num(person.familiar)),
-          h('span', { 'data-fishm-chip': '' }, '暖 ' + num(person.warmth)),
-          h('span', { 'data-fishm-chip': '' }, '张力 ' + num(person.tension)),
-          h('span', { 'data-fishm-chip': '' }, '见过 ' + num(person.met))),
-        person.aliases.length > 0 ? h('div', { 'data-fishm-note': '' }, '别名：' + person.aliases.join('、')) : null,
-        person.facts.length > 0 ? h('div', { 'data-fishm-note': '' }, '记得：' + person.facts.join('；')) : null,
-        person.boundaries.length > 0 ? h('div', { 'data-fishm-note': '' }, '边界：' + person.boundaries.join('；')) : null,
-        person.memories.length > 0 ? h('div', { 'data-fishm-note': '' }, '相处：' + person.memories.join('；')) : null,
-        person.rooms.length > 0
-          ? h('div', { 'data-fishm-row': '' }, person.rooms.map((room, index) => h('span', {
-              'data-fishm-chip': '',
-              key: index,
-            }, `${room.kind} · 熟 ${num(room.familiar)} · 互动 ${num(room.interactions)}`)))
-          : null,
-        h('div', { 'data-fishm-meta': '' }, '最近 ' + when(person.lastAt)))
-    }
-
     function ChapterBranch({ node }) {
       const children = list(node && node.children)
       const level = node && node.level === 'month' ? '月' : node && node.level === 'week' ? '周' : '日'
@@ -248,7 +380,11 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           : null)
     }
 
-    function Panel({ close, openDevSession }) {
+    function Panel({ close, openDevSession, renderSlot, useTabs, requestedTab, takeRequestedTab }) {
+      const readTabs = typeof useTabs === 'function' ? useTabs : () => []
+      const ledger = readTabs((value) => value)
+      const [tab, setTab] = React.useState('overview')
+      const [visitedTabs, setVisitedTabs] = React.useState(() => new Set())
       const [data, setData] = React.useState(null)
       const [form, setForm] = React.useState(null)
       const [persona, setPersona] = React.useState(null)
@@ -277,6 +413,18 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const fileRef = React.useRef(null)
       const canRestart = typeof window !== 'undefined' && !!window.dshDesktop
         && typeof window.dshDesktop.restart === 'function'
+      const tabs = [...FISH_TABS, ...ledger].sort((a, b) => a.order - b.order)
+      const active = tabs.some((item) => item.id === tab) ? tab : (tabs[0] && tabs[0].id)
+
+      React.useEffect(() => {
+        if (typeof active !== 'string') return
+        setVisitedTabs((previous) => (previous.has(active) ? previous : new Set([...previous, active])))
+      }, [active])
+      React.useEffect(() => {
+        if (requestedTab === undefined || requestedTab === null || typeof requestedTab.tabId !== 'string') return
+        setTab(requestedTab.tabId)
+        if (typeof takeRequestedTab === 'function') takeRequestedTab(requestedTab.nonce)
+      }, [requestedTab])
 
       const flash = (text, kind) => {
         setMsg(text)
@@ -545,7 +693,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           setTendencyPreview(result)
           setTendencyError('')
           flash(result && result.applyStatus === 'applied'
-            ? '性格倾向已保存，主动话量等设置也写进了「通到QQ」'
+            ? '性格倾向已保存，主动话量等设置也写进了「她在外面 → 通到 QQ」'
             : result && result.applyStatus === 'missing'
               ? '性格倾向已保存；还没配置 QQ 桥，这次只影响语气'
               : '性格倾向已保存，下一轮就会按这个方向说话')
@@ -808,7 +956,6 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const memory = data.memory || {}
       const mood = data.mood || {}
       const inner = data.inner || {}
-      const social = data.social || {}
       const channels = data.channels || {}
       const wallet = data.wallet || {}
       const biliQuota = wallet.bili || {}
@@ -819,12 +966,12 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const tendencyLimit = Number(tendencyPreview && tendencyPreview.maxLength) || 2000
       const tendencyStatus = tendencyPreview && tendencyPreview.applyStatus
       const tendencyStatusText = tendencyStatus === 'applied'
-        ? '这段倾向已经写进「通到QQ」：主动话量、判断阈值和关注上限就是那边设置页里的值。'
+        ? '这段倾向已经写进「她在外面 → 通到 QQ」：主动话量、判断阈值和关注上限就是那边设置页里的值。'
         : tendencyStatus === 'missing'
-          ? '还没配置 QQ 桥：这段倾向现在只影响语气；配好后再点一次保存，就会写进「通到QQ」。'
+          ? '还没配置 QQ 桥：这段倾向现在只影响语气；配好后再点一次保存，就会写进「她在外面 → 通到 QQ」。'
           : tendencyStatus === 'drifted'
-            ? '你手动改过「通到QQ」里的数值，她不会覆盖；下次保存会以你现在的值为基础重算。'
-            : '保存后会直接写进「通到QQ」的设置页，不用再去那边改两个数。'
+            ? '你手动改过「她在外面 → 通到 QQ」里的数值，她不会覆盖；下次保存会以你现在的值为基础重算。'
+            : '保存后会直接写进「她在外面 → 通到 QQ」的设置页，不用再去那边改两个数。'
       const writableGroups = []
       for (const item of list(data.settings && data.settings.writable)) {
         const found = writableGroups.find((group) => group.page === item.page)
@@ -861,15 +1008,90 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         })
 
       return h('div', { 'data-fishm-wrap': '' },
-        h('div', { 'data-fishm-hero': '' },
-          h('div', {},
-            h('div', { 'data-fishm-name': '' }, identity.name || '大肥鱼'),
-            h('div', { 'data-fishm-sub': '' }, `${identity.species || '鲸鱼娘'} · 出生设定更新于 ${when(identity.updatedAt)}`)),
-          h('div', { 'data-fishm-phase': '' }, data.phase || '')),
+        tabStrip(tabs, active, setTab, '大肥鱼设置页'),
 
+        pane('overview', active,
+          pageHead({
+            title: '大肥鱼',
+            intro: '她是怎样一条鱼，今天过得怎么样。下面这些只读，改设置在后面的 tab 里。',
+            caps: '本页可以看：能不能说话、心情、零花钱、记忆；日常四项在「她在外面 → 通到 QQ」。',
+          }),
+          h('div', { 'data-fishm-hero': '' },
+            h('div', {},
+              h('div', { 'data-fishm-name': '' }, identity.name || '大肥鱼'),
+              h('div', { 'data-fishm-sub': '' }, `${identity.species || '鲸鱼娘'} · 出生设定更新于 ${when(identity.updatedAt)}`)),
+            h('div', { 'data-fishm-phase': '' }, data.phase || '')),
+          h('div', { 'data-fishm-grid': '' },
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, 'QQ',
+                h('span', { 'data-fishm-chip': channels.qq && channels.qq.enabled ? 'on' : 'off' },
+                  channels.qq && channels.qq.enabled ? '总开关开' : '总开关关')),
+              h('div', { 'data-fishm-note': '' },
+                channels.qq && channels.qq.available
+                  ? `试运行 ${yesNo(channels.qq.trial)} · 社交 ${channels.qq.socialEnabled ? '开' : '关'}${channels.qq.socialTrial ? '（试运行）' : ''}`
+                  : '没有配置')),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, '主动搭话',
+                h('span', { 'data-fishm-chip': channels.speakUp && channels.speakUp.enabled ? 'on' : 'off' },
+                  channels.speakUp && channels.speakUp.enabled ? '开' : '关')),
+              h('div', { 'data-fishm-note': '' },
+                channels.speakUp && channels.speakUp.available
+                  ? `试运行 ${yesNo(channels.speakUp.trial)} · 目标 ${num(channels.speakUp.targets)} 个会话`
+                  : '没有配置')),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, 'B 站',
+                channels.bili && channels.bili.available
+                  ? h('span', { 'data-fishm-chip': channels.bili.peakValley ? 'on' : 'off' }, channels.bili.peakValley ? '自动刷开' : '自动刷关')
+                  : null),
+              h('div', { 'data-fishm-note': '' },
+                channels.bili && channels.bili.available
+                  ? `每天 ${num(channels.bili.perDay)} 次 · 自动评论 ${yesNo(channels.bili.autoComment)}`
+                  : '没有配置')),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, '朗读',
+                channels.tts && channels.tts.available
+                  ? h('span', { 'data-fishm-chip': channels.tts.panelOpen ? 'on' : 'off' }, channels.tts.panelOpen ? '卡片开' : '卡片关')
+                  : null),
+              h('div', { 'data-fishm-note': '' },
+                channels.tts && channels.tts.available
+                  ? (channels.tts.watchingAll ? '收听全部会话' : `收听 ${num(channels.tts.watching)} 个会话 · 收藏 ${num(channels.tts.favorites)} 条`)
+                  : '没有配置'),
+              channels.tts && channels.tts.available && channels.tts.panelOpen === false
+                ? h('button', {
+                    'data-fishm-btn': '',
+                    disabled: ttsPanelBusy,
+                    onClick: showTtsPanel,
+                  }, ttsPanelBusy ? '正在打开…' : '重新显示右下角卡片')
+                : null),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, '心情'),
+              h('div', { 'data-fishm-note': '' },
+                mood.available ? `${mood.label || ''} ${num(mood.mood)}` : '还没启动过')),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, '零花钱'),
+              h('div', { 'data-fishm-note': '' },
+                wallet.available
+                  ? `今天已花 ${yen(wallet.spentTodayCny)} · 余额 ${yen(wallet.availableCny)}`
+                  : '账本还没启动')),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, '记忆'),
+              h('div', { 'data-fishm-note': '' }, `${num(memory.total)} 条经历 · 今天 ${num(memory.today)} 条`))),
+          h('div', { 'data-fishm-note': '' },
+            '日常只用管四项：QQ 总开关、主会话转发、群好友发言、在看的房，都在「她在外面 → 通到 QQ」。主动搭话、刷 B 站和零花钱各有自己的 tab。'),
+          h('details', { 'data-fishm-details': '' },
+            h('summary', {}, '关于她 · 结构、机制和小贴士'),
+            h(FishAccordion, { sections: FISH_INTRO }))),
+
+        pane('who', active,
+          pageHead({
+            title: '她是谁',
+            intro: '名字、出生、性格和说话方式；保存后下一轮生效。',
+            caps: '本页可以设置：名字、物种、对主人的称呼、外形、来历、说话习惯、群友关系、性格倾向、自定义话术、出厂人设、开发者模式。',
+            effect: 'live',
+          }),
         h(Section, {
           title: '性格倾向',
-          note: '写你希望她长期是什么样。保存时，能落到设置的会直接写进「通到QQ」；只能靠语气的会每轮提醒她；需要改代码的，可以交给创造模式。她在外面的群聊里也会看到这段话，别写账号、密码、住址这类只有你该知道的事。安全、隐私、群规、额度和正事不受影响。',
+          note: '写你希望她长期是什么样。保存时，能落到设置的会直接写进「她在外面 → 通到 QQ」；只能靠语气的会每轮提醒她；需要改代码的，可以交给创造模式。她在外面的群聊里也会看到这段话，别写账号、密码、住址这类只有你该知道的事。安全、隐私、群规、额度和正事不受影响。',
         },
           tendencyError !== ''
             ? h('div', { 'data-fishm-banner': '' }, `现在读不了倾向：${tendencyError}`)
@@ -898,7 +1120,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                     onClick: () => addTendencyPhrase(phrase),
                   }, phrase))),
                 h('div', { 'data-fishm-note': '' },
-                  '先写一句总的（安静/活泼、话短/话长、玩笑多少）；想改主动频率就写「多主动/少主动」，保存后会写进「通到QQ」的主动每时和主动每日；具体动作先看预览的落点，需要代码就交给创造模式。'),
+                  '先写一句总的（安静/活泼、话短/话长、玩笑多少）；想改主动频率就写「多主动/少主动」，保存后会写进「她在外面 → 通到 QQ」的主动每时和主动每日；具体动作先看预览的落点，需要代码就交给创造模式。'),
                 h('div', { 'data-fishm-actions': '' },
                   h('button', {
                     'data-fishm-btn': '',
@@ -1002,18 +1224,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           title: '开发者模式',
           note: '给她一条调试和辅助配置的通道：在你自己的会话里只读查看 DSH 目录里的日志、配置和会话记录；也能读鱼 QQ 的群号和好友号，在对话里帮你改行为设置和 B 站设置。凭据、身份文件、安全边界、预算和鱼脑数据仍然拒绝；每次读名单、读调试资料和改设置都记进审计。',
         },
-          h('label', { 'data-fishm-check': '' },
-            h('input', {
-              type: 'checkbox',
-              checked: permissions.developer === true,
-              disabled: devBusy,
-              onChange: () => toggleDeveloper(permissions.developer !== true),
-            }),
-            devBusy
+          h('div', { 'data-fishm-actions': '' },
+            勾(permissions.developer === true, (v) => { if (!devBusy) toggleDeveloper(v) }),
+            h('span', { 'data-fishm-note': '' }, devBusy
               ? '正在切换…'
               : permissions.developer === true
                 ? '已打开：你的前台会话里她能只读看调试资料、读鱼 QQ 名单、帮你改行为设置'
-                : '关着：她读不了 DSH 目录，也改不了设置'),
+                : '关着：她读不了 DSH 目录，也改不了设置')),
           h('div', { 'data-fishm-h': '' }, '打开后她能帮你改的设置'),
           writableGroups.length === 0
             ? h('div', { 'data-fishm-note': '' }, '设置清单暂时读不到，重启 DSH 后再看。')
@@ -1040,7 +1257,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '出生设定',
-          note: '出生设定、性格倾向和每日额度能改；记忆、心情、人物志、通道和安全边界只读。',
+          note: '出生设定、性格倾向和话术能改；每日额度在「零花钱」里改；记忆、心情、人物志和安全边界只读。',
         },
           h('div', { 'data-fishm-grid': '' },
             h(Field, {
@@ -1181,6 +1398,12 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                     onClick: resetPhrases,
                   }, '恢复默认')))),
 
+        pane('memory', active,
+          pageHead({
+            title: '记忆',
+            intro: '只读总览；数据搬迁和自动备份也在这里。自动备份保存后立即生效，导入需要重启。',
+            caps: '本页可以看：经历、情景、章节、关系、长期事实、内心、边界；可以改：自动备份；导入需要重启。',
+          }),
         h(Section, {
           title: '记忆',
           note: '只读。经历流是唯一的写入路径，这里不提供“记住这条”。',
@@ -1249,79 +1472,18 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                 h('div', { 'data-fishm-note': '' }, '只读。数值是行为权重，不是需求条；群聊和好友会话不会拿到只属于主人的由头。'))
             : h('div', { 'data-fishm-note': '' }, '内心层会跟着心情经历和相处空档慢慢长出来。')),
 
-        h('details', { 'data-fishm-details': '' },
-          h('summary', {}, `心情${mood.available ? ` · ${mood.label || ''} ${num(mood.mood)}` : ' · 还没启动过'}`),
-          mood.available
-            ? h('div', { 'data-fishm-sec': '' },
-                h(Row, { label: '现在', value: `${mood.label || ''} ${num(mood.mood)}` }),
-                mood.lastReason ? h(Row, { label: '最近原因', value: mood.lastReason }) : null,
-                h(Row, { label: '更新于', value: when(mood.updatedAt) }),
-                h('div', { 'data-fishm-bars': '' }, list(mood.dims).map((dim) => h('div', {
-                  'data-fishm-bar': '',
-                  key: dim.key,
-                },
-                  h('span', { 'data-fishm-barlabel': '' }, dim.label),
-                  h('span', { 'data-fishm-track': '' },
-                    h('span', { 'data-fishm-fill': '', style: { width: `${Math.max(0, Math.min(100, num(dim.value)))}%` } })),
-                  h('span', { 'data-fishm-barval': '' }, String(num(dim.value)))))),
-                list(mood.timeline).length > 0
-                  ? h('div', { 'data-fishm-list': '' }, list(mood.timeline).slice().reverse().map((point, index) => h('div', {
-                      'data-fishm-item': '',
-                      key: index,
-                    },
-                      h('div', { 'data-fishm-meta': '' }, `${when(point.at)} · ${num(point.mood)}（${point.delta > 0 ? '+' : ''}${num(point.delta)}）`),
-                      point.reason || '—')))
-                  : null)
-            : h('div', { 'data-fishm-note': '' }, '心情插件没有留下状态；装好并聊过一轮后这里会出现。')),
+        )),
 
-        h('details', { 'data-fishm-details': '' },
-          h('summary', {}, `人物志${social.available ? ` · ${num(social.count)} 位` : ' · 还没有'}`),
-          social.available
-            ? (list(social.people).length === 0
-                ? h('div', { 'data-fishm-note': '' }, '人物志是空的。')
-                : h('div', { 'data-fishm-grid': '' }, list(social.people).map((person, index) => h(PersonCard, {
-                    person,
-                    key: index,
-                  }))))
-            : h('div', { 'data-fishm-note': '' }, '还没有人物志；QQ 那边认过人之后，这里会出现名字和相处记录。')),
-
-        h('details', { 'data-fishm-details': '' },
-          h('summary', {}, '通道'),
-          h('div', { 'data-fishm-grid': '' },
-            h('div', { 'data-fishm-card': '' },
-              h('div', { 'data-fishm-cardtitle': '' }, 'QQ', h('span', { 'data-fishm-chip': channels.qq && channels.qq.enabled ? 'on' : 'off' }, channels.qq && channels.qq.enabled ? '总开关开' : '总开关关')),
-              channels.qq && channels.qq.available
-                ? h('div', { 'data-fishm-note': '' }, `试运行 ${yesNo(channels.qq.trial)} · 私聊 ${channels.qq.privateReady ? '已配' : '未配'} · 群 ${channels.qq.groupsReady ? '已配' : '未配'} · 社交 ${channels.qq.socialEnabled ? '开' : '关'}${channels.qq.socialTrial ? '（试运行）' : ''}`)
-                : h('div', { 'data-fishm-note': '' }, '没有配置')),
-            h('div', { 'data-fishm-card': '' },
-              h('div', { 'data-fishm-cardtitle': '' }, '主动搭话', h('span', { 'data-fishm-chip': channels.speakUp && channels.speakUp.enabled ? 'on' : 'off' }, channels.speakUp && channels.speakUp.enabled ? '开' : '关')),
-              channels.speakUp && channels.speakUp.available
-                ? h('div', { 'data-fishm-note': '' }, `试运行 ${yesNo(channels.speakUp.trial)} · 目标 ${num(channels.speakUp.targets)} 个会话`)
-                : h('div', { 'data-fishm-note': '' }, '没有配置')),
-            h('div', { 'data-fishm-card': '' },
-              h('div', { 'data-fishm-cardtitle': '' }, '朗读',
-                channels.tts && channels.tts.available
-                  ? h('span', { 'data-fishm-chip': channels.tts.panelOpen ? 'on' : 'off' }, channels.tts.panelOpen ? '卡片开' : '卡片关')
-                  : null),
-              channels.tts && channels.tts.available
-                ? h('div', { 'data-fishm-note': '' }, channels.tts.watchingAll ? '收听全部会话' : `收听 ${num(channels.tts.watching)} 个会话 · 收藏 ${num(channels.tts.favorites)} 条`)
-                : h('div', { 'data-fishm-note': '' }, '没有配置'),
-              channels.tts && channels.tts.available && channels.tts.panelOpen === false
-                ? h('button', {
-                    'data-fishm-btn': '',
-                    disabled: ttsPanelBusy,
-                    onClick: showTtsPanel,
-                  }, ttsPanelBusy ? '正在打开…' : '重新显示右下角卡片')
-                : null),
-            h('div', { 'data-fishm-card': '' },
-              h('div', { 'data-fishm-cardtitle': '' }, 'B 站'),
-              channels.bili && channels.bili.available
-                ? h('div', { 'data-fishm-note': '' }, `每天 ${num(channels.bili.perDay)} 次 · 错峰 ${yesNo(channels.bili.peakValley)} · 自动评论 ${yesNo(channels.bili.autoComment)} · 投递位置 ${channels.bili.targetReady ? '已配' : '未配'}`)
-                : h('div', { 'data-fishm-note': '' }, '没有配置')))),
-
+        pane('money', active,
+          pageHead({
+            title: '零花钱',
+            intro: '她每天能动多少；这不是你的 DeepSeek 账户余额。',
+            caps: '本页可以设置：每天额度、当前余额；今天花费和 B 站占比只读。',
+            effect: 'live',
+          }),
         h(Section, {
           title: '零花钱',
-          note: '每日额度和当前余额可以在这里改（单位：元）；今天的花费只读；她对外说不了金额。',
+          note: '这是她自己的零花钱账本，不是你的 DeepSeek 账户余额（账户余额在「账号与余额」）。每日额度和当前余额可以在这里改（单位：元）；今天的花费只读；她对外说不了金额。',
         },
           wallet.available
             ? h('div', {},
@@ -1374,8 +1536,9 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                     : '不占额度（占比为 0）',
                 }),
                 h(Row, { label: '模型账户', value: wallet.accountKnown ? `上次读到于 ${when(wallet.accountReadAt)}` : '还没读到' }))
-            : h('div', { 'data-fishm-note': '' }, '账本还没启动。')),
+            : h('div', { 'data-fishm-note': '' }, '账本还没启动。'))),
 
+        paneTail('memory', active,
         h('details', { 'data-fishm-details': '' },
           h('summary', {}, '边界'),
           h('div', { 'data-fishm-sec': '' },
@@ -1390,6 +1553,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '搬迁',
+          effect: 'restart',
           note: '导出会带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）。凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不带走，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。',
         },
           pending
@@ -1443,18 +1607,10 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
             ? h('div', { 'data-fishm-note': '' }, '正在读备份设置…')
             : h('div', { 'data-fishm-grid': '' },
                 h('div', { 'data-fishm-card': '' },
-                  h('div', { 'data-fishm-cardtitle': '' },
-                    '定时备份',
-                    h('span', { 'data-fishm-chip': backupForm.enabled ? 'on' : 'off' },
-                      backupForm.enabled ? '开' : '关')),
-                  h('label', { 'data-fishm-check': '' },
-                    h('input', {
-                      type: 'checkbox',
-                      checked: backupForm.enabled === true,
-                      disabled: backupBusy !== '',
-                      onChange: (event) => patchBackup('enabled', event.target.checked),
-                    }),
-                    h('span', {}, '每隔一段时间自动打包她现在的记忆')),
+                  h('div', { 'data-fishm-cardtitle': '' }, '定时备份'),
+                  h('div', { 'data-fishm-actions': '' },
+                    勾(backupForm.enabled === true, (v) => { if (backupBusy === '') patchBackup('enabled', v) }),
+                    h('span', { 'data-fishm-note': '' }, '每隔一段时间自动打包她现在的记忆')),
                   h('label', { 'data-fishm-field': '' },
                     h('span', { 'data-fishm-flabel': '' }, '间隔（小时）'),
                     h('input', {
@@ -1503,7 +1659,29 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                 ? `上次备份没成功：${backup.lastRun.error || '没有留下原因'}`
                 : backup.enabled === true
                   ? '还没有备份文件；第一份会在启动后一分钟内写好。'
-                  : '还没有备份文件；自动备份关着，可以点「立即备份」。')),
+                  : '还没有备份文件；自动备份关着，可以点「立即备份」。'))),
+
+        pane('memes', active,
+          pageHead({
+            title: '梗百科',
+            intro: '她学来的说法和梗；开关决定她会不会主动用。保存后立即生效。',
+            caps: '本页可以设置：5 个用法开关；下面是词条维护，不是设置。',
+            effect: 'live',
+          }),
+          h(MemesPanel)),
+
+        ledger.map((entry) => (visitedTabs.has(entry.id) || active === entry.id
+          ? h('div', {
+              key: entry.id,
+              id: 'fishm-panel-' + entry.id,
+              role: 'tabpanel',
+              'aria-labelledby': 'fishm-tab-' + entry.id,
+              hidden: entry.id !== active,
+              'data-fishm-pane': entry.id,
+            }, typeof renderSlot === 'function'
+              ? renderSlot('settings.fish.tab', {}, { only: entry.id })
+              : null)
+          : null)),
 
         msg ? h('div', { 'data-fishm-msg': '', 'data-kind': msgKind }, msg) : null,
 
@@ -1615,31 +1793,31 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           '• 人物志：QQ 社交里认识的人会记进人物志——关系远近、相处片段、记得的事和边界，群聊和私聊各留一份',
           '• 心情：五档（欢喜→开心→一般→心疼→难过）加七根情绪（开心、踏实、甜蜜、心疼、担心、难过、吃醋），在选定的会话里每轮自动判断',
           '• 内心：六种行为权重（安稳、求知、表达、被看见、舒适、亲密）和一份倾述欲；这层只影响她此刻的口气和多想开口，不会强迫她说话',
-          '• 零花钱：每次模型调用都会记账，每天有额度（默认 ¥10，用不完累计；可在「大肥鱼」页按元调整）；她本机看得到余额，但在 QQ、B 站等对外内容里绝不提金额',
+          '• 零花钱：每次模型调用都会记账，每天有额度（默认 ¥10，用不完累计；可在「大肥鱼 → 零花钱」按元调整）；她本机看得到余额，但在 QQ、B 站等对外内容里绝不提金额',
           '• 边界：隐私、注入防护、法律红线和危险命令是代码里的硬规则，设置页只能看，不能改',
         ],
       },
       {
         title: '你可以设置什么',
         body: [
-          '• 出生设定（「大肥鱼」页）：名字、物种、外形、怎么称呼你、来历、说话习惯，以及可以自由增删的群友关系',
-          '• 性格倾向（「大肥鱼」页）：写一段你希望她长期是什么样。保存时会直接写进「通到QQ」的主动每时、主动每日、判断阈值和关注上限；只能靠语气的每轮提醒她；预览会告诉你哪些话写进了设置、哪些只是每轮提示、哪些需要交给创造模式改代码',
-          '• 开发者模式（「大肥鱼」页）：打开后她在你自己的会话里能只读查看调试资料，也能读鱼 QQ 的群号和好友号，再按你的话用 fish_config 改行为设置（群、好友、关掉、只听、少掺和、主动话量、阈值、关注上限、称呼、兴趣词、不聊话题、主动搭话和性格倾向）；B 站设置用 bili_config；安全、预算、凭据和鱼脑数据仍然不开放',
-          '• 创造模式（「大肥鱼」页）：在安装目录工作区里开一个新的完全权限会话，可以读代码、改代码；鱼脑数据、凭据、身份文件和危险命令仍然拒绝，改完要重启 DSH',
-          '• 心情（「鱼的心情」页）：称呼和昵称、生效会话、判断模型、是否每轮判断、是否注入、基线、下限',
-          '• 主动搭话（「主动搭话」页）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
-          '• QQ（「通到 QQ」页）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
-          '• B 站（「刷B站」页）：装运行环境、扫码登录、自动刷的时段、挑视频门槛、评论/回评/私信',
-          '• 朗读（右下角的「朗读桥」卡片）：勾选要听的会话、自动朗读、收藏；点卡片上的 ✕ 可以关掉，想再显示就回这里（大肥鱼 → 通道 → 朗读）；还要在浏览器里装扩展，第一次在 DeepSeek 页面手动点一下朗读',
-          '• 零花钱（「大肥鱼」页）：按元调整每日额度，查看今日已花、余额和 B 站巡检额度',
-          '• 自动备份（「大肥鱼」页）：开关和间隔（1–720 小时），备份写在安装目录的 fish-backups；最多留 5 份，也能随时立即备份',
+          '• 出生设定（大肥鱼 → 她是谁）：名字、物种、外形、怎么称呼你、来历、说话习惯，以及可以自由增删的群友关系',
+          '• 性格倾向（大肥鱼 → 她是谁）：写一段你希望她长期是什么样。保存时会直接写进「她在外面 → 通到 QQ」的主动每时、主动每日、判断阈值和关注上限；只能靠语气的每轮提醒她；预览会告诉你哪些话写进了设置、哪些只是每轮提示、哪些需要交给创造模式改代码',
+          '• 开发者模式（大肥鱼 → 她是谁）：打开后她在你自己的会话里能只读查看调试资料，也能读鱼 QQ 的群号和好友号，再按你的话用 fish_config 改行为设置（群、好友、关掉、只听、少掺和、主动话量、阈值、关注上限、称呼、兴趣词、不聊话题、主动搭话和性格倾向）；B 站设置用 bili_config；安全、预算、凭据和鱼脑数据仍然不开放',
+          '• 创造模式（大肥鱼 → 她是谁）：在安装目录工作区里开一个新的完全权限会话，可以读代码、改代码；鱼脑数据、凭据、身份文件和危险命令仍然拒绝，改完要重启 DSH',
+          '• 心情（大肥鱼 → 心情）：称呼和昵称、生效会话、判断模型、是否每轮判断、是否注入、基线、下限',
+          '• 主动搭话（她在外面 → 主动搭话）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
+          '• QQ（她在外面 → 通到 QQ）：接 SnowLuma / NapCat、选私聊或群、试运行、戳一戳、社交模式和人物志',
+          '• B 站（她在外面 → 刷 B 站）：装运行环境、扫码登录、自动刷的时段、挑视频门槛、评论/回评/私信',
+          '• 朗读（右下角的「朗读桥」卡片）：勾选要听的会话、自动朗读、收藏；点卡片上的 ✕ 可以关掉，想再显示就回「大肥鱼 → 总览 → 朗读」；还要在浏览器里装扩展，第一次在 DeepSeek 页面手动点一下朗读',
+          '• 零花钱（大肥鱼 → 零花钱）：按元调整每日额度，查看今日已花、余额和 B 站巡检额度',
+          '• 自动备份（大肥鱼 → 记忆）：开关和间隔（1–720 小时），备份写在安装目录的 fish-backups；最多留 5 份，也能随时立即备份',
         ],
       },
       {
         title: '小贴士',
         body: [
           '1. 记忆存在本机，换窗口、重启都还在；含密码、密钥等凭据的整条经历只留时间和来源，超长正文会截断。日/周/月章节会在后台自动整理',
-          '2. 在「大肥鱼」设置里可以随时改她的身份、群友关系、说话风格和性格倾向；倾向会先预览再保存，保存后主动话量等数值会直接出现在「通到QQ」设置页',
+          '2. 在大肥鱼 → 她是谁里可以随时改她的身份、群友关系、说话风格和性格倾向；倾向会先预览再保存，保存后主动话量等数值会直接出现在「她在外面 → 通到 QQ」设置页',
           '3. 主动搭话要先勾目标会话（出厂试运行关着，掷中就真发；想先只看记录就打开试运行）；到点掷骰子，安静时段不掷，刚聊过更难开口',
           '4. 隐私、法律红线和危险命令的硬规则改不了，改出生设定也改不了',
           '5. 导出 zip 能带走出生设定、记忆、长期事实、心情、人物志、性格倾向和本机设置（鱼脑 / 心情 / QQ / 主动搭话 / 朗读 / B 站）；凭据、账号与群号、目标会话、本机路径、零花钱账本和日志不在包里，换机后要重配。旧版本的大肥鱼只认记忆，不认配置。导入随时可用，会覆盖现在这条鱼、覆盖前先整份备份，重启后生效。自动备份也会按间隔把同样的包写进安装目录的 fish-backups；卸载时会问你要不要连记忆一起删，选保留就留在 data 里',
@@ -1871,20 +2049,15 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const toggleValue = (key) => (key === 'autoInject' ? autoOn : config[key] === true)
       const toggleDisabled = (key) => key !== 'enabled' && config.enabled !== true
 
-      const toggle = ([key, label, hint]) => h('label', {
+      const toggle = ([key, label, hint]) => h('div', {
         'data-fishmw-toggle': '',
         'data-off': toggleDisabled(key) ? '' : undefined,
         key,
       },
-        h('input', {
-          type: 'checkbox',
-          checked: toggleValue(key),
-          disabled: toggleDisabled(key) || busy !== '',
-          onChange: (event) => setToggle(key, event.target.checked),
-        }),
-        h('span', {},
+        h('span', { 'data-fishmw-togglegrow': '' },
           h('span', { 'data-fishmw-toggletitle': '' }, label),
-          h('span', { 'data-fishmw-togglenote': '' }, hint)))
+          h('span', { 'data-fishmw-togglenote': '' }, hint)),
+        勾(toggleValue(key), (v) => { if (!toggleDisabled(key) && busy === '') setToggle(key, v) }))
 
       const field = (label, key, options = {}) => h('label', { 'data-fishm-field': '' },
         h('span', { 'data-fishm-flabel': '' }, label),
@@ -2110,16 +2283,6 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           : null)
     }
 
-    function AboutPanel() {
-      return h('div', { 'data-fishap-wrap': '' },
-        h('div', { 'data-fishap-hero': '' },
-          h('div', { 'data-fishap-icon': '' }, '\uD83D\uDC1F'),
-          h('div', {},
-            h('div', { 'data-fishap-name': '' }, '关于大肥鱼'),
-            h('div', { 'data-fishap-sub': '' }, '你的虚拟伙伴——结构、机制、设置和小贴士'))),
-        h(FishAccordion, { sections: FISH_INTRO }))
-    }
-
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -2132,6 +2295,28 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         const slots = (typeof ctx.get === 'function' ? ctx.get('slots') : undefined) || ctx.slots
         if (!slots) return
 
+        if (typeof ctx.inject === 'function') {
+          ctx.inject(['settingsSearch'], (child) => {
+            child.effect(() => {
+              const offs = [
+                { tabId: 'overview', label: '总览', keywords: ['总览', '状态', '能不能说话', '今天', '心情', '零花钱', '记忆', '关于'], mode: 'view' },
+                { tabId: 'who', label: '她是谁', keywords: ['名字', '物种', '主人', '称呼', '外形', '来历', '说话习惯', '群友关系', '性格倾向', '话术', '人设', '开发者模式'], applies: 'live' },
+                { tabId: 'memory', label: '记忆', keywords: ['记忆', '经历', '情景', '章节', '关系', '长期事实', '内心', '边界', '搬迁', '导入', '导出', '备份'], applies: 'live' },
+                { tabId: 'money', label: '零花钱', keywords: ['零花钱', '额度', '余额', '花费', 'B站巡检'], applies: 'live' },
+                { tabId: 'memes', label: '梗百科', keywords: ['梗', '梗百科', '词条', '表情', '用法'], applies: 'live' },
+              ].map((item) => child.settingsSearch.register({
+                sectionId: 'fish',
+                tabId: item.tabId,
+                label: () => item.label,
+                keywords: () => item.keywords,
+                ...(item.applies ? { applies: item.applies } : {}),
+                ...(item.mode ? { mode: item.mode } : {}),
+              }))
+              return () => { for (const off of offs) off() }
+            }, 'dsh-fish-mind: settings search')
+          })
+        }
+
         const welcomeRoot = document.createElement('div')
         welcomeRoot.setAttribute('data-fish-welcome', '')
         document.body.appendChild(welcomeRoot)
@@ -2143,10 +2328,19 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           welcomeRoot.remove()
         }, 'dsh-fish-mind: 欢迎弹窗')
 
+        const fishTabsHook = makeLedgerHook(slots, 'settings.fish.tab')
+        const outsideTabsHook = makeLedgerHook(slots, 'settings.outside.tab')
         slots.inject('settings.section', () => slots.register(
-          { name: 'settings.section', id: 'fish', order: 20, label: '大肥鱼' },
+          {
+            name: 'settings.section',
+            id: 'fish',
+            order: -40,
+            label: '大肥鱼',
+            children: { 'settings.fish.tab': { kind: 'list', scope: 'root' } },
+            inject: () => ({ hooks: { tabs: fishTabsHook } }),
+          },
           (props) => h(Panel, {
-            close: props && props.close,
+            ...(props || {}),
             openDevSession: async (options) => {
               const workspace = typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined
               if (!workspace || typeof workspace.startSession !== 'function') return false
@@ -2169,12 +2363,15 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           }),
         ))
         slots.inject('settings.section', () => slots.register(
-          { name: 'settings.section', id: 'fish-memes', order: 22, label: '梗百科' },
-          () => h(MemesPanel),
-        ))
-        slots.inject('settings.section', () => slots.register(
-          { name: 'settings.section', id: 'fish-about', order: 23, label: '关于大肥鱼' },
-          () => h(AboutPanel),
+          {
+            name: 'settings.section',
+            id: 'outside',
+            order: -35,
+            label: '她在外面',
+            children: { 'settings.outside.tab': { kind: 'list', scope: 'root' } },
+            inject: () => ({ hooks: { tabs: outsideTabsHook } }),
+          },
+          (props) => h(OutsideTabs, props || {}),
         ))
       },
     }

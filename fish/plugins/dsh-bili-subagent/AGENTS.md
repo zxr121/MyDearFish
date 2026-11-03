@@ -22,7 +22,7 @@
    （本版暂未上 npm；上架后可简写成 `dsh plugin add dsh-bili-subagent`。）
    · ⚠️ 需要 **DSH ≥ `0.1.7-rc.1`**，版本不满足会被**静默跳过**（装了跟没装一样，不报错）。
 3. ⚠️ **提醒用户重启一次 dsh**（必须，bundle 层要重启才组装）。
-4. 让用户进 **设置 → 刷B站**：点「**装主依赖**」→ 点「**扫码登录**」
+4. 让用户进 **设置 → 她在外面 → 刷 B 站**：点「**装主依赖**」→ 点「**扫码登录**」
    （手机 B站 扫码，**确认时选「记住我 / 长期」**）。
    装完可以用「**测一下**」自检：真跑一次登录检查 + 一次搜索。
 5. **别擅自打开「自动在评论区留言」「自动回复收到的回复」** —— 那是拿用户的号公开说话，
@@ -46,7 +46,7 @@
 ## 仓库结构（改代码时看这里）
 
 - `index.js` —— 宿主半端：13 个工具 + 谷时定时器 + HTTP 接口 + 配置（`config.json` 与 DSH 原生设置**逐字段对账**）
-- `client.js` —— 浏览器半端：设置页（注册在 `settings.section`）
+- `client.js` —— 浏览器半端：设置页（注册在 `settings.outside.tab`，父页是 `settings.section` 的「她在外面」）
 - `lib/` —— 状态目录 / 极小的 MCP stdio 客户端 / 扫码登录 / `hostdeps.mjs`（从宿主树取 `@deepseek-ai/*`）/ `verify.mjs`（评论发出后复核）/ `replies.mjs`（收到的回复归一化）/ `outbound-policy.mjs`（外发闸门与审批）
 - `vendor/bilibili-mcp/` —— 内置的 Python MCP（MIT，AGI_Ananas）
 - `prompts/duty.md` —— 上游留下的值班章程，**本版已不再使用**（提示词改在设置页里编辑）

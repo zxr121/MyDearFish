@@ -8,6 +8,13 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .card,
 .balanceCard {
   padding: 12px 16px;

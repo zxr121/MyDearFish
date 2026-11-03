@@ -91,7 +91,7 @@ function setPageUrl(url: string): void {
 
 describe('ui-settings-general apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts', 'modules'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'settingsSearch', 'shortcuts', 'modules'])
   })
 
   it('fills the five seats of the shell it declares, with the locale-following General label', async ({ mock, start }) => {
@@ -120,6 +120,14 @@ describe('ui-settings-general apply', () => {
     for (const [name, component] of SEATS) {
       expect(c.ctx.slots.entries(name).find(row => row.component === component)!.locale).toBe(NS)
     }
+  }, COLD_BOOT_TIMEOUT_MS)
+
+  it('registers a general search target with page-level copy', async ({ mock, start }) => {
+    const { c } = await client(mock, start)
+    const target = c.ctx.settingsSearch.getSnapshot().find(item => item.sectionId === 'general')
+    expect(target).toBeDefined()
+    expect(target!.label()).toBe('通用')
+    expect(target!.keywords()).toContain('外观')
   }, COLD_BOOT_TIMEOUT_MS)
 
   it('registers the zh/en settings dictionaries and frees the seats when its row unloads', async ({ mock, start }) => {

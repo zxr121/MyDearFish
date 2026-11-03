@@ -14,6 +14,10 @@ A form namespace is the local id of a uniquely addressed entry in the active pro
 
 `settings/document-updated` invalidates form descriptors after Loader configuration changes. It is a UI notification; consumers use `loader/volatile-update` only when they need to refresh registration facts.
 
+## Client search index
+
+The browser settings base exposes `ctx.settingsSearch`, a client-only index shared by the settings shell and the feature pages that own settings surfaces. A page registers a `sectionId`, an optional `tabId`, per-query `label` and `keywords` resolvers, and optional effect/read-only tags; duplicate section/tab pairs throw and every registration returns a disposer. The shell combines these entries with its live navigation rows and navigates to the selected section and optional sub-tab. Sections with sub-tabs read `requestedTab` and acknowledge it with `takeRequestedTab`; sections without sub-tabs ignore both. The search index is presentation state only and never reaches the Host settings document or a Session log.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

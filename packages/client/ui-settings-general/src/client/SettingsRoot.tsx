@@ -10,15 +10,16 @@
  * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
  * to the step, so a mounted-but-deciding step paints nothing here.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
-  ConnectionIndicator, Tooltip, useModalLayer,
+  ConnectionIndicator, Input, Tooltip, useModalLayer,
   IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
-  IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
+  IconPersonalizationOutlineMedium, IconSearchOutlineRegular, IconSettingsOutlineMedium, IconUserOutlineMedium,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConnectionIndicatorState } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SettingsSearchTarget } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
 import css from './SettingsRoot.module.css'
 import { DesktopUpdateIndicator } from './DesktopUpdateIndicator.tsx'
@@ -27,6 +28,72 @@ const RECOVERY_CONFIRMATION_MS = 2_000
 
 /** Minimum visible time for the connecting pill; shorter attempts read as flicker. */
 const CONNECTING_MIN_VISIBLE_MS = 800
+
+/** One flattened search result: a top-level page or a sub-tab. */
+interface SearchResult {
+  key: string
+  sectionId: string
+  tabId?: string
+  label: string
+  path: string
+  haystack: string
+  applies?: 'live' | 'restart'
+  mode?: 'settings' | 'view'
+}
+
+/**
+ * Match the query against page labels, sub-tab labels, and registered keywords.
+ * @param query - raw search text.
+ * @param rows - live top-level navigation rows.
+ * @param targets - targets registered through `settingsSearch`.
+ * @returns up to 12 ordered results; empty for a blank query.
+ */
+export function buildSearchResults(
+  query: string,
+  rows: readonly SettingsSectionRow[],
+  targets: readonly SettingsSearchTarget[],
+): SearchResult[] {
+  const text = query.trim().toLocaleLowerCase()
+  if (text === '') return []
+  const sectionLabels = new Map(rows.map(row => [row.id, row.label]))
+  const results = new Map<string, SearchResult>()
+  for (const row of rows) {
+    results.set(`${row.id}\u0000`, {
+      key: `${row.id}\u0000`,
+      sectionId: row.id,
+      label: row.label,
+      path: row.label,
+      haystack: row.label,
+    })
+  }
+  for (const target of targets) {
+    const sectionLabel = sectionLabels.get(target.sectionId)
+    if (sectionLabel === undefined) continue
+    const label = target.label()
+    const path = target.tabId === undefined ? sectionLabel : `${sectionLabel} · ${label}`
+    const key = `${target.sectionId}\u0000${target.tabId ?? ''}`
+    results.set(key, {
+      key,
+      sectionId: target.sectionId,
+      ...(target.tabId === undefined ? {} : { tabId: target.tabId }),
+      label,
+      path,
+      haystack: [label, path, ...target.keywords()].join(' '),
+      ...(target.applies === undefined ? {} : { applies: target.applies }),
+      ...(target.mode === undefined ? {} : { mode: target.mode }),
+    })
+  }
+  const scored: Array<{ result: SearchResult; score: number }> = []
+  for (const result of results.values()) {
+    if (!result.haystack.toLocaleLowerCase().includes(text)) continue
+    const label = result.label.toLocaleLowerCase()
+    scored.push({ result, score: label.startsWith(text) ? 0 : label.includes(text) ? 1 : 2 })
+  }
+  return scored
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 12)
+    .map(item => item.result)
+}
 
 /** Nav glyph by section id; unknown ids fall back to the settings gear. */
 function navIcon(id: string) {
@@ -44,6 +111,11 @@ type PanelProps = {
   activeId: string | undefined
   onSelect: (id: string) => void
   onClose: () => void
+  t: SettingsRootComponentProps['t']
+  searchTargets: readonly SettingsSearchTarget[]
+  onOpenAt: (sectionId: string, tabId?: string) => void
+  pendingTab: { tabId: string; nonce: number } | undefined
+  onTakeRequestedTab: (nonce: number) => void
 }
 
 /**
@@ -51,11 +123,24 @@ type PanelProps = {
  * header button, a mask click, and document-level Escape (mounted only while
  * open, so the listener lifetime is the panel's).
  */
-function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
+function SettingsPanel({
+  rows, renderSlot, activeId, onSelect, onClose, t, searchTargets, onOpenAt, pendingTab, onTakeRequestedTab,
+}: PanelProps) {
   // Entries can unmount underneath the requested id, so the render-time
   // projection falls back to the first row when the id is gone.
   const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
   const titleId = useId()
+  const [query, setQuery] = useState('')
+  const [activeResult, setActiveResult] = useState(0)
+  const results = useMemo(
+    () => buildSearchResults(query, rows, searchTargets),
+    [query, rows, searchTargets],
+  )
+  const openResult = (result: SearchResult) => {
+    onOpenAt(result.sectionId, result.tabId)
+    setQuery('')
+    setActiveResult(0)
+  }
 
   const panel = useRef<HTMLDivElement>(null)
   useModalLayer(panel, true, onClose)
@@ -71,21 +156,73 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
         <nav className={css.nav}>
           <div className={css.navTitle} id={titleId} tabIndex={-1}
             data-modal-autofocus={active === undefined ? '' : undefined}>{renderSlot('settings.header', {})}</div>
-          <div className={css.navList}>
-            {rows.map(row => (
-              <button
-                key={row.id}
-                type="button"
-                className={clsx(css.navCell, row.id === active && css.active)}
-                aria-current={row.id === active ? 'true' : undefined}
-                data-modal-autofocus={row.id === active ? '' : undefined}
-                onClick={() => { onSelect(row.id) }}
-              >
-                {navIcon(row.id)}
-                <span className={css.navLabel}>{row.label}</span>
-              </button>
-            ))}
+          <div className={css.search}>
+            <Input
+              type="search"
+              icon={<IconSearchOutlineRegular size={14} />}
+              aria-label={t('search.label')}
+              placeholder={t('search.placeholder')}
+              value={query}
+              onChange={(event) => { setQuery(event.target.value); setActiveResult(0) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  const result = results[activeResult] ?? results[0]
+                  if (result !== undefined) {
+                    event.preventDefault()
+                    openResult(result)
+                  }
+                  return
+                }
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setActiveResult(index => Math.min(index + 1, Math.max(results.length - 1, 0)))
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setActiveResult(index => Math.max(index - 1, 0))
+                }
+              }}
+            />
           </div>
+          {query.trim() === '' ? (
+            <div className={css.navList}>
+              {rows.map(row => (
+                <button
+                  key={row.id}
+                  type="button"
+                  className={clsx(css.navCell, row.id === active && css.active)}
+                  aria-current={row.id === active ? 'true' : undefined}
+                  data-modal-autofocus={row.id === active ? '' : undefined}
+                  onClick={() => { onSelect(row.id) }}
+                >
+                  {navIcon(row.id)}
+                  <span className={css.navLabel}>{row.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : results.length === 0 ? (
+            <p className={css.searchEmpty}>{t('search.empty')}</p>
+          ) : (
+            <div className={css.searchResults}>
+              {results.map((result, index) => (
+                <button
+                  key={result.key}
+                  type="button"
+                  className={clsx(css.searchResult, index === activeResult && css.searchResultActive)}
+                  onMouseEnter={() => { setActiveResult(index) }}
+                  onClick={() => { openResult(result) }}
+                >
+                  <span className={css.searchResultLabel}>{result.label}</span>
+                  {result.path === result.label ? null : <span className={css.searchResultPath}>{result.path}</span>}
+                  {result.applies === undefined ? null : (
+                    <span className={css.searchResultTag}>
+                      {t(result.applies === 'restart' ? 'search.applies.restart' : 'search.applies.live')}
+                    </span>
+                  )}
+                  {result.mode === 'view' ? <span className={css.searchResultTag}>{t('search.view')}</span> : null}
+                </button>
+              ))}
+            </div>
+          )}
         </nav>
         <div className={css.content}>
           <div className={css.header}>
@@ -96,7 +233,11 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
             </button>
           </div>
           <div className={css.options}>
-            {active !== undefined && renderSlot('settings.section', { close: onClose }, { only: active })}
+            {active !== undefined && renderSlot('settings.section', {
+              close: onClose,
+              ...(pendingTab === undefined ? {} : { requestedTab: pendingTab }),
+              takeRequestedTab: onTakeRequestedTab,
+            }, { only: active })}
           </div>
         </div>
       </div>
@@ -112,9 +253,10 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
 export function SettingsRoot(props: SettingsRootComponentProps) {
   const {
     wide, reconnect, useConnectionState, useSections, useOnboardingSteps, useSessions, renderSlot, t,
-    useDesktopUpdate, openDesktopUpdate, useStore, actions, useShortcuts,
+    useDesktopUpdate, openDesktopUpdate, useStore, actions, useShortcuts, useSearch,
   } = props
-  const { open, activeId } = useStore(state => state)
+  const { open, activeId, pendingTab } = useStore(state => state)
+  const searchTargets = useSearch(state => state)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'settings.open'))
   const { close, openSection } = actions
   const [requestedOnboarding, setRequestedOnboarding] = useState<string | undefined>()
@@ -250,6 +392,11 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           activeId={activeId}
           onSelect={actions.select}
           onClose={close}
+          t={t}
+          searchTargets={searchTargets}
+          onOpenAt={actions.openAt}
+          pendingTab={pendingTab}
+          onTakeRequestedTab={actions.takeRequestedTab}
         />
       )}
       {/* Dialog chrome and `#root` inert ownership live inside each step's

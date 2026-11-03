@@ -1498,12 +1498,26 @@ function ConfirmDialog({ name, t, onConfirm, onCancel }: {
   )
 }
 
+/**
+ * Whether the Plugins page may generate a configuration form for a served namespace.
+ * @param configurations - served namespaces from the settings mirror.
+ * @param id - profile entry id to find.
+ * @returns true when the namespace is served and did not opt out with `autoGenerate: false`.
+ */
+export function generatedConfigAvailable(
+  configurations: readonly { ns: string; autoGenerate: boolean }[] | undefined,
+  id: string,
+): boolean {
+  const view = configurations?.find(candidate => candidate.ns === id)
+  return view !== undefined && view.autoGenerate
+}
+
 /** Render the plugin manager: the official plugins and installed bundles, their pages, the install dialog, and the confirmation. */
 export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   const { t, ensure, renderSlot, resolveText } = props
   const configurations = props.useConfigurations(snapshot => snapshot.view?.namespaces)
   const formFor = (id: string): ConfigPageForm | undefined => {
-    if (!configurations?.some(view => view.ns === id)) return undefined
+    if (!generatedConfigAvailable(configurations, id)) return undefined
     const form = props.configForm<Record<string, unknown>>(id)
     return { state: form.getSnapshot(), mutate: (ops, revision) => form.mutate(ops, revision) }
   }

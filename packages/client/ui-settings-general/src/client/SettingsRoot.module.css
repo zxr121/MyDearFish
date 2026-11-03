@@ -129,10 +129,81 @@
 
 /* Cell stack (figma 501:29961): gap 4. */
 .navList {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
+}
+
+.search {
+  flex: none;
+  padding: 0 8px;
+}
+
+.search > span {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.searchEmpty {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchResults {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.searchResult {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.searchResult:hover,
+.searchResultActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.searchResultLabel {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.searchResultPath {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchResultTag {
+  padding: 0 6px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 16px;
 }
 
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad

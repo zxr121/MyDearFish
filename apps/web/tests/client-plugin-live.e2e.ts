@@ -21,7 +21,7 @@ async function openInventory(page: Page, url: string) {
   await page.goto(url, { waitUntil: 'load' })
   await openSettings(page, 'zh')
   const dialog = page.getByRole('dialog', { name: '设置' })
-  await dialog.getByRole('button', { name: '内置插件', exact: true }).click()
+  await dialog.getByRole('button', { name: '插件状态', exact: true }).click()
   await dialog.getByRole('searchbox', { name: '搜索插件' }).waitFor()
   return dialog
 }

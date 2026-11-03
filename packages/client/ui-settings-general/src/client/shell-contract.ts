@@ -14,7 +14,7 @@ import type {
 // into every program that sees this contract.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the settings slot declarations the shell renders into.
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsSearchTarget } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PropsStore } from '@deepseek-ai/dsh-client-store'
 import type { createSettingsShellStore } from './shell-store.ts'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
@@ -54,6 +54,8 @@ export type SettingsRootInjected = {
     sections: HostObservable<readonly SettingsSectionRow[]>
     /** settings.onboarding ledger projected into coordinator order. */
     onboardingSteps: HostObservable<readonly SettingsOnboardingStep[]>
+    /** Page and sub-page search targets registered by settings features. */
+    search: HostObservable<readonly SettingsSearchTarget[]>
   }
 }
 

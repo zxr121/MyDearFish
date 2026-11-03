@@ -68,7 +68,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-feiyu-mood
 
 > 暂未发布到 npm；上架后可简写成 `dsh plugin add dsh-feiyu-mood`。
 
-装完 **必须重启一次 DSH**，然后进 **设置 → 鱼的心情**。
+装完 **必须重启一次 DSH**，然后进 **设置 → 大肥鱼 → 心情**。
 
 ## 五、首次使用（三步）
 
@@ -120,7 +120,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-feiyu-mood
 判断 = 算不算这一次心情（花钱那步）；注入 = 算出来的心情要不要影响她说话。两个可以分开。
 
 **换了伙伴 / 换了名字？**
-设置页改两个称呼只影响心情判断里的标签；大肥鱼的名字、物种和鲸鱼娘形象是鱼脑写死的私设，不能在设置里换。
+主人称呼和她自己的名字现在只读，跟「大肥鱼 → 她是谁」的出生设定同步；大肥鱼的名字、物种和鲸鱼娘形象是鱼脑写死的私设，不能在设置里换。
 
 ## 九、换掉示例图片
 

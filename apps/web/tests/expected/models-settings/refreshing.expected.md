@@ -1,20 +1,16 @@
 - dialog "设置":
   - navigation:
     - text: 设置
+    - searchbox "搜索设置"
     - button "通用设置"
     - button "模型"
-    - button "内置插件"
     - button "Agent 预设"
+    - button "插件状态"
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
-  - paragraph: 填入各提供商的 API 密钥即可使用其模型。
+  - paragraph: 本页可以设置：提供商、API 密钥、API 地址、模型目录、推理等级。这里选的是默认模型；心情、QQ 和 B 站可以单独覆盖。
   - list:
-    - listitem:
-      - text: minimax-cn
-      - img "API 密钥已配置"
-      - button "编辑 minimax-cn" [disabled]: 编辑
-      - button "删除 minimax-cn" [disabled]: 删除
     - listitem:
       - text: Acme 网关 自定义
       - button "编辑 Acme 网关 (acme-gateway)" [disabled]: 编辑

@@ -1,4 +1,5 @@
 - region "账号与余额":
+  - paragraph: 本页可以查看：登录、余额、用量；充值和用量在 DeepSeek 平台。
   - text: Radius example
   - status: r***@example.com
   - link "更多账号信息":

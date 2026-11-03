@@ -1,12 +1,15 @@
 - dialog "Settings":
   - navigation:
     - text: Settings
+    - searchbox "Search settings"
     - button "General"
     - button "Models"
-    - button "Built-in plugins"
     - button "Agent presets"
+    - button "Plugin status"
   - button "Open configuration file"
   - button "Close"
+  - heading "General" [level=2]
+  - paragraph: Configure permissions, language, appearance, font size, work details, send behavior, link opening, performance and usage, and log upload. The version is at the bottom.
   - text: Permission Choose the default permission mode for new sessions
   - button "Workspace Write"
   - text: Language
