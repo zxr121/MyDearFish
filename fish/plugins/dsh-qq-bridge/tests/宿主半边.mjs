@@ -58,6 +58,7 @@ let 私聊消息id = 9000
 let 私聊附加 = []
 let 私聊消息段 = null
 let 收藏上传失败 = false // 模拟 QQ 收藏写不进去（验证她说“存好了”会被改成实情）
+let 备注修改失败 = false // 模拟改备注写不进去（验证她说“改好了”会被改成实情）
 const 引用消息表 = new Map()
 globalThis.fetch = async (url, 选项) => {
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
@@ -141,6 +142,7 @@ globalThis.fetch = async (url, 选项) => {
   }
   if (u.endsWith('/modify_custom_face')) {
     发了.push({ url: u, 体 })
+    if (备注修改失败) return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
     return { json: async () => ({ status: 'ok', retcode: 0, data: {} }) }
   }
   发了.push({ url: u, 体 })
@@ -1193,8 +1195,79 @@ const 之改 = 发了.length
 await 等到(() => 发了.slice(之改).some((x) => x.url.endsWith('/send_private_msg')))
 await 等稳()
 const 改私发 = 发了.slice(之改).filter((x) => x.url.endsWith('/send_private_msg'))
-报('私聊：没存成却说“存好了” → 改成“没存进去”', 改私发.length === 1 && 改私发[0].体.message[0].data.text.includes('没存进去') && !改私发[0].体.message[0].data.text.includes('存好了'), JSON.stringify(改私发.map((x) => x.体.message)))
+报('私聊：没存成却说“存好了” → 改成实情', 改私发.length === 1 && /没存进去|没全存成/.test(改私发[0].体.message[0].data.text) && !改私发[0].体.message[0].data.text.includes('存好了'), JSON.stringify(改私发.map((x) => x.体.message)))
 收藏上传失败 = false
+
+// ⑯k2 确定性存失败（没写 [存表情]）：只说“存好了”也要改成实情
+收藏上传失败 = true
+私聊附加 = []
+私聊消息id = 9730
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3550
+私聊消息段 = [
+  { type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/black2-sticker.gif', file: 'black2-sticker.gif', summary: '[动画表情]', sub_type: 1 } },
+  { type: 'text', data: { text: '这只也存下来，备注叫黑二' } },
+]
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 之前失2 = 发了.length
+监听[0](会话, 助手消息(170, 1, [块('text', '存好了')], false))
+监听[0](会话, 转完(170))
+await 等到(() => 发了.slice(之前失2).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
+const 失2发 = 发了.slice(之前失2).filter((x) => x.url.endsWith('/send_private_msg'))
+报('私聊：确定性存失败、没写标记，也不能说“存好了”',
+  失2发.length === 1 && 失2发[0].体.message[0].data.text.includes('没存进去') && !失2发[0].体.message[0].data.text.includes('存好了'),
+  JSON.stringify(失2发.map((x) => x.体.message)))
+收藏上传失败 = false
+
+// ⑯k3 改备注写不进去：不能把“改好了”发出去
+备注修改失败 = true
+私聊附加 = []
+私聊消息id = 9731
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3560
+私聊消息段 = null
+私聊消息文本 = `把 #${注图 ? 注图.id : 999} 的备注改成 失败名`
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 失败改后 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.find((x) => x.id === 注图?.id)
+const 之前改失 = 发了.length
+监听[0](会话, 助手消息(171, 1, [块('text', '改好了')], false))
+监听[0](会话, 转完(171))
+await 等到(() => 发了.slice(之前改失).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
+const 改失发 = 发了.slice(之前改失).filter((x) => x.url.endsWith('/send_private_msg'))
+报('私聊：改备注失败、本机名字也回滚', !!失败改后 && 失败改后.label === '小绿', JSON.stringify(失败改后))
+报('私聊：改备注失败时不能说“改好了”',
+  改失发.length === 1 && 改失发[0].体.message[0].data.text.includes('没改成') && !改失发[0].体.message[0].data.text.includes('改好了'),
+  JSON.stringify(改失发.map((x) => x.体.message)))
+备注修改失败 = false
+
+// ⑯k4 这一轮没让她存、也没存：不能因为刚才存过就顺口说“存好了”
+私聊附加 = []
+私聊消息id = 9732
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3570
+私聊消息段 = null
+私聊消息文本 = '聊点别的'
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+监听[0](会话, 助手消息(172, 1, [块('text', '嗯嗯')], false))
+监听[0](会话, 转完(172))
+await 等到(() => 发了.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '嗯嗯'))
+await 等稳()
+私聊消息id = 9733
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3580
+私聊消息文本 = '刚才那张呢'
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 20))
+const 之前空 = 发了.length
+监听[0](会话, 助手消息(173, 1, [块('text', '存到收藏里了')], false))
+监听[0](会话, 转完(173))
+await 等到(() => 发了.slice(之前空).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
+const 空发 = 发了.slice(之前空).filter((x) => x.url.endsWith('/send_private_msg'))
+报('私聊：这一轮没存，不能因为刚才存过就说“存到收藏里了”',
+  空发.length === 1 && 空发[0].体.message[0].data.text.includes('我看看能不能存') && !空发[0].体.message[0].data.text.includes('存到收藏'),
+  JSON.stringify(空发.map((x) => x.体.message)))
 
 // ⑯l 发了收藏里没有的编号：不发，下一轮提示她没发成
 私聊附加 = []

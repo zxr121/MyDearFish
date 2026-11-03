@@ -3831,9 +3831,6 @@ export function apply(ctx) {
   const 表情们 = [] // 她自己看中、已经写进 QQ 账号收藏的表情（本机只留编号和备注）
   let 表情下一个id = 1
   let 上次迁移表情At = 0
-  let 上次存表情At = 0
-  let 上次改备注At = 0
-  let 上次改备注成 = false
   let 上次同步表情At = 0
   let 上次同步表情成 = false
   let 表情同步中 = false
@@ -3847,6 +3844,9 @@ export function apply(ctx) {
   // 这间屋最近有没有受信的人明确要求改备注；模型写的 [改备注] 只在这个窗口里落地。
   const 收藏受信 = new Map()
   const 收藏受信毫秒 = 10 * 60_000
+  // 这一轮真正存 / 改成了什么、失败了几张；下一句说“存好了/改好了”时按它核对，不靠猜。
+  const 最近收藏动作 = new Map()
+  const 最近收藏动作毫秒 = 10 * 60_000
   // 她写了收藏里没有的编号：下一轮提示里告诉她没发出去，别以为发了。
   const 表情落空 = new Map()
   try {
@@ -7539,6 +7539,32 @@ export function apply(ctx) {
     return 项
   }
 
+  function 记最近收藏动作(key, 果) {
+    if (!key || !果) return
+    const 存了 = Math.max(0, Number(果.存了) || 0)
+    const 存败 = Math.max(0, Number(果.存败) || 0)
+    const 改了 = Math.max(0, Number(果.改了) || 0)
+    const 改败 = Math.max(0, Number(果.改败) || 0)
+    if (存了 + 存败 + 改了 + 改败 === 0) return
+    const 旧 = 最近收藏动作.get(String(key))
+    const 旧有效 = 旧 && Date.now() - Number(旧.at) <= 最近收藏动作毫秒
+    最近收藏动作.set(String(key), {
+      at: Date.now(),
+      存了: 存了 + (旧有效 ? Number(旧.存了) || 0 : 0),
+      存败: 存败 + (旧有效 ? Number(旧.存败) || 0 : 0),
+      改了: 改了 + (旧有效 ? Number(旧.改了) || 0 : 0),
+      改败: 改败 + (旧有效 ? Number(旧.改败) || 0 : 0),
+    })
+  }
+
+  function 取最近收藏动作(key) {
+    const 项 = 最近收藏动作.get(String(key))
+    if (!项) return null
+    最近收藏动作.delete(String(key))
+    if (Date.now() - Number(项.at) > 最近收藏动作毫秒) return null
+    return 项
+  }
+
   /** “这张 / 那张”落到这一批里唯一一张已收藏的图；指不出来就不猜。 */
   function 解改备注目标(要, 全部) {
     if (要.目标号 > 0) {
@@ -7703,13 +7729,12 @@ export function apply(ctx) {
     return { 文本, 失败, 存了 }
   }
 
-  const 存完成说法 = /(?:存好了|存着了|存下了|存上了|存进去了|存过了|保存好了|保存了|收藏好了|收藏了|收好了|收下了|(?:都|全|一并|已经|真|我)存了)(?![吗么没])/u
-  const 存完成全 = /(?:存好了|存着了|存下了|存上了|存进去了|存过了|保存好了|保存了|收藏好了|收藏了|收好了|收下了|(?:都|全|一并|已经|真|我)存了)(?![吗么没])/gu
+  const 存完成说法 = /(?:存好了|存着了|存下了|存上了|存进去了|存过了|存进收藏了|存到收藏里了|放进收藏了|收进收藏了|保存好了|保存了|收藏好了|收藏了|收好了|收下了|(?:都|全|一并|已经|真|我)存了)(?![吗么没])/u
+  const 存完成全 = /(?:存好了|存着了|存下了|存上了|存进去了|存过了|存进收藏了|存到收藏里了|放进收藏了|收进收藏了|保存好了|保存了|收藏好了|收藏了|收好了|收下了|(?:都|全|一并|已经|真|我)存了)(?![吗么没])/gu
 
   /**
    * 她这一轮没真存成却写了“存好了/存着了”时，把话改成实情。
    * 这一轮动过手但没成功 → “我试了，没存进去”；没动过手 → “我看看能不能存”。
-   * 五分钟内真存过、这一轮也没失败时不改，避免把她说的旧账当成假话。
    * @param {string} 文字 - 准备发出去的话。
    * @param {{成功?: number, 失败?: number}} 结果 - 这一轮的存取结果。
    * @returns {{文字: string, 改了: boolean}} 改口后的话。
@@ -7724,9 +7749,6 @@ export function apply(ctx) {
       return { 文字: 新, 改了: true }
     }
     if (成功 > 0 && 失败 === 0) return { 文字: 原, 改了: false }
-    if (成功 === 0 && 失败 === 0 && Date.now() - 上次存表情At < 5 * 60_000) {
-      return { 文字: 原, 改了: false }
-    }
     const 替 = 成功 > 0 ? '存进去几张，没全存成' : 失败 > 0 ? '我试了，没存进去' : '我看看能不能存'
     const 新 = 原.replace(存完成全, 替)
     if (新 === 原) return { 文字: 原, 改了: false }
@@ -7735,8 +7757,8 @@ export function apply(ctx) {
     return { 文字: 新, 改了: true }
   }
 
-  const 改完成说法 = /(?:改好了|改成了|换好了|换成了|改叫[^，。！？]{0,12}了|改名叫[^，。！？]{0,12}了|重新命名[^，。！？]{0,12}了)/u
-  const 改完成全 = /(?:改好了|改成了|换好了|换成了|改叫[^，。！？]{0,12}了|改名叫[^，。！？]{0,12}了|重新命名[^，。！？]{0,12}了)/gu
+  const 改完成说法 = /(?:改好了|改成了|改过了|换好了|换过了|换成了|改叫[^，。！？]{0,12}了|改名叫[^，。！？]{0,12}了|重新命名[^，。！？]{0,12}了)(?![吗么没])/u
+  const 改完成全 = /(?:改好了|改成了|改过了|换好了|换过了|换成了|改叫[^，。！？]{0,12}了|改名叫[^，。！？]{0,12}了|重新命名[^，。！？]{0,12}了)(?![吗么没])/gu
 
   /** 她这一轮没真改成却写了“改好了/改名叫”时，把话改成实情。 */
   function 改口说改备注(文字, { 成功 = 0, 失败 = 0, 拒绝 = false } = {}) {
@@ -7749,9 +7771,6 @@ export function apply(ctx) {
       return { 文字: 新, 改了: true }
     }
     if (成功 > 0 && 失败 === 0) return { 文字: 原, 改了: false }
-    if (成功 === 0 && 失败 === 0 && 上次改备注成 && Date.now() - 上次改备注At < 5 * 60_000) {
-      return { 文字: 原, 改了: false }
-    }
     const 替 = 成功 > 0 ? '改好了几张，没全改成' : 失败 > 0 ? '我试了，没改成' : '我看看能不能改'
     const 新 = 原.replace(改完成全, 替)
     if (新 === 原) return { 文字: 原, 改了: false }
@@ -7796,19 +7815,13 @@ export function apply(ctx) {
     const 新 = 净收藏备注(新备注)
     if (新 === '') return { ok: false, 因: '新备注是空的' }
     const 旧 = String(贴.label || '')
-    if (旧 === 新) {
-      上次改备注At = Date.now()
-      上次改备注成 = true
-      return { ok: true, id, 旧, 新 }
-    }
+    if (旧 === 新) return { ok: true, id, 旧, 新 }
     贴.label = 新
     if (贴.emojiId && !(await 改QQ表情备注(配置, 贴.emojiId, 新))) {
       贴.label = 旧
       return { ok: false, 因: 'QQ 收藏备注没写进去' }
     }
     存表情索引()
-    上次改备注At = Date.now()
-    上次改备注成 = true
     记账(`改收藏表情备注：#${id}「${旧 || '未命名'}」→「${新}」${来源 ? `（${来源}）` : ''}`)
     return { ok: true, id, 旧, 新 }
   }
@@ -7861,7 +7874,6 @@ export function apply(ctx) {
       图.收藏号 = 已有.id
       图.收藏名 = 已有.label
       delete 图.没存
-      上次存表情At = Date.now()
       记账(`这张表情已经收藏过：#${已有.id} ${已有.label}`)
       return 已有
     }
@@ -7885,7 +7897,6 @@ export function apply(ctx) {
     图.收藏号 = 条目.id
     图.收藏名 = 条目.label
     delete 图.没存
-    上次存表情At = Date.now()
     存表情索引()
     记账(`收藏了一张表情包（已存进 QQ）：#${条目.id} ${条目.label}`)
     return 条目
@@ -7922,20 +7933,23 @@ export function apply(ctx) {
    * @param {object} 目标 - 当前群 / 好友或主人私聊目标。
    * @param {object[]} 消息们 - 这一批消息（带 `uid`、`文字`、`图片`）。
    * @param {{全部受信?: boolean}} [选项] - 主人桥整批都按受信处理。
-   * @returns {Promise<{存了: number, 改了: number, 拒了: number, 说明: string[]}>} 这一轮的动作结果。
+   * @returns {Promise<{存了: number, 存败: number, 改了: number, 改败: number, 拒了: number, 说明: string[]}>} 这一轮的动作结果。
    */
   async function 执行收藏要求(配置, 目标, 消息们, 选项 = {}) {
     const 全部 = Array.isArray(消息们) ? 消息们 : []
     const 说明 = []
     const 已处理 = new Set()
     let 存了 = 0
+    let 存败 = 0
     let 改了 = 0
+    let 改败 = 0
     let 拒了 = 0
     let 有受信 = false
     let 拒示例 = null
 
     async function 存图们(图们, 标签, 来源, 备注) {
       let 成 = 0
+      let 败 = 0
       for (let i = 0; i < 图们.length; i++) {
         const 图 = 图们[i]
         if (!图 || 已处理.has(图)) continue
@@ -7948,11 +7962,12 @@ export function apply(ctx) {
           成 += 1
           说明.push(`已存 #${条目.id}「${条目.label}」`)
         } else {
+          败 += 1
           图.没存 = 'QQ 收藏没写进去'
           说明.push(`图 ${i + 1} 没存成`)
         }
       }
-      return 成
+      return { 成, 败 }
     }
 
     // 上一批“先说了存、图还没到”的待办：这一批来了同一个人的图就补存。
@@ -7973,7 +7988,9 @@ export function apply(ctx) {
         }
         if (图们.length > 0) {
           const 标签 = 待.备注 || (待.主人 ? '主人让存' : '受信让存')
-          存了 += await 存图们(图们, 标签, 待.来源 || `${待.主人 ? '主人' : '受信'}要求·${目标.叫}`, 待.备注)
+          const 果 = await 存图们(图们, 标签, 待.来源 || `${待.主人 ? '主人' : '受信'}要求·${目标.叫}`, 待.备注)
+          存了 += 果.成
+          存败 += 果.败
           存表情待办.delete(目标.key)
         }
       }
@@ -8005,6 +8022,7 @@ export function apply(ctx) {
         const 目标解 = 解改备注目标(改要, 全部)
         if (目标解.号 === 0) {
           m.改备注结果 = { ok: false, 因: 目标解.因 }
+          改败 += 1
           说明.push(`改备注没成：${目标解.因}`)
         } else {
           const 果 = await 改收藏表情备注(配置, 目标解.号, 改要.新备注, `受信要求·${目标.叫}·${m.说话人 || m.uid}`)
@@ -8013,6 +8031,7 @@ export function apply(ctx) {
             改了 += 1
             说明.push(`已把 #${果.id} 的备注改成「${果.新}」`)
           } else {
+            改败 += 1
             说明.push(`改备注没成：${果.因}`)
           }
         }
@@ -8036,14 +8055,18 @@ export function apply(ctx) {
         continue
       }
       const 标签 = 要.备注 || (主人 ? '主人让存' : '受信让存')
-      存了 += await 存图们(图们, 标签, 来源, 要.备注)
+      const 果 = await 存图们(图们, 标签, 来源, 要.备注)
+      存了 += 果.成
+      存败 += 果.败
     }
 
     if (有受信) 清收藏拒绝(目标.key)
     else if (拒示例) 记收藏拒绝(目标, 拒示例)
     if (存了 > 0) 记账(`按受信人的要求收藏了 ${存了} 张表情`)
+    if (存败 > 0) 记账(`按受信人的要求存表情失败 ${存败} 张`)
     if (改了 > 0) 记账(`按受信人的要求改了 ${改了} 张表情备注`)
-    return { 存了, 改了, 拒了, 说明 }
+    if (改败 > 0) 记账(`按受信人的要求改备注失败 ${改败} 张`)
+    return { 存了, 存败, 改了, 改败, 拒了, 说明 }
   }
 
   // 自动收藏的账：同一张在半小时内又见到、或者这屋常用的场景在配表情，才值得存。
@@ -10115,8 +10138,11 @@ export function apply(ctx) {
       }
     }
     // 受信的人让存 / 改收藏时，不管她这一轮接不接、后面判不判、是不是在静音里，都先落地。
-    // 试运行仍不写 QQ 收藏。
-    if (!配置.社交.试运行) await 执行收藏要求(配置, 目标, 全部)
+    // 试运行仍不写 QQ 收藏。动作结果留给下一句核对“存好了/改好了”时用。
+    if (!配置.社交.试运行) {
+      const 果 = await 执行收藏要求(配置, 目标, 全部)
+      记最近收藏动作(目标.key, 果)
+    }
     const 被叫 = 全部.some((m) => m.被叫原因 !== '')
     // 不能开口时低信号最多 10 分钟判一次：该学的慢慢学到，但不为表情/短附和整夜空转。
     const 歇到 = Number(目标.歇到) || 0
@@ -10756,8 +10782,18 @@ export function apply(ctx) {
     const 自动存成 = (批次图们 || []).filter((图) => 图 && 图.收藏号).length
     const 存败 = 存果.失败.length + 展果.失败.length
       + (批次图们 || []).filter((图) => 图 && 图.没存 && !图.收藏号).length
-    const 改口 = 改口说存表情(展果.文本, { 成功: 存成.size + 自动存成, 失败: 存败, 拒绝: 禁止收藏 })
-    const 改口备注 = 改口说改备注(改口.文字, { 成功: 改果.改了.length, 失败: 改果.失败.length, 拒绝: 禁止收藏 })
+    const 最近动作 = 取最近收藏动作(目标.key)
+    const 最近数 = (名) => (最近动作 ? Math.max(0, Number(最近动作[名]) || 0) : 0)
+    const 改口 = 改口说存表情(展果.文本, {
+      成功: Math.max(存成.size + 自动存成, 最近数('存了')),
+      失败: Math.max(存败, 最近数('存败')),
+      拒绝: 禁止收藏,
+    })
+    const 改口备注 = 改口说改备注(改口.文字, {
+      成功: Math.max(改果.改了.length, 最近数('改了')),
+      失败: Math.max(改果.失败.length, 最近数('改败')),
+      拒绝: 禁止收藏,
+    })
     let 文本 = 改口备注.文字
     if (开头记录 && 文本.includes('[不起话]')) {
       文本 = 文本.replace(/\[不起话\]/gu, '').trim()
@@ -11289,8 +11325,16 @@ export function apply(ctx) {
     const 自动存成 = 图们.filter((图) => 图 && 图.收藏号).length
     const 存败 = 存果.失败.length + 展果.失败.length
       + 图们.filter((图) => 图 && 图.没存 && !图.收藏号).length
-    const 改口 = 改口说存表情(展果.文本, { 成功: 存成.size + 自动存成, 失败: 存败 })
-    文字 = 改口说改备注(改口.文字, { 成功: 改果.改了.length, 失败: 改果.失败.length }).文字
+    const 最近动作 = 取最近收藏动作(String(目标))
+    const 最近数 = (名) => (最近动作 ? Math.max(0, Number(最近动作[名]) || 0) : 0)
+    const 改口 = 改口说存表情(展果.文本, {
+      成功: Math.max(存成.size + 自动存成, 最近数('存了')),
+      失败: Math.max(存败, 最近数('存败')),
+    })
+    文字 = 改口说改备注(改口.文字, {
+      成功: Math.max(改果.改了.length, 最近数('改了')),
+      失败: Math.max(改果.失败.length, 最近数('改败')),
+    }).文字
     const 脱敏 = 对外脱敏(文字)
     if (!脱敏.ok) return
     文字 = 脱敏.text
@@ -12654,7 +12698,7 @@ export function apply(ctx) {
     }
 
     /** 主人明确说“存这个 / 存下来 / 把 #3 改名叫…”时，不等她开口，先在进模型的这一轮落地。 */
-    const 按主人要求存 = async (图们, 话们, key) => {
+    const 按主人要求存 = async (图们, 话们, key, 目标id = '') => {
       const 主人号 = String(配置.私聊QQ || '')
       const 是群 = String(key || '').startsWith('主人群:')
       const 单号 = String(key || '').replace(/^主人(?:私聊|群):/, '')
@@ -12685,6 +12729,7 @@ export function apply(ctx) {
         })
       }
       const 果 = await 执行收藏要求(配置, 目标, 消息们, { 全部受信: true })
+      if (目标id !== '') 记最近收藏动作(String(目标id), 果)
       if (果.存了 > 0) 记账(`按主人的要求收藏了 ${果.存了} 张表情`)
       if (果.改了 > 0) 记账(`按主人的要求改了 ${果.改了} 张表情备注`)
       return 果
@@ -12729,7 +12774,7 @@ export function apply(ctx) {
       if (新消息.length || 图片们.length) {
         // 转发里别人的图有说话人，不能当成主人发的；直接发进来的才算主人。
         for (const 图 of 图片们) if (!图.说话人) 图.主人 = true
-        const 收藏果 = await 按主人要求存(图片们, 新消息, `主人私聊:${她的号}`)
+        const 收藏果 = await 按主人要求存(图片们, 新消息, `主人私聊:${她的号}`, 目标)
         const 主人目标 = { key: `friend:${她的号}`, 类型: 'friend', 号: String(她的号), 叫: `好友 ${她的号}` }
         记一次风格(配置, 主人目标, 主人消息们)
         for (const m of 主人消息们) 记一次人见(配置, 主人目标, m)
@@ -12766,7 +12811,7 @@ export function apply(ctx) {
       }
       if (新消息.length || 图片们.length) {
         for (const 图 of 图片们) if (!图.说话人) 图.主人 = true
-        const 收藏果 = await 按主人要求存(图片们, 新消息, `主人群:${配置.群号}`)
+        const 收藏果 = await 按主人要求存(图片们, 新消息, `主人群:${配置.群号}`, 目标)
         await 转入文字(新消息.join('\n'), 目标, 图片们,
           [取表情落空(String(目标)), 收藏说明(收藏果)].filter(Boolean).join('\n'))
       }
