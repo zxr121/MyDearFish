@@ -1,5 +1,5 @@
 // 「通到 QQ」网页半边冒烟测试 —— 用假的 React / 假的 slots 把设置页渲染成一棵对象树。
-// 验：模块 id、inject、挂到 settings.section（id=qq-bridge）、关键元素都渲染出来、不抛错。
+// 验：模块 id、inject、挂到 settings.outside.tab（id=qq）、关键元素都渲染出来、不抛错。
 // 跑法： node tests/网页半边.mjs
 
 let 捕获 = null
@@ -69,11 +69,11 @@ const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 
 let 注册 = null
 let 组件 = null
 const slots = {
-  inject: (n, cb) => { if (n !== 'settings.section') throw new Error('槽位名不对：' + n); cb() },
+  inject: (n, cb) => { if (n !== 'settings.outside.tab') throw new Error('槽位名不对：' + n); cb() },
   register: (d, c) => { 注册 = d; 组件 = c; return () => {} },
 }
 exports.apply({ get: (n) => (n === 'slots' ? slots : undefined) })
-报('挂到 settings.section，id = qq-bridge', 注册 !== null && 注册.id === 'qq-bridge' && 注册.name === 'settings.section', JSON.stringify(注册))
+报('挂到 settings.outside.tab，id = qq', 注册 !== null && 注册.id === 'qq' && 注册.name === 'settings.outside.tab', JSON.stringify(注册))
 
 // 预先填好「已经读到状态」的第一格（体），这样不用等 useEffect 拉数据，组件一次渲染就出整页
 const 初始态 = {

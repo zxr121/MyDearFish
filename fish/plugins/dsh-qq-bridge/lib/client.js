@@ -42,6 +42,18 @@ window.__ModuleLoader__.load({
       },
       h: { fontSize: 14, fontWeight: 600, margin: '16px 0 8px' },
       dim: { opacity: 0.62, fontSize: 12 },
+      页头: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 },
+      页标题: { fontSize: 16, lineHeight: 1.4, fontWeight: 500 },
+      跳转: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '2px 0 4px' },
+      跳转钮: {
+        padding: '3px 9px',
+        borderRadius: 999,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'transparent',
+        color: 'inherit',
+        fontSize: 12,
+        cursor: 'pointer',
+      },
       card: {
         border: '1px solid var(--dsw-alias-border-l2)',
         borderRadius: 8,
@@ -253,6 +265,8 @@ window.__ModuleLoader__.load({
       const [雪目录, 设雪目录] = React.useState('')
       const [雪说, 设雪说] = React.useState('')
       const [雪忙, 设雪忙] = React.useState(false)
+      const [视频忙, 设视频忙] = React.useState(false)
+      const [视频说, 设视频说] = React.useState('')
       const 雪初化 = React.useRef(false)
       const [目标号, 设目标号] = React.useState('')
       const [目标忙, 设目标忙] = React.useState(false)
@@ -303,6 +317,11 @@ window.__ModuleLoader__.load({
       const 拉 = async () => {
         const s = await get('/state')
         if (s) 吃状态(s)
+      }
+      // 只刷新视频状态，不拿整份配置覆盖页面上还没保存的改动。
+      const 拉视频 = async () => {
+        const s = await get('/state')
+        if (s) 设态((旧) => (旧 ? { ...旧, 视频: s.视频 } : 旧))
       }
       const 拉模型 = async () => {
         const m = await get('/models')
@@ -429,6 +448,12 @@ window.__ModuleLoader__.load({
         const 表 = setInterval(() => { void 拉雪() }, 1500)
         return () => clearInterval(表)
       }, [雪装中])
+      const 视频装中 = !!(态 && 态.视频 && 态.视频.安装 && 态.视频.安装.进行中)
+      React.useEffect(() => {
+        if (!视频装中) return undefined
+        const 表 = setInterval(() => { void 拉视频() }, 1500)
+        return () => clearInterval(表)
+      }, [视频装中])
       const 改 = (k, v) => {
         设态((旧) => (旧 ? { ...旧, 配置: { ...(旧.配置 || {}), [k]: v } } : 旧))
         设脏(true)
@@ -440,6 +465,23 @@ window.__ModuleLoader__.load({
           return { ...旧, 配置: { ...配置, 社交: { ...(配置.社交 || {}), [k]: v } } }
         })
         设脏(true)
+      }
+      const 改视频 = (k, v) => {
+        设态((旧) => {
+          if (!旧) return 旧
+          const 配置 = 旧.配置 || {}
+          return { ...旧, 配置: { ...配置, 视频: { ...(配置.视频 || {}), [k]: v } } }
+        })
+        设脏(true)
+      }
+      const 装视频 = async (动作) => {
+        设视频忙(true)
+        设视频说('')
+        const s = await post('/video/ffmpeg', { 动作: 动作 || '装' })
+        设视频忙(false)
+        await 拉视频()
+        if (s && !s.ok) 设视频说(String(s.说 || '装不了 ffmpeg'))
+        else if (s && s.说) 设视频说(String(s.说))
       }
       const 改信任规则 = (k, v) => {
         设态((旧) => {
@@ -842,15 +884,32 @@ window.__ModuleLoader__.load({
           是群
             ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 } },
                 h('span', { style: S.dim }, '这间的主动话量'),
-                空数框(单.每时, (v) => 改话量(key, '每时', v), String(社交.主动每时 ?? 6)),
+                空数框(单.每时, (v) => 改话量(key, '每时', v), String(社交.主动每时 ?? 6), 0, 99),
                 h('span', { style: S.dim }, '轮/时'),
-                空数框(单.每日, (v) => 改话量(key, '每日', v), String(社交.主动每日 ?? 40)),
+                空数框(单.每日, (v) => 改话量(key, '每日', v), String(社交.主动每日 ?? 40), 0, 999),
                 h('span', { style: S.dim }, '轮/日'),
               )
             : null,
         )
       }
       const 社态 = 态.社交 || {}
+      const 视频 = 配置.视频 || {}
+      const 视频态 = 态.视频 || {}
+      const 视频开 = 视频.启用 !== false
+      const 视频装 = 视频态.安装 || {}
+      const 大小说法 = (n) => {
+        const b = Number(n) || 0
+        return b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.round(b / 1024) + 'KB'
+      }
+      const 视频状态说 = !视频开
+        ? '视频：关着'
+        : 视频装.进行中
+          ? 'ffmpeg：下载中 ' + (Number(视频装.总) > 0 ? 大小说法(视频装.已下载) + ' / ' + 大小说法(视频装.总) : 大小说法(视频装.已下载)) + (视频装.阶段 ? '（' + 视频装.阶段 + '）' : '')
+          : 视频态.就绪
+            ? 'ffmpeg：就绪 ' + (视频态.版本 || '') + (视频态.来源 ? '（' + 视频态.来源 + (视频态.许可证 ? '，' + 视频态.许可证 : '') + '）' : '')
+            : 视频装.错
+              ? 'ffmpeg：没装成 —— ' + 视频装.错
+              : 'ffmpeg：没装（第一次遇到视频会自动下，也可以点下面的按钮先装）'
       const 开头态 = 社态.开头 || {}
       const 社交目标们 = Array.isArray(社态.目标) ? 社态.目标 : []
       // 宿主读到的群名 / 好友备注：开关列表和状态行都拿它把号翻成名字。
@@ -1108,7 +1167,23 @@ window.__ModuleLoader__.load({
         'div',
         { style: S.wrap },
 
-        h('div', { style: S.h }, '通到 QQ'),
+        h('div', { style: S.页头 },
+          h('div', { style: S.页标题 }, '通到 QQ'),
+          h('div', { style: S.dim }, '本页可以设置：接通与登录、总开关、主会话转发、发到哪、群聊社交、在群里先开口、信任、翻旧记录。'),
+          h('div', { style: S.dim }, '这里是她在 QQ 上的总控；保存后立即生效，安装或换账号后可能需要重连。会话里长时间没人说话时的主动搭话在「她在外面 → 主动搭话」。'),
+          h('div', { style: S.跳转 },
+            ...[['connect', '连接'], ['forward', '转发'], ['social', '群聊'], ['topics', '群主动'], ['trust', '信任'], ['people', '人物志'], ['history', '翻旧记录'], ['video', '视频'], ['trouble', '排查']].map(([id, label]) =>
+              h('button', {
+                key: id,
+                type: 'button',
+                style: S.跳转钮,
+                onClick: () => {
+                  const node = typeof document !== 'undefined' && typeof document.querySelector === 'function'
+                    ? document.querySelector('[data-qq-sec="' + id + '"]')
+                    : null
+                  if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'start', behavior: 'smooth' })
+                },
+              }, label)))),
         h('div', { style: S.dim },
           '固定用 SnowLuma 把 QQ 接到这里：它在 DSH 里说完一整轮，就把那句原文发到 QQ；你在 QQ 里说的话也会转进来。' +
             '下面的社交模式里，它只会挑自己感兴趣的消息看，再决定要不要接；能回答、被 @、群里热闹都不是理由。' +
@@ -1125,14 +1200,17 @@ window.__ModuleLoader__.load({
           摘要行('主会话转发', 主转发字, 主转发调),
           摘要行('群 / 好友发言', 社交字, 社交调),
           摘要行('在看的房', 房文字, 现有群.length + 现有好友.length > 0 ? '好' : '差'),
+          摘要行('看视频', !视频开 ? '关' : (视频态.就绪 ? '开 · ffmpeg 就绪' : (视频装.进行中 ? '开 · ffmpeg 下载中' : '开 · 没装 ffmpeg')),
+            视频开 ? (视频态.就绪 ? '好' : '中') : '差'),
           h('div', { style: { ...S.dim, marginTop: 8 } },
             '日常只用管四项：鱼 QQ 接通、总开关、主会话转发试运行、社交开关和群 / 好友清单。其余保持默认就能正常说话。'),
         ),
 
         // —— 第一次接通 QQ：装、配、接、检测 ——
-        h('div', { style: S.card },
-          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
-            h('div', { style: { ...S.h, margin: 0 } }, '第一次接通 QQ'),
+        h('details', { style: S.card, 'data-qq-sec': 'connect', open: 雪连上 ? undefined : true },
+          h('summary', { style: { cursor: 'pointer', fontSize: 14, fontWeight: 600 } },
+            雪连上 ? '第一次接通 QQ（已接通 · 重装或换账号才展开）' : '第一次接通 QQ'),
+          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 } },
             h('div', { style: 雪连上 ? S.已同步 : S.未保存 }, 雪连上 ? '✓ 已接通' : '还没接通'),
           ),
           h('div', { style: S.dim },
@@ -1316,7 +1394,7 @@ window.__ModuleLoader__.load({
         ),
 
         // —— 总开关与主会话转发 ——
-        h('div', { style: S.card },
+        h('div', { style: S.card, 'data-qq-sec': 'forward' },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '总开关和主会话转发'),
           h('div', { style: S.dim }, '这张卡管 DSH 会话自动转发到 QQ：主人私聊屋照常发，别的会话里创建的定时提醒也发；她在群 / 好友私聊里说不说，看下面的「社交」卡片。'),
           行('总开关（所有发送）', 勾(配置.总开关, (v) => 改('总开关', v)), '关 = 一句都不发：主会话转发和群 / 好友发言一起停。开 = 允许发，但每条线还要各自的开关也开着。'),
@@ -1377,7 +1455,7 @@ window.__ModuleLoader__.load({
         ),
 
         // —— 社交桥 ——
-        h('div', { style: S.card },
+        h('div', { style: S.card, 'data-qq-sec': 'social' },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '社交（她在群里自己接话）'),
           h('div', { style: S.dim },
             '每个群 / 好友各开一间独立会话，有自己的上下文。她先判断看不看、想不想接，再决定回不回；' +
@@ -1489,9 +1567,9 @@ window.__ModuleLoader__.load({
           ),
           行('主动话量（默认）',
             h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-              数框(社交.主动每时 ?? 6, (v) => 改社交('主动每时', v), 1, 0, 1000),
+              数框(社交.主动每时 ?? 6, (v) => 改社交('主动每时', v), 1, 0, 99),
               h('span', { style: S.dim }, '轮/时'),
-              数框(社交.主动每日 ?? 40, (v) => 改社交('主动每日', v), 1, 0, 1000),
+              数框(社交.主动每日 ?? 40, (v) => 改社交('主动每日', v), 1, 0, 999),
               h('span', { style: S.dim }, '轮/日'),
             ),
             '她自己凑上去说话的额度；被叫和主人说话不算，额度用完也照样应。0 = 不限；每一间可以在上面单独改。' +
@@ -1515,7 +1593,7 @@ window.__ModuleLoader__.load({
             value: String(社交.静音 || ''),
             placeholder: '23:00-08:00',
             onChange: (e) => 改社交('静音', e.target.value),
-          }), '这段时间一句都不发；留空 = 不静音。'),
+          }), '这段时间 QQ 群/好友一句都不发；留空 = 不静音。会话里的主动搭话另有安静时段，在「她在外面 → 主动搭话」。'),
           行('称呼', h('input', {
             type: 'text',
             style: S.input,
@@ -1582,22 +1660,22 @@ window.__ModuleLoader__.load({
             ),
             '整批都没兴趣时，左边秒数里最多挑一条没见过的看看（0 = 不探索）；零花钱低于右边就不探索。',
           ),
-          行('判断模型', 模型选择(社交.判断模型, (v) => 改社交('判断模型', v), '（跟当前主会话的模型走）'), '最好选便宜的小模型；每次只判断她感不感兴趣、要不要接，不生成回复。判断模型也要能看图（选带图片输入的模型），否则图片消息只能按“有张图”判断。'),
+          行('判断模型', 模型选择(社交.判断模型, (v) => 改社交('判断模型', v), '（跟随当前会话）'), '最好选便宜的小模型；每次只判断她感不感兴趣、要不要接，不生成回复。判断模型也要能看图（选带图片输入的模型），否则图片消息只能按“有张图”判断。'),
           行('判断冷却秒', 数框(社交.判断冷却秒, (v) => 改社交('判断冷却秒', v), 1, 0, 3600), '同一目标两次判断的最小间隔（默认 0 秒 = 每轮都判）；调大可以把消息攒起来一起判，省判断费。'),
           行('判断阈值', 数框(社交.判断阈值, (v) => 改社交('判断阈值', v), 0.05, 0.1, 1), '她“感兴趣且想说”的把握低于这个数就不接；只看不回不受影响（0.1 ~ 1）。'),
-          行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认）'), '社交会话本身用哪个模型；要能看图（如 deepseek-flash），否则 QQ 图片里的内容她看不到。'),
+          行('回复模型', 模型选择(社交.回复模型, (v) => 改社交('回复模型', v), '（跟随默认模型）'), '社交会话本身用哪个模型；要能看图（如 deepseek-flash），否则 QQ 图片里的内容她看不到。'),
             ),
           ),
         ),
 
-        // —— 主动开话题 ——
-        h('div', { style: S.card },
-          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '主动开话题（群）'),
+        // —— 在群里先开口 ——
+        h('div', { style: S.card, 'data-qq-sec': 'topics' },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '在群里先开口'),
           h('div', { style: S.dim },
             '不再让她“看一眼群里在聊什么、接一句”。每次由 QQ 桥先组出 2–3 个具体话头：B 站/新鲜事、问大家、这间屋的旧话头、她自己的近况、点名一个熟人；再由她用自己口气说 1–3 句。默认对所有能说话的群生效，可以逐群关掉。',
           ),
           h('div', { style: { ...S.日志行, margin: '8px 0' } },
-            '主动开话题：' + (开头.启用 ? '开' : '关')
+            '在群里先开口：' + (开头.启用 ? '开' : '关')
               + '｜' + (开头.全选 !== false ? '所有能说话的群' : '只对勾选的群')
               + (开头.全选 !== false
                 ? '（' + Math.max(0, 现有群.length - (开头.不主动 || []).length) + ' 个开着）'
@@ -1605,8 +1683,8 @@ window.__ModuleLoader__.load({
               + (开头态.统计 ? '｜发出 ' + 开头态.统计.发 + ' 次 · 接住 ' + 开头态.统计.接 + ' 次' : '')
               + (开头态.统计 && 开头态.统计.发 > 0 ? '（' + Math.round((开头态.统计.接住率 || 0) * 100) + '%）' : ''),
           ),
-          行('主动开话题总开关', 勾(开头.启用, (v) => 改开头('启用', v)), '关 = 群里不会主动起话；总开关和社交开关仍要开。'),
-          行('默认对所有能说话的群生效', 勾(开头.全选 !== false, (v) => 改开头('全选', v)), '开 = 所有能说话的群都允许主动开话题，可以逐群关掉；关 = 只对下面勾选的群生效。'),
+          行('在群里先开口总开关', 勾(开头.启用, (v) => 改开头('启用', v)), '关 = 群里不会主动起话；总开关和社交开关仍要开。'),
+          行('默认对所有能说话的群生效', 勾(开头.全选 !== false, (v) => 改开头('全选', v)), '开 = 所有能说话的群都允许先开口，可以逐群关掉；关 = 只对下面勾选的群生效。'),
           行('按群细调',
             h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
               现有群.length === 0
@@ -1632,7 +1710,7 @@ window.__ModuleLoader__.load({
                     )
                   }),
             ),
-            '默认模式下列表是「逐群关掉」：关掉某间只是这间不主动开话题，它仍照常接话。把上面的默认全开关掉后，这里才变回「只勾选允许的群」。',
+            '默认模式下列表是「逐群关掉」：关掉某间只是这间不主动先开口，它仍照常接话。把上面的默认全开关掉后，这里才变回「只勾选允许的群」。',
           ),
           行('开头类型',
             h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
@@ -1683,8 +1761,46 @@ window.__ModuleLoader__.load({
           ),
         ),
 
+        // —— 看视频 ——
+        h('div', { style: S.card, 'data-qq-sec': 'video' },
+          h('div', { style: { ...S.h, margin: '0 0 8px' } }, '看视频（分镜）'),
+          h('div', { style: S.dim },
+            'QQ 群 / 私聊里的视频会均匀抽 6 帧、拼成一张带编号的分镜再交给她看；只有画面，没有声音。' +
+              '第一次遇到视频要下载一份 ffmpeg（约 109MB，也可以先点下面的按钮装好）。'),
+          行('看视频', 勾(视频.启用, (v) => 改视频('启用', v)), '关掉后视频只留 [视频] 占位，不下载、不抽帧。'),
+          行('自动装 ffmpeg', 勾(视频.自动装, (v) => 改视频('自动装', v)), '第一次遇到视频时自动下载；关掉就只能自己放一份。'),
+          行('只用 LGPL 版', 勾(视频.只用LGPL, (v) => 改视频('只用LGPL', v)), 'gyan 那份是 GPL（更小、更快）；BtbN 是 LGPL（更大）。只是本机下载运行，不随插件分发。'),
+          行('最长秒 / 分镜宽度',
+            h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+              数框(视频.最长秒, (v) => 改视频('最长秒', v), 1, 5, 600),
+              h('span', { style: S.dim }, '秒 · 宽度'),
+              数框(视频.宽度, (v) => 改视频('宽度', v), 2, 160, 1280),
+            ),
+            '超过最长秒只抽前一段；宽度越大越清楚、也越费 token。'),
+          行('ffmpeg 路径',
+            h('input', {
+              type: 'text',
+              style: S.small,
+              value: String(视频.ffmpeg路径 || ''),
+              placeholder: '留空自动找',
+              onChange: (e) => 改视频('ffmpeg路径', e.target.value),
+            }),
+            '也可以指向你已有的 ffmpeg.exe。'),
+          h('div', { style: { ...S.dim, marginTop: 8 } }, 视频状态说),
+          ...(视频说 ? [h('div', { style: { ...S.dim, marginTop: 4 } }, 视频说)] : []),
+          h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' } },
+            按钮(视频装中 ? '正在装…' : (视频态.就绪 ? '重装 ffmpeg' : '装 ffmpeg'),
+              () => { void 装视频(视频态.就绪 ? '重装' : '装') },
+              true,
+              视频忙 || 视频装中 || !(视频.自动装 !== false)),
+            按钮('重新检测', () => { void 拉视频() }, false, 视频装中),
+          ),
+          h('div', { style: { ...S.dim, marginTop: 6 } },
+            '没有 ffmpeg 时她只会看到 [视频] 占位，不会编画面；声音不转写。'),
+        ),
+
         // —— 社交状态 ——
-        h('div', { style: S.card },
+        h('div', { style: S.card, 'data-qq-sec': 'trouble' },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '运行状态（排查时看）'),
           h('div', { style: S.dim },
             '社交：' + (社态.启用 ? '开' : '关') +
@@ -1708,11 +1824,14 @@ window.__ModuleLoader__.load({
             style: {
               ...S.dim,
               marginTop: 4,
-              ...((社态.看图 && (社态.看图.回复 === false || 社态.看图.判断 === false)) ? { color: '#c0392b' } : {}),
+              ...((社态.看图 && (社态.看图.回复 === false || 社态.看图.判断 === false)) || (视频开 && !视频态.就绪)
+                ? { color: '#c0392b' }
+                : {}),
             },
           },
             '看图：回复模型 ' + 能看图说(社态.看图 && 社态.看图.回复) + ' · 判断模型 ' + 能看图说(社态.看图 && 社态.看图.判断) +
-              (社态.看图 && 社态.看图.回复模型 ? '（' + 社态.看图.回复模型 + '）' : ''),
+              (社态.看图 && 社态.看图.回复模型 ? '（' + 社态.看图.回复模型 + '）' : '') +
+              (视频开 ? ' · 视频分镜 ' + (视频态.就绪 ? '就绪' : 视频装.进行中 ? 'ffmpeg 下载中' : 'ffmpeg 未装') : ''),
           ),
           h('div', { style: { ...S.dim, marginTop: 4 } },
             '人物志：' + ((社态.人物 && 社态.人物.认识) || 0) + ' 个人' +
@@ -1795,7 +1914,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         // —— 信任与收藏权限 ——
-        h('div', { style: S.card },
+        h('div', { style: S.card, 'data-qq-sec': 'trust' },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '信任与收藏权限'),
           h('div', { style: S.dim },
             '只有主人和受信的人能让她存表情、改收藏备注。主人永远可以；其他人默认按相处自动判定，不用一个个手动加，也可以在这里手动加或收回。' +
@@ -1866,7 +1985,7 @@ window.__ModuleLoader__.load({
         ),
 
         // —— 人物志 ——
-        h('div', { style: S.card },
+        h('div', { style: S.card, 'data-qq-sec': 'people' },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '人物志（她认识的人）'),
           h('div', { style: S.dim },
             '一个人一张卡：同一个人的大号和小号都算同一个人，号都列在他名下。' +
@@ -2124,7 +2243,7 @@ window.__ModuleLoader__.load({
         ),
 
         // —— 翻旧记录（Tulpa → 经历流） ——
-        h('div', { style: S.card },
+        h('div', { style: S.card, 'data-qq-sec': 'history' },
           h('div', { style: { ...S.h, margin: '0 0 8px' } }, '翻旧记录（Tulpa → 她的过去）'),
           h('div', { style: S.dim },
             '只读：把 Tulpa 里已经存着的 QQ 私聊文字一条条写进鱼脑的经历流，让她的「以前」有真东西撑着。' +
@@ -2263,9 +2382,20 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const slots = ctx.get('slots')
       if (slots === undefined) return
-      slots.inject('settings.section', () =>
+      if (typeof ctx.inject === 'function') {
+        ctx.inject(['settingsSearch'], (child) => {
+          child.effect(() => child.settingsSearch.register({
+            sectionId: 'outside',
+            tabId: 'qq',
+            label: () => '通到 QQ',
+            keywords: () => ['QQ', '群', '好友', '转发', '私聊', '戳一戳', '社交', '信任', '人物志', '翻旧记录', 'SnowLuma', 'NapCat'],
+            applies: 'live',
+          }), 'dsh-qq-bridge: settings search')
+        })
+      }
+      slots.inject('settings.outside.tab', () =>
         slots.register(
-          { name: 'settings.section', id: 'qq-bridge', order: 54, label: () => '通到 QQ' },
+          { name: 'settings.outside.tab', id: 'qq', order: 10, label: () => '通到 QQ' },
           Section,
         ),
       )
