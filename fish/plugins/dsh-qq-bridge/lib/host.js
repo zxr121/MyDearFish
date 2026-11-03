@@ -1353,6 +1353,18 @@ export function 是低信号(批 = []) {
   return 净们.every((净) => 净 === '') || new Set(净们).size <= Math.ceil(净们.length / 2)
 }
 
+/**
+ * 判断失败后的等待时长：普通批次 60s → 120s → 240s → 最多 5 分钟；直呼批次固定 30s。
+ * @param {number} 失败次数 - 连续失败次数（从 1 开始）。
+ * @param {boolean} [直呼] - 这批消息里有没有直接叫她的。
+ * @returns {number} 毫秒。
+ */
+export function 判断退避毫秒(失败次数, 直呼 = false) {
+  if (直呼) return 30_000
+  const 次 = Math.max(1, Math.round(Number(失败次数) || 1))
+  return Math.min(5 * 60_000, 60_000 * 2 ** Math.min(3, 次 - 1))
+}
+
 // “？”、“你说啥”、“没听清”这类整句都在要她重说的短话。
 const 修话信号 = /^(?:[啊嗯诶欸哎喂噢哦喔]{0,2}[?？]+|(?:你|您)?(?:在)?说(?:的|得)?(?:是)?(?:啥|什么)(?:意思)?|没(?:听清|听懂|听明白|看明白|看懂)|听不清|听不懂|看不懂|再说(?:一|1)?[遍次]|(?:啥|什么)意思)[啊呀哇吧呢。！!…~～]*$/u
 
@@ -5087,6 +5099,7 @@ export function apply(ctx) {
         messages,
         maxTokens: 120,
         temperature: 0.2,
+        budgetOrigin: 'style',
       })) {
         if (chunk && chunk.type === 'text-delta') 出 += chunk.text
       }
@@ -5335,6 +5348,7 @@ export function apply(ctx) {
   const 社交已完主动轮 = new Set() // `${sid}:${turn}`：主动搭话结束过，防重放的结束事件领走下一轮排队的回话
   const 社交计数 = new Map() // 'group:123' → { 本小时: number[], 日: 'YYYY-MM-DD', 今日: number }
   const 社交判断At = new Map() // 'group:123' → 上次问小模型的时间（判断也要省着花）
+  const 社交判断退避 = new Map() // 'group:123' → { until, count }：判断失败后指数退避，别每 6 秒重问
   const 不聊余温 = new Map() // 'group:123' → { 词们, at, 人们 }：刚才在聊她不来的话题，参与的人接着说的也别接
   const 社交丢记At = new Map() // 'group:123' → 上次因硬闸丢掉消息的记账时间（免得每 6 秒刷一条日志）
   const 社交队列 = new Map() // 'group:123' → Promise（同一路串行提交回合；真正回答可以在主屋和分线同时进行）
@@ -6872,6 +6886,7 @@ export function apply(ctx) {
           messages,
           maxTokens: 预算,
           temperature: 温度,
+          budgetOrigin: 'judge',
         })) {
           if (!chunk) continue
           if (chunk.type === 'text-delta') 出 += chunk.text
@@ -8348,10 +8363,20 @@ export function apply(ctx) {
   // 压缩的内部预设，给桥建的会话挂上，让请求始终落在可靠尺寸内。
   const 桥预设id = 'qq-social'
   let 桥预设注册 = null
+  let 桥预设缺服务已记 = false
   function 备好桥预设() {
     if (桥预设注册 !== null) return 桥预设注册
     const 册 = ctx.get('agentPresets')
-    if (!册) return Promise.resolve(undefined)
+    if (!册) {
+      if (!桥预设缺服务已记) {
+        桥预设缺服务已记 = true
+        记账('QQ 会话的压缩预设不可用：agentPresets 服务缺失。长群上下文会一直不压缩，检查 DSH 版本和插件组合')
+        try {
+          ctx.logger?.warn?.('qq-bridge: agentPresets 服务缺失，QQ 会话压缩预设没有挂上')
+        } catch (error) {}
+      }
+      return Promise.resolve(undefined)
+    }
     桥预设注册 = 册.register({
       id: 桥预设id,
       name: 'QQ 社交',
@@ -10093,8 +10118,7 @@ export function apply(ctx) {
     // 试运行仍不写 QQ 收藏。
     if (!配置.社交.试运行) await 执行收藏要求(配置, 目标, 全部)
     const 被叫 = 全部.some((m) => m.被叫原因 !== '')
-    // 只听不说：判断、记人、学说话照常走，只有最后“开不开口”变成永远不开口。
-    // 临时歇着也一样：照常看和学，到点自己恢复。
+    // 不能开口时低信号最多 10 分钟判一次：该学的慢慢学到，但不为表情/短附和整夜空转。
     const 歇到 = Number(目标.歇到) || 0
     const 在歇 = 歇到 > Date.now()
     const 不开口 = 目标.能说 === false || 在歇
@@ -10139,10 +10163,17 @@ export function apply(ctx) {
     // 进了视线就先记“见过”，不管最后看不看；这是兴趣权重的分母。
     记见词(目标.key, 全部)
     // 一整批都是表情、复读、两三个字的附和，又没叫她：先不花判断的钱，攒着等真有内容。
-    if (!不开口 && 配置.社交.低信号跳过 !== false && 是低信号(全部)) {
-      社交待看.set(目标.key, 全部)
-      记思绪早退(目标, `这批 ${全部.length} 条都是短附和或表情，没叫她，先不判断`)
-      return
+    // 不能开口时也先攒着，但最多每 10 分钟判一次，保证该学的慢慢学到，不至于整夜空转。
+    if (配置.社交.低信号跳过 !== false && 是低信号(全部)) {
+      const 上次判断 = 社交判断At.get(目标.key) || 0
+      const 低信号宽限毫秒 = 不开口 ? 10 * 60_000 : 0
+      if (低信号宽限毫秒 === 0 || Date.now() - 上次判断 < 低信号宽限毫秒) {
+        社交待看.set(目标.key, 全部)
+        记思绪早退(目标, 不开口
+          ? `这批 ${全部.length} 条都是短附和或表情，不能开口，先攒着；最多 10 分钟判一次`
+          : `这批 ${全部.length} 条都是短附和或表情，没叫她，先不判断`)
+        return
+      }
     }
     // 主人点名叫她：优先接主人的话，不交给兴趣判断；群友被叫仍走下面的判断。
     if (主人叫她(全部)) {
@@ -10209,17 +10240,28 @@ export function apply(ctx) {
       记思绪早退(目标, `判断冷却中（还要 ${Math.ceil((判断冷却秒 * 1000 - (Date.now() - 上次判断)) / 1000)} 秒），${有效.length} 条攒着下轮一起判`)
       return
     }
+    const 退避 = 社交判断退避.get(目标.key)
+    if (退避 && Date.now() < 退避.until) {
+      社交待看.set(目标.key, 有效)
+      记思绪早退(目标, `判断失败退避中（还要 ${Math.ceil((退避.until - Date.now()) / 1000)} 秒），${有效.length} 条攒着下轮一起判`)
+      return
+    }
     社交判断At.set(目标.key, Date.now())
     const 判 = await 让小模型判断(配置, 目标, 近时缓冲(目标), 有效)
     // 判断模型偶尔会回一段没法解析的东西（或调用失败/暂时没模型可用）。这批消息不能因此丢掉，留着下轮再判。
     if (判.说 === '判断结果看不懂' || 判.说 === '判断模型调用失败' || 判.说 === '没有可用的判断模型') {
       社交待看.set(目标.key, 有效)
-      记账(`${目标.叫} 判断暂时失败（${判.说}${判.详情 ? '：' + 判.详情 : ''}），${有效.length} 条留着下轮再判`)
-      记思绪('判断', `慢判没做出来：${判.说}${判.详情 ? '（' + 判.详情 + '）' : ''}，${有效.length} 条留着下轮再判`, {
+      const 直呼批 = 有效.some((m) => 直接找她(目标, m))
+      const 失败次数 = (退避?.count || 0) + 1
+      const 退避毫秒 = 判断退避毫秒(失败次数, 直呼批)
+      社交判断退避.set(目标.key, { until: Date.now() + 退避毫秒, count: 失败次数 })
+      记账(`${目标.叫} 判断暂时失败（${判.说}${判.详情 ? '：' + 判.详情 : ''}），${有效.length} 条留着下轮再判；${Math.round(退避毫秒 / 1000)} 秒后再试`)
+      记思绪('判断', `慢判没做出来：${判.说}${判.详情 ? '（' + 判.详情 + '）' : ''}，${有效.length} 条留着下轮再判；${Math.round(退避毫秒 / 1000)} 秒后再试`, {
         看到: 批样(有效),
       }, 目标.叫)
       return
     }
+    社交判断退避.delete(目标.key)
     const 看id = new Set(判.看)
     let 选出 = 有效.filter((m) => 看id.has(String(m.id)))
     // 记人关掉时没有关系数值，查询口令不强行开一轮。
@@ -12255,6 +12297,7 @@ export function apply(ctx) {
       不聊余温.delete(key)
       社交故障.delete(key)
       社交判断At.delete(key)
+      社交判断退避.delete(key)
       社交丢记At.delete(key)
     }
     // 手选的「目标会话」正指着旧屋时跟着挪，别继续把新的话灌进坏档。

@@ -514,6 +514,7 @@ async function judge(ctx, agent, userText, reply, mode, o) {
       messages,
       maxTokens: 400,
       temperature: 0.2,
+      budgetOrigin: 'mood',
     })) {
       if (!chunk) continue
       if (chunk.type === 'text-delta') out += chunk.text

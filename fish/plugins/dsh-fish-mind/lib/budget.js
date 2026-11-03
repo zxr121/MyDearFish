@@ -642,14 +642,16 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
    * 调用方不得再请求模型。
    * @param {object} options - `GenerateOptions`。
    * @param {'bili'|''} [scope] - 预算归属；`bili` 表示巡检触发及其子代理。
+   * @param {string} [origin] - 调用来源标签（judge / mood / style / memory / chapter），只做账本归因，不影响计价。
    * @returns {{ok:boolean, reason?:string, walletCny?:number, neededCny?:number, capCny?:number, spentCny?:number, reservation?:object, disabled?:boolean}}
    */
-  function reserve(options, scope = '') {
+  function reserve(options, scope = '', origin = '') {
     if (!isEnabled()) return { ok: true, disabled: true }
     ensureGrant()
     const provider = String(options && options.provider ? options.provider : '')
     const model = String(options && options.model ? options.model : '')
     const tag = scope === 'bili' ? 'bili' : ''
+    const label = String(origin || (options && options.budgetOrigin) || '').trim().slice(0, 40)
     const looked = priceFor(provider, model)
     const price = looked.price
     const pricingMiss = looked.key === ''
@@ -668,6 +670,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
         provider,
         model,
         purpose: options && options.purpose ? String(options.purpose) : '',
+        origin: label || undefined,
         scope: tag || undefined,
         walletCny: round(state.walletCny, 6),
         neededCny: estimatedCny,
@@ -687,6 +690,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
           provider,
           model,
           purpose: options && options.purpose ? String(options.purpose) : '',
+          origin: label || undefined,
           scope: 'bili',
           reason: 'bili-cap',
           capCny: cap,
@@ -713,6 +717,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
         model,
         purpose: options && options.purpose ? String(options.purpose) : '',
         sessionId: options && options.sessionId ? String(options.sessionId) : '',
+        origin: label,
         scope: tag || undefined,
         estimatedCny,
         price,
@@ -745,6 +750,7 @@ export function openBudget({ dir, config, diag = () => {}, now = Date.now }) {
       model: reservation.model,
       purpose: reservation.purpose,
       sessionId: reservation.sessionId,
+      origin: reservation.origin || undefined,
       scope: reservation.scope,
       estimatedCny: reservation.estimatedCny,
       costCny,

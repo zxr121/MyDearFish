@@ -281,6 +281,7 @@ export function apply(ctx) {
         messages,
         maxTokens: 120,
         temperature: 0.6,
+        budgetOrigin: 'chapter',
       })) {
         if (!chunk) continue
         if (chunk.type === 'text-delta') out += chunk.text
@@ -1114,6 +1115,7 @@ export function apply(ctx) {
         messages,
         maxTokens: config.working.maxTokens,
         temperature: 0.2,
+        budgetOrigin: 'memory',
       })) {
         if (!chunk) continue
         if (chunk.type === 'text-delta') out += chunk.text
@@ -1350,7 +1352,12 @@ export function apply(ctx) {
     let reserved
     try {
       if (!budget.isEnabled()) return guard(next())
-      reserved = budget.reserve(options, biliQuota.scopeOf(options && options.sessionId))
+      // budgetOrigin 是鱼插件内部的归因标签；账本只记来源，不参与计价。
+      reserved = budget.reserve(
+        options,
+        biliQuota.scopeOf(options && options.sessionId),
+        options && options.budgetOrigin,
+      )
     } catch (error) {
       // 账本自己坏了就失败关闭：宁可这一轮不花钱，也不要把额度漏出去。
       diag(`budget: 预留失败，拦截本次调用（${String((error && error.message) || error)}）`)
