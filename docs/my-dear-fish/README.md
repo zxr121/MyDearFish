@@ -17,7 +17,7 @@ This repository is a DeepSeek Harness fork that ships the five Yuuyuko-uu plugin
 
 | Plugin | Version | Entry | Capability |
 | --- | --- | --- | --- |
-| `dsh-fish-mind` | 0.7.20 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense, a portable whole-fish archive, a wallet settled at official peak/idle prices, and a bundled local meme wiki with context-aware look-up, optional situational meme use in light chat, and full search/edit/delete in settings; the settings page edits birth identity and shows the whole fish. |
+| `dsh-fish-mind` | 0.7.21 | `lib/index.js` | Shared experience stream, episodic memory with verbatim look-up, tool permission decisions, privacy and injection defense, a portable whole-fish archive, a wallet settled at official peak/idle prices, and a bundled local meme wiki with context-aware look-up, optional situational meme use in light chat, and full search/edit/delete in settings; the settings page edits birth identity and shows the whole fish. |
 | `dsh-feiyu-mood` | 0.2.1 | `lib/index.js` | Mood that changes per turn and settles over time. |
 | `dsh-speak-up` | 0.1.8 | `lib/host.js` | Proactive conversation when nobody is talking. |
 | `dsh-tts-bridge` | 1.2.7 | `lib/index.js` | Speech playback through the DeepSeek web voice. |

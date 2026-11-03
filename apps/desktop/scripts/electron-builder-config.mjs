@@ -166,6 +166,13 @@ export function createElectronBuilderConfig(
     asarUnpack: unpack,
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
+      // Editable fish checkout: seeded into <Harness home>/fish-src and synchronized
+      // into the Desktop profile on launch. Development uses the repository directly.
+      {
+        from: fileURLToPath(new URL('../../../fish', import.meta.url)),
+        to: 'fish-src/fish',
+        filter: ['**/*', '!**/node_modules/**', '!**/.git/**', '!launch/**', '!**/*.log'],
+      },
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),

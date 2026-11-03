@@ -590,6 +590,9 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           setCreationBrief({
             text: String(result.brief || ''),
             available: result.available === true,
+            source: result.source === 'packaged' ? 'packaged' : 'repo',
+            editable: list(result.editable),
+            syncWarning: result.syncWarning || null,
             unmatched: list(result.unmatched).length > 0 ? list(result.unmatched) : list(early),
           })
         } catch (error) {
@@ -1516,15 +1519,23 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                   h('div', { 'data-fishwd-title': '' }, '交给创造模式')),
                 h('div', { 'data-fishwd-body': '' },
                   h('div', { 'data-fishwd-intro': '' }, creationBrief.available
-                    ? '当前目录是源码仓库，可以直接改。下面这份说明只说她要达到的行为和边界，打开创造模式时只填进草稿，不会自动发送。'
+                    ? creationBrief.source === 'packaged'
+                      ? '当前目录是安装包带的可编辑源码副本（data/fish-src）。改完完全退出再打开 DSH 才会加载；只有下面说明里列出的文件会生效，内核文件会被安装包原版覆盖。'
+                      : '当前目录是源码仓库，可以直接改。下面这份说明只说她要达到的行为和边界，打开创造模式时只填进草稿，不会自动发送。'
                     : '这一版没有源码，改了也编不进去；下面这份说明可以先复制出来，换到源码仓库再改。'),
+                  creationBrief.syncWarning && list(creationBrief.syncWarning.warnings).length > 0
+                    ? h('div', { 'data-fishm-banner': '' },
+                        `上次同步没有生效：${list(creationBrief.syncWarning.warnings).join('；')}`)
+                    : null,
                   h('pre', {
                     'data-fishm-prompt': '',
                     style: { maxHeight: '320px', overflow: 'auto' },
                   }, creationBrief.text)),
                 h('div', { 'data-fishwd-foot': '' },
                   h('span', { 'data-fishm-note': '' },
-                    '配置和倾向随「导出」走；代码改动跟着源码仓库或安装包走，不会进记忆包。'),
+                    creationBrief.source === 'packaged'
+                      ? '代码改动在 data/fish-src，重启后生效；不进记忆包和导出包。'
+                      : '配置和倾向随「导出」走；代码改动跟着源码仓库或安装包走，不会进记忆包。'),
                   h('div', { 'data-fishm-actions': '' },
                     h('button', {
                       'data-fishm-btn': '',

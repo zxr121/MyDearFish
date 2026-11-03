@@ -39,6 +39,14 @@ node fish/sync-runtime.mjs --profile desktop
 
 默认使用的同样是 `data` 家目录。
 
+## 安装版的源码副本
+
+安装包会把仓库的 `fish/` 作为 `resources/fish-src/fish` 一起打进去。第一次启动时复制到 `<安装目录>\data\fish-src`，之后每次启动按文件哈希合并：改过的白名单文件保留，没改过的跟着新包更新；内核文件从安装包原版恢复，改过的先备份到 `.kernel-backup/<时间>/`。启动时还会把 `dsh-fish-mind` 和 `dsh-qq-bridge` 同步进 `data/profiles/desktop/node_modules`，并在 profile 清单里写两条相对 `file:` 依赖；完全退出再打开就会加载改过的代码，不需要 pnpm、sync-runtime 或改 asar。
+
+安装版可编辑白名单：`dsh-fish-mind` 的 `lib/tendency.js`、`lib/humor.js`、`lib/memes.js`、`lib/settings-catalog.js`、`lib/config-files.js`，以及 `dsh-qq-bridge` 的 `lib/host.js`、`lib/sticker-commands.js`。其它运行时文件（包括两个插件的 `lib/index.js`、`lib/permissions.js`、`lib/privacy.js`、`lib/budget.js`、`package.json` 和 `client.js`）每次启动都会从安装包原版恢复。`fish/bundle` 和另外四个插件只读参考，出厂人设走设置页的「性格人设」。
+
+恢复出厂源码：删掉 `data/fish-src` 再启动，会从安装包重新生成。手工搬整个 `data` 会把源码副本一起带走；导出和自动备份不包含它。
+
 ## 测试、诊断和观测
 
 - `pnpm run test:fish`：鱼脑、QQ 桥、组合提示词快照、说话风格契约、朗读和 B 站的整套无 key 测试。改到 `fish/**` 时 pre-push 会跑，打包 workflow 和 `release-fish.mjs` 也会在打版前跑；没过就不打包。

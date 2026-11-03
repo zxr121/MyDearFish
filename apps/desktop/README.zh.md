@@ -168,6 +168,8 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 4. 主应用的“插件”页面通过共享[插件管理器](../../packages/boot/plugin-manager/README.zh.md)操作 Desktop profile。包操作使用内置 pnpm 及正常的用户和 profile 配置。
 5. 共享管理器负责安装错误、激活和重启要求。即使 Host 无法启动，原生恢复仍可禁用第三方 bundle。
 
+安装包还会把随包的 `resources/fish-src/fish` seed 到 `<DSH_HOME>/fish-src`，再把 `dsh-fish-mind` 和 `dsh-qq-bridge` 以相对 `file:` 依赖同步进 profile 的 `node_modules`。profile 作用域的解析会优先加载这些副本，所以创造模式对行为白名单的修改在完全重启后生效；其它运行时文件从安装包原版恢复，升级按文件哈希合并（[理由](../../.agents/notes/implemented/architecture/2026-11-03-packaged-fish-source.zh.md)）。
+
 [Web 插件 UI](../../packages/client/ui-plugin-manager/README.zh.md)负责管理界面。Desktop profile 初始化和恢复保留已安装插件文件。
 
 主窗口创建、主文档加载、preload、渲染器、Web 初始化或后端的致命失败，会在每个应用进程中打开一次原生恢复对话框。对话框显示首次错误末尾的限长摘要，标明截断情况，并提供退出、重启、禁用第三方插件、备份 profile patch 并重启。启动失败保留 Web 加载页和动画；运行中失败保留当前页面。预期关闭、取消导航和普通请求错误不会触发恢复。共享 Web 插件管理器报告包操作错误；插件变更后的 Host 启动失败会进入原生恢复。不通过启动超时推断故障。 包含 `listen EADDRINUSE` 的监听失败以退出其他正在运行的 DSH 实例的提示替代诊断和重装建议，仅提供退出和重启。

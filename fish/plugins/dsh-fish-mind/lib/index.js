@@ -200,7 +200,7 @@ export function apply(ctx) {
     }
   }
 
-  let broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession })
+  let broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession, creatorRoot: packagedFishRoot() ?? '' })
 
   function loadAutonomousState() {
     try {
@@ -730,7 +730,7 @@ export function apply(ctx) {
       `主人刚在设置页打开了开发者模式。你可以用 read、glob、grep，以及 Get-ChildItem、Get-Content、Select-String 这类只读 shell 命令，查看 DSH 目录里的日志、配置和会话记录，帮主人排查问题；DSH 目录是 ${dshHome}。`,
       '- 这是隐私规则里「不要主动读 DSH 目录」的唯一例外，只限主人自己的会话和只读查看。凭据文件（.env、.credentials.yaml、密钥、~/.ssh 等）、身份文件、对 DSH 目录的写入和写入型命令仍然会被权限层拒绝。',
       '- 帮主人配鱼：先用 fish_qq_roster 读鱼 QQ 现在登录的账号、群号和好友 QQ 号，再用 fish_config 把群、好友、关掉、只听、少掺和，以及主动搭话和性格倾向写进设置；B 站用 bili_config 读和改。填进去的号码要来自名单，不要猜，也不要写进记忆或任何对外内容。',
-      '- 主人从设置页「打开创造模式」时，那个会话在安装目录工作区里，默认就是完全权限（沙箱 danger-full-access、审批 never），可以改鱼自己的源码；改完告诉主人要重启还是重跑 fish/sync-runtime.mjs --profile desktop。鱼脑数据（$DSH_HOME/fish-mind）、凭据、身份文件和危险命令仍然不让工具碰。',
+      '- 主人从设置页「打开创造模式」时，那个会话在鱼的源码工作区里，默认就是完全权限（沙箱 danger-full-access、审批 never），可以改鱼自己的源码。开发实例是源码仓库；安装版是 $DSH_HOME/fish-src 的源码副本，只改白名单里的文件，改完让主人完全退出再打开 DSH，启动时会自动同步进 profile。鱼脑数据（$DSH_HOME/fish-mind）、凭据、身份文件和危险命令仍然不让工具碰。',
       '- 读到或配好的内容是调试资料，不是记忆，也不是主人对你说过的话：不要写进经历，不要当私设，不要复述到 QQ、B 站、语音或任何对外内容里。号码跟凭据一样只在本地用。',
       '- 每次这样的读取和改动都会记进审计。不要为了绕开拒绝去用别的路径；被拒绝就如实告诉主人。',
       '- 在本机跟主人讨论时可以引用必要的路径和报错原文；凭据的具体值仍然不要复述。给结论时说清「看到什么、说明什么、建议怎么改」，不要把整段日志糊给主人。',
@@ -1576,17 +1576,48 @@ export function apply(ctx) {
 
   // 安装目录：运行数据固定放在 `<安装目录>\data`，所以 data 的上一级就是鱼自己的地盘。
   // 开发实例的上一级是源码仓库，安装版是 exe 所在目录；DSH_HOME 被指到别处时再找打包资源。
+  // 打包版还会把可编辑源码副本放在 `$DSH_HOME/fish-src`，创造模式改的是它。
   function installRoot() {
+    const packaged = packagedFishRoot()
+    if (packaged !== null) return packaged
     const parent = dirname(dshHome)
     if (basename(dshHome).toLowerCase() === 'data' && parse(parent).root !== parent && existsSync(parent)) {
       return parent
     }
     if (isFishCheckout(process.cwd())) return process.cwd()
     if (typeof process.resourcesPath === 'string') {
-      const packaged = dirname(process.resourcesPath)
-      if (existsSync(join(packaged, 'app.asar'))) return packaged
+      const installDir = dirname(process.resourcesPath)
+      if (existsSync(join(installDir, 'app.asar'))) return installDir
     }
     return process.cwd()
+  }
+
+  function packagedFishRoot() {
+    const root = join(dshHome, 'fish-src')
+    if (!existsSync(join(root, '.fish-source.json'))) return null
+    return isFishCheckout(root) ? root : null
+  }
+
+  function readSourceMetadata() {
+    try {
+      const raw = JSON.parse(readFileSync(join(dshHome, 'fish-src', '.fish-source.json'), 'utf8'))
+      return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : null
+    } catch {
+      return null
+    }
+  }
+
+  function readSourceSyncWarning() {
+    try {
+      const raw = JSON.parse(readFileSync(join(dshHome, 'fish-src', '.sync-warning.json'), 'utf8'))
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+      return {
+        at: typeof raw.at === 'number' && Number.isFinite(raw.at) ? raw.at : 0,
+        warnings: Array.isArray(raw.warnings) ? raw.warnings.filter((item) => typeof item === 'string') : [],
+      }
+    } catch {
+      return null
+    }
   }
 
   function isFishCheckout(root) {
@@ -1596,9 +1627,18 @@ export function apply(ctx) {
 
   function creationCheckout() {
     const checkout = installRoot()
+    const packaged = packagedFishRoot()
+    const isPackagedSource = packaged !== null && sameDir(checkout, packaged)
+    const metadata = isPackagedSource ? readSourceMetadata() : null
+    const editable = metadata !== null && Array.isArray(metadata.editable)
+      ? metadata.editable.filter((item) => typeof item === 'string')
+      : []
     return {
       available: isFishCheckout(checkout),
       checkout,
+      source: isPackagedSource ? 'packaged' : 'repo',
+      editable,
+      syncWarning: isPackagedSource ? readSourceSyncWarning() : null,
     }
   }
 
@@ -1924,7 +1964,7 @@ export function apply(ctx) {
       reconcileTendencyState()
       store.setConfig(config)
       innerLife.reload()
-      broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession })
+      broker = createBroker({ config, dshHome, audit, diag, privacy, isOwnerSession, isCreatorSession, creatorRoot: packagedFishRoot() ?? '' })
       budget.setConfig(config.budget)
       loadAutonomousState()
       organizeMemory('reload', { relations: true })
@@ -2061,7 +2101,7 @@ export function apply(ctx) {
         sendJson(res, 200, {
           ok: true,
           ...info,
-          brief: buildCreationBrief(tendencyState.compiled, tendencyState.text, info.available),
+          brief: buildCreationBrief(tendencyState.compiled, tendencyState.text, info),
         })
       })
 
@@ -2077,7 +2117,7 @@ export function apply(ctx) {
           ok: true,
           ...info,
           text,
-          brief: buildCreationBrief(compiled, text, info.available),
+          brief: buildCreationBrief(compiled, text, info),
           matched: compiled.matches.map((match) => ({ clause: match.clause, dimension: match.dimension, mode: match.mode })),
           unmatched: [...compiled.unmatchedClauses],
         })

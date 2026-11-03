@@ -57,10 +57,15 @@ describe('desktop macOS release signature', () => {
       'com.apple.security.cs.disable-library-validation', 'com.apple.security.device.audio-input']) {
       expect(entitlements).toContain(`<key>${key}</key>\n    <true/>`)
     }
-    expect(config.extraResources).toHaveLength(3)
-    expect(config.extraResources[0]?.to).toBe('runtime')
-    expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
-    const notes = config.extraResources.find(resource => resource.to === 'update-notes.json')
+    const resources: readonly { to?: string; from: string; filter?: readonly string[] }[] = config.extraResources
+    expect(resources).toHaveLength(4)
+    expect(resources[0]?.to).toBe('runtime')
+    expect(portablePath(resources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
+    const fishSource = resources.find(resource => resource.to === 'fish-src/fish')
+    expect(fishSource).toBeDefined()
+    expect(portablePath(fishSource?.from ?? '')).toMatch(/\/fish$/u)
+    expect(fishSource?.filter).toContain('!launch/**')
+    const notes = resources.find(resource => resource.to === 'update-notes.json')
     expect(portablePath(notes?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/update-notes.json')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {

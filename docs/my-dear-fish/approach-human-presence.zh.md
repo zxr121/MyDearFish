@@ -183,13 +183,13 @@
 
 ## 创造模式
 
-有些倾向不可能靠旋钮或提示落地——“用颜文字”“把群友的图也收”“存完回一句”。这类请求交给本地的创造模式，让它在源码仓库里改这条鱼自己的代码，而不是假装一句话已经生效。
+有些倾向不可能靠旋钮或提示落地——“用颜文字”“把群友的图也收”“存完回一句”。这类请求交给本地的创造模式，让它在源码仓库或安装版随带的可编辑副本里改这条鱼自己的代码，而不是假装一句话已经生效。
 
-`GET /dsh-fish-mind/creation` 生成一份确定性 brief：主人原话、已识别落点、未识别从句、代码位置（QQ 判断 / 接话 / 表情在 `fish/plugins/dsh-qq-bridge/lib/host.js`，鱼脑在 `fish/plugins/dsh-fish-mind`）、要补的测试，以及硬约束——不动安全、隐私、法律红线、额度、权限、试运行和群规相关代码，不读写 `DSH_HOME`，不提交不推送，能做成确定性规则就别只加提示词，只影响这条鱼。
+`GET /dsh-fish-mind/creation` 生成一份确定性 brief：主人原话、已识别落点、未识别从句、代码位置（QQ 判断 / 接话 / 表情在 `fish/plugins/dsh-qq-bridge/lib/host.js`，鱼脑在 `fish/plugins/dsh-fish-mind`）、要补的测试，以及硬约束——不动安全、隐私、法律红线、额度、权限、试运行和群规相关代码，不提交不推送，能做成确定性规则就别只加提示词，只影响这条鱼。安装版的文件边界更窄：只改 `$DSH_HOME/fish-src` 工作副本里列出的文件，DSH_HOME 的其它内容不碰；源码仓库里仍然不读写 DSH_HOME。响应还带 `checkout`、`source`、`editable` 和 `syncWarning`。
 
-安装目录按运行数据反推：数据固定放在 `<安装目录>\data`，所以 `DSH_HOME` 的上一级就是她自己的地盘——开发时是源码仓库，安装版是 exe 所在目录。`GET /dsh-fish-mind/creation` 把这份目录作为 `checkout` 返回，并在 `fish/bundle/package.json` 与 `fish/plugins/dsh-fish-mind/lib/index.js` 都在时标明是源码仓库；打包版只给可复制的 brief，并写明“这一版没有源码，改了也编不进去”。打开创造模式先用 `workspaces.create({ path: checkout })` 把安装目录注册成工作区（已注册就复用），再走 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })` 在那里开会话：brief 只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。
+安装包把仓库的 `fish/` 作为 `resources/fish-src/fish` 打进去。Host 启动之前，桌面壳把它 seed 到 `<DSH_HOME>/fish-src`，再把 `dsh-fish-mind` 和 `dsh-qq-bridge` 作为相对 `file:` 依赖同步进桌面 profile 的 `node_modules`；profile 作用域的模块解析会优先加载它们，早于安装包里的同名副本。完全重启会重新执行这步准备，不需要 pnpm、重新构建或改 asar。只有行为白名单会跨重启保留，其它运行时文件（`index.js`、`permissions.js`、`privacy.js`、`budget.js`、`package.json`、`client.js`）都从安装包原版恢复，改过的版本留在 `.kernel-backup/<时间>/`。升级按文件哈希合并：改过的白名单文件和主人自建文件保留，没改过的跟着新包更新；删掉 `fish-src` 会从安装包重新生成。`fish/bundle` 和另外四个插件只作参考，因为 bundle 解析是 installation-first；出厂人设走设置页的「性格人设」。
 
-代码改动跟着仓库和安装包走，不随记忆包；配置和倾向随「导出」走。权限层挡得住运行中的内核写入，但挡不住源码仓库编辑——这里靠明确指令加主人看 diff，不假装是沙箱。
+打开创造模式先用 `workspaces.create({ path: checkout })` 把 `checkout` 注册成工作区（已注册就复用），再走 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })` 在那里开会话：brief 只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。鱼脑的 broker 接受 creator root，在本该私有的 Harness home 里只放行这个根以下的路径；创造模式的 shell 不允许 `..` 穿越，`$DSH_HOME/fish-mind` 的数据、凭据、身份文件和危险命令照旧硬拒。代码改动跟着仓库和安装包走，不随记忆包；安装版的改动留在 `data/fish-src`，不进导出包。权限层加白名单是护栏不是沙箱——靠主人看 diff。
 
 ## 可搬运的配置
 

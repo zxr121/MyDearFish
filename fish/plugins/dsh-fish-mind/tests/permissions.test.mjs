@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, mkdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,6 +34,7 @@ function makeBroker(overrides = {}) {
       if (!session) return false
       return overrides.creator === true && String(session.id).startsWith('creator-')
     },
+    creatorRoot: overrides.creatorRoot || '',
   })
   return { broker, config, dshHome, audits }
 }
@@ -431,6 +432,65 @@ test('创造模式可以写鱼自己的源码，鱼脑数据、凭据和危险�
   const dangerous = broker.evaluate(exec('bash', { command: 'rm -rf /' }, { sessionId: 'creator-1' }))
   assert.equal(dangerous.decision, 'deny')
   assert.equal(dangerous.rule, 'dangerous.command')
+})
+
+test('安装版创造模式只放行 fish-src，不能用 .. 跳出工作区', () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-creator-'))
+  const sourceRoot = join(home, 'fish-src')
+  const editable = join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'tendency.js')
+  mkdirSync(join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib'), { recursive: true })
+  writeFileSync(editable, '// stub\n')
+  mkdirSync(join(home, 'fish-mind'), { recursive: true })
+  mkdirSync(join(home, 'profiles', 'desktop', 'node_modules', 'dsh-fish-mind', 'lib'), { recursive: true })
+  const profileCopy = join(home, 'profiles', 'desktop', 'node_modules', 'dsh-fish-mind', 'lib', 'tendency.js')
+  writeFileSync(profileCopy, '// stub\n')
+
+  const { broker } = makeBroker({ creator: true, home, creatorRoot: sourceRoot })
+  const allowed = broker.evaluate(exec('edit', { file_path: editable, old_string: 'a', new_string: 'b' }, {
+    sessionId: 'creator-1',
+    cwd: sourceRoot,
+  }))
+  assert.equal(allowed.decision, 'allow', '创造模式可以改 fish-src 里的白名单文件')
+
+  const shell = broker.evaluate(exec('pwsh', { command: `Set-Content '${editable}' -Value 'x'` }, {
+    sessionId: 'creator-1',
+    cwd: sourceRoot,
+  }))
+  assert.equal(shell.decision, 'allow', '绝对路径在 fish-src 内的 shell 也放行')
+
+  const traversal = broker.evaluate(exec('pwsh', { command: 'Get-Content ../fish-mind/config.json' }, {
+    sessionId: 'creator-1',
+    cwd: sourceRoot,
+  }))
+  assert.equal(traversal.decision, 'deny')
+  assert.equal(traversal.rule, 'creator.traversal')
+
+  const mind = broker.evaluate(exec('edit', { file_path: join(home, 'fish-mind', 'config.json'), old_string: 'a', new_string: 'b' }, {
+    sessionId: 'creator-1',
+    cwd: sourceRoot,
+  }))
+  assert.equal(mind.decision, 'deny')
+  assert.equal(mind.rule, 'sealed.fish-mind')
+
+  const profile = broker.evaluate(exec('edit', { file_path: profileCopy, old_string: 'a', new_string: 'b' }, {
+    sessionId: 'creator-1',
+    cwd: sourceRoot,
+  }))
+  assert.equal(profile.decision, 'deny', '不能直接改 profile 里的运行时副本')
+  assert.equal(profile.rule, 'private.dsh-home')
+
+  const credential = broker.evaluate(exec('edit', { file_path: join(sourceRoot, '.env'), old_string: 'a', new_string: 'b' }, {
+    sessionId: 'creator-1',
+    cwd: sourceRoot,
+  }))
+  assert.equal(credential.decision, 'deny', 'fish-src 里的凭据文件名照旧拒绝')
+  assert.equal(credential.rule, 'private.credential-file')
+
+  const normal = makeBroker({ home, creatorRoot: sourceRoot })
+  const denied = normal.broker.evaluate(exec('read', { file_path: editable }, { cwd: sourceRoot }))
+  assert.equal(denied.decision, 'deny', '普通会话读不了 fish-src')
+  assert.equal(denied.rule, 'private.dsh-home')
+  rmSync(home, { recursive: true, force: true })
 })
 
 test('fish_qq_roster 要开发者模式加主人前台会话，读一次记一次审计', () => {

@@ -650,7 +650,7 @@ test('性格倾向接口：读写、预览不落盘、创造模式说明', async
   ctx.dispose()
 })
 
-test('创造模式工作区：安装目录取 data 的上一级，源码仓库能改、安装版只给说明', async () => {
+test('创造模式工作区：安装目录取 data 的上一级，源码仓库能改、安装版源码副本也能改', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fish-install-'))
   process.env.DSH_HOME = join(root, 'data')
   mkdirSync(process.env.DSH_HOME, { recursive: true })
@@ -664,6 +664,7 @@ test('创造模式工作区：安装目录取 data 的上一级，源码仓库�
   assert.equal(packaged.res.status, 200)
   assert.equal(packaged.json.checkout, root, '工作区落在安装目录，不是 data 目录')
   assert.equal(packaged.json.available, false)
+  assert.equal(packaged.json.source, 'repo')
   assert.match(packaged.json.brief, /不是源码仓库/)
   packagedCtx.dispose()
 
@@ -681,6 +682,38 @@ test('创造模式工作区：安装目录取 data 的上一级，源码仓库�
   assert.equal(checkout.res.status, 200)
   assert.equal(checkout.json.checkout, root)
   assert.equal(checkout.json.available, true)
+  assert.equal(checkout.json.source, 'repo')
   assert.match(checkout.json.brief, /当前目录看起来是源码仓库/)
   checkoutCtx.dispose()
+
+  const sourceRoot = join(process.env.DSH_HOME, 'fish-src')
+  mkdirSync(join(sourceRoot, 'fish', 'bundle'), { recursive: true })
+  mkdirSync(join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib'), { recursive: true })
+  writeFileSync(join(sourceRoot, 'fish', 'bundle', 'package.json'), '{}\n')
+  writeFileSync(join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'index.js'), '// stub\n')
+  writeFileSync(join(sourceRoot, '.fish-source.json'), `${JSON.stringify({
+    format: 'mydearfish.fish-source',
+    editable: ['fish/plugins/dsh-fish-mind/lib/tendency.js'],
+  })}\n`)
+  writeFileSync(join(sourceRoot, '.sync-warning.json'), `${JSON.stringify({
+    at: 1,
+    warnings: ['上次的改动有语法错误'],
+  })}\n`)
+  const sourceCtx = fakeContext()
+  const sourceRoutes = []
+  sourceCtx.set('agents', { list: () => [] })
+  sourceCtx.set('webServer', fakeServer(sourceRoutes))
+  apply(sourceCtx)
+
+  const source = await call(sourceRoutes, '/dsh-fish-mind/creation')
+  assert.equal(source.res.status, 200)
+  assert.equal(source.json.checkout, sourceRoot)
+  assert.equal(source.json.available, true)
+  assert.equal(source.json.source, 'packaged')
+  assert.deepEqual(source.json.editable, ['fish/plugins/dsh-fish-mind/lib/tendency.js'])
+  assert.deepEqual(source.json.syncWarning.warnings, ['上次的改动有语法错误'])
+  assert.match(source.json.brief, /安装包带的可编辑源码副本/)
+  assert.match(source.json.brief, /完全退出并重新打开 DSH/)
+  assert.match(source.json.brief, /上次的改动有语法错误/)
+  sourceCtx.dispose()
 })

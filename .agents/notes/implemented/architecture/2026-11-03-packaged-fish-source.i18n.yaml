@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-11-03-packaged-fish-source.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-03-packaged-fish-source.md
+/agent-note-installed-builds-keep-an-editable-fish-source-beside-the-fixed-kernel:
+  en: 2023f198f99466af
+  zh: 308304eb1093d659
+/agent-note-installed-builds-keep-an-editable-fish-source-beside-the-fixed-kernel/problem:
+  en: e08796a9cef71cdb
+  zh: 0a934a3e0ea08080
+/agent-note-installed-builds-keep-an-editable-fish-source-beside-the-fixed-kernel/decision:
+  en: 5b7b0984df38d2dc
+  zh: a7004f349e535c9d
+/agent-note-installed-builds-keep-an-editable-fish-source-beside-the-fixed-kernel/verification:
+  en: 0f2a9abb5803026f
+  zh: c2399486778e8be7
+/agent-note-installed-builds-keep-an-editable-fish-source-beside-the-fixed-kernel/alternatives-considered:
+  en: 499105feb26080e7
+  zh: 9b51f4f9067ac518
+/agent-note-installed-builds-keep-an-editable-fish-source-beside-the-fixed-kernel/consequences:
+  en: d2b55f0191afba25
+  zh: df66e333423f910d

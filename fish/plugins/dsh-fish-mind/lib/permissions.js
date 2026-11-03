@@ -404,6 +404,7 @@ export function createBroker({
   privacy = null,
   isOwnerSession = () => false,
   isCreatorSession = () => false,
+  creatorRoot = '',
 }) {
   const readRoots = config.permissions.protectedReadPaths
     .map((value) => expandPath(value, { dshHome }))
@@ -422,6 +423,8 @@ export function createBroker({
   }))
   const mindRoot = fold(join(dshHome, 'fish-mind'))
   const mindShellRoots = foldVariants(join(dshHome, 'fish-mind'))
+  // 安装版的创造模式源码副本放在 DSH_HOME 里；只给 creator 开这一条缝。
+  const creatorRootPath = typeof creatorRoot === 'string' && creatorRoot !== '' ? fold(creatorRoot) : ''
   // 鱼脑自己的代码同样是固定内核：私设、安全规则、隐私规则和权限规则都写在这里。
   // 工具能改源码就等于能改自己的出生和笼子，所以源码和鱼脑数据一样只读。
   const sourceRoot = fold(join(fileURLToPath(new URL('..', import.meta.url)), 'lib'))
@@ -472,9 +475,10 @@ export function createBroker({
   const autonomousSessions = new Set()
 
   /** 返回规则名；空串表示可以继续走后面的策略。 */
-  function privatePathRule(pathValue) {
+  function privatePathRule(pathValue, allowedRoot = '') {
     const target = fold(pathValue)
-    if (isInside(target, dshRoot)) return 'private.dsh-home'
+    const insideAllowed = allowedRoot !== '' && isInside(target, allowedRoot)
+    if (isInside(target, dshRoot) && !insideAllowed) return 'private.dsh-home'
     if (target === homeRoot) return 'private.home-root'
     if (protectedRoots.some((root) => isInside(target, root))) return 'private.credential-store'
     // `.azure`、`.config/gcloud` 是目录，里面的文件同样算身份凭据。
@@ -519,6 +523,8 @@ export function createBroker({
         return '这是本机身份/账号文件，鱼脑不能读取。'
       case 'private.command':
         return '这条命令会探测本机身份、账号或网络信息，鱼脑不能执行。'
+      case 'creator.traversal':
+        return '创造模式只能改当前源码工作区；命令里不能用 .. 跳出工作区。'
       case 'private.credential-argument':
         return '工具参数里出现了账号、密码或密钥，鱼脑不会搬运这类秘密。'
       default:
@@ -551,9 +557,10 @@ export function createBroker({
     return false
   }
 
-  function isPrivateCommand(command, ignoreDshHome = false) {
+  function isPrivateCommand(command, ignoreDshHome = false, allowedRoot = '') {
     if (typeof command !== 'string' || command === '') return false
-    if (shellTouchesPrivate(command, ignoreDshHome)) return true
+    const scanned = allowedRoot === '' ? command : stripCommandRoot(command, allowedRoot)
+    if (shellTouchesPrivate(scanned, ignoreDshHome)) return true
     const segments = command
       .split(/(?:&&|\|\||[;|\n]|\$\(|`)/)
       .map((segment) => segment.trim())
@@ -563,6 +570,23 @@ export function createBroker({
     }
     // 命令被包在 pwsh -Command、node -e 里时，看整条原文。
     return /\b(?:whoami|hostname|ipconfig|ifconfig|getmac|systeminfo|msinfo32|dxdiag|printenv|Get-ComputerInfo|Get-LocalUser|Get-StoredCredential|%USERNAME%|%COMPUTERNAME%|\$env:USERNAME|\$env:COMPUTERNAME|\$env:USERPROFILE|os\.hostname\s*\(|os\.userInfo\s*\()/i.test(command)
+  }
+
+  /** 创造模式的命令里出现 `..` 路径段时直接拒绝，避免从源码副本相对穿越到鱼脑数据。 */
+  function hasParentTraversal(command) {
+    if (typeof command !== 'string' || command === '') return false
+    return /(?:^|[\\/\s"'(=])\.\.(?:[\\/"'\s);,]|$)/u.test(command)
+  }
+
+  /** 去掉命令里出现的源码根路径，剩下的 DSH 探针才继续生效。 */
+  function stripCommandRoot(command, root) {
+    const windows = process.platform === 'win32'
+    let out = windows ? command.toLowerCase() : command
+    for (const variant of new Set([root, root.split(sep).join('/'), root.split('/').join(sep)])) {
+      const needle = windows ? variant.toLowerCase() : variant
+      if (needle.length > 3) out = out.split(needle).join('')
+    }
+    return out
   }
 
   /** 危险命令既看整条（管道下载执行），也看拆分后的每一段（命令位置）。 */
@@ -611,8 +635,10 @@ export function createBroker({
 
     let privatePath = null
     let privateRule = ''
+    const creator = isCreatorSession(exec) === true
+    const allowedRoot = creator ? creatorRootPath : ''
     for (const pathValue of paths) {
-      let rule = privatePathRule(pathValue)
+      let rule = privatePathRule(pathValue, allowedRoot)
       if (rule === 'private.dsh-home' && developerRead) rule = developerPathRule(pathValue)
       if (rule !== '') {
         privatePath = pathValue
@@ -620,18 +646,19 @@ export function createBroker({
         break
       }
     }
-    const privateCommand = commands.find((command) => isPrivateCommand(command, developerShellRead)) || null
+    const privateCommand = commands.find((command) => isPrivateCommand(command, developerShellRead, allowedRoot)) || null
+    const traversalCommand = creator ? commands.find((command) => hasParentTraversal(command)) || null : null
     const dangerousCommand = commands.find((command) => isDangerousCommand(command)) || null
     const credentialArgument = privacy !== null && typeof privacy.hasCredential === 'function'
       ? strings.find((text) => privacy.hasCredential(text)) || null
       : null
     if (privateRule === '') {
-      if (privateCommand !== null) privateRule = 'private.command'
+      if (traversalCommand !== null) privateRule = 'creator.traversal'
+      else if (privateCommand !== null) privateRule = 'private.command'
       else if (credentialArgument !== null) privateRule = 'private.credential-argument'
     }
 
     // 创造模式可以写鱼自己的源码；鱼脑数据（记忆、预算、权限）仍然只读。
-    const creator = isCreatorSession(exec) === true
     const sealedTargets = creator ? [mindRoot] : sealedRoots
     const sealedShellTargets = creator ? mindShellRoots : sealedShellRoots
     const sealedPath = write ? paths.find((pathValue) => sealedTargets.some((root) => isInside(fold(pathValue), root))) : undefined

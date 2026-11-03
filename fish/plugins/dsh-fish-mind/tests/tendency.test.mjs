@@ -269,12 +269,28 @@ test('提示块带优先级和原话，空倾向不生成', () => {
 
 test('创造模式说明始终可复制，并写明硬约束和能否直接改', () => {
   const compiled = compileTendency('用颜文字')
-  const yes = buildCreationBrief(compiled, '用颜文字', true)
+  const yes = buildCreationBrief(compiled, '用颜文字', { available: true })
   assert.match(yes, /主人原话：\n用颜文字/)
   assert.match(yes, /用颜文字\n/)
   assert.match(yes, /不动安全、隐私、法律红线/)
   assert.match(yes, /不提交、不推送/)
   assert.match(yes, /当前目录看起来是源码仓库/)
-  const no = buildCreationBrief(compiled, '用颜文字', false)
+  const no = buildCreationBrief(compiled, '用颜文字', { available: false })
   assert.match(no, /不是源码仓库/)
+})
+
+test('安装版的创造模式说明写明源码副本、白名单和重启生效', () => {
+  const compiled = compileTendency('用颜文字')
+  const brief = buildCreationBrief(compiled, '用颜文字', {
+    available: true,
+    source: 'packaged',
+    editable: ['fish/plugins/dsh-fish-mind/lib/tendency.js'],
+    syncWarning: { warnings: ['上次的改动有语法错误'] },
+  })
+  assert.match(brief, /安装包带的可编辑源码副本/)
+  assert.match(brief, /fish\/plugins\/dsh-fish-mind\/lib\/tendency\.js/)
+  assert.match(brief, /完全退出并重新打开 DSH/)
+  assert.match(brief, /不要跑 pnpm/)
+  assert.match(brief, /上次的改动有语法错误/)
+  assert.match(brief, /只读写当前工作区/)
 })

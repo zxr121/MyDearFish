@@ -37,11 +37,16 @@ describe('installer preparation preserves application dependencies', () => {
     try {
       const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
       const config = createElectronBuilderConfig(env, platform, 'x64')
-      const aboutIcon = config.extraResources.find(resource => resource.to === 'icon.png')
+      const resources: readonly { to?: string; from: string; filter?: readonly string[] }[] = config.extraResources
+      const aboutIcon = resources.find(resource => resource.to === 'icon.png')
       expect(aboutIcon).toBeDefined()
       expect(readFileSync(aboutIcon!.from)).toEqual(readFileSync(new URL('../resources/icon-windows.png', import.meta.url)))
+      const fishSource = resources.find(resource => resource.to === 'fish-src/fish')
+      expect(fishSource).toBeDefined()
+      expect(fishSource!.filter).toContain('**/*')
+      expect(fishSource!.filter).toContain('!launch/**')
       // Only the Windows package carries the tray bitmaps; macOS keeps the Dock.
-      const trayIcon = config.extraResources.find(resource => resource.to === 'tray.ico')
+      const trayIcon = resources.find(resource => resource.to === 'tray.ico')
       if (platform === 'win32') {
         expect(readFileSync(trayIcon!.from)).toEqual(readFileSync(new URL('../resources/tray-windows.ico', import.meta.url)))
       } else {

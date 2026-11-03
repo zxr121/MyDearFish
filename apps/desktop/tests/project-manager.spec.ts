@@ -186,6 +186,38 @@ describe('desktop external plugin profile', () => {
     expect(existsSync(join(manager.paths.profile, 'desktop-runtime-state.json'))).toBe(false)
   })
 
+  it('seeds and syncs the packaged fish source while preparing the profile', async () => {
+    const root = temporaryRoot()
+    const dsh = join(root, 'resources', 'dsh')
+    runtimeFixture(dsh)
+    const pristine = join(root, 'resources', 'fish-src')
+    const writeFish = (file: string, content: string): void => {
+      const path = join(pristine, ...file.split('/'))
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, content)
+    }
+    writeFish('fish/bundle/package.json', `${JSON.stringify({ name: '@mydearfish/dsh-fish-bundle' })}\n`)
+    writeFish('fish/bundle/cordis.patch.yml', '[]\n')
+    writeFish('fish/plugins/dsh-fish-mind/package.json', `${JSON.stringify({ name: 'dsh-fish-mind', main: 'lib/index.js' })}\n`)
+    writeFish('fish/plugins/dsh-fish-mind/lib/index.js', 'export const index = 1\n')
+    writeFish('fish/plugins/dsh-qq-bridge/package.json', `${JSON.stringify({ name: 'dsh-qq-bridge', main: 'lib/host.js' })}\n`)
+    writeFish('fish/plugins/dsh-qq-bridge/lib/host.js', 'export const host = 1\n')
+    const paths = resolveDesktopPaths(join(root, '.dsh'))
+    const manager = new DesktopProjectManager(paths, { dsh }, {
+      pristine,
+      version: '1.0.0',
+      nodeExecutable: process.execPath,
+    })
+    await manager.applyRelease()
+    expect(existsSync(join(paths.home, 'fish-src', '.fish-source.json'))).toBe(true)
+    expect(existsSync(join(paths.profile, 'node_modules', 'dsh-fish-mind', 'lib', 'index.js'))).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(paths.profile, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    expect(manifest.dependencies['dsh-fish-mind']).toBe('file:../../fish-src/fish/plugins/dsh-fish-mind')
+    expect(manifest.dependencies['dsh-qq-bridge']).toBe('file:../../fish-src/fish/plugins/dsh-qq-bridge')
+  })
+
   it('initializes and restarts offline without executing pnpm', async () => {
     const { manager } = setup()
     await expect(manager.applyRelease()).resolves.toBeUndefined()

@@ -31,6 +31,7 @@ import {
   writeProfileManifest,
   type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
+import { ensureFishSource, syncFishPlugins } from './fish-source.ts'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
@@ -68,15 +69,27 @@ function migrateProfileSettings(projectDir: string): void {
   }
 }
 
+/** Packaged editable source shipped beside the runtime. */
+export interface DesktopFishSource {
+  /** Resource directory holding the pristine `fish/` checkout. */
+  readonly pristine: string
+  /** Installed application version recorded with the working copy. */
+  readonly version: string
+  /** Node-compatible executable used to syntax-check edited plugins. */
+  readonly nodeExecutable?: string
+}
+
 /** Initializes the Desktop profile and disables third-party bundles during recovery. */
 export class DesktopProjectManager {
   /**
    * @param paths - Electron-owned package state and reserved desktop profile paths.
    * @param runtime - location of the bundled application runtime.
+   * @param fishSource - packaged editable source to seed and sync; omitted in development.
    */
   constructor(
     readonly paths: DesktopPaths,
     readonly runtime: { readonly dsh: string },
+    readonly fishSource?: DesktopFishSource,
   ) {}
 
   /**
@@ -98,7 +111,28 @@ export class DesktopProjectManager {
       migrateProfileSettings(this.paths.profile)
       createPluginProfile(this.paths.profile)
       removeLinkProjections(this.paths.profile)
+      this.applyFishSource()
     })
+  }
+
+  /** Seed the editable checkout and publish it through the profile; never fatal to startup. */
+  private applyFishSource(): void {
+    const fish = this.fishSource
+    if (fish === undefined) return
+    try {
+      const source = ensureFishSource({ pristine: fish.pristine, home: this.paths.home, version: fish.version })
+      for (const warning of source.warnings) console.warn(`fish source: ${warning}`)
+      const sync = syncFishPlugins({
+        home: this.paths.home,
+        profileDir: this.paths.profile,
+        sourceRoot: source.sourceRoot,
+        ...(fish.nodeExecutable === undefined ? {} : { nodeExecutable: fish.nodeExecutable }),
+      })
+      for (const warning of sync.warnings) console.warn(`fish source: ${warning}`)
+    } catch (error) {
+      // A broken source copy must not stop the Host; the packaged plugins still load.
+      console.warn(`fish source: 同步失败（${error instanceof Error ? error.message : String(error)}）`)
+    }
   }
 
   private async withLock<T>(operation: () => T | Promise<T>): Promise<T> {

@@ -481,7 +481,7 @@ export function describeTendency(compiled, base = {}, status = 'pending') {
       mode: '',
       landing: 'code',
       landingLabel: '需要改代码',
-      effect: '还没有代码直接支持，可以交给创造模式改这条鱼。',
+      effect: '还没有代码直接支持；安装版可以交给创造模式改 data/fish-src 里的源码副本，改完重启生效。',
     })
   }
   return lines
@@ -491,17 +491,23 @@ export function describeTendency(compiled, base = {}, status = 'pending') {
  * 生成交给本地创造模式的说明：把没有代码落点的倾向变成确定性行为。
  * @param {object} compiled - `compileTendency` 的返回值。
  * @param {string} text - 主人原文。
- * @param {boolean} available - 当前目录是不是能改的源码仓库。
+ * @param {{ available?: boolean, source?: 'repo'|'packaged', editable?: string[], syncWarning?: object|null }} [options] - 当前工作区是不是可改的源码，以及安装版的白名单和上次同步警告。
  * @returns {string} 可复制的 brief。
  */
-export function buildCreationBrief(compiled, text, available) {
+export function buildCreationBrief(compiled, text, options = {}) {
+  const available = options !== null && typeof options === 'object' && options.available === true
+  const packaged = available && options.source === 'packaged'
+  const editable = Array.isArray(options.editable) ? options.editable.filter((item) => typeof item === 'string') : []
+  const syncWarnings = options.syncWarning && Array.isArray(options.syncWarning.warnings)
+    ? options.syncWarning.warnings.filter((item) => typeof item === 'string')
+    : []
   const matched = compiled.matches.length === 0
     ? '（没有已经识别并生效的句子）'
     : compiled.matches.map((match) => `- 「${match.clause}」→ ${match.dimension}/${match.mode}`).join('\n')
   const unmatched = compiled.unmatchedClauses.length === 0
     ? '（没有未识别的句子；也可以主动把现有规则改得更贴近主人）'
     : compiled.unmatchedClauses.map((clause) => `- ${clause}`).join('\n')
-  return [
+  const lines = [
     '请修改这条大肥鱼自己的代码，把下面这些主人倾向变成确定性行为，而不是只加一段提示词。',
     '',
     '主人原话：',
@@ -520,16 +526,37 @@ export function buildCreationBrief(compiled, text, available) {
     '',
     '硬约束（必须遵守）：',
     '- 不动安全、隐私、法律红线、额度、权限、试运行、群规相关代码。',
-    '- 不读不写 DSH_HOME（data 目录）、凭据、日志和会话。',
     '- 不提交、不推送，不动别人正在改的文件。',
     '- 能做成确定性规则就别只加提示词；只影响这条鱼，不改出厂默认值。',
-    '- 创造模式默认给了完全权限，而且开在安装目录工作区里：是源码仓库就直接改这里的源码；改完说明是否需要重启或重跑 fish/sync-runtime.mjs --profile desktop。',
-    '',
-    '完成后报告：改了哪些文件、跑了哪些测试、需要重启还是需要重新同步运行时。',
-    available
-      ? '当前目录看起来是源码仓库，可以直接改。'
-      : '当前目录看起来不是源码仓库（可能是打包版）；先只把这份 brief 交给主人，不要假装能编译进去。',
-  ].join('\n')
+  ]
+  if (packaged) {
+    lines.push(
+      '- 只读写当前工作区（$DSH_HOME/fish-src）；不要碰 ../fish-mind、DSH_HOME 里的其它数据、凭据、日志和会话，工具会拒绝。',
+      '- 只改下面列出的可编辑文件；其它运行时文件每次启动都会从安装包原版恢复。',
+      '',
+      '可编辑文件：',
+      editable.length > 0 ? editable.map((file) => `- ${file}`).join('\n') : '（见工作区里的 FISH-SOURCE.md）',
+      '',
+      '生效方式：改完让主人完全退出并重新打开 DSH；启动时会自动把这些插件同步进 profile。不要跑 pnpm、sync-runtime，也不要改 app.asar。',
+      '- fish/bundle 和另外四个插件只读参考；出厂人设请在设置页「性格人设」里覆盖。',
+      '- 如果必须改非白名单文件（例如 lib/index.js）才能实现，停下来告诉主人：这台安装版做不到，需要源码版。',
+    )
+    if (syncWarnings.length > 0) {
+      lines.push('', '上次同步没有生效，先处理这个问题：', ...syncWarnings.map((warning) => `- ${warning}`))
+    }
+  } else {
+    lines.push(
+      '- 不读不写 DSH_HOME（data 目录）、凭据、日志和会话。',
+      '- 创造模式默认给了完全权限，而且开在源码工作区里：是源码仓库就直接改这里的源码；改完说明是否需要重启或重跑 fish/sync-runtime.mjs --profile desktop。',
+    )
+  }
+  lines.push('', '完成后报告：改了哪些文件、跑了哪些测试、需要重启还是需要重新同步运行时。')
+  lines.push(available
+    ? packaged
+      ? '当前目录是安装包带的可编辑源码副本，可以直接改。'
+      : '当前目录看起来是源码仓库，可以直接改。'
+    : '当前目录看起来不是源码仓库（可能是打包版）；先只把这份 brief 交给主人，不要假装能编译进去。')
+  return lines.join('\n')
 }
 
 /**
