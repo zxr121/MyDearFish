@@ -4725,6 +4725,128 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   封住的OneBot端口 = 0
 }
 
+{
+  // ---------- 23 收藏权限：没受信的人动不了；手动受信后存/改都落地 ----------
+  写配置({ 好友: ['3101'], 信任: { 自动: false, 手动加: [], 手动禁: [], 最少天数: 3, 最少见过: 25, 最少互动: 3, 最少熟: 15, 最少信: 52, 最多疤: 8, 最多张力: 40 } })
+  const 好友带图 = (文本, { id, url }) => ({
+    user_id: 3101,
+    time: Math.floor(Date.now() / 1000) + 900,
+    message_id: id,
+    sender: { card: '小鱼', nickname: '小鱼' },
+    message: [
+      { type: 'image', data: { url, file: 'trust.gif', summary: '[动画表情]', sub_type: 1 } },
+      { type: 'text', data: { text: 文本 } },
+    ],
+  })
+  const 收藏数前权限 = QQ收藏.size
+  const 图1 = 'https://multimedia.nt.qq.com.cn/download?x=trust1'
+  固定图.set(图1, Buffer.from('信任测试-小白'))
+  好友消息表.set(3101, [好友带图('存下来，备注叫小白', { id: 990001, url: 图1 })])
+  设判断(['990001'], true, 0.9, '对方在说收藏')
+  await 轮询社交()
+  await 等()
+  const 越权提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+  报('收藏权限：没受信的人让存 → 不写 QQ 收藏', QQ收藏.size === 收藏数前权限, `收藏 +${QQ收藏.size - 收藏数前权限}`)
+  报('收藏权限：越权请求标成 [无收藏权限]，并告诉她礼貌拒绝',
+    越权提示.includes('[无收藏权限]') && 越权提示.includes('【收藏权限】') && 越权提示.includes('不在受信名单'),
+    JSON.stringify(越权提示.slice(-500)))
+  const 越权前档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 越权前4 = 越权前档.items.find((x) => x.id === 4)?.label
+  const 越权前收藏 = QQ收藏.size
+  const 越权前发 = 发的.length
+  await 收到回复('session-qq-social-friend-3101', '[存表情:图1:小白] [改备注:#4:篡改] 存好了', 1)
+  await 等()
+  const 越权后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 越权发 = 发的.slice(越权前发)
+  报('收藏权限：越权回复里的 [存表情] / [改备注] 不落地，假称“存好了”也改成实情',
+    QQ收藏.size === 越权前收藏 &&
+      越权后档.items.find((x) => x.id === 4)?.label === 越权前4 &&
+      越权发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '这个我自己收着就好') &&
+      !越权发.some((x) => x.url.endsWith('/send_private_msg') && /存表情|改备注/.test(x.体.message[0].data.text)),
+    JSON.stringify({ 收藏: QQ收藏.size - 越权前收藏, 发: 越权发.map((x) => x.体.message?.[0]?.data?.text) }))
+
+  存储.length = 0
+  await 路由.get('/dsh-qq-bridge/trust')(造请求({ 动作: '加', 号: '3101' }), fakeRes)
+  const 加信任回 = 存储.at(-1)
+  const 加信任存盘 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+  报('/trust 手动加参数校验和写入', !!加信任回 && 加信任回.ok === true &&
+    加信任存盘.社交.信任.手动加.includes('3101') && Array.isArray(加信任回.信任.受信),
+    JSON.stringify({ 回: 加信任回, 手动加: 加信任存盘.社交.信任.手动加 }))
+  存储.length = 0
+  await 路由.get('/dsh-qq-bridge/people')(造请求(undefined, { method: 'GET' }), fakeRes)
+  const 人物页信 = 存储.at(-1)
+  报('/people 回出信任概况和每个人的收藏权限',
+    !!人物页信 && 人物页信.ok === true && !!人物页信.信任 && 人物页信.信任.受信数 === 1 &&
+      人物页信.人物.some((p) => p.号 === '3101' && p.信任 && p.信任.能收藏 === true && p.信任.手动 === '加'),
+    JSON.stringify({ 信任: 人物页信 && 人物页信.信任, 人: 人物页信 && 人物页信.人物.filter((p) => p.号 === '3101') }))
+  const 状态信 = await 宿主.概况()
+  报('/state 回出信任概况', !!状态信.信任 && 状态信.信任.受信数 === 1, JSON.stringify(状态信.信任))
+
+  const 图2 = 'https://multimedia.nt.qq.com.cn/download?x=trust2'
+  固定图.set(图2, Buffer.from('信任测试-小蓝'))
+  好友消息表.set(3101, [好友带图('存下来，备注叫小蓝', { id: 990002, url: 图2 })])
+  设判断(['990002'], true, 0.9, '受信的人在说收藏')
+  const 收藏数前受信 = QQ收藏.size
+  await 轮询社交()
+  await 等()
+  const 存后受信 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 小蓝 = 存后受信.items.find((x) => x.label === '小蓝')
+  报('收藏权限：手动受信后说存并给备注 → 图当场存进 QQ 收藏', QQ收藏.size === 收藏数前受信 + 1 && !!小蓝, JSON.stringify(小蓝))
+  报('收藏权限：受信人给的备注同步到 QQ 收藏', !!小蓝 && [...QQ收藏.values()].some((x) => x.emojiId === 小蓝.emojiId && x.desc === '小蓝'),
+    JSON.stringify([...QQ收藏.values()].filter((x) => x.desc === '小蓝')))
+
+  好友消息表.set(3101, [{
+    user_id: 3101,
+    time: Math.floor(Date.now() / 1000) + 1000,
+    message_id: 990003,
+    sender: { card: '小鱼', nickname: '小鱼' },
+    message: [{ type: 'text', data: { text: `把 #${小蓝 ? 小蓝.id : 999} 的备注改成 大蓝` } }],
+  }])
+  设判断(['990003'], true, 0.9, '受信的人在改备注')
+  await 轮询社交()
+  await 等()
+  const 改后受信 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 大蓝 = 改后受信.items.find((x) => x.id === 小蓝?.id)
+  报('收藏权限：受信人一句话改已有备注 → 本机改成新名字', !!大蓝 && 大蓝.label === '大蓝', JSON.stringify(大蓝))
+  报('收藏权限：改备注同步到 QQ 收藏', !!大蓝 && [...QQ收藏.values()].some((x) => x.emojiId === 大蓝.emojiId && x.desc === '大蓝'),
+    JSON.stringify([...QQ收藏.values()].filter((x) => x.desc === '大蓝')))
+
+  存储.length = 0
+  await 路由.get('/dsh-qq-bridge/trust')(造请求({ 动作: '禁', 号: '3101' }), fakeRes)
+  const 图3 = 'https://multimedia.nt.qq.com.cn/download?x=trust3'
+  固定图.set(图3, Buffer.from('信任测试-小黄'))
+  好友消息表.set(3101, [好友带图('再存一张，备注叫小黄', { id: 990004, url: 图3 })])
+  设判断(['990004'], true, 0.9, '已经被收回权限')
+  const 收藏数前禁 = QQ收藏.size
+  await 轮询社交()
+  await 等()
+  报('收藏权限：收回后再说存 → 又存不进去了', QQ收藏.size === 收藏数前禁, `收藏 +${QQ收藏.size - 收藏数前禁}`)
+}
+
+{
+  // ---------- 24 自动受信：门槛调低后，不用手动加也能存 ----------
+  写配置({ 好友: ['3102'], 信任: { 自动: true, 手动加: [], 手动禁: [], 最少天数: 0, 最少见过: 0, 最少互动: 0, 最少熟: 0, 最少信: 0, 最多疤: 100, 最多张力: 100 } })
+  const 图4 = 'https://multimedia.nt.qq.com.cn/download?x=trust4'
+  固定图.set(图4, Buffer.from('信任测试-阿黄'))
+  好友消息表.set(3102, [{
+    user_id: 3102,
+    time: Math.floor(Date.now() / 1000) + 2000,
+    message_id: 990101,
+    sender: { card: '阿黄', nickname: '阿黄' },
+    message: [
+      { type: 'image', data: { url: 图4, file: 'trust.gif', summary: '[动画表情]', sub_type: 1 } },
+      { type: 'text', data: { text: '存下来，备注叫阿黄' } },
+    ],
+  }])
+  设判断(['990101'], true, 0.9, '自动受信的人在说收藏')
+  const 收藏数前自动 = QQ收藏.size
+  await 轮询社交()
+  await 等()
+  const 存后自动 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 阿黄 = 存后自动.items.find((x) => x.label === '阿黄')
+  报('收藏权限：自动达标的人不用手动加也能存', QQ收藏.size === 收藏数前自动 + 1 && !!阿黄, JSON.stringify(阿黄))
+}
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
