@@ -33,17 +33,30 @@ window.__ModuleLoader__.load({
 
     const S = {
       wrap: {
-        padding: '12px 14px 24px',
+        padding: '4px 2px 24px',
         fontSize: 13,
         lineHeight: 1.7,
-        background: 'var(--dsw-alias-bg-layer-1, rgba(255,255,255,.92))',
-        border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))',
-        borderRadius: 12,
       },
-      h: { fontSize: 14, fontWeight: 600, margin: '16px 0 8px' },
+      h: { fontSize: 14, fontWeight: 500, margin: '18px 0 8px' },
       dim: { opacity: 0.62, fontSize: 12 },
-      页头: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 },
-      页标题: { fontSize: 16, lineHeight: 1.4, fontWeight: 500 },
+      页头: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        paddingBottom: 14,
+        marginBottom: 2,
+        borderBottom: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))',
+      },
+      页标题: { fontSize: 20, lineHeight: '28px', fontWeight: 500, letterSpacing: '-.01em' },
+      页说明: {
+        fontSize: 12,
+        lineHeight: 1.7,
+        padding: '8px 12px',
+        borderRadius: 8,
+        background: 'var(--dsw-alias-bg-layer-1)',
+        borderLeft: '2px solid var(--dsw-alias-state-business-primary)',
+        color: 'var(--dsw-alias-label-secondary)',
+      },
       跳转: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '2px 0 4px' },
       跳转钮: {
         padding: '3px 9px',
@@ -55,11 +68,11 @@ window.__ModuleLoader__.load({
         cursor: 'pointer',
       },
       card: {
-        border: '1px solid var(--dsw-alias-border-l2)',
-        borderRadius: 8,
-        padding: '10px 12px',
-        marginBottom: 10,
-        background: 'var(--dsw-alias-bg-layer-1)',
+        border: '0.5px solid var(--dsw-alias-settings-card-stroke)',
+        borderRadius: 14,
+        padding: '14px 16px',
+        marginBottom: 14,
+        background: 'var(--dsw-alias-settings-card-fill)',
       },
       row: { display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap' },
       lab: { minWidth: 190, paddingTop: 3, fontSize: 12.5 },
@@ -1169,7 +1182,7 @@ window.__ModuleLoader__.load({
 
         h('div', { style: S.页头 },
           h('div', { style: S.页标题 }, '通到 QQ'),
-          h('div', { style: S.dim }, '本页可以设置：接通与登录、总开关、主会话转发、发到哪、群聊社交、在群里先开口、信任、翻旧记录。'),
+          h('div', { style: S.页说明 }, '本页可以设置：接通与登录、总开关、主会话转发、发到哪、群聊社交、在群里先开口、信任、翻旧记录。'),
           h('div', { style: S.dim }, '这里是她在 QQ 上的总控；保存后立即生效，安装或换账号后可能需要重连。会话里长时间没人说话时的主动搭话在「她在外面 → 主动搭话」。'),
           h('div', { style: S.跳转 },
             ...[['connect', '连接'], ['forward', '转发'], ['social', '群聊'], ['topics', '群主动'], ['trust', '信任'], ['people', '人物志'], ['history', '翻旧记录'], ['video', '视频'], ['trouble', '排查']].map(([id, label]) =>

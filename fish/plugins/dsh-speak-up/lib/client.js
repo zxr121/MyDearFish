@@ -35,23 +35,36 @@ window.__ModuleLoader__.load({
     // 样式贴着主题变量走，换皮肤/换深浅色都跟着变（照 dsh-write 的做法）
     const S = {
       wrap: {
-        padding: '12px 14px 24px',
+        padding: '4px 2px 24px',
         fontSize: 13,
         lineHeight: 1.7,
-        background: 'var(--dsw-alias-bg-layer-1, rgba(255,255,255,.92))',
-        border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))',
-        borderRadius: 12,
       },
-      h: { fontSize: 14, fontWeight: 600, margin: '16px 0 8px' },
+      h: { fontSize: 14, fontWeight: 500, margin: '18px 0 8px' },
       dim: { opacity: 0.62, fontSize: 12 },
-      页头: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 },
-      页标题: { fontSize: 16, lineHeight: 1.4, fontWeight: 500 },
-      card: {
-        border: '1px solid var(--dsw-alias-border-l2)',
+      页头: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        paddingBottom: 14,
+        marginBottom: 2,
+        borderBottom: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.08))',
+      },
+      页标题: { fontSize: 20, lineHeight: '28px', fontWeight: 500, letterSpacing: '-.01em' },
+      页说明: {
+        fontSize: 12,
+        lineHeight: 1.7,
+        padding: '8px 12px',
         borderRadius: 8,
-        padding: '10px 12px',
-        marginBottom: 10,
         background: 'var(--dsw-alias-bg-layer-1)',
+        borderLeft: '2px solid var(--dsw-alias-state-business-primary)',
+        color: 'var(--dsw-alias-label-secondary)',
+      },
+      card: {
+        border: '0.5px solid var(--dsw-alias-settings-card-stroke)',
+        borderRadius: 14,
+        padding: '14px 16px',
+        marginBottom: 14,
+        background: 'var(--dsw-alias-settings-card-fill)',
       },
       row: { display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap' },
       lab: { minWidth: 190, paddingTop: 3, fontSize: 12.5 },
@@ -720,7 +733,7 @@ window.__ModuleLoader__.load({
 
         h('div', { style: S.页头 },
           h('div', { style: S.页标题 }, '主动搭话'),
-          h('div', { style: S.dim }, '本页可以设置：开关、试运行、曲线、安静时段、房间、文案、角色。'),
+          h('div', { style: S.页说明 }, '本页可以设置：开关、试运行、曲线、安静时段、房间、文案、角色。'),
           h('div', { style: S.dim }, '会话里很久没人说话时，她主动开口；群里的主动开口在「她在外面 → 通到 QQ → 在群里先开口」，两边不重复。保存后立即生效；勾选房间不用点保存。'),
           h('div', { style: S.dim }, '现在：总开关 ' + (配置.总开关 ? '开' : '关') +
             ' · 试运行 ' + (配置.试运行 ? '开' : '关') +
