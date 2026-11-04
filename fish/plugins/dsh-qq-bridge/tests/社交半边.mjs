@@ -1142,11 +1142,11 @@ await 轮询社交()
 await 等()
 报('连发：主人 @ 照常开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1025').length === 群1025之前 + 1)
 const 群1025之前发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length
-await 收到回复('session-qq-social-group-1025', '来啦\n\n我看看\n\n你们聊什么\n\n我也想听\n\n再说点')
-await 等到(async () => 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length >= 群1025之前发 + 3, 6000)
+await 收到回复('session-qq-social-group-1025', '来啦\n\n我看看\n\n你们聊什么\n\n我也想听\n\n再说点\n\n还有吗')
+await 等到(async () => 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length >= 群1025之前发 + 5, 9000)
 await new Promise((r) => setTimeout(r, 100))
 const 群1025发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).slice(群1025之前发)
-报('连发：五段只发三条，尾部并进最后一条', 群1025发.length === 3 && 群1025发[2].体.message[0].data.text === '你们聊什么\n我也想听\n再说点', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
+报('连发：六段只发五条，尾部用换行并进最后一条', 群1025发.length === 5 && 群1025发[4].体.message[0].data.text === '再说点\n还有吗', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
 
 // ---------- 6c 连发：她没分段的整段多句，按句尾自动断成几条 ----------
 // （用没用过的 1030：发完会记一次她开口、带上冷却，别挡了后面复用旧群的场景）

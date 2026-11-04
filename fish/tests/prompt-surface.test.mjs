@@ -75,7 +75,8 @@ test('主会话组合：主人空闲时，提示里没有 QQ 桥教她截短的�
       主人: true,
       群: false,
     })
-    assert.ok(ownerHint.includes('少打句号'), '成熟画像要能真的生成提示，否则断言空转')
+    assert.ok(ownerHint.includes('不打句号'), '成熟画像要能真的生成提示，否则断言空转')
+    assert.ok(ownerHint.includes('两句之间要换行隔开'), '提示要教和拆分器一致的分条方式')
     assert.ok(ownerHint.includes('把想说的说完整'), '主人私聊的说话节奏要带完整性护栏')
     assertNoForbiddenInOwnerText(ownerHint, '主人私聊的说话节奏')
     assert.ok(!ownerHint.includes('短句'), '主人私聊的说话节奏不该再教短句')
