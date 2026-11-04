@@ -1069,7 +1069,7 @@ function QQ媒体域名可信(地址) {
  * 视频先只留 URL/时长，下载和抽帧交给 `收QQ视频`；商城表情有图才收，没图只留 [表情]。
  * @param {object} 条 - history 接口返回的一条消息。
  * @param {string|number} 自己号 - 登录的 QQ 号；不知道就传空，@ 不算命中。
- * @returns {{ 文字: string, at我: boolean, at别人: boolean, 回复id: string, 图片们: { url: string, file: string, summary: string, subType: number, 商城?: boolean }[], 视频们: { url: string, file: string, 秒: number, 宽: number, 高: number, 大小: number }[], 转发们: { id: string }[], 看不见的表情: number }}
+ * @returns {{ 文字: string, 正文: string, at我: boolean, at别人: boolean, 回复id: string, 图片们: { url: string, file: string, summary: string, subType: number, 商城?: boolean }[], 视频们: { url: string, file: string, 秒: number, 宽: number, 高: number, 大小: number }[], 转发们: { id: string }[], 看不见的表情: number }}
  */
 export function 解析消息段(条, 自己号 = '') {
   const 段们 = Array.isArray(条 && 条.message)
@@ -1077,7 +1077,7 @@ export function 解析消息段(条, 自己号 = '') {
     : typeof (条 && 条.message) === 'string'
       ? [{ type: 'text', data: { text: 条.message } }]
       : []
-  const 正文 = []
+  const 文字块 = []
   const 图片们 = []
   const 视频们 = []
   const 转发们 = []
@@ -1088,23 +1088,23 @@ export function 解析消息段(条, 自己号 = '') {
   for (const 段 of 段们) {
     if (!段 || typeof 段 !== 'object') continue
     const d = 段.data || {}
-    if (段.type === 'text') 正文.push(String(d.text || ''))
+    if (段.type === 'text') 文字块.push(String(d.text || ''))
     else if (段.type === 'at') {
       const qq = String(d.qq === undefined || d.qq === null ? '' : d.qq)
       if (qq !== '' && 自己号 !== '' && qq === String(自己号)) {
         at我 = true
-        正文.push('@你')
-      } else if (qq === 'all') 正文.push('@全体成员')
+        文字块.push('@你')
+      } else if (qq === 'all') 文字块.push('@全体成员')
       else if (qq !== '') {
         // 知道登录号时才敢断言 @ 的是别人；不知道就只把名字留下，不做判断。
         if (自己号 !== '') at别人 = true
         const 名 = String(d.name || '').replace(名字坏字符全, '').replace(/\s+/g, ' ').trim().slice(0, 32)
-        正文.push('@' + (名 || qq))
+        文字块.push('@' + (名 || qq))
       }
     } else if (段.type === 'reply') {
       回复id = String(d.id === undefined || d.id === null ? '' : d.id)
     } else if (段.type === 'image') {
-      正文.push('[图片]')
+      文字块.push('[图片]')
       图片们.push({
         url: String(d.url || ''),
         file: String(d.file || d.file_id || ''),
@@ -1112,7 +1112,7 @@ export function 解析消息段(条, 自己号 = '') {
         subType: Number(d.sub_type) || 0,
       })
     } else if (段.type === 'video') {
-      正文.push('[视频]')
+      文字块.push('[视频]')
       视频们.push({
         url: String(d.url || ''),
         file: String(d.file || d.file_id || ''),
@@ -1122,11 +1122,11 @@ export function 解析消息段(条, 自己号 = '') {
         大小: Number(d.fileSize) || 0,
       })
     } else if (段.type === 'record') {
-      正文.push('[语音]')
+      文字块.push('[语音]')
     } else if (段.type === 'face') {
-      正文.push('[表情]')
+      文字块.push('[表情]')
     } else if (段.type === 'mface') {
-      正文.push('[表情]')
+      文字块.push('[表情]')
       const u = String(d.url || '')
       if (u !== '' && QQ媒体域名可信(u)) {
         图片们.push({
@@ -1142,10 +1142,16 @@ export function 解析消息段(条, 自己号 = '') {
     } else if (段.type === 'forward') {
       const id = String(d.id || d.res_id || d.forward_id || '').trim()
       if (id !== '') 转发们.push({ id })
-      else 正文.push('[转发消息]')
+      else 文字块.push('[转发消息]')
     }
   }
-  return { 文字: 正文.join('').trim(), at我, at别人, 回复id, 图片们, 视频们, 转发们, 看不见的表情 }
+  const 文字 = 文字块.join('').trim()
+  return { 文字, 正文: 文字, at我, at别人, 回复id, 图片们, 视频们, 转发们, 看不见的表情 }
+}
+
+/** 这条消息里当前发送者自己写的正文；引用和合并转发的原文只用于展示。 */
+function 本人的话(m) {
+  return String((m && m.正文 !== undefined ? m.正文 : m && m.文字) || '')
 }
 
 /**
@@ -1439,7 +1445,7 @@ export function 是低信号(批 = []) {
   for (const m of 列表) {
     if (m.主人 || m.被叫原因 || m.戳) return false
     if (Array.isArray(m.图片) && m.图片.length > 0) return false
-    const 文 = String(m.文字 || '')
+    const 文 = 本人的话(m)
     if (/[?？]/.test(文) || /你说啥|说什么|没听清|再说一遍|啥意思/.test(文)) return false
     if (问到她自己(文)) return false
     const 净 = 文.replace(/\[[^\]\n]{0,40}\]/g, '').replace(/[\s\p{P}\p{S}]/gu, '')
@@ -1531,7 +1537,7 @@ export function 要查好感度(文字) {
 function 直接找她(目标, 消息) {
   if (!消息) return false
   if (目标 && 目标.类型 === 'friend') return true
-  return String(消息.被叫原因 || '') !== '' || 要查好感度(消息.文字)
+  return String(消息.被叫原因 || '') !== '' || 要查好感度(本人的话(消息))
 }
 
 /**
@@ -1545,7 +1551,7 @@ function 直接找她(目标, 消息) {
 function 在问她(目标, 消息) {
   if (!消息) return false
   if (目标 && 目标.类型 === 'friend') return true
-  return 直接找她(目标, 消息) && 问到她自己(消息.文字)
+  return 直接找她(目标, 消息) && 问到她自己(本人的话(消息))
 }
 
 /**
@@ -2570,7 +2576,7 @@ export function 挑复读(消息们, 况 = {}) {
   for (const m of Array.isArray(消息们) ? 消息们 : []) {
     if (!m || m.自己 || m.主人) continue
     if (String(m.被叫原因 || '') !== '') continue
-    const 文字 = String(m.文字 || '').trim()
+    const 文字 = 本人的话(m).trim()
     if (!复读文字可用(文字, 况)) continue
     if (问到她自己(文字) || 要查好感度(文字)) continue
     const atMs = (Number(m.at) || 0) * 1000
@@ -3100,7 +3106,7 @@ export function 挑人物边界(边界们, 房, 词 = new Set(), 最多 = 2) {
  */
 export function 注意力分(消息, 语境 = {}) {
   const m = 消息 && typeof 消息 === 'object' ? 消息 : {}
-  const 文字 = String(m.文字 || '')
+  const 文字 = 本人的话(m)
   const 图们 = Array.isArray(m.图片) ? m.图片.filter((x) => x && typeof x === 'object') : []
   const 词集 = 切兴趣词元(文字)
   const 理由 = []
@@ -3916,8 +3922,8 @@ export function apply(ctx) {
     谁: String((m && m.说话人) || ''),
     文: String((m && m.文字) || '').slice(0, 200),
     被叫: (m && m.被叫原因) ? String(m.被叫原因) : '',
-    问她: !!问到她自己(String((m && m.文字) || '')),
-    查数: !!要查好感度(String((m && m.文字) || '')),
+    问她: !!问到她自己(本人的话(m)),
+    查数: !!要查好感度(本人的话(m)),
     对别人说: !!(m && m.对别人说),
     ...(Array.isArray(m && m.不聊) && m.不聊.length > 0 ? { 不聊: m.不聊 } : {}),
     上下文: !!(m && m.上下文),
@@ -4824,7 +4830,7 @@ export function apply(ctx) {
       if (!m || m.自己 || m.主人) continue
       const 号 = String(m.uid || '')
       if (!/^\d{3,20}$/.test(号)) continue
-      const 题 = 找边界(m.文字)
+      const 题 = 找边界(本人的话(m))
       if (题 === '') continue
       const at = Math.max(0, Number(m.at) || 0) * 1000 || Date.now()
       const p = 人物.get(解号(号)) || 人物of(号, String(m.说话人 || ''), at)
@@ -4845,7 +4851,7 @@ export function apply(ctx) {
     if (!配置.社交.记人 || !m || m.自己) return
     const 号 = String(m.uid || '')
     if (!/^\d{3,20}$/.test(号)) return
-    const 声明们 = 找账号自认(m.文字)
+    const 声明们 = 找账号自认(本人的话(m))
     if (声明们.length === 0) return
     const at = Math.max(0, Number(m.at) || 0) * 1000 || Date.now()
     const 自己号 = String(自己号缓存.号 || '')
@@ -4935,12 +4941,12 @@ export function apply(ctx) {
       if (!m || m.自己) continue
       const 号 = String(m.uid || '')
       if (!/^\d{3,20}$/.test(号)) continue
-      const 关s = 找关系自述(m.文字)
+      const 关s = 找关系自述(本人的话(m))
       if (关s.length === 0) continue
       const at = Math.max(0, Number(m.at) || 0) * 1000 || Date.now()
       const p = 人物of(号, String(m.说话人 || ''), at)
       if (!p) continue
-      const 要保密 = /(?:别告诉|别说出去|秘密|不要外传|就我们俩知道)/u.test(String(m.文字 || ''))
+      const 要保密 = /(?:别告诉|别说出去|秘密|不要外传|就我们俩知道)/u.test(本人的话(m))
       if (要保密 && 目标.类型 === 'group') continue
       for (const r of 关s.slice(0, 3)) {
         if (记关系边(p.号, r.对象, '', r.关系, 目标.key, at, 目标.类型 === 'friend' || 要保密, true)) 改了 = true
@@ -5024,7 +5030,7 @@ export function apply(ctx) {
       if (m.主人) continue
       const r = 关系of(p, 目标.key, at)
       const 总 = 总关系of(p)
-      const 要保密 = /(?:别告诉|别说出去|秘密|不要外传|就我们俩知道)/u.test(String(m.文字 || ''))
+      const 要保密 = /(?:别告诉|别说出去|秘密|不要外传|就我们俩知道)/u.test(本人的话(m))
       let 新事实 = 0
       for (const f of (Array.isArray(项.facts) ? 项.facts.slice(0, 2) : [])) {
         if (要保密 && 目标.类型 === 'group') continue
@@ -5132,7 +5138,7 @@ export function apply(ctx) {
       if (!m || m.自己) continue
       const 号 = String(m.uid || '')
       if (!/^\d{3,20}$/.test(号)) continue
-      const 文字 = String(m.文字 || '')
+      const 文字 = 本人的话(m)
       if (文字.trim() === '') continue
       const at = Math.max(0, Number(m.at) || 0) * 1000 || Date.now()
       const p = 人物of(号, String(m.说话人 || ''), at)
@@ -5444,7 +5450,7 @@ export function apply(ctx) {
     else if (有熟人) 提示.push('有熟人：可以自然一点，记得的事顺口带一句，但别像查档案。')
     if (有人互相认识) 提示.push('这屋里有人互相认识：别替他们公开介绍关系、别拿关系起哄或站队，他们自己提起再说。')
     if (有久别) 提示.push('有人好久没见了：可以自然带一句“好久不见/最近怎么样”，别一上来就查户口。')
-    if (列表.some((m) => !m.自己 && /我(?:最近|今天|昨天|刚|也|在|是|喜欢|讨厌|养|做|去|不想)/u.test(String(m.文字 || '')))) {
+    if (列表.some((m) => !m.自己 && /我(?:最近|今天|昨天|刚|也|在|是|喜欢|讨厌|养|做|去|不想)/u.test(本人的话(m)))) {
       提示.push('有人刚说了自己的事：可以按差不多的深度回一点自己的感受，别盘问他。')
     }
     return 提示.length > 0 ? `【关系分寸】${提示.join('')}` : ''
@@ -5502,7 +5508,7 @@ export function apply(ctx) {
   /** 群语感从她实际听到的群消息里量；只存整群的统计和短说法，原话不落盘。 */
   function 记群语感(配置, 目标, 消息) {
     if (目标.类型 !== 'group' || !消息 || !配置 || !配置.社交 || !配置.社交.学说话) return
-    const 样 = 量群语感(消息.文字, { 学口癖: String(消息.被叫原因 || '') === '' })
+    const 样 = 量群语感(本人的话(消息), { 学口癖: String(消息.被叫原因 || '') === '' })
     if (!样) return
     const 画像 = 社交画像of(目标.key)
     画像.语感 = 叠加群语感(
@@ -5517,7 +5523,7 @@ export function apply(ctx) {
   /** 群里的表情习惯从她扫过的消息里量：只记节奏和场景，图不落盘、原话不留。 */
   function 记表情语感(配置, 目标, 消息, 上文 = '') {
     if (目标.类型 !== 'group' || !消息 || !配置 || !配置.社交 || !配置.社交.学表情) return
-    const 样 = 量表情语感(消息.文字, 消息.图片们, 上文)
+    const 样 = 量表情语感(本人的话(消息), 消息.图片们, 上文)
     if (!样) return
     const 画像 = 社交画像of(目标.key)
     画像.表情 = 叠加表情语感(
@@ -5865,6 +5871,7 @@ export function apply(ctx) {
             uid: String(消息.uid || ''),
             说话人: String(消息.说话人 || ''),
             文字: String(消息.文字 || ''),
+            正文: 消息.正文 === undefined ? String(消息.文字 || '') : String(消息.正文 || ''),
             at: Number(消息.at) || 0,
             主人: !!消息.主人,
             被叫原因: String(消息.被叫原因 || ''),
@@ -6558,8 +6565,9 @@ export function apply(ctx) {
   function 是否被叫(配置, 段) {
     if (段.at我) return '有人 @ 你'
     if (段.回复id !== '' && (段.引用自己 === true || 她的消息id.has(段.回复id))) return '有人在回复你'
+    const 文 = 本人的话(段)
     for (const 词 of 配置.社交.称呼) {
-      if (词 !== '' && 段.文字.includes(词)) return `有人提到「${词}」`
+      if (词 !== '' && 文.includes(词)) return `有人提到「${词}」`
     }
     return ''
   }
@@ -6582,7 +6590,7 @@ export function apply(ctx) {
     const 重要 = []
     const 其他 = []
     for (const m of 列表) {
-      if (m.被叫原因 !== '' || 问到她自己(m.文字)) 重要.push(m)
+      if (m.被叫原因 !== '' || 问到她自己(本人的话(m))) 重要.push(m)
       else 其他.push(m)
     }
     const 留 = new Set()
@@ -6674,7 +6682,7 @@ export function apply(ctx) {
     for (const m of 消息们) {
       if (!m) continue
       画像.样本 += 1
-      for (const 元 of 切兴趣词元(m.文字)) {
+      for (const 元 of 切兴趣词元(本人的话(m))) {
         画像.词.set(元, (画像.词.get(元) || 0) + 1)
       }
       const 人 = 解号(m.uid) || String(m.说话人 || '')
@@ -6753,7 +6761,7 @@ export function apply(ctx) {
         continue
       }
       // 没 @ 也可能是在问她本人或在查好感度；这类消息绕过兴趣门槛，交给慢判决定怎么接。
-      if (问到她自己(m.文字) || 要查好感度(m.文字)) {
+      if (问到她自己(本人的话(m)) || 要查好感度(本人的话(m))) {
         问们.push(m)
         continue
       }
@@ -6958,7 +6966,7 @@ export function apply(ctx) {
     const 新消息们 = 进判
       .map((m) => {
         const 态 = 人的态度(配置, 目标, m)
-        const 标记 = (态 === 'cold' ? '[冷处理]' : '') + (态 === 'warm' ? '[多聊]' : '') + (m.被叫原因 ? '[被叫]' : '') + (在问她(目标, m) ? '[问她]' : '') + (要查好感度(m.文字) ? '[查好感度]' : '') + (m.对别人说 ? '[对别人说]' : '') + (!m.上下文 && !m.自己 && !直接找她(目标, m) ? '[旁听]' : '') + (Array.isArray(m.不聊) && m.不聊.length > 0 ? `[不聊:${m.不聊.join('、')}]` : '')
+        const 标记 = (态 === 'cold' ? '[冷处理]' : '') + (态 === 'warm' ? '[多聊]' : '') + (m.被叫原因 ? '[被叫]' : '') + (在问她(目标, m) ? '[问她]' : '') + (要查好感度(本人的话(m)) ? '[查好感度]' : '') + (m.对别人说 ? '[对别人说]' : '') + (!m.上下文 && !m.自己 && !直接找她(目标, m) ? '[旁听]' : '') + (Array.isArray(m.不聊) && m.不聊.length > 0 ? `[不聊:${m.不聊.join('、')}]` : '')
         return 行(m, 标记, 判图号.get(String(m.id || '')) || '')
       })
     const 人卡 = 人物卡(配置, 目标, (缓冲 || []).slice(-6).concat(待看 || []))
@@ -7057,7 +7065,7 @@ export function apply(ctx) {
       if (看.length >= 关注上限) break
     }
     // 被 @、被叫名字、被回复、好友私聊、问她本人、查好感度：不交给模型否决，直接算她必须看、必须回。
-    const 直回 = (待看 || []).filter((m) => 直接找她(目标, m) && !像硬广告或刷屏(m.文字))
+    const 直回 = (待看 || []).filter((m) => 直接找她(目标, m) && !像硬广告或刷屏(本人的话(m)))
     const 直回id = new Set(直回.map((m) => String(m.id || '')).filter((id) => id !== ''))
     for (const m of 直回) {
       const id = String(m.id || '')
@@ -7071,7 +7079,7 @@ export function apply(ctx) {
     if (想接 && 看.length === 0) {
       // 判了要接却没挑消息：至少把她最后看到的那条群友消息带进去，别让上下文空白
       const 最后 = [...(待看 || [])].reverse().find((m) => String(m.id || '') !== ''
-        && !像硬广告或刷屏(m.文字)
+        && !像硬广告或刷屏(本人的话(m))
         && 能接这条(m))
       if (最后) 看.push(String(最后.id))
     }
@@ -7301,7 +7309,8 @@ export function apply(ctx) {
   }
 
   /**
-   * 把一条消息的正文和它带的合并转发拼起来；没有转发就原样返回。
+   * 把一条消息的展示文字和它带的合并转发拼起来；没有转发就原样返回。
+   * 只改展示文字，调用方保留的 `正文` 仍是发送者自己写的那部分。
    * @param {object} 配置 - 当前配置。
    * @param {string} 文字 - 解析消息段得到的正文。
    * @param {{ id: string }[]} 转发们 - 解析消息段得到的转发 id。
@@ -7387,11 +7396,12 @@ export function apply(ctx) {
   }
 
   /**
-   * 把被引用消息的原文放到正文前面；查不到就原样返回，不耽误这条消息。
+   * 把被引用消息的原文放到展示文字前面；查不到就原样返回，不耽误这条消息。
+   * `段.正文` 保持发送者自己写的内容，不受引用原文影响。
    * @param {object} 配置 - 当前配置。
    * @param {{ 文字?: string, 回复id?: string }} 段 - 解析消息段的结果。
    * @param {string|number} 自己号 - 登录/被转发的 QQ 号；不知道就传空。
-   * @returns {Promise<object>} 同一个段对象，正文前可能多一条引用标记。
+   * @returns {Promise<object>} 同一个段对象，展示文字前可能多一条引用标记。
    */
   async function 补上引用(配置, 段, 自己号 = '') {
     const id = String((段 && 段.回复id) || '')
@@ -7722,7 +7732,7 @@ export function apply(ctx) {
     if (!m) return false
     if (m.主人) return true
     if (String(m.被叫原因 || '') !== '') return true
-    const 文 = String(m.文字 || '')
+    const 文 = 本人的话(m)
     if (/你/u.test(文)) return true
     return ((配置.社交 && 配置.社交.称呼) || []).some((词) => 词 !== '' && 文.includes(词))
   }
@@ -8254,9 +8264,9 @@ export function apply(ctx) {
     const 请求们 = []
     for (const m of 全部) {
       if (!m || m.上下文 || m.自己 || m.收藏要求已处理) continue
-      const 存要 = 解析存表情要求(m.文字)
-      const 改要 = 解析改备注要求(m.文字)
-      const 模糊改 = !改要 && !存要.要存 && 像改备注要求(m.文字)
+      const 存要 = 解析存表情要求(本人的话(m))
+      const 改要 = 解析改备注要求(本人的话(m))
+      const 模糊改 = !改要 && !存要.要存 && 像改备注要求(本人的话(m))
       if (!存要.要存 && !改要 && !模糊改) continue
       m.收藏要求已处理 = true
       const 直接 = 选项.全部受信 || 是直接对她说(配置, m)
@@ -8899,7 +8909,7 @@ export function apply(ctx) {
     return agent
   }
 
-  function 手搓社交消息(目标, 拼好, 批) {
+  function 手搓社交消息(目标, 拼好, 批, 配置 = 读配置()) {
     const 新 = (Array.isArray(批) ? 批 : []).filter((m) => m && !m.上下文 && !m.自己)
     // 名片可能重名；按 QQ 号认人，没号时才退回名字。
     const 发送者们 = new Map()
@@ -9400,7 +9410,7 @@ export function apply(ctx) {
       (o) => o.状态 === '已发' && 现在 - Number(o.发出At || o.at) <= 开头接住窗毫秒,
     )
     if (!记录) return
-    const 文字 = String((段 && 段.文字) || '')
+    const 文字 = String((段 && 段.正文) || '')
     const 回复id = String((段 && 段.回复id) || '')
     const 是她 = (回复id !== '' && (记录.发出id们 || []).includes(回复id))
       || !!(段 && 段.at我)
@@ -9422,7 +9432,7 @@ export function apply(ctx) {
 
   /** 旧话头被后续回答关掉：同一个人、带“去了/买了/后来”等词，且有一点词面重叠。 */
   function 结线程(目标, 段, uid, at) {
-    const 文字 = String((段 && 段.文字) || '')
+    const 文字 = String((段 && 段.正文) || '')
     if (文字 === '') return
     const 状 = 开头状态(目标.key)
     const 毫秒 = Number(at) * 1000
@@ -9449,7 +9459,7 @@ export function apply(ctx) {
     let 变 = false
     for (const m of Array.isArray(消息们) ? 消息们 : []) {
       if (!m || m.自己) continue
-      const 文字 = String(m.文字 || '').replace(/\s+/g, ' ').trim()
+      const 文字 = 本人的话(m).replace(/\s+/g, ' ').trim()
       if (文字.length < 6 || 文字.length > 120) continue
       if (像不能开头的(配置, 文字)) continue
       if (!/(下次|回头|改天|等我|到时候|有机会|打算|准备|想去|要去看|买了没|到了吗|后来|结果|求推荐|有人试过|要不要|周末|假期|在考虑|纠结)/u.test(文字)) continue
@@ -9583,8 +9593,8 @@ export function apply(ctx) {
   /** 这间屋的话她都在场：判过的消息不论挑没挑中都记进账本，供后面的判断和回复当上下文。 */
   function 记入账本(目标, 消息们) {
     const 记 = (Array.isArray(消息们) ? 消息们 : [])
-      .filter((m) => m && !像硬广告或刷屏(m.文字))
-      .map((m) => ({ ...m, 文字: String(m.文字 || '').slice(0, 120) }))
+      .filter((m) => m && !像硬广告或刷屏(本人的话(m)))
+      .map((m) => ({ ...m, 文字: String(m.文字 || '').slice(0, 120), 正文: 本人的话(m).slice(0, 120) }))
     if (记.length > 0) 并入社交缓冲(目标, 记)
   }
 
@@ -9594,7 +9604,7 @@ export function apply(ctx) {
       .filter((m) => m && !m.上下文)
       .map((m) => {
         const 谁 = m.自己 ? '我' : m.主人 ? '主人' : String(m.说话人 || '某人')
-        const 说 = String(m.文字 || '').replace(/@你/g, '').replace(/\s+/g, ' ').trim()
+        const 说 = 本人的话(m).replace(/@你/g, '').replace(/\s+/g, ' ').trim()
         const 图数 = Array.isArray(m.图片) ? m.图片.length : 0
         const 正文 = 说 !== ''
           ? 标收藏表情(说, m.图片)
@@ -9661,7 +9671,7 @@ export function apply(ctx) {
       const 标 = 信任标(m)
       if (目标.类型 !== 'group') return 标
       const 态 = m.上下文 ? 'normal' : 人的态度(配置, 目标, m)
-      return 标 + (态 === 'cold' ? '[冷处理]' : '') + (态 === 'warm' ? '[多聊]' : '') + (m.被叫原因 !== '' ? '[说到你]' : '') + (在问她(目标, m) ? '[问你]' : '') + (!m.上下文 && 要查好感度(m.文字) ? '[查好感度]' : '') + (!m.上下文 && m.对别人说 ? '[对别人说]' : '') + (!m.上下文 && !m.自己 && !直接找她(目标, m) ? '[旁听]' : '') + (!m.上下文 && Array.isArray(m.不聊) && m.不聊.length > 0 ? `[不聊:${m.不聊.join('、')}]` : '')
+      return 标 + (态 === 'cold' ? '[冷处理]' : '') + (态 === 'warm' ? '[多聊]' : '') + (m.被叫原因 !== '' ? '[说到你]' : '') + (在问她(目标, m) ? '[问你]' : '') + (!m.上下文 && 要查好感度(本人的话(m)) ? '[查好感度]' : '') + (!m.上下文 && m.对别人说 ? '[对别人说]' : '') + (!m.上下文 && !m.自己 && !直接找她(目标, m) ? '[旁听]' : '') + (!m.上下文 && Array.isArray(m.不聊) && m.不聊.length > 0 ? `[不聊:${m.不聊.join('、')}]` : '')
     }
     // 图号跟下面 图片们 的顺序一致：消息行里带上 [图 N]，模型不用靠猜这图是谁发的。
     // 这轮的话在说“图”时，把最近发过的旧图也带上：旧图在上下文里只剩 [图片]，
@@ -9726,7 +9736,7 @@ export function apply(ctx) {
     const 查数们 = 只看 || !(配置.社交 && 配置.社交.记人)
       ? []
       : 批
-        .filter((m) => !m.上下文 && !m.自己 && 要查好感度(m.文字))
+        .filter((m) => !m.上下文 && !m.自己 && 要查好感度(本人的话(m)))
         .map((m) => {
           const p = 人物.get(解号(m.uid))
           if (!p) return ''
@@ -9956,7 +9966,7 @@ export function apply(ctx) {
     const agent = 选的.agent
     const sid = String((agent.session && agent.session.id) || 目标.会话id)
     const 叫她的 = 批
-      .filter((m) => m && !m.上下文 && !m.自己 && (m.被叫原因 !== '' || 问到她自己(m.文字)))
+      .filter((m) => m && !m.上下文 && !m.自己 && (m.被叫原因 !== '' || 问到她自己(本人的话(m))))
       .sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))
     const 有人直呼 = 叫她的.length > 0
     const 有迟到 = 批.some((m) => m && !m.上下文 && !m.自己 && m.迟到)
@@ -9979,7 +9989,7 @@ export function apply(ctx) {
     记账(`准备接话（${目标.叫}${线}）：${理由}；看了 ${批.length} 条${复读候选 ? `；可复读「${复读候选.文字}」` : ''}`)
     记思绪('判断', `决定开口叫她这一轮${线}：${理由}`, { 她看到的: 批样(批), 分寸: 节奏, 可复读: 复读候选 ? { 文字: 复读候选.文字, 来源: 复读候选.来源 } : null }, 目标.叫)
     try {
-      agent.followup(手搓社交消息(目标, 拼好, 批))
+      agent.followup(手搓社交消息(目标, 拼好, 批, 配置))
       await 冲刷会话(agent)
       const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || ''
       await 挂工作区(await 取工作区(实际cwd), sid)
@@ -10000,7 +10010,7 @@ export function apply(ctx) {
       const 拼好 = 拼一批(目标, 批, true, '', 配置)
       if (她说的 !== '') 拼好.摘录 = `${拼好.摘录}\n我：${她说的}`.trim()
       await 提醒看不清图(ctx.get('llm'), 回复模型选项(配置) || 默认模型(), 拼好.图片们.length)
-      agent.inject(手搓社交消息(目标, 拼好, 批))
+      agent.inject(手搓社交消息(目标, 拼好, 批, 配置))
       await 冲刷会话(agent)
       const 实际cwd = (agent.session && agent.session.header && agent.session.header.cwd) || ''
       await 挂工作区(await 取工作区(实际cwd), sid)
@@ -10159,6 +10169,7 @@ export function apply(ctx) {
       const 同人 = !!前 && String(前.uid || '') === String(m.uid || '') && 前.说话人 === m.说话人
       if (聚拢 > 0 && 同人 && m.at >= 前.at && m.at - 前.at <= 聚拢) {
         前.文字 = [前.文字, m.文字].filter(Boolean).join('\n').slice(0, 1000)
+        前.正文 = [本人的话(前), 本人的话(m)].filter(Boolean).join('\n').slice(0, 1000)
         前.图片 = (前.图片 || []).concat(m.图片 || [])
         前.被叫原因 = 前.被叫原因 || m.被叫原因
         前.主人 = 前.主人 || m.主人
@@ -10355,7 +10366,7 @@ export function apply(ctx) {
     }
     悬着回头At.set(目标.key, Date.now())
     const 直呼 = 直接找她(目标, 悬.消息)
-    const 关切 = 配置.社交.记人 && 要查好感度(悬.消息.文字)
+    const 关切 = 配置.社交.记人 && 要查好感度(本人的话(悬.消息))
     const 挑中 = Array.isArray(判.看) && 判.看.map((id) => String(id)).includes(String(悬.消息.id || ''))
     const 够把握 = Number(判.把握) >= Number(判.阈值)
     if (!直呼 && !关切 && (!判.接 || !挑中 || !够把握)) {
@@ -10393,8 +10404,8 @@ export function apply(ctx) {
     const 自己们 = 近时缓冲(目标).filter((m) => m && m.自己 && String(m.文字 || '').trim() !== '')
     if (自己们.length === 0) return null
     for (const m of 全部) {
-      if (!m || m.自己 || 像硬广告或刷屏(m.文字)) continue
-      if (!是修复信号(m.文字)) continue
+      if (!m || m.自己 || 像硬广告或刷屏(本人的话(m))) continue
+      if (!是修复信号(本人的话(m))) continue
       const 冲她 = 目标.类型 === 'friend' || m.被叫原因 === '有人在回复你' || m.被叫原因 === '有人 @ 你'
       if (!冲她) continue
       const 原 = [...自己们].reverse().find((x) => (Number(x.at) || 0) <= (Number(m.at) || 0))
@@ -10598,7 +10609,7 @@ export function apply(ctx) {
     const 看id = new Set(判.看)
     let 选出 = 有效.filter((m) => 看id.has(String(m.id)))
     // 记人关掉时没有关系数值，查询口令不强行开一轮。
-    const 查好感 = (m) => 配置.社交.记人 && 要查好感度(m.文字)
+    const 查好感 = (m) => 配置.社交.记人 && 要查好感度(本人的话(m))
     // 明确查好感度的，不交给小模型否决：至少让她看见最近几条。
     const 自问们 = 有效.filter((m) => 查好感(m)).slice(-3)
     if (自问们.length > 0) {
@@ -10860,15 +10871,15 @@ export function apply(ctx) {
       }
       // 表情习惯从她扫过的消息里量；别人之间的话、她跳过的话题也算，但不影响她接不接。
       const 上一句 = 上句
-      上句 = 段.文字
-      记表情语感(配置, 目标, { at, uid, 说话人, 文字: 段.文字, 图片们: 段.图片们 }, 上一句)
+      上句 = 段.正文
+      记表情语感(配置, 目标, { at, uid, 说话人, 文字: 段.正文, 图片们: 段.图片们 }, 上一句)
       // 群聊里这条是不是在跟某个具体的人说话：回复 / 引用别人、@ 了别人，
       // 或按名字起头在叫别人（“小王你觉得呢”）。宁可少插一句，也不钻进两个人之间。
       const 群 = 目标.类型 === 'group'
-      const 点名 = 群 ? 在叫别人(段.文字, 本屋名字们(目标, 新消息), 自己名字们) : ''
+      const 点名 = 群 ? 在叫别人(段.正文, 本屋名字们(目标, 新消息), 自己名字们) : ''
       const 对别人说 = 群 && (在回复别人(段) || 段.at别人 || 点名 !== '')
       // 她不来往的话题（默认不聊游戏）：群里不主动接，被直接叫到再短应一句。
-      const 不聊 = 群 ? 不聊命中(配置, 段.文字) : []
+      const 不聊 = 群 ? 不聊命中(配置, 段.正文) : []
       // 群聊里主人和群友一视同仁：按同一套 @ / 叫名字 / 图片 / 兴趣规则。
       const 被叫原因 = 目标.类型 === 'friend' ? '私聊' : 是否被叫(配置, 段)
       const 叫键 = `${目标.key}:${uid || 说话人}`
@@ -10880,7 +10891,7 @@ export function apply(ctx) {
       // 只 @ 了一下、正文在下一句：先把这条扣住，别单独判成“只有 @、没内容”。
       const 纯叫 = 段.at我 && 段.图片们.length === 0 && 段.文字.replace(/@你/g, '').trim() === ''
       if (纯叫) {
-        const 消息 = { id, at, 说话人, uid, 主人, 文字: 段.文字, 被叫原因: 被叫原因 || '有人 @ 你', 图片: [], 回复id: 段.回复id || '' }
+        const 消息 = { id, at, 说话人, uid, 主人, 文字: 段.文字, 正文: 段.正文, 被叫原因: 被叫原因 || '有人 @ 你', 图片: [], 回复id: 段.回复id || '' }
         记一次人见(配置, 目标, 消息)
         记自认账号(配置, 目标, 消息)
         待续叫.set(叫键, { 目标, 消息, at })
@@ -10896,9 +10907,9 @@ export function apply(ctx) {
         if (可续 || 本次被叫 !== '') 待续叫.delete(叫键)
       }
       // 刚聊到的她不来的话题会往下延续：跟着说的几句常常不再带关键词，也按同一话题挡住。
-      const 找她 = 直接找她(目标, { 文字: 段.文字, 被叫原因: 本次被叫 })
+      const 找她 = 直接找她(目标, { 文字: 段.文字, 正文: 段.正文, 被叫原因: 本次被叫 })
       // 少理 / 不主动的人只在他叫到她时才进视线；少掺和的群只接叫她的消息（主人随口说的除外）。
-      if (该先放下(配置, 目标, { 文字: 段.文字, 被叫原因: 本次被叫, uid, 主人, 说话人 }) !== '') {
+      if (该先放下(配置, 目标, { 文字: 段.文字, 正文: 段.正文, 被叫原因: 本次被叫, uid, 主人, 说话人 }) !== '') {
         const 态 = 人的态度(配置, 目标, { uid, 主人 })
         if (态 === 'cold') 少理跳过 += 1
         else if (态 === 'quiet') 不主动跳过 += 1
@@ -10928,15 +10939,15 @@ export function apply(ctx) {
       // 旁听关掉时，没人叫她的消息连收都不收，省得占她的待看队列。
       if (!配置.社交.旁听 && 本次被叫 === '') continue
       // 群里的语气和反复出现的短说法从实际听到的消息里慢慢量；也只留几分钟在内存里，够复读用。
-      记近闻(目标, { id, at, uid, 说话人, 文字: 段.文字, 主人, 被叫原因: 本次被叫 })
-      记群语感(配置, 目标, { at, uid, 文字: 段.文字, 被叫原因: 本次被叫 })
+      记近闻(目标, { id, at, uid, 说话人, 文字: 段.正文, 主人, 被叫原因: 本次被叫 })
+      记群语感(配置, 目标, { at, uid, 文字: 段.正文, 被叫原因: 本次被叫 })
       // 别人两个人之间的对话、或者她不会的领域：不主动插话；她本人被直接叫到时例外。
       if (群 && (对别人说 || 不聊.length > 0) && !找她) {
         跳过插话 += 1
         // 对别人说的话她不接，但她一直在场：记进房间账本，后面聊到相关的事她能接上。
         if (不聊.length === 0) {
           并入社交缓冲(目标, [{
-            id, at, 说话人, uid, 主人, 文字: 段.文字.slice(0, 120), 对别人说: true,
+            id, at, 说话人, uid, 主人, 文字: 段.文字.slice(0, 120), 正文: 段.正文.slice(0, 120), 对别人说: true,
             被叫原因: 本次被叫, 图片: [], 回复id: 段.回复id || '',
           }])
         }
@@ -10966,12 +10977,12 @@ export function apply(ctx) {
         本轮图片 += 分镜们.length
         本轮视频 += 分镜们.length
       }
-      const 消息 = { id, at, 说话人, uid, 文字: 段.文字, 主人, 被叫原因: 本次被叫, 图片, 对别人说, 不聊, 回复id: 段.回复id || '' }
+      const 消息 = { id, at, 说话人, uid, 文字: 段.文字, 正文: 段.正文, 主人, 被叫原因: 本次被叫, 图片, 对别人说, 不聊, 回复id: 段.回复id || '' }
       // 群友/好友反复发的表情、常用场景配的表情，顺手收进 QQ 收藏；主人自己发的图不自动收。
-      await 试自动存表情(配置, 目标, 段.文字, 图片, 上一句)
+      await 试自动存表情(配置, 目标, 段.正文, 图片, 上一句)
       // 群消息里见过的收藏表情，记下它出现在什么场合：试自动存表情跑完后图片上已有收藏号
       if (配置.社交.学表情 && 目标.类型 === 'group') {
-        const 净文 = 净表情文字(段.文字)
+        const 净文 = 净表情文字(段.正文)
         const 当前场景 = 净文 === '' ? 判表情场景(上一句) : 判表情场景(净文)
         记表情场景观察(图片, 当前场景)
         // 场景数据攒够后，给通用标签的贴纸按主导场景改名；十分钟一次就够
@@ -13050,7 +13061,7 @@ export function apply(ctx) {
       const 文字 = 段.文字.length > 单条入站上限
         ? `${段.文字.slice(0, 单条入站上限)}…（这条太长，后面省略）`
         : 段.文字
-      return { 文字, 原始, 图片们: 段.图片们, 视频们: 段.视频们 }
+      return { 文字, 正文: 段.正文, 原始, 图片们: 段.图片们, 视频们: 段.视频们 }
     }
 
     /** 主人明确说“存这个 / 存下来 / 把 #3 改名叫…”时，不等她开口，先在进模型的这一轮落地。 */
@@ -13099,6 +13110,7 @@ export function apply(ctx) {
     if (配置.转私聊 && 配置.私聊QQ) {
       const 列表 = await 拉('get_friend_msg_history', { user_id: 她的号, count: 10 })
       const 新消息 = []
+      const 新消息正文 = []
       const 主人消息们 = []
       const 图片们 = []
       let 本轮图片 = 0
@@ -13113,11 +13125,13 @@ export function apply(ctx) {
         if (段.原始 !== '') 记主人最近消息(`private:${她的号}`, { id: String(条.message_id), 文字: 段.原始, at: Number(条.time) || 0 })
         if (段.文字) {
           新消息.push(段.文字)
+          if (段.正文 !== '') 新消息正文.push(段.正文)
           主人消息们.push({
             id: String(条.message_id || ''),
             uid: String(她的号),
             at: 条.time,
             文字: 段.文字,
+            正文: 段.正文,
             说话人: '主人',
             主人: true,
           })
@@ -13142,12 +13156,12 @@ export function apply(ctx) {
       if (新消息.length || 图片们.length) {
         // 转发里别人的图有说话人，不能当成主人发的；直接发进来的才算主人。
         for (const 图 of 图片们) if (!图.说话人) 图.主人 = true
-        const 收藏果 = await 按主人要求存(图片们, 新消息, `主人私聊:${她的号}`, 目标)
+        const 收藏果 = await 按主人要求存(图片们, 新消息正文, `主人私聊:${她的号}`, 目标)
         const 主人目标 = { key: `friend:${她的号}`, 类型: 'friend', 号: String(她的号), 叫: `好友 ${她的号}` }
         记一次风格(配置, 主人目标, 主人消息们)
         for (const m of 主人消息们) 记一次人见(配置, 主人目标, m)
         const 主人感受们 = 主人消息们
-          .map((m) => ({ id: m.id, ...判主人感受(m.文字) }))
+          .map((m) => ({ id: m.id, ...判主人感受(本人的话(m)) }))
           .filter((x) => x.类)
           .slice(-2)
         应用感受(配置, 主人目标, 主人消息们, 主人感受们)
@@ -13160,6 +13174,7 @@ export function apply(ctx) {
     if (配置.转群 && 配置.群号) {
       const 列表 = await 拉('get_group_msg_history', { group_id: Number(配置.群号), count: 30 })
       const 新消息 = []
+      const 新消息正文 = []
       const 图片们 = []
       let 本轮图片 = 0
       let 本轮视频 = 0
@@ -13172,6 +13187,7 @@ export function apply(ctx) {
         const 段 = await 条转文字(条)
         if (段.原始 !== '') 记主人最近消息(`group:${配置.群号}`, { id: String(条.message_id), 文字: 段.原始, at: Number(条.time) || 0 })
         if (段.文字) 新消息.push(段.文字)
+        if (段.正文 !== '') 新消息正文.push(段.正文)
         if (段.图片们.length > 0 && 本轮图片 < 图片单条上限) {
           const 存 = await 收QQ图片(段.图片们, 图片单条上限 - 本轮图片)
           图片们.push(...存)
@@ -13191,7 +13207,7 @@ export function apply(ctx) {
       }
       if (新消息.length || 图片们.length) {
         for (const 图 of 图片们) if (!图.说话人) 图.主人 = true
-        const 收藏果 = await 按主人要求存(图片们, 新消息, `主人群:${配置.群号}`, 目标)
+        const 收藏果 = await 按主人要求存(图片们, 新消息正文, `主人群:${配置.群号}`, 目标)
         await 转入文字(新消息.join('\n'), 目标, 图片们,
           [取表情落空(String(目标)), 收藏说明(收藏果)].filter(Boolean).join('\n'))
       }

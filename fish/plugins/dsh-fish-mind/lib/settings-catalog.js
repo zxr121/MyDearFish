@@ -204,7 +204,7 @@ export const SETTING_ITEMS = Object.freeze([
     minItems: 1,
     maxItems: 30,
     default: ['大肥鱼', '肥鱼'],
-    description: '群里文字出现这些词就等于在叫她；至少留一个。',
+    description: '群里她自己写的正文出现这些词就等于在叫她；引用和合并转发里的原文不算；至少留一个。',
   },
   {
     key: 'qq.interests',
