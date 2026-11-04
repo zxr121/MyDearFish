@@ -109,7 +109,7 @@ test('整条鱼能打包再读回，校验数量、身份、心情和人物志',
     now: 1_700_000_000_000,
   })
   assert.match(bundle.fileName, /^mydearfish-2023-11-1[45]\.zip$/)
-  assert.deepEqual(bundle.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1, configs: 3 })
+  assert.deepEqual(bundle.counts, { experiences: 1, facts: 1, commitments: 0, moodPoints: 1, people: 1, configs: 3 })
 
   const parsed = parseFishArchive(bundle.buffer)
   assert.equal(parsed.identity.name, '小鲸')
@@ -278,7 +278,7 @@ test('导入到空鱼：验包、暂存、重启时应用、备份并写回事�
   const staged = stageFishImport({ dir, buffer: bundle.buffer, now: 5000 })
   assert.equal(staged.ok, true)
   assert.equal(staged.pending, true)
-  assert.deepEqual(staged.counts, { experiences: 1, facts: 1, moodPoints: 1, people: 1, configs: 3 })
+  assert.deepEqual(staged.counts, { experiences: 1, facts: 1, commitments: 0, moodPoints: 1, people: 1, configs: 3 })
   assert.equal(importIsPending(dir), true)
   assert.equal(existsSync(join(dir, 'experience.jsonl')), false)
 
@@ -301,6 +301,43 @@ test('导入到空鱼：验包、暂存、重启时应用、备份并写回事�
   assert.equal(store.listFacts(5)[0].object, '鲸鱼')
   assert.equal(existsSync(join(dir, 'import-facts.json')), false)
   assert.equal(readImportReport(dir).factsApplied, 1)
+  store.close()
+})
+
+test('承诺记忆跟着记忆包迁移，导入后重新可召回', () => {
+  const source = writeSource()
+  const created = source.store.commitMemory({
+    text: '我对芒果过敏',
+    askerKey: '1001',
+    roomKey: 'group:2002',
+  })
+  assert.equal(created.ok, true)
+  const bundle = buildFishArchive({
+    dir: source.dir,
+    dshHome: source.home,
+    store: source.store,
+    identity: source.identity,
+  })
+  assert.equal(bundle.counts.commitments, 1)
+  const parsed = parseFishArchive(bundle.buffer)
+  assert.equal(parsed.commitments.length, 1)
+  assert.equal(parsed.commitments[0].text, '我对芒果过敏')
+  source.store.close()
+
+  const home = mkdtempSync(join(tmpdir(), 'fish-archive-commit-'))
+  const dir = join(home, 'fish-mind')
+  mkdirSync(dir, { recursive: true })
+  const staged = stageFishImport({ dir, buffer: bundle.buffer, now: 6000 })
+  assert.equal(staged.counts.commitments, 1)
+  const report = applyPendingImport({ dir, dshHome: home })
+  assert.equal(report.ok, true)
+  assert.equal(report.counts.commitments, 1)
+  assert.equal(existsSync(join(dir, 'commitments.jsonl')), true)
+
+  const store = openStore({ dir, config: buildDefaults(home), diag: () => {} })
+  const recalled = store.recallCommitments({ roomKey: 'group:2002', viewerKey: '1001' })
+  assert.equal(recalled.items.length, 1)
+  assert.equal(recalled.items[0].text, '我对芒果过敏')
   store.close()
 })
 

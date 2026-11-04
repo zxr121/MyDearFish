@@ -37,6 +37,15 @@ function text(value, max) {
   return typeof value === 'string' ? maskContacts(value.replace(/\s+/g, ' ').trim()).slice(0, max) : ''
 }
 
+function roomKind(roomKey) {
+  const key = typeof roomKey === 'string' ? roomKey : ''
+  if (key === 'owner') return '桌面'
+  if (key.startsWith('private:')) return '主人私聊'
+  if (key.startsWith('group:')) return '群聊'
+  if (key.startsWith('friend:')) return '好友私聊'
+  return ''
+}
+
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
@@ -329,6 +338,19 @@ function memoryOverview(store, now) {
     confidence: number(relation.confidence),
     validFrom: number(relation.validFrom),
   }))
+  const commitmentStats = typeof store.commitmentStats === 'function'
+    ? store.commitmentStats()
+    : { total: 0, active: 0, verified: 0, secret: 0, lastAt: 0 }
+  const recentCommitments = (typeof store.listCommitments === 'function' ? store.listCommitments(20) : [])
+    .map((item) => ({
+      id: text(item.id, 80),
+      text: text(item.text, 240),
+      at: number(item.at),
+      room: roomKind(item.roomKey),
+      visibility: item.visibility === 'secret' ? 'secret' : 'global',
+      verified: item.verified === true,
+      askerName: text(item.askerName, 60),
+    }))
   return {
     total: number(stats.total),
     today: typeof store.countToday === 'function' ? number(store.countToday()) : 0,
@@ -337,6 +359,15 @@ function memoryOverview(store, now) {
     chapters: number(stats.chapters),
     relations: number(stats.relations),
     facts: number(stats.facts),
+    commitments: number(commitmentStats.active),
+    commitmentStats: {
+      total: number(commitmentStats.total),
+      active: number(commitmentStats.active),
+      verified: number(commitmentStats.verified),
+      secret: number(commitmentStats.secret),
+      lastAt: number(commitmentStats.lastAt),
+    },
+    recentCommitments,
     runs: number(stats.runs),
     lastEpisodeAt: number(stats.lastEpisodeAt),
     lastChapterAt: number(stats.lastChapterAt),

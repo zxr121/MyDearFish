@@ -46,6 +46,9 @@ export function fakeContext() {
       for (const handler of handlers.get(event) || []) result = await handler(...args)
       return result
     },
+    listeners(event) {
+      return [...(handlers.get(event) || [])]
+    },
     dispose() {
       for (const dispose of disposers.reverse()) {
         try {

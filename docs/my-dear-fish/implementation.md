@@ -48,7 +48,7 @@ Everything observed becomes an experience: user messages, her own replies, QQ tr
 
 Three read levels separate directory, summary, and verbatim text: `recall` answers with evidence and episode ids, `open_chapter` expands a day/week/month chapter directory by id, and `open_episode` opens one episode's verbatim text with a `nextOffset` cursor for paging. The split is deliberate — full text is archived to `archiveChars` while indexes and recall read only the first `maxTextChars`, so one oversized paste never slows the hot path. Detail: [cognition — data model](cognition.md) and [fish-mind README](../../fish/plugins/dsh-fish-mind/README.md).
 
-There is no conversational write path into memory. `observe` is the only mutation the service exposes, `remember` and `forget` do not exist as tools, and facts, self-model, and relationships are produced by internal consolidation. To see or delete what she remembers, the user opens or removes files under `$DSH_HOME/fish-mind/`.
+There is no free-form conversational write path into memory. `observe` remains the only experience mutation, and `remember` and `forget` do not exist as tools. One narrow exception is an explicit commitment: when someone asks her to remember a specific thing, the host writes a `commitments` row synchronously and reads it back, and she may say "记住了" only with a verified receipt. Facts, self-model, and relationships are still produced by internal consolidation. To see or delete what she remembers, the user opens or removes files under `$DSH_HOME/fish-mind/`.
 
 ## Cost is paid while forming, then gets cheap
 
@@ -68,6 +68,6 @@ The brain observes before it speaks. Shadow mode records and encodes with zero p
 
 - Global memory over per-session memory gives one coherent person across QQ, desktop, and Bilibili; the price is cross-context leakage, paid back by scoping social-session recall to that room only.
 - Plaintext files and one SQLite database make inspection and deletion a file operation for the user; the price is no encryption at rest.
-- Refusing a chat-driven write path keeps memory integrity — nobody can prompt a memory into existence; the price is that "remember this" only works by talking about it.
+- Refusing a free-form chat-driven write path keeps memory integrity — nobody can prompt a memory into existence. The one narrow exception is an explicit commitment: it is written and read back before she may say she remembered, so "remember this" is no longer an empty promise.
 - Shipping prebuilt `lib` JavaScript keeps the fork free of a plugin build pipeline; the price is hand-maintained entries.
 - Persona in an overridable layer, birth identity in owner settings, and the fixed safety kernel in code let owners retune tone, name, species, and appearance without source edits while the fixed rules stay intact.

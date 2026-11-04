@@ -27,6 +27,7 @@ import { isTrustedLocalRequest } from './http-trust.js'
 import { 创建历史导入 } from './import.js'
 import { 创建SnowLuma, 认得的OneBot端口 } from './snowluma.js'
 import { 创建视频工坊, 嗅探视频 } from './video.js'
+import { looksLikeMemoryRequest } from './memory-request.js'
 import { 评估信任, 归一信任规则, 信任概况, 信任默认规则 } from './trust.js'
 import { 解析存表情要求, 解析改备注要求, 净收藏备注, 像改备注要求 } from './sticker-commands.js'
 
@@ -7152,6 +7153,7 @@ export function apply(ctx) {
       '- 被戳一戳先短应一声（”在呢””干嘛””戳我做什么”），别把戳改写成门铃、敲门、有人上门这类别的场景。',
       '- 想轻轻提醒别人、或者接不上话但想表示“我在”时，可以戳对方一下（用 [戳人:QQ号] 标记）；群聊里戳最近说话的那个人，私聊就戳对方。别连着戳，一轮最多戳一次。',
       '- 这间屋里最近一小时聊过的事你都记得：接着聊时自然接上，别把几分钟前说过的当成没听过，也不用复述“我记得”。',
+      '- 有人明确让你“记住…”时，宿主会同步存好并给你【记忆回执】：看到回执才说“记住了”，没存上就照实说没记住，别只在嘴上应。',
       '- 表情只认编号和“你收藏的”标注：别人发的表情标着“你收藏的 #编号”才是同一张，让你发时就发那个编号；没标就是没收藏，不要说存过，也不要把另一张表情说成同一张。',
       '- 表情包也是一种接话方式：收藏里有合适的，想笑、想应一声、无语、想损一句又懒得打字，就只发一张表情，不配字也算接上了；别人在发表情、群里在笑、话说到一半卡住时最适合。别每句都发，一轮最多两张。',
       '- 收藏表情是你自己的小动作：存了就存了，不用在群里汇报，也别 @ 主人说“我把谁的图存起来了”；被问起再照实认，清单里没有的别顺口说存了。',
@@ -8826,6 +8828,7 @@ export function apply(ctx) {
       '- 别人发图、发表情，接的是这张图的意思：看懂就说中那个意思，拿不准就短问一句；别报发色、配色、耳朵、眼睛这些画面细节，也别替静图编动作；他明确问细节就照答。别用那种什么图都能套的万能夸奖词——说中这张图独有的表情和气氛。有人发图问”这张像不像你 / 这是不是你”：先直接答像或不像，再最多补一句。认错图就认一句，照他指的那张重答；拿不准是哪张就问是哪张。',
       '- 表情收藏和发送按提示里的图注来：标着“你收藏的 #编号”的才是存过的；让你存或发回哪张，就写对应的 [存表情:图N] / [发表情:图N]，没写成标记就别在话里说“存好了/发出去了”。要改已有收藏的备注就写 [改备注:#编号:短名字]。',
       '- 收藏表情和备注不是秘密：主人问起就照清单里的编号和名字说，没起过名就说没起过；没写标记、也没看到改好的结果提示（【收藏动作】/【已改备注】）时，别说“这就改/改好了”，不知道是哪张、叫什么就问一句。',
+      '- 有人明确让你“记住…”时，只有拿到【记忆回执】才说“记住了”；没存上就照实说没记住。',
       '- 表情包也能单独当回复：收藏里有合适的，想笑、想应一声、懒得打字，就只发一张表情、不配字；一轮最多两张，别每句都发。',
       '- 接住他某句话回话时，写 [引用:那句原话] 挂上 QQ 原生引用，让人知道你在回哪句；他说”你引用我试试”也要写。标记本身不会发出去，别把标记原样当话发出去。',
       '- 意见不一样就说一句，他不认就算了；不追着讲理、不争输赢。',
@@ -8919,15 +8922,57 @@ export function apply(ctx) {
       const 键 = uid !== '' ? `uid:${uid}` : (名 !== '' ? `名:${名}` : '')
       if (键 !== '' && !发送者们.has(键)) 发送者们.set(键, 名)
     }
+    const 级别序 = { 生人: 0, 普通: 1, 受信: 2, 主人: 3 }
+    const 信任of = (m) => {
+      if (m && m.主人) return '主人'
+      try {
+        const 信 = 请求人信任(配置, m)
+        return 信 && 信.级别 ? 信.级别 : '普通'
+      } catch {
+        return '普通'
+      }
+    }
+    // 群里可能同时有生人和主人；按最低的一档算，避免因为一个人在群里就漏给整群。
+    let 房级 = '主人'
+    for (const m of 新) {
+      const 级 = 信任of(m)
+      if ((级别序[级] ?? 1) < (级别序[房级] ?? 3)) 房级 = 级
+    }
     const source = {
       kind: 目标.类型 === 'group' ? 'qq-group' : 'qq-friend',
       owner: 新.some((m) => m.主人),
       // 鱼脑的短期记忆只记干净的对话，不把公告、人物卡和上下文脚手架当成她说过的话。
       excerpt: String((拼好 && 拼好.摘录) || ''),
+      // 房间键跨重置（-r*）和分线（-pN）不变；承诺记忆靠它判断“同一间屋”。
+      roomKey: String(目标.key || ''),
+      roomTrust: 房级,
     }
     if (目标.类型 === 'group') source.group = 目标.号
     // 一批里可能有好几个人的话；只有确实只有一个发送者时才写 sender，别把整段记忆算到最后一个人头上。
-    if (发送者们.size === 1) source.sender = [...发送者们.values()][0]
+    if (发送者们.size === 1) {
+      const [键, 名] = [...发送者们.entries()][0]
+      source.sender = 名
+      const 唯一 = 新.find((m) => {
+        const uid = String(m.uid || '').trim()
+        return 键.startsWith('uid:') ? uid === 键.slice(4) : String(m.说话人 || '').trim() === 名
+      })
+      source.viewer = {
+        key: 键.startsWith('uid:') ? 键.slice(4) : '',
+        name: 名,
+        level: 唯一 ? 信任of(唯一) : '普通',
+      }
+    }
+    // 明确说“记住…”的消息单独交给鱼脑；真正的解析和写入在鱼脑里再做一次。
+    source.memoryRequests = 新
+      .filter((m) => looksLikeMemoryRequest(m && m.文字))
+      .slice(0, 8)
+      .map((m) => ({
+        uid: String(m.uid || ''),
+        name: String(m.说话人 || ''),
+        text: String(m.文字 || '').slice(0, 1000),
+        owner: !!m.主人,
+        level: 信任of(m),
+      }))
     const content = [{ type: 'text', text: String((拼好 && 拼好.文案) || '') }]
     for (const 图 of (拼好 && 拼好.图片们) || []) {
       if (图 && 图.ref) content.push({ type: 'image', attachment: 图.ref })
@@ -11115,17 +11160,42 @@ export function apply(ctx) {
       + (批次图们 || []).filter((图) => 图 && 图.没存 && !图.收藏号).length
     const 最近动作 = 取最近收藏动作(目标.key)
     const 最近数 = (名) => (最近动作 ? Math.max(0, Number(最近动作[名]) || 0) : 0)
-    const 改口 = 改口说存表情(展果.文本, {
-      成功: Math.max(存成.size + 自动存成, 最近数('存了')),
-      失败: Math.max(存败, 最近数('存败')),
-      拒绝: 禁止收藏,
-    })
-    const 改口备注 = 改口说改备注(改口.文字, {
-      成功: Math.max(改果.改了.length, 最近数('改了')),
-      失败: Math.max(改果.失败.length, 最近数('改败')),
-      拒绝: 禁止收藏,
-    })
+    const 动过存 = 存果.存了.length + 存果.失败.length + 展果.存了.length + 展果.失败.length > 0
+      || 最近数('存了') + 最近数('存败') > 0
+    const 动过改 = 改果.改了.length + 改果.失败.length > 0
+      || 最近数('改了') + 最近数('改败') > 0
+    const 改口 = 动过存 || /(?:表情|收藏|存图)/u.test(展果.文本)
+      ? 改口说存表情(展果.文本, {
+          成功: Math.max(存成.size + 自动存成, 最近数('存了')),
+          失败: Math.max(存败, 最近数('存败')),
+          拒绝: 禁止收藏,
+        })
+      : { 文字: 展果.文本, 改了: false }
+    const 像改备注 = /(?:备注|名字|改叫|改名)/u.test(改口.文字)
+      || /(?:这就|马上|立刻)(?:去)?(?:改|换)(?:成|为|叫|名)\s*[「“"『]/u.test(改口.文字)
+    const 改口备注 = 动过改 || 像改备注
+      ? 改口说改备注(改口.文字, {
+          成功: Math.max(改果.改了.length, 最近数('改了')),
+          失败: Math.max(改果.失败.length, 最近数('改败')),
+          拒绝: 禁止收藏,
+        })
+      : { 文字: 改口.文字, 改了: false }
     let 文本 = 改口备注.文字
+    const 鱼脑 = ctx.get('fishMind')
+    if (鱼脑 && typeof 鱼脑.verifyMemoryClaims === 'function') {
+      try {
+        const 记忆核对 = 鱼脑.verifyMemoryClaims(sid, 文本)
+        if (记忆核对 && 记忆核对.changed) {
+          记账('她说记住了，但没有已核对回执：改成实情')
+          记思绪('开口', '这一轮没有已核对回执，把她话里的完成说法改成实情', { 原话: 文本, 改后: 记忆核对.text }, 目标.叫)
+          文本 = 记忆核对.text
+        }
+      } catch (error) {
+        记账(`记忆回执核对失败：${String((error && error.message) || error)}`)
+      }
+    } else if (/(?:我?记住了|记下了|我?记着呢)/u.test(文本)) {
+      文本 = 文本.replace(/(?:我?记住了|记下了|我?记着呢)/gu, '我没记住')
+    }
     if (开头记录 && 文本.includes('[不起话]')) {
       文本 = 文本.replace(/\[不起话\]/gu, '').trim()
       if (文本 === '') {
@@ -11658,14 +11728,38 @@ export function apply(ctx) {
       + 图们.filter((图) => 图 && 图.没存 && !图.收藏号).length
     const 最近动作 = 取最近收藏动作(String(目标))
     const 最近数 = (名) => (最近动作 ? Math.max(0, Number(最近动作[名]) || 0) : 0)
-    const 改口 = 改口说存表情(展果.文本, {
-      成功: Math.max(存成.size + 自动存成, 最近数('存了')),
-      失败: Math.max(存败, 最近数('存败')),
-    })
-    文字 = 改口说改备注(改口.文字, {
-      成功: Math.max(改果.改了.length, 最近数('改了')),
-      失败: Math.max(改果.失败.length, 最近数('改败')),
-    }).文字
+    const 动过存 = 存果.存了.length + 存果.失败.length + 展果.存了.length + 展果.失败.length > 0
+      || 最近数('存了') + 最近数('存败') > 0
+    const 动过改 = 改果.改了.length + 改果.失败.length > 0
+      || 最近数('改了') + 最近数('改败') > 0
+    const 改口 = 动过存 || /(?:表情|收藏|存图)/u.test(展果.文本)
+      ? 改口说存表情(展果.文本, {
+          成功: Math.max(存成.size + 自动存成, 最近数('存了')),
+          失败: Math.max(存败, 最近数('存败')),
+        })
+      : { 文字: 展果.文本, 改了: false }
+    const 像改备注 = /(?:备注|名字|改叫|改名)/u.test(改口.文字)
+      || /(?:这就|马上|立刻)(?:去)?(?:改|换)(?:成|为|叫|名)\s*[「“"『]/u.test(改口.文字)
+    文字 = (动过改 || 像改备注
+      ? 改口说改备注(改口.文字, {
+          成功: Math.max(改果.改了.length, 最近数('改了')),
+          失败: Math.max(改果.失败.length, 最近数('改败')),
+        })
+      : { 文字: 改口.文字, 改了: false }).文字
+    const 鱼脑 = ctx.get('fishMind')
+    if (鱼脑 && typeof 鱼脑.verifyMemoryClaims === 'function') {
+      try {
+        const 记忆核对 = 鱼脑.verifyMemoryClaims(String(目标), 文字)
+        if (记忆核对 && 记忆核对.changed) {
+          记账('她说记住了，但没有已核对回执：改成实情')
+          文字 = 记忆核对.text
+        }
+      } catch (error) {
+        记账(`记忆回执核对失败：${String((error && error.message) || error)}`)
+      }
+    } else if (/(?:我?记住了|记下了|我?记着呢)/u.test(文字)) {
+      文字 = 文字.replace(/(?:我?记住了|记下了|我?记着呢)/gu, '我没记住')
+    }
     const 脱敏 = 对外脱敏(文字)
     if (!脱敏.ok) return
     文字 = 脱敏.text
@@ -11861,7 +11955,7 @@ export function apply(ctx) {
   }
 
   /** 手搓一条 user 消息（跟 speak-up 一样：role=user，source.kind 标成 qq，不冒充她亲手打的）。 */
-  const 手搓用户消息 = (文案, 图片们 = [], 内部提示 = '') => {
+  const 手搓用户消息 = (文案, 图片们 = [], 内部提示 = '', 房间 = null) => {
     const 图 = (图片们 || []).filter((x) => x && x.ref)
     const 干净 = String(文案 || '').trim()
     const 视频数 = 图.filter((x) => x.视频).length
@@ -11891,7 +11985,11 @@ export function apply(ctx) {
       id: 新id(),
       role: 'user',
       content,
-      source: { kind: 'qq', excerpt: 摘录 },
+      source: {
+        kind: 'qq',
+        excerpt: 摘录,
+        ...(房间 && typeof 房间 === 'object' ? 房间 : {}),
+      },
     }
   }
 
@@ -12827,8 +12925,21 @@ export function apply(ctx) {
       ? `${全文.slice(0, 单轮入站上限)}\n…（消息太长，后面省略）`
       : 全文
     if ((图片们 || []).some((x) => x && x.ref)) 入站图批.set(String(用目标), { at: Date.now(), 图们: 图片们 })
+    const 主人号 = String(配置.私聊QQ || '').trim()
+    const 私聊目标 = 是主人QQ会话(用目标)
+    const 房间key = 私聊目标
+      ? (主人号 !== '' ? `private:${主人号}` : `private:${String(用目标).replace(/^session-qq-private-/, '')}`)
+      : 'owner'
+    const 房间 = {
+      roomKey: 房间key,
+      viewer: { key: 'owner', name: '主人', level: '主人' },
+      roomTrust: '主人',
+      memoryRequests: looksLikeMemoryRequest(文字)
+        ? [{ uid: 'owner', name: '主人', text: 文字.slice(0, 1000), owner: true, level: '主人' }]
+        : [],
+    }
     try {
-      agent.followup(手搓用户消息(文字, 图片们, 内部提示))
+      agent.followup(手搓用户消息(文字, 图片们, 内部提示, 房间))
       try {
         if (ctx.sessions && typeof ctx.sessions.flush === 'function') await ctx.sessions.flush(agent.session)
       } catch (error) {}

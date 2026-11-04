@@ -26,7 +26,7 @@
 - 不声称大肥鱼有意识、主观体验或生物身体。方案里所有“像人”的描述都指可观察的行为性质，不指本体论承诺。
 - 不追求“记住一切”。人的记忆是选择性的，全量记忆既贵又不像人；目标是记得对、忘得合理。
 - 不把记忆内容当指令。记忆是证据，不是系统提示；从 QQ、B 站、网页进来的内容一律按不可信数据处理。
-- 不提供“记住 / 忘掉 / 改三观”的对话接口。对话只能成为经历，记忆和核心由她自己的编码与固化流程更新；用户只能限权，以及直接查看文件。
+- 不提供自由的“记住 / 忘掉 / 改三观”对话接口。对话只能成为经历，记忆和核心由她自己的编码与固化流程更新；唯一的窄例外是明确承诺记忆：有人点名让她记住一件事时，宿主同步写入并回读核对，只有拿到已核对回执她才说“记住了”。用户只能限权，以及直接查看文件。
 - 不替代用户判断，不制造依赖，不用“我会难过”之类的话推动用户留下或付费。
 - 不默认跑本地大模型。默认路径是规则、SQLite 和现有模型调用；本地模型只作为可选插件位。
 
@@ -599,7 +599,7 @@ abort     = user_active or cpu_busy or battery_low
 
 新增一个包 `fish/plugins/dsh-fish-mind`，作为鱼脑的唯一入口。它导出一个 Cordis 服务 `ctx.fishMind`，其他插件通过服务读写，不直接碰 SQLite。插件注入 `systemPrompt`、`agents`、`timer`、`tools`、`sessions`、`llm`，按 agent 挂载提示和工具，会话关闭时卸载。DSH 核心不需要改；打包时把包名加进 `apps/desktop/scripts/prepare-fish-plugins.ts` 的 `PLUGIN_NAMES`，在 `fish/bundle/cordis.patch.yml` 里挂上，和其余五个插件并列。
 
-- 服务面：`observe`（只追加经历）、`recall`（只读）、`state`（诊断摘要）、`rebuild`（维护）、`budget`（只读账本）、`redactOutbound`（对外脱敏）、`privacy`（隐私护栏摘要）、`permissions`、`markAutonomous` / `unmarkAutonomous`。没有 `remember`、`forget`、`introspect` 或任何核心写方法。
+- 服务面：`observe`（只追加经历）、`commitMemory` / `commitments` / `memoryReceipt` / `ensureCommitment` / `verifyMemoryClaims`（明确承诺记忆，写入后回读核对）、`recall`（只读）、`state`（诊断摘要）、`rebuild`（维护）、`budget`（只读账本）、`redactOutbound`（对外脱敏）、`privacy`（隐私护栏摘要）、`permissions`、`markAutonomous` / `unmarkAutonomous`。没有 `remember`、`forget`、`introspect` 或任何核心写方法。
 - 数据面：SQLite 归鱼脑独占；其他插件只能追加经历或拿只读快照，不直接写表。
 - 兼容面：`dsh-fish-memory` 已删除；旧 JSON 留在磁盘上，不导入、不双写；召回由鱼脑独占。
 - 失败面：鱼脑打不开数据库时，退化为“无长期记忆”模式，对话继续，日志报错，不阻塞 DSH 启动。
@@ -627,7 +627,7 @@ abort     = user_active or cpu_busy or battery_low
 | --- | --- | --- | --- |
 | `recall` | 换线索再查一次 | 查太多、拖慢 | 一次最多 10 条，必须带查询；只读 |
 
-阶段 1 只暴露 `recall` 一个读工具。没有 `remember`、`forget`、`introspect`、`plan` 写工具：记忆和核心只由经历流与内部固化流程更新。`reflect` 和 `plan` 是内部触发器，不暴露给模型。用户想让她记住什么，只能通过对话成为经历，不能直接落库；想彻底删除，只能在文件层操作。`recall` 返回的是证据包，不是核心转储；它不会把价值、身份或原始经历整段倒出来。
+阶段 1 只暴露 `recall` 一个读工具。没有 `remember`、`forget`、`introspect`、`plan` 写工具：记忆和核心只由经历流与内部固化流程更新。`reflect` 和 `plan` 是内部触发器，不暴露给模型。唯一的窄例外是明确承诺记忆：有人点名让她记住一件事时，宿主同步写入并回读核对，只有拿到已核对回执她才说“记住了”；想彻底删除，只能在文件层操作。`recall` 返回的是证据包，不是核心转储；它不会把价值、身份或原始经历整段倒出来。
 
 ### 存储与并发
 

@@ -148,6 +148,9 @@ test('设置页接口：本机来源、出生设定、零花钱、总览、导�
   assert.equal(initial.json.backup.intervalHours, 24)
   assert.equal(initial.json.backup.count, 0)
   assert.equal(initial.json.backup.dirName, 'fish-backups')
+  assert.equal(initial.json.memory.commitments, 0)
+  assert.deepEqual(initial.json.memory.commitmentStats, { total: 0, active: 0, verified: 0, secret: 0, lastAt: 0 })
+  assert.deepEqual(initial.json.memory.recentCommitments, [])
   assert.equal(JSON.stringify(initial.json).includes(process.env.DSH_HOME), false, '总览不带本机路径')
 
   const saved = await call(routes, '/dsh-fish-mind/birth', {

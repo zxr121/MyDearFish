@@ -43,6 +43,7 @@ const MAX_EXPERIENCES = 500000
 const MAX_FACTS = 20000
 const MAX_PEOPLE = 300
 const MAX_PEOPLE_BYTES = 4 * 1024 * 1024
+const MAX_COMMITMENTS = 5000
 const MAX_MOOD_POINTS = 5000
 const MAX_LINE_CHARS = 2_000_000
 const MAX_REASON_CHARS = 500
@@ -216,6 +217,58 @@ function parseFactsDocument(raw, warnings = []) {
   }
   if (skipped > 0) warnings.push(`长期事实里有 ${skipped} 条不完整，已跳过`)
   return facts
+}
+
+function parseCommitmentsDocument(raw, warnings = []) {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) {
+    warnings.push('承诺记忆不是数组，这次没有带进包里')
+    return []
+  }
+  if (raw.length > MAX_COMMITMENTS) {
+    warnings.push(`承诺记忆超过 ${MAX_COMMITMENTS} 条，只带前 ${MAX_COMMITMENTS} 条`)
+  }
+  const out = []
+  const seen = new Set()
+  let skipped = 0
+  for (const item of raw.slice(0, MAX_COMMITMENTS)) {
+    if (!isPlainObject(item)) {
+      skipped += 1
+      continue
+    }
+    const id = cleanText(item.id, 80).trim()
+    const text = cleanText(item.text, 400).replace(/\s+/g, ' ').trim()
+    const askerKey = cleanText(item.askerKey, 64).trim()
+    const roomKey = cleanText(item.roomKey, 64).trim()
+    if (id === '' || text === '' || askerKey === '' || roomKey === '') {
+      skipped += 1
+      continue
+    }
+    if (seen.has(id)) continue
+    seen.add(id)
+    const at = finite(item.at)
+    out.push({
+      v: 1,
+      op: 'put',
+      id,
+      text,
+      askerKey,
+      askerName: cleanText(item.askerName, 60),
+      subjectKey: cleanText(item.subjectKey, 64) || askerKey,
+      roomKey,
+      visibility: item.visibility === 'secret' ? 'secret' : 'global',
+      at: at === null ? Date.now() : Number(at),
+      sourceExperienceId: finite(item.sourceExperienceId) === null ? null : Number(item.sourceExperienceId),
+      verified: true,
+      meta: {},
+    })
+  }
+  if (skipped > 0) warnings.push(`承诺记忆里有 ${skipped} 条不完整，已跳过`)
+  return out
+}
+
+function commitmentsLogText(items) {
+  return items.map((item) => JSON.stringify(item)).join('\n') + (items.length > 0 ? '\n' : '')
 }
 
 function parseMoodDocument(raw, warnings = []) {
@@ -398,6 +451,12 @@ export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion 
   } else {
     warnings.push('检索库没有提供事实导出，长期事实这次没有带进包里')
   }
+  let commitments = []
+  if (store && typeof store.listCommitments === 'function') {
+    commitments = parseCommitmentsDocument(store.listCommitments(MAX_COMMITMENTS), warnings)
+  } else {
+    warnings.push('检索库没有提供承诺记忆导出，承诺记忆这次没有带进包里')
+  }
   const mood = readMoodFile(dshHome, warnings)
   const people = readPeopleFile(dshHome, warnings)
   const working = readWorkingFile(dir)
@@ -410,7 +469,8 @@ export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion 
     { name: 'memory/experience.jsonl', data: experience.text },
     {
       name: 'memory/facts.json',
-      data: JSON.stringify({ format: 'mydearfish.facts', version: 1, facts }, null, 2) + '\n',
+      // 承诺记忆放在 facts 文件的附加键里：旧版导入器只读 facts，会忽略它，不会拒绝整包。
+      data: JSON.stringify({ format: 'mydearfish.facts', version: 1, facts, commitments }, null, 2) + '\n',
     },
   ]
   if (working !== null) {
@@ -435,6 +495,7 @@ export function buildFishArchive({ dir, dshHome, store, identity, pluginVersion 
   const counts = {
     experiences: experience.records.length,
     facts: facts.length,
+    commitments: commitments.length,
     moodPoints: mood === null ? 0 : mood.timeline.length,
     people: people === null ? 0 : Object.keys(people).length,
     configs: configs === null ? 0 : Object.keys(configs.files).length,
@@ -536,6 +597,7 @@ export function parseFishArchive(buffer) {
     throw bad('长期事实文件不是合法 JSON')
   }
   const facts = parseFactsDocument(factsRaw, warnings)
+  const commitments = parseCommitmentsDocument(factsRaw.commitments, warnings)
 
   let mood = null
   if (entries.has('mood.json')) {
@@ -568,6 +630,9 @@ export function parseFishArchive(buffer) {
 
   sameCount(manifest, 'experiences', experience.length)
   sameCount(manifest, 'facts', facts.length)
+  if (finite(isPlainObject(manifest.counts) ? manifest.counts.commitments : null) !== null) {
+    sameCount(manifest, 'commitments', commitments.length)
+  }
   sameCount(manifest, 'moodPoints', mood === null ? 0 : mood.timeline.length)
   sameCount(manifest, 'people', people === null ? 0 : Object.keys(people).length)
 
@@ -579,6 +644,8 @@ export function parseFishArchive(buffer) {
     experience,
     experienceText: experience.map((record) => JSON.stringify(record)).join('\n') + (experience.length > 0 ? '\n' : ''),
     facts,
+    commitments,
+    commitmentsText: commitmentsLogText(commitments),
     mood,
     people,
     working,
@@ -668,6 +735,23 @@ function readStaged(dir) {
     throw bad('暂存的长期事实不是合法 JSON')
   }
   const facts = parseFactsDocument(factsRaw, warnings)
+  let commitments = []
+  const stagedCommitmentsText = read('memory/commitments.jsonl')
+  if (stagedCommitmentsText !== null && stagedCommitmentsText.trim() !== '') {
+    const items = []
+    for (const line of stagedCommitmentsText.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const entry = JSON.parse(line)
+        if (entry && entry.op === 'put') items.push(entry)
+      } catch {
+        warnings.push('暂存的承诺记忆有一行解析不了，已跳过')
+      }
+    }
+    commitments = parseCommitmentsDocument(items, warnings)
+  } else {
+    commitments = parseCommitmentsDocument(factsRaw.commitments, warnings)
+  }
   let mood = null
   const moodText = read('mood.json')
   if (moodText !== null) {
@@ -697,6 +781,9 @@ function readStaged(dir) {
   }
   sameCount(manifest, 'experiences', experience.length)
   sameCount(manifest, 'facts', facts.length)
+  if (finite(isPlainObject(manifest.counts) ? manifest.counts.commitments : null) !== null) {
+    sameCount(manifest, 'commitments', commitments.length)
+  }
   sameCount(manifest, 'moodPoints', mood === null ? 0 : mood.timeline.length)
   sameCount(manifest, 'people', people === null ? 0 : Object.keys(people).length)
   let applyState = null
@@ -715,6 +802,8 @@ function readStaged(dir) {
     experience,
     experienceText: experience.map((record) => JSON.stringify(record)).join('\n') + (experience.length > 0 ? '\n' : ''),
     facts,
+    commitments,
+    commitmentsText: commitmentsLogText(commitments),
     mood,
     people,
     working,
@@ -739,7 +828,13 @@ export function stageFishImport({ dir, buffer, now = Date.now() }) {
     writeFileSync(join(temp, 'identity.json'), parsed.identityText)
     mkdirSync(join(temp, 'memory'), { recursive: true })
     writeFileSync(join(temp, 'memory', 'experience.jsonl'), parsed.experienceText)
-    writeFileSync(join(temp, 'memory', 'facts.json'), JSON.stringify({ format: 'mydearfish.facts', version: 1, facts: parsed.facts }, null, 2) + '\n')
+    writeFileSync(join(temp, 'memory', 'commitments.jsonl'), parsed.commitmentsText)
+    writeFileSync(join(temp, 'memory', 'facts.json'), JSON.stringify({
+      format: 'mydearfish.facts',
+      version: 1,
+      facts: parsed.facts,
+      commitments: parsed.commitments,
+    }, null, 2) + '\n')
     if (parsed.working !== null) {
       writeFileSync(join(temp, 'memory', 'working.json'), JSON.stringify({ format: 'mydearfish.working', version: 1, ...parsed.working }, null, 2) + '\n')
     }
@@ -763,6 +858,7 @@ export function stageFishImport({ dir, buffer, now = Date.now() }) {
     counts: {
       experiences: parsed.experience.length,
       facts: parsed.facts.length,
+      commitments: parsed.commitments.length,
       moodPoints: parsed.mood === null ? 0 : parsed.mood.timeline.length,
       people: parsed.people === null ? 0 : Object.keys(parsed.people).length,
       configs: parsed.configs === null ? 0 : Object.keys(parsed.configs.files).length,
@@ -774,6 +870,7 @@ export function stageFishImport({ dir, buffer, now = Date.now() }) {
 function backupFiles({ dir, dshHome, backup }) {
   mkdirSync(backup, { recursive: true })
   copyIfExists(join(dir, 'experience.jsonl'), join(backup, 'experience.jsonl'), '经历流')
+  copyIfExists(join(dir, 'commitments.jsonl'), join(backup, 'commitments.jsonl'), '承诺记忆')
   copyIfExists(join(dir, 'identity.json'), join(backup, 'identity.json'), '出生设定')
   copyIfExists(join(dir, 'working.json'), join(backup, 'working.json'), '短期提炼水位')
   copyIfExists(join(dir, 'inner-life.json'), join(backup, 'inner-life.json'), '内心层水位')
@@ -798,6 +895,11 @@ function applyStaged({ dir, dshHome, staged, backup, now, diag = () => {} }) {
   // 先恢复设置：人设/称呼随后由出生设定覆盖，避免旧称呼盖掉新身份。
   const configs = applyPortableConfigs({ dshHome, dir, configs: staged.configs, diag })
   writeAtomic(join(dir, 'experience.jsonl'), staged.experienceText)
+  if (staged.commitmentsText && staged.commitmentsText.trim() !== '') {
+    writeAtomic(join(dir, 'commitments.jsonl'), staged.commitmentsText)
+  } else {
+    removeIfExists(join(dir, 'commitments.jsonl'))
+  }
   for (const suffix of ['', '-wal', '-shm']) {
     try {
       rmSync(`${join(dir, 'mind.sqlite')}${suffix}`, { force: true })
@@ -905,6 +1007,7 @@ export function applyPendingImport({ dir, dshHome, diag = () => {} }) {
       counts: {
         experiences: staged.experience.length,
         facts: staged.facts.length,
+        commitments: staged.commitments.length,
         moodPoints: staged.mood === null ? 0 : staged.mood.timeline.length,
         people: staged.people === null ? 0 : Object.keys(staged.people).length,
         configs: configs.present ? configs.applied + configs.skipped : 0,

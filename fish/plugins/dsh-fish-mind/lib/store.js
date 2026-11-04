@@ -28,7 +28,7 @@ try {
   DatabaseSync = undefined
 }
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 const SCAFFOLD_CLEANUP_KEY = 'scaffold_cleanup_v1'
 
@@ -103,6 +103,19 @@ function containment(left, right) {
   let overlap = 0
   for (const token of left) if (right.has(token)) overlap += 1
   return overlap / Math.min(left.size, right.size)
+}
+
+/**
+ * 承诺记忆的去重键：统一全半角、去掉空白和标点符号、英文转小写。
+ * @param {string} text - 原文。
+ * @returns {string} 同一个人在同一间屋里重复说同一句时用的规范化文本。
+ */
+export function normalizeCommitmentText(text) {
+  return String(text === undefined || text === null ? '' : text)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+    .slice(0, 400)
 }
 
 /** 从文本里抽可做结构化匹配的实体；不调模型，只覆盖常见称呼、地点、时间和显式标记。 */
@@ -528,6 +541,28 @@ CREATE TABLE IF NOT EXISTS sleep_runs (
   tasks TEXT NOT NULL DEFAULT '[]',
   notes TEXT
 );
+
+CREATE TABLE IF NOT EXISTS commitments (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  norm_key TEXT NOT NULL,
+  asker_key TEXT NOT NULL,
+  asker_name TEXT NOT NULL DEFAULT '',
+  subject_key TEXT NOT NULL DEFAULT '',
+  room_key TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'global',
+  status TEXT NOT NULL DEFAULT 'active',
+  verified INTEGER NOT NULL DEFAULT 0,
+  at INTEGER NOT NULL,
+  source_experience_id INTEGER,
+  superseded_by TEXT REFERENCES commitments(id),
+  meta TEXT NOT NULL DEFAULT '{}'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS commitments_active_key
+  ON commitments(asker_key, norm_key, room_key) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS commitments_room_at ON commitments(room_key, status, at);
+CREATE INDEX IF NOT EXISTS commitments_asker_at ON commitments(asker_key, status, at);
+CREATE INDEX IF NOT EXISTS commitments_status_at ON commitments(status, at);
 `
 
 /**
@@ -539,6 +574,7 @@ export function openStore({ dir, config, diag = () => {} }) {
   ensureDir(dir)
   const dbPath = join(dir, 'mind.sqlite')
   const jsonlPath = join(dir, 'experience.jsonl')
+  const commitmentLogPath = join(dir, 'commitments.jsonl')
   let db = null
   let degraded = DatabaseSync === undefined
   let parameters = normalizeParameters(config)
@@ -593,6 +629,9 @@ export function openStore({ dir, config, diag = () => {} }) {
         if (!columns.has('abstractive_summary')) {
           handle.exec('ALTER TABLE chapters ADD COLUMN abstractive_summary TEXT')
         }
+      }
+      if (version < 5) {
+        // commitments 表由 SCHEMA 的 CREATE TABLE IF NOT EXISTS 建好；这里只推进版本号。
       }
       handle.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
       handle.exec('COMMIT')
@@ -856,6 +895,44 @@ export function openStore({ dir, config, diag = () => {} }) {
   `)
   const runInsertStmt = db && db.prepare(`
     INSERT INTO sleep_runs (started_at, finished_at, status, tasks, notes) VALUES (?, ?, ?, ?, ?)
+  `)
+  const commitmentColumns = `
+    id, text, norm_key, asker_key, asker_name, subject_key, room_key,
+    visibility, status, verified, at, source_experience_id, superseded_by, meta
+  `
+  const commitmentByIdStmt = db && db.prepare(`
+    SELECT ${commitmentColumns} FROM commitments WHERE id = ?
+  `)
+  const commitmentActiveStmt = db && db.prepare(`
+    SELECT ${commitmentColumns} FROM commitments
+    WHERE asker_key = ? AND norm_key = ? AND room_key = ? AND status = 'active'
+    LIMIT 1
+  `)
+  const commitmentInsertStmt = db && db.prepare(`
+    INSERT INTO commitments
+      (id, text, norm_key, asker_key, asker_name, subject_key, room_key,
+       visibility, status, verified, at, source_experience_id, superseded_by, meta)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?, NULL, ?)
+  `)
+  const commitmentVerifyStmt = db && db.prepare(
+    "UPDATE commitments SET verified = 1 WHERE id = ? AND status = 'active'",
+  )
+  const commitmentSupersedeStmt = db && db.prepare(`
+    UPDATE commitments SET status = 'superseded', superseded_by = ?
+    WHERE id = ? AND status = 'active'
+  `)
+  const commitmentListStmt = db && db.prepare(`
+    SELECT ${commitmentColumns} FROM commitments
+    WHERE status = 'active'
+    ORDER BY at DESC, id DESC LIMIT ?
+  `)
+  const commitmentStatsStmt = db && db.prepare(`
+    SELECT COUNT(*) AS total,
+      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN status = 'active' AND verified = 1 THEN 1 ELSE 0 END) AS verified,
+      SUM(CASE WHEN status = 'active' AND visibility = 'secret' THEN 1 ELSE 0 END) AS secret,
+      MAX(at) AS lastAt
+    FROM commitments
   `)
 
   function appendJsonl(record) {
@@ -2229,6 +2306,342 @@ export function openStore({ dir, config, diag = () => {} }) {
     }
   }
 
+  function mapCommitmentRow(row, extra = {}) {
+    return {
+      id: String(row.id ?? ''),
+      text: String(row.text ?? ''),
+      askerKey: String(row.asker_key ?? ''),
+      askerName: String(row.asker_name ?? ''),
+      subjectKey: String(row.subject_key ?? ''),
+      roomKey: String(row.room_key ?? ''),
+      visibility: row.visibility === 'secret' ? 'secret' : 'global',
+      status: String(row.status ?? 'active'),
+      verified: Number(row.verified) === 1,
+      at: Number(row.at) || 0,
+      sourceExperienceId: row.source_experience_id === null || row.source_experience_id === undefined
+        ? null
+        : Number(row.source_experience_id),
+      supersededBy: row.superseded_by === null || row.superseded_by === undefined
+        ? null
+        : String(row.superseded_by),
+      meta: parseJsonObject(row.meta),
+      ...extra,
+    }
+  }
+
+  /** 承诺记忆的追加日志；SQLite 坏了也能靠它重放。 */
+  function appendCommitmentLog(entry) {
+    try {
+      appendFileSync(commitmentLogPath, JSON.stringify(entry) + '\n', 'utf8')
+      return true
+    } catch (error) {
+      diag(`store: 写承诺记忆日志失败（${String((error && error.message) || error)}）`)
+      return false
+    }
+  }
+
+  function applyCommitmentLogLine(entry) {
+    if (!entry || typeof entry !== 'object') return false
+    const id = String(entry.id ?? '').trim()
+    if (entry.op === 'put') {
+      const text = String(entry.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 400)
+      const normKey = String(entry.normKey ?? normalizeCommitmentText(text))
+      const askerKey = String(entry.askerKey ?? '').trim().slice(0, 64)
+      const roomKey = String(entry.roomKey ?? '').trim().slice(0, 64)
+      if (id === '' || text === '' || normKey === '' || askerKey === '' || roomKey === '') return false
+      const existing = commitmentByIdStmt.get(id)
+      if (existing) {
+        if (entry.verified === true && Number(existing.verified) !== 1) commitmentVerifyStmt.run(id)
+        return false
+      }
+      commitmentInsertStmt.run(
+        id,
+        text,
+        normKey,
+        askerKey,
+        String(entry.askerName ?? '').slice(0, 60),
+        String(entry.subjectKey ?? askerKey).slice(0, 64),
+        roomKey,
+        entry.visibility === 'secret' ? 'secret' : 'global',
+        Number(entry.at) || Date.now(),
+        Number.isFinite(Number(entry.sourceExperienceId)) ? Number(entry.sourceExperienceId) : null,
+        JSON.stringify(entry.meta && typeof entry.meta === 'object' ? entry.meta : {}),
+      )
+      if (entry.verified === true) commitmentVerifyStmt.run(id)
+      return true
+    }
+    if (entry.op === 'verify' && id !== '') {
+      commitmentVerifyStmt.run(id)
+      return true
+    }
+    if (entry.op === 'supersede' && id !== '') {
+      commitmentSupersedeStmt.run(String(entry.supersededBy ?? ''), id)
+      return true
+    }
+    return false
+  }
+
+  /** 打开时补齐日志里、库里还没有的承诺记忆；可选先清空再全量重放。 */
+  function replayCommitmentLog({ clear = false } = {}) {
+    if (db === null || !existsSync(commitmentLogPath)) return 0
+    let applied = 0
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      if (clear) db.exec('DELETE FROM commitments')
+      const lines = readFileSync(commitmentLogPath, 'utf8').split('\n')
+      for (const line of lines) {
+        if (!line.trim()) continue
+        let entry
+        try {
+          entry = JSON.parse(line)
+        } catch {
+          continue
+        }
+        if (applyCommitmentLogLine(entry)) applied += 1
+      }
+      db.exec('COMMIT')
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {}
+      diag(`store: 重放承诺记忆日志失败（${String((error && error.message) || error)}）`)
+      return 0
+    }
+    return applied
+  }
+
+  /** 按 id、唯一键和核对标记同时确认，避免“写进去了但查不到”。 */
+  function commitmentVerified(id, normKey, askerKey, roomKey) {
+    const row = commitmentByIdStmt.get(String(id))
+    if (!row || String(row.status) !== 'active' || Number(row.verified) !== 1) return false
+    if (normalizeCommitmentText(row.text) !== normKey) return false
+    const active = commitmentActiveStmt.get(askerKey, normKey, roomKey)
+    return !!active && String(active.id) === String(id)
+  }
+
+  /**
+   * 同步写入一条明确要求记住的事，并在返回前回读核对。
+   * 只有 id、唯一键和 verified 标记都能读回来才算成功；失败自动重试一次。
+   * @param {{text: string, askerKey: string, askerName?: string, subjectKey?: string, roomKey: string, visibility?: 'global'|'secret', at?: number, sourceExperienceId?: number|null, replaceId?: string, meta?: object}} input
+   * @returns {{ok: boolean, id?: string, text?: string, visibility?: string, verified?: boolean, existing?: boolean, at?: number, reason?: string, retried?: boolean, error?: string}}
+   */
+  function commitMemory(input = {}) {
+    if (db === null) return { ok: false, reason: 'degraded', retried: false }
+    const text = String(input.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 400)
+    const normKey = normalizeCommitmentText(text)
+    if (text === '' || normKey === '') return { ok: false, reason: 'empty', retried: false }
+    const askerKey = String(input.askerKey ?? '').trim().slice(0, 64)
+    const roomKey = String(input.roomKey ?? '').trim().slice(0, 64)
+    if (askerKey === '' || roomKey === '') return { ok: false, reason: 'bad-scope', retried: false }
+    const askerName = String(input.askerName ?? '').slice(0, 60)
+    const subjectKey = String(input.subjectKey ?? askerKey).trim().slice(0, 64) || askerKey
+    const visibility = input.visibility === 'secret' ? 'secret' : 'global'
+    const at = Number.isFinite(input.at) ? Number(input.at) : Date.now()
+    const replaceId = typeof input.replaceId === 'string' ? input.replaceId.trim() : ''
+    const sourceExperienceId = Number.isFinite(input.sourceExperienceId) ? Number(input.sourceExperienceId) : null
+    const meta = input.meta && typeof input.meta === 'object' ? input.meta : {}
+
+    const existing = commitmentActiveStmt.get(askerKey, normKey, roomKey)
+    if (existing) {
+      if (Number(existing.verified) === 1) {
+        return {
+          ok: true,
+          id: String(existing.id),
+          text: String(existing.text),
+          visibility: String(existing.visibility),
+          verified: true,
+          existing: true,
+          at: Number(existing.at),
+        }
+      }
+      try {
+        commitmentVerifyStmt.run(String(existing.id))
+        if (commitmentVerified(String(existing.id), normKey, askerKey, roomKey)) {
+          return {
+            ok: true,
+            id: String(existing.id),
+            text: String(existing.text),
+            visibility: String(existing.visibility),
+            verified: true,
+            existing: true,
+            at: Number(existing.at),
+          }
+        }
+      } catch (error) {
+        diag(`store: 承诺记忆补核对失败（${String((error && error.message) || error)}）`)
+      }
+      return { ok: false, reason: 'verify-failed', retried: false }
+    }
+
+    const id = randomUUID()
+    appendCommitmentLog({
+      v: 1,
+      op: 'put',
+      id,
+      text,
+      normKey,
+      askerKey,
+      askerName,
+      subjectKey,
+      roomKey,
+      visibility,
+      at,
+      sourceExperienceId,
+      meta,
+    })
+
+    let lastError = ''
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        db.exec('BEGIN IMMEDIATE')
+        commitmentInsertStmt.run(
+          id,
+          text,
+          normKey,
+          askerKey,
+          askerName,
+          subjectKey,
+          roomKey,
+          visibility,
+          at,
+          sourceExperienceId,
+          JSON.stringify(meta),
+        )
+        commitmentVerifyStmt.run(id)
+        const byId = commitmentByIdStmt.get(id)
+        const active = commitmentActiveStmt.get(askerKey, normKey, roomKey)
+        const ok = byId
+          && String(byId.id) === id
+          && String(byId.status) === 'active'
+          && Number(byId.verified) === 1
+          && normalizeCommitmentText(byId.text) === normKey
+          && active
+          && String(active.id) === id
+        if (!ok) throw new Error('read-back mismatch')
+        if (replaceId !== '' && replaceId !== id) commitmentSupersedeStmt.run(id, replaceId)
+        db.exec('COMMIT')
+        appendCommitmentLog({ v: 1, op: 'verify', id, at: Date.now() })
+        if (replaceId !== '' && replaceId !== id) {
+          appendCommitmentLog({ v: 1, op: 'supersede', id: replaceId, supersededBy: id, at: Date.now() })
+        }
+        return { ok: true, id, text, visibility, verified: true, existing: false, at }
+      } catch (error) {
+        lastError = String((error && error.message) || error)
+        try {
+          db.exec('ROLLBACK')
+        } catch {}
+        // 并发或重放可能已经把同一句写成了 active：读回来核对，别报假失败。
+        const active = commitmentActiveStmt.get(askerKey, normKey, roomKey)
+        if (active) {
+          try {
+            commitmentVerifyStmt.run(String(active.id))
+            if (commitmentVerified(String(active.id), normKey, askerKey, roomKey)) {
+              return {
+                ok: true,
+                id: String(active.id),
+                text: String(active.text),
+                visibility: String(active.visibility),
+                verified: true,
+                existing: true,
+                at: Number(active.at),
+              }
+            }
+          } catch {}
+        }
+        if (attempt < 2) continue
+      }
+    }
+    diag(`store: 承诺记忆写入失败（${lastError}）`)
+    return { ok: false, reason: 'write-error', retried: true, error: lastError }
+  }
+
+  /** 按编号读一条承诺记忆（含已取代的），设置页和工具回执用。 */
+  function getCommitment(id) {
+    if (db === null) return null
+    const row = commitmentByIdStmt.get(String(id ?? ''))
+    return row ? mapCommitmentRow(row) : null
+  }
+
+  /**
+   * 按房间和问的人取承诺记忆。过滤在文本进入提示之前完成；
+   * secret 不离开原房间，跨屋的 global 只给本人、主人会话或受信的人。
+   * @param {{query?: string, roomKey?: string, viewerKey?: string, viewerLevel?: string, isOwner?: boolean, limit?: number}} [options]
+   * @returns {{enabled: boolean, items: object[], hiddenSecret: number, reason: string}}
+   */
+  function recallCommitments(options = {}) {
+    if (db === null) return { enabled: false, items: [], hiddenSecret: 0, reason: 'storage-degraded' }
+    const query = typeof options.query === 'string' ? options.query.trim() : ''
+    const roomKey = typeof options.roomKey === 'string' ? options.roomKey.trim() : ''
+    const viewerKey = typeof options.viewerKey === 'string' ? options.viewerKey.trim() : ''
+    const viewerLevel = typeof options.viewerLevel === 'string' ? options.viewerLevel.trim() : ''
+    const isOwner = options.isOwner === true
+    const trusted = viewerLevel === '受信' || viewerLevel === '主人'
+    const limit = Math.min(Math.max(1, Number(options.limit) || 8), 50)
+    if (roomKey === '') return { enabled: true, items: [], hiddenSecret: 0, reason: 'no-room' }
+    const rows = db.prepare(`
+      SELECT id, text, asker_key, asker_name, subject_key, room_key, visibility, status, verified, at, meta
+      FROM commitments
+      WHERE status = 'active' AND verified = 1
+      ORDER BY at DESC, id DESC
+      LIMIT 400
+    `).all()
+    const queryTokens = tokenSet(query)
+    const scored = []
+    let hiddenSecret = 0
+    for (const row of rows) {
+      const itemRoom = String(row.room_key ?? '')
+      const visibility = String(row.visibility ?? 'global')
+      const sameRoom = itemRoom === roomKey
+      let allowed = sameRoom
+      if (!allowed && visibility !== 'secret') {
+        if (isOwner) allowed = true
+        else if (viewerKey !== '' && String(row.subject_key ?? '') === viewerKey) allowed = true
+        else if (trusted) allowed = true
+      }
+      if (!allowed) {
+        if (isOwner && visibility === 'secret') hiddenSecret += 1
+        continue
+      }
+      const text = String(row.text ?? '')
+      const matched = queryTokens.size === 0 ? 0 : containment(queryTokens, tokenSet(text))
+      scored.push({ row, sameRoom, matched })
+    }
+    // 相关问题优先，其次新的；无论问什么，最近几条都带上，方便“我刚才让你记的”。
+    scored.sort((left, right) => {
+      const leftScore = left.matched + (left.sameRoom ? 0.08 : 0)
+      const rightScore = right.matched + (right.sameRoom ? 0.08 : 0)
+      return rightScore - leftScore || Number(right.row.at) - Number(left.row.at)
+    })
+    const items = scored.slice(0, limit).map(({ row, sameRoom, matched }) => (
+      mapCommitmentRow(row, { sameRoom, matched })
+    ))
+    return { enabled: true, items, hiddenSecret, reason: items.length > 0 ? 'ok' : 'empty' }
+  }
+
+  /** 设置页只读列表：包含 secret，按时间倒序。 */
+  function listCommitments(limit = 50, options = {}) {
+    if (db === null) return []
+    const max = Math.min(Math.max(1, Number(limit) || 50), 500)
+    const includeSecret = options.includeSecret !== false
+    return commitmentListStmt.all(max)
+      .filter((row) => includeSecret || String(row.visibility) !== 'secret')
+      .slice(0, max)
+      .map((row) => mapCommitmentRow(row))
+  }
+
+  /** 承诺记忆计数；设置页和 state 用。 */
+  function commitmentStats() {
+    if (db === null) return { total: 0, active: 0, verified: 0, secret: 0, lastAt: 0 }
+    const row = commitmentStatsStmt.get()
+    return {
+      total: Number(row?.total) || 0,
+      active: Number(row?.active) || 0,
+      verified: Number(row?.verified) || 0,
+      secret: Number(row?.secret) || 0,
+      lastAt: Number(row?.lastAt) || 0,
+    }
+  }
+
   /** 当前生效的事实（被取代的不返回）；给状态页和提炼前的粗筛用。 */
   function listFacts(limit = 40) {
     if (db === null) return []
@@ -2314,6 +2727,7 @@ export function openStore({ dir, config, diag = () => {} }) {
         chapters: 0,
         relations: 0,
         facts: 0,
+        commitments: 0,
         runs: 0,
         lastEpisodeAt: 0,
         lastChapterAt: 0,
@@ -2327,6 +2741,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     const chapters = Number(db.prepare('SELECT COUNT(*) AS n FROM chapters').get()?.n ?? 0)
     const relations = Number(db.prepare('SELECT COUNT(*) AS n FROM relations WHERE valid_to IS NULL').get()?.n ?? 0)
     const facts = Number(db.prepare('SELECT COUNT(*) AS n FROM facts WHERE superseded_by IS NULL').get()?.n ?? 0)
+    const commitments = commitmentStats().active
     const runs = Number(db.prepare('SELECT COUNT(*) AS n FROM sleep_runs').get()?.n ?? 0)
     const lastEpisodeAt = Number(db.prepare('SELECT MAX(end_ts) AS at FROM episodes').get()?.at ?? 0)
     const lastChapterAt = Number(db.prepare("SELECT MAX(end_ts) AS at FROM chapters WHERE level = 'day'").get()?.at ?? 0)
@@ -2338,6 +2753,7 @@ export function openStore({ dir, config, diag = () => {} }) {
       chapters,
       relations,
       facts,
+      commitments,
       runs,
       lastEpisodeAt,
       lastChapterAt,
@@ -2517,7 +2933,11 @@ export function openStore({ dir, config, diag = () => {} }) {
     } catch (error) {
       diag(`store: 重建章节或关系边失败（${String((error && error.message) || error)}）`)
     }
-    return { count, lines, digest: contentDigest(), chapters, relations, cleaned: scrubbed.cleaned, dropped: scrubbed.dropped }
+    // 承诺记忆有自己的追加日志；有日志才清空重放，没日志时保留库里现有数据。
+    const commitments = existsSync(commitmentLogPath)
+      ? replayCommitmentLog({ clear: true })
+      : 0
+    return { count, lines, digest: contentDigest(), chapters, relations, commitments, cleaned: scrubbed.cleaned, dropped: scrubbed.dropped }
   }
 
   // 打开时就补齐 JSONL 里有、库里没有的记录（上次异常退出留下的尾巴）。
@@ -2682,10 +3102,16 @@ export function openStore({ dir, config, diag = () => {} }) {
       diag(`store: 清掉旧提示脚手架（还原 ${scrubbed.cleaned} 条，丢弃 ${scrubbed.dropped} 条）`)
     }
   }
+  // 上次异常退出可能只写了 commitments.jsonl；打开时补齐。
+  {
+    const applied = replayCommitmentLog()
+    if (applied > 0) diag(`store: 补齐 ${applied} 条承诺记忆日志`)
+  }
 
   return {
     dbPath,
     jsonlPath,
+    commitmentLogPath,
     get degraded() { return degraded },
     insert,
     search,
@@ -2709,6 +3135,11 @@ export function openStore({ dir, config, diag = () => {} }) {
     upsertFact,
     listFacts,
     exportFacts,
+    commitMemory,
+    getCommitment,
+    recallCommitments,
+    listCommitments,
+    commitmentStats,
     recordRun,
     stats,
     countToday,

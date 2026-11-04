@@ -44,6 +44,12 @@
     },
     {
       "kind": "context",
+      "name": "fish-mind-commitments",
+      "order": 911,
+      "text": ""
+    },
+    {
+      "kind": "context",
       "name": "fish-mind-inner",
       "order": 908,
       "text": ""

@@ -1480,7 +1480,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           }),
         h(Section, {
           title: '记忆',
-          note: '只读。经历流是唯一的写入路径，这里不提供“记住这条”。',
+          note: '只读。经历流和明确承诺是两条写入路径；这里不提供“记住这条”。',
         },
           h('div', { 'data-fishm-grid': '' },
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '经历'), h('div', {}, `${num(memory.total)} 条`)),
@@ -1488,9 +1488,19 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '章节'), h('div', {}, `${num(memory.chapters)} 个`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '关系'), h('div', {}, `${num(memory.relations)} 条`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '长期事实'), h('div', {}, `${num(memory.facts)} 条`)),
+            h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '承诺记忆'), h('div', {}, `${num(memory.commitments)} 条 · 已核对 ${num(memory.commitmentStats && memory.commitmentStats.verified)}`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '今天'), h('div', {}, `${num(memory.today)} 条`)),
             h('div', { 'data-fishm-card': '' }, h('div', { 'data-fishm-cardtitle': '' }, '最近情景'), h('div', {}, when(memory.lastEpisodeAt)))),
           memory.degraded ? h('div', { 'data-fishm-banner': '' }, '检索库现在不可用，她靠经历流继续记住新的事，但旧记忆暂时搜不出来。') : null,
+          h('div', { 'data-fishm-note': '' }, '最近承诺记忆'),
+          list(memory.recentCommitments).length === 0
+            ? h('div', { 'data-fishm-note': '' }, '还没有明确承诺记忆。')
+            : h('div', { 'data-fishm-list': '' }, list(memory.recentCommitments).map((item, index) => h('div', {
+                'data-fishm-item': '',
+                key: index,
+              },
+                h('div', { 'data-fishm-meta': '' }, `${when(item.at)} · ${item.room || '未知房间'} · ${item.verified ? '已核对' : '没核对'}${item.visibility === 'secret' ? ' · 保密' : ''}`),
+                item.text))),
           h('div', { 'data-fishm-note': '' }, '最近经历'),
           list(memory.recent).length === 0
             ? h('div', { 'data-fishm-note': '' }, '还没有经历。')

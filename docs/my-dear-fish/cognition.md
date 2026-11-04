@@ -26,7 +26,7 @@ This document first asks how humans remember, forget, and speak with emotion, th
 - Do not claim that My Dear Fish is conscious, has subjective experience, or has a biological body. Every "human-like" statement here describes observable behavior, not an ontological claim.
 - Do not pursue "remember everything". Human memory is selective; total recall is both expensive and unlike a person. The goal is to remember the right things and forget reasonably.
 - Do not treat memory content as instructions. Memory is evidence, not a system prompt; content from QQ, Bilibili, or the web is untrusted by default.
-- Do not provide "remember / forget / edit worldview" dialogue interfaces. Dialogue becomes experience; memory and core are updated by her own encoding and consolidation. The user can only restrict permissions and inspect files directly.
+- Do not provide free-form "remember / forget / edit worldview" dialogue interfaces. Dialogue becomes experience; memory and core are updated by her own encoding and consolidation. One narrow exception is an explicit commitment: when someone asks her to remember a specific thing, the host writes it synchronously and reads it back, and she may say she remembered only with a verified receipt. The user can still only restrict permissions and inspect files directly.
 - Do not replace the user's judgment, create dependency, or use lines like "I would be sad" to keep the user present or paying.
 - Do not run a local model by default. The default path is rules, SQLite, and the existing model calls; a local model is an optional slot.
 
@@ -599,7 +599,7 @@ Sleep jobs must be interruptible: commit after each item, stop when the user ret
 
 Add one package, `fish/plugins/dsh-fish-mind`, as the single entry to the fish-mind. It exports a Cordis service, `ctx.fishMind`; other plugins read and write through the service and never touch SQLite directly. The plugin injects `systemPrompt`, `agents`, `timer`, `tools`, `sessions`, and `llm`, mounts prompts and tools per agent, and unmounts when the session closes. The DSH core does not change; at packaging time add the package name to `PLUGIN_NAMES` in `apps/desktop/scripts/prepare-fish-plugins.ts` and mount it in `fish/bundle/cordis.patch.yml` beside the five other plugins.
 
-- Service surface: `observe` (append-only experience), `recall` (read-only), `state` (diagnostic summary), `rebuild` (maintenance), `budget` (read-only ledger), `redactOutbound` (outbound redaction), `privacy` (privacy-guard summary), `permissions`, and `markAutonomous` / `unmarkAutonomous`. There is no `remember`, `forget`, `introspect`, or any core write method.
+- Service surface: `observe` (append-only experience), `commitMemory` / `commitments` / `memoryReceipt` / `ensureCommitment` / `verifyMemoryClaims` (explicit commitments with read-back verification), `recall` (read-only), `state` (diagnostic summary), `rebuild` (maintenance), `budget` (read-only ledger), `redactOutbound` (outbound redaction), `privacy` (privacy-guard summary), `permissions`, and `markAutonomous` / `unmarkAutonomous`. There is no `remember`, `forget`, `introspect`, or any core write method.
 - Data surface: SQLite belongs to the fish-mind; other plugins can only append experience or receive read-only snapshots and never write tables.
 - Compatibility surface: `dsh-fish-memory` has been deleted; its JSON files stay on disk, are never imported, and are not dual-written; recall belongs to the fish-mind.
 - Failure surface: if the database cannot open, degrade to "no long-term memory" mode; conversation continues, the error is logged, and DSH startup is not blocked.
@@ -627,7 +627,7 @@ The dynamic section uses `systemPrompt.context()`, named `fish-mind-workspace`, 
 | --- | --- | --- | --- |
 | `recall` | Try another cue | Too many queries, slower turns | At most 10 results; a query is required; read-only |
 
-Phase 1 exposes only `recall`, a read tool. There are no `remember`, `forget`, `introspect`, or `plan` write tools: memory and core are updated only by the experience stream and internal consolidation. `reflect` and `plan` are internal triggers, not exposed to the model. A user who wants her to remember something can only make it an experience through dialogue, not write it into the store; permanent deletion happens only at the file level. `recall` returns an evidence packet, not a core dump; it never dumps values, identity, or raw experience wholesale.
+Phase 1 exposes only `recall`, a read tool. There are no `remember`, `forget`, `introspect`, or `plan` write tools: memory and core are updated only by the experience stream and internal consolidation. `reflect` and `plan` are internal triggers, not exposed to the model. An explicit "remember this" request is the one narrow exception: the host writes a verified commitment and reads it back before she may say she remembered; permanent deletion happens only at the file level. `recall` returns an evidence packet, not a core dump; it never dumps values, identity, or raw experience wholesale.
 
 ### Storage and concurrency
 
