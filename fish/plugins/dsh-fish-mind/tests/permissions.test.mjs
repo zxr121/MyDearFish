@@ -434,7 +434,7 @@ test('创造模式可以写鱼自己的源码，鱼脑数据、凭据和危险�
   assert.equal(dangerous.rule, 'dangerous.command')
 })
 
-test('安装版创造模式只放行 fish-src，不能用 .. 跳出工作区', () => {
+test('安装版创造模式可读 DSH 目录和自带运行时，但写只限 fish-src', () => {
   const home = mkdtempSync(join(tmpdir(), 'fish-mind-creator-'))
   const sourceRoot = join(home, 'fish-src')
   const editable = join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'tendency.js')
@@ -477,7 +477,7 @@ test('安装版创造模式只放行 fish-src，不能用 .. 跳出工作区', (
     cwd: sourceRoot,
   }))
   assert.equal(profile.decision, 'deny', '不能直接改 profile 里的运行时副本')
-  assert.equal(profile.rule, 'private.dsh-home')
+  assert.equal(profile.rule, 'creator.data-read-only')
 
   const credential = broker.evaluate(exec('edit', { file_path: join(sourceRoot, '.env'), old_string: 'a', new_string: 'b' }, {
     sessionId: 'creator-1',
@@ -490,6 +490,76 @@ test('安装版创造模式只放行 fish-src，不能用 .. 跳出工作区', (
   const denied = normal.broker.evaluate(exec('read', { file_path: editable }, { cwd: sourceRoot }))
   assert.equal(denied.decision, 'deny', '普通会话读不了 fish-src')
   assert.equal(denied.rule, 'private.dsh-home')
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('创造模式可以读 DSH 目录、探测本机和运行自带 Node，但凭据和危险命令照旧拒绝', () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-creator-open-'))
+  const sourceRoot = join(home, 'fish-src')
+  const runtime = join(home, 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'node', 'bin')
+  mkdirSync(runtime, { recursive: true })
+  const node = join(runtime, 'node.exe')
+  writeFileSync(node, '')
+  mkdirSync(join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib'), { recursive: true })
+  writeFileSync(join(sourceRoot, 'fish', 'plugins', 'dsh-fish-mind', 'lib', 'tendency.js'), '// stub\n')
+  mkdirSync(join(home, 'profiles', 'desktop'), { recursive: true })
+  writeFileSync(join(home, 'profiles', 'desktop', 'cordis.yml'), 'x\n')
+  mkdirSync(join(home, 'fish-mind'), { recursive: true })
+  writeFileSync(join(home, 'fish-mind', 'config.json'), '{}\n')
+
+  const { broker } = makeBroker({ creator: true, home, creatorRoot: sourceRoot })
+  const creator = { sessionId: 'creator-1', cwd: sourceRoot }
+
+  const run = broker.evaluate(exec('pwsh', {
+    command: `& "${node}" --test fish/plugins/dsh-fish-mind/tests/permissions.test.mjs`,
+  }, creator))
+  assert.equal(run.decision, 'allow', '自带 Node 的绝对路径可以被执行')
+
+  const envRun = broker.evaluate(exec('pwsh', {
+    command: '& "$env:DSH_HOME/PATH/node.exe" --version',
+  }, creator))
+  assert.equal(envRun.decision, 'allow', '用 $env: 拼运行时路径不该被当成凭据')
+
+  const workdir = broker.evaluate(exec('pwsh', { command: `& "${node}" --version`, workdir: runtime }, creator))
+  assert.equal(workdir.decision, 'allow', 'workdir 在运行时目录里也放行')
+
+  for (const command of ['whoami', 'ipconfig', 'printenv', 'Get-ComputerInfo']) {
+    const verdict = broker.evaluate(exec('bash', { command }, creator))
+    assert.equal(verdict.decision, 'allow', `${command} 在创造模式放行`)
+  }
+
+  const mindRead = broker.evaluate(exec('read', { file_path: join(home, 'fish-mind', 'config.json') }, creator))
+  assert.equal(mindRead.decision, 'allow', '创造模式可以读鱼脑配置')
+  const mindShellRead = broker.evaluate(exec('pwsh', { command: `Get-Content "${join(home, 'fish-mind', 'config.json')}"` }, creator))
+  assert.equal(mindShellRead.decision, 'allow', '创造模式可以用只读 shell 读鱼脑配置')
+  const profileRead = broker.evaluate(exec('read', { file_path: join(home, 'profiles', 'desktop', 'cordis.yml') }, creator))
+  assert.equal(profileRead.decision, 'allow', '创造模式可以读 profile')
+
+  const keyEcho = broker.evaluate(exec('bash', { command: 'echo $DEEPSEEK_API_KEY' }, creator))
+  assert.equal(keyEcho.rule, 'private.command', '显式读密钥变量仍然拒绝')
+  const keyPrint = broker.evaluate(exec('bash', { command: 'printenv DEEPSEEK_API_KEY' }, creator))
+  assert.equal(keyPrint.rule, 'private.command', 'printenv 点名密钥仍然拒绝')
+  const keyNode = broker.evaluate(exec('bash', { command: 'node -e "console.log(process.env.DEEPSEEK_API_KEY)"' }, creator))
+  assert.equal(keyNode.rule, 'private.command', 'node -e 读密钥仍然拒绝')
+
+  const ssh = broker.evaluate(exec('read', { file_path: join(homedir(), '.ssh', 'id_rsa') }, creator))
+  assert.equal(ssh.rule, 'private.credential-store')
+
+  const profileWrite = broker.evaluate(exec('edit', { file_path: join(home, 'profiles', 'desktop', 'cordis.yml'), old_string: 'x', new_string: 'y' }, creator))
+  assert.equal(profileWrite.rule, 'creator.data-read-only')
+  const mindWrite = broker.evaluate(exec('edit', { file_path: join(home, 'fish-mind', 'config.json'), old_string: 'x', new_string: 'y' }, creator))
+  assert.equal(mindWrite.rule, 'sealed.fish-mind')
+  const mindByEnv = broker.evaluate(exec('pwsh', { command: 'Set-Content "$env:DSH_HOME\\fish-mind\\config.json" -Value y' }, creator))
+  assert.equal(mindByEnv.rule, 'sealed.fish-mind', '用环境变量拼鱼脑路径也按封条拒绝')
+
+  const traversal = broker.evaluate(exec('pwsh', { command: 'Get-Content ../fish-mind/config.json' }, creator))
+  assert.equal(traversal.rule, 'creator.traversal')
+  const dangerous = broker.evaluate(exec('bash', { command: 'rm -rf /' }, creator))
+  assert.equal(dangerous.rule, 'dangerous.command')
+
+  const normal = makeBroker({ home, creatorRoot: sourceRoot })
+  assert.equal(normal.broker.evaluate(exec('pwsh', { command: `& "${node}" --version` })).rule, 'private.command')
+  assert.equal(normal.broker.evaluate(exec('read', { file_path: join(home, 'fish-mind', 'config.json') })).rule, 'private.dsh-home')
   rmSync(home, { recursive: true, force: true })
 })
 

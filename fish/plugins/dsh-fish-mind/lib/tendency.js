@@ -531,12 +531,14 @@ export function buildCreationBrief(compiled, text, options = {}) {
   ]
   if (packaged) {
     lines.push(
-      '- 只读写当前工作区（$DSH_HOME/fish-src）；不要碰 ../fish-mind、DSH_HOME 里的其它数据、凭据、日志和会话，工具会拒绝。',
+      '- 可以读整个 DSH 目录（含 $DSH_HOME/dsh-runtimes 里的 Node/Python）和本机信息，也可以执行自带运行时来跑测试；写文件只限当前工作区和下面列出的白名单文件。',
+      '- 鱼脑数据（$DSH_HOME/fish-mind）写入、凭据、身份文件和危险命令仍然会被拒绝；命令里不要用 .. 跳目录，要读其它位置用绝对路径。',
       '- 只改下面列出的可编辑文件；其它运行时文件每次启动都会从安装包原版恢复。',
       '',
       '可编辑文件：',
       editable.length > 0 ? editable.map((file) => `- ${file}`).join('\n') : '（见工作区里的 FISH-SOURCE.md）',
       '',
+      '跑测试：先调用 load_workspace_dependencies 拿 node 的绝对路径，再运行 & "<node>" --test fish/plugins/dsh-fish-mind/tests/tendency.test.mjs fish/plugins/dsh-fish-mind/tests/settings.test.mjs。',
       '生效方式：改完让主人完全退出并重新打开 DSH；启动时会自动把这些插件同步进 profile。不要跑 pnpm、sync-runtime，也不要改 app.asar。',
       '- fish/bundle 和另外四个插件只读参考；出厂人设请在设置页「性格人设」里覆盖。',
       '- 如果必须改非白名单文件（例如 lib/index.js）才能实现，停下来告诉主人：这台安装版做不到，需要源码版。',
@@ -546,8 +548,10 @@ export function buildCreationBrief(compiled, text, options = {}) {
     }
   } else {
     lines.push(
-      '- 不读不写 DSH_HOME（data 目录）、凭据、日志和会话。',
+      '- 可以读 DSH_HOME（data 目录）和本机信息，也可以用 $DSH_HOME/dsh-runtimes 里的自带 Node/Python 跑测试；不写 DSH_HOME、鱼脑数据、凭据、日志和会话。',
+      '- 命令里不要用 .. 跳目录，要读其它位置用绝对路径。',
       '- 创造模式默认给了完全权限，而且开在源码工作区里：是源码仓库就直接改这里的源码；改完说明是否需要重启或重跑 fish/sync-runtime.mjs --profile desktop。',
+      '- 跑测试：node --test fish/plugins/dsh-fish-mind/tests/tendency.test.mjs fish/plugins/dsh-fish-mind/tests/settings.test.mjs；没有 node 时用 load_workspace_dependencies 返回的绝对路径。',
     )
   }
   lines.push('', '完成后报告：改了哪些文件、跑了哪些测试、需要重启还是需要重新同步运行时。')

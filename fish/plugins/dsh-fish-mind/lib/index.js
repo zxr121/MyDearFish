@@ -697,6 +697,21 @@ export function apply(ctx) {
     ].join('\n')
   }
 
+  /**
+   * 创造模式专用的本机调试例外：只在安装目录里的 cordis 会话注入。
+   * 普通会话的隐私硬规则不动；这里明确主人在设置页打开的调试会话可以读 DSH 目录和本机信息。
+   */
+  function creatorPrompt() {
+    return [
+      '【创造模式·本机调试例外】',
+      '这个会话是主人从设置页打开的源码调试会话，属于本机隐私硬规则里唯一的调试例外：可以读 DSH 目录（含 fish-mind 的配置和日志）、查看本机信息，也可以运行 $DSH_HOME/dsh-runtimes 里的自带 Node/Python 来改代码、跑测试。',
+      '- 仍然不要读凭据文件（.env、.credentials.yaml、~/.ssh 等）的具体值，不要改 fish-mind 数据；权限层会拒绝。',
+      '- 读到的路径、日志和机器信息只用于手头的调试，不要带进记忆，也不要出现在 QQ、B 站、语音或任何对外内容里。',
+      '- 命令里不要用 .. 跳目录；要读其它位置用绝对路径。',
+      '- 跑测试：先调用 load_workspace_dependencies 拿 node 的绝对路径，再运行 & "<node>" --test fish/plugins/dsh-fish-mind/tests/<file>.test.mjs。',
+    ].join('\n')
+  }
+
   /** 法律硬规则：每个会话都注入，和隐私规则、权限层一起构成行为边界。 */
   function safetyPrompt() {
     return [
@@ -732,7 +747,7 @@ export function apply(ctx) {
       `主人刚在设置页打开了开发者模式。你可以用 read、glob、grep，以及 Get-ChildItem、Get-Content、Select-String 这类只读 shell 命令，查看 DSH 目录里的日志、配置和会话记录，帮主人排查问题；DSH 目录是 ${dshHome}。`,
       '- 这是隐私规则里「不要主动读 DSH 目录」的唯一例外，只限主人自己的会话和只读查看。凭据文件（.env、.credentials.yaml、密钥、~/.ssh 等）、身份文件、对 DSH 目录的写入和写入型命令仍然会被权限层拒绝。',
       '- 帮主人配鱼：先用 fish_qq_roster 读鱼 QQ 现在登录的账号、群号和好友 QQ 号，再用 fish_config 把群、好友、关掉、只听、少掺和，以及主动搭话和性格倾向写进设置；B 站用 bili_config 读和改。填进去的号码要来自名单，不要猜，也不要写进记忆或任何对外内容。',
-      '- 主人从设置页「打开创造模式」时，那个会话在鱼的源码工作区里，默认就是完全权限（沙箱 danger-full-access、审批 never），可以改鱼自己的源码。开发实例是源码仓库；安装版是 $DSH_HOME/fish-src 的源码副本，只改白名单里的文件，改完让主人完全退出再打开 DSH，启动时会自动同步进 profile。鱼脑数据（$DSH_HOME/fish-mind）、凭据、身份文件和危险命令仍然不让工具碰。',
+      '- 主人从设置页「打开创造模式」时，那个会话在鱼的源码工作区里，默认就是完全权限（沙箱 danger-full-access、审批 never），可以改鱼自己的源码。开发实例是源码仓库；安装版是 $DSH_HOME/fish-src 的源码副本，只改白名单里的文件，改完让主人完全退出再打开 DSH，启动时会自动同步进 profile。这类会话可以读整个 DSH 目录和本机信息，也可以运行 $DSH_HOME/dsh-runtimes 里的自带 Node/Python 跑测试；鱼脑数据（$DSH_HOME/fish-mind）写入、凭据、身份文件和危险命令仍然不让工具碰。',
       '- 读到或配好的内容是调试资料，不是记忆，也不是主人对你说过的话：不要写进经历，不要当私设，不要复述到 QQ、B 站、语音或任何对外内容里。号码跟凭据一样只在本地用。',
       '- 每次这样的读取和改动都会记进审计。不要为了绕开拒绝去用别的路径；被拒绝就如实告诉主人。',
       '- 在本机跟主人讨论时可以引用必要的路径和报错原文；凭据的具体值仍然不要复述。给结论时说清「看到什么、说明什么、建议怎么改」，不要把整段日志糊给主人。',
@@ -2501,6 +2516,14 @@ export function apply(ctx) {
           }
         },
       }))
+      // 只在创造模式会话挂；普通会话不新增空提示段，快照保持原样。
+      if (!social && isCreatorSession({ agent })) {
+        offs.push(prompt.context({
+          name: 'fish-mind-creator',
+          order: 934,
+          text: creatorPrompt,
+        }))
+      }
       offs.push(prompt.context({
         name: 'fish-mind-workspace',
         order: 910,

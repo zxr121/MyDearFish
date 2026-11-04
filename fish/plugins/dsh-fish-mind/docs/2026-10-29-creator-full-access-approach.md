@@ -51,3 +51,7 @@
 - 手工：设置页打开创造模式会话 → GUI 权限显示完全权限；让它改 `fish/plugins/dsh-fish-mind/lib` 里的代码 → 能写；让它改 `data/fish-mind` 里的数据 → 仍然拒绝。
 - 手工：开发者模式开 → `fish_qq_roster` 返回群/好友；关掉或在群聊会话里调用 → 拒绝；用 `fish_config` 把读到的群号写进 `社交.群` → 设置页能看到。
 - 手工：`bili_config` 读/改 B 站设置照旧；自动评论/回复/私信收件人仍要主人确认。
+
+## 2026-11-04 调整
+
+创造模式放开 DSH 目录和本机信息的读取，允许运行 `$DSH_HOME/dsh-runtimes` 里的自带 Node/Python 来跑测试；`write`/`edit` 写源码工作区以外的 DSH 文件改走 `creator.data-read-only`，fish-mind 数据写入、凭据、身份文件和危险命令仍然封死。普通会话和 QQ 社交会话不变。

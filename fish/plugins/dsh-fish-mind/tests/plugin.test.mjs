@@ -195,6 +195,68 @@ test('鱼脑目录只读：写 budget.json 或在 shell 里碰它都被拒', asy
   ctx.dispose()
 })
 
+test('创造模式会话拿到本机调试例外提示，真实工具门放行自带 Node', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fish-mind-creator-plugin-'))
+  const home = join(root, 'data')
+  mkdirSync(home, { recursive: true })
+  process.env.DSH_HOME = home
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  const agents = []
+  ctx.set('agents', { list: () => agents })
+  apply(ctx)
+
+  const runtime = join(home, 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'node', 'bin')
+  mkdirSync(runtime, { recursive: true })
+  const node = join(runtime, 'node.exe')
+  writeFileSync(node, '')
+  mkdirSync(join(home, 'fish-mind'), { recursive: true })
+  writeFileSync(join(home, 'fish-mind', '.env'), 'SECRET=1\n')
+
+  const creator = {
+    session: { id: 'creator-plugin-1', header: { id: 'creator-plugin-1', cwd: root, agentPreset: 'cordis' } },
+    ctx,
+  }
+  agents.push(creator)
+  await ctx.emit('agent/created', { agent: creator })
+  const creatorPrompt = harness.contexts.find((entry) => entry.name === 'fish-mind-creator')
+  assert.ok(creatorPrompt)
+  assert.match(creatorPrompt.text(), /本机调试例外/)
+  assert.match(creatorPrompt.text(), /dsh-runtimes/)
+
+  const normal = { session: session('session-normal'), ctx }
+  agents.push(normal)
+  await ctx.emit('agent/created', { agent: normal })
+  assert.equal(
+    harness.contexts.filter((entry) => entry.name === 'fish-mind-creator').length,
+    1,
+    '普通会话不挂创造模式提示',
+  )
+
+  let nextCalled = 0
+  const next = async () => {
+    nextCalled += 1
+    return { kind: 'allow' }
+  }
+  const verdict = await ctx.emit('tools/pre-execute', {
+    name: 'pwsh',
+    arguments: { command: `& "${node}" --test fish/plugins/dsh-fish-mind/tests/permissions.test.mjs` },
+    agent: { session: creator.session },
+  }, next)
+  assert.equal(verdict.kind, 'allow')
+  assert.equal(nextCalled, 1)
+
+  const secret = await ctx.emit('tools/pre-execute', {
+    name: 'read',
+    arguments: { file_path: join(home, 'fish-mind', '.env') },
+    agent: { session: creator.session },
+  }, next)
+  assert.equal(secret.kind, 'deny')
+  assert.equal(nextCalled, 1)
+
+  ctx.dispose()
+})
+
 test('每次模型调用都记账：说的、想的、判断的都算', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()

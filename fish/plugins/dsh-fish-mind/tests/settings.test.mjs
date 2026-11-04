@@ -627,7 +627,7 @@ test('性格倾向接口：读写、预览不落盘、创造模式说明', async
   assert.deepEqual(brief.json.unmatched, ['用颜文字'])
   assert.deepEqual(brief.json.matched.map((item) => item.dimension), ['talk'])
   assert.match(brief.json.brief, /用颜文字/)
-  assert.match(brief.json.brief, /不读不写 DSH_HOME/)
+  assert.match(brief.json.brief, /可以读 DSH_HOME/)
   assert.equal(typeof brief.json.brief, 'string')
   assert.ok(brief.json.brief.length > 100)
   assert.equal((await call(routes, '/dsh-fish-mind/creation', { method: 'POST', body: {} })).res.status, 405)

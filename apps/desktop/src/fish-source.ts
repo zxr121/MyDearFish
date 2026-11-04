@@ -439,7 +439,7 @@ function writeSourceReadme(sourceRoot: string, version: string): void {
     '只有这些文件会保留并在重启后生效。其余运行时文件（尤其是 `lib/permissions.js`、`lib/index.js`、`lib/privacy.js`、`lib/budget.js`、`package.json` 和 `client.js`）每次启动都会从安装包原版恢复，改过的副本会留在 `.kernel-backup/` 里。',
     '',
     '- `fish/bundle` 和另外四个插件只作参考，不参与同步；出厂人设请在设置页「性格人设」里覆盖。',
-    '- 不要读写 `../fish-mind`（记忆、权限、预算和配置数据）：创造模式工具会被拒绝，那里也不该被代码改。',
+    '- 可以读 `../fish-mind` 和 DSH 目录里的调试资料，也可以运行 `$DSH_HOME/dsh-runtimes` 里的自带 Node/Python 跑测试；不要写 `../fish-mind`（工具会拒绝），DSH 目录里的其它文件改了也会在启动时被恢复。',
     '- 改完不需要跑 pnpm 或 sync-runtime；完全退出再打开即可。',
     '- 恢复出厂源码：删掉整个 `fish-src` 目录，再打开 DSH，会从安装包重新生成。',
     '',

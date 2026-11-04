@@ -7,8 +7,8 @@
 //     探测本机的命令、不可逆的危险命令，以及参数里夹带真凭据的调用，一律拒绝。
 //   · 开发者模式（主人从设置页打开）—— 她自己的前台会话可以用读类工具和只读 shell
 //     命令查看 DSH 目录里的日志、配置和会话；凭据、身份文件、写入和群聊会话照旧拒绝。
-//   · 创造模式（安装目录里的 cordis 会话）—— 可以写鱼自己的源码，改完由主人重启生效；
-//     鱼脑数据、凭据、身份文件和危险命令照旧拒绝。
+//   · 创造模式（安装目录里的 cordis 会话）—— 可以写鱼自己的源码、读 DSH 目录和本机信息、
+//     运行随包运行时，改完由主人重启生效；鱼脑数据写入、凭据、身份文件和危险命令照旧拒绝。
 //   · 她自己在后台开的会话 —— 默认全拒，只放行显式 allowTools，而且只能碰鱼脑目录。
 //   · 紧急停止 —— 所有工具调用全拒，聊天本身还在。
 //
@@ -105,23 +105,37 @@ const SYSTEM_IDENTITY_FILES = [
 ]
 
 // 只认“命令本身就在探测本机”的写法，不因为脚本里出现一个词就拒绝。
+// machine 是机器/身份信息，创造模式放行；credential 是取密钥或账号库，创造模式也拒绝。
 const HARD_COMMAND_PATTERNS = [
-  /^(?:sudo\s+)?(?:hostname|whoami|id|ipconfig|ifconfig|getmac|arp|nbtstat|route|systeminfo|msinfo32|dxdiag|printenv|env|set|ps|tasklist|net\s+user|net\s+localgroup|cmdkey|vaultcmd)(?=\s|$)/i,
-  /^(?:sudo\s+)?security\s+find-(?:generic|internet)-password\b/i,
-  /^(?:sudo\s+)?git\s+config\s+(?:--global\s+)?user\.(?:email|name)\b/i,
-  /^(?:sudo\s+)?(?:gh\s+auth\s+token|npm\s+whoami|aws\s+configure\s+list|aws\s+sts\s+get-caller-identity|az\s+account\s+show|gcloud\s+config\s+list|kubectl\s+config\s+view|docker\s+info)\b/i,
-  /Get-ComputerInfo\b|wmic\s+(?:computersystem|os|bios|csproduct|useraccount)\b|Get-LocalUser\b|Get-StoredCredential\b|Get-ChildItem\s+env:|\benv:\w/i,
-  /reg\s+(?:query|export)\s+[^\n]*(?:HKLM|HKCU|SAM|SECURITY)/i,
-  /(?:curl|wget|Invoke-WebRequest|iwr)\s+[^\n]*(?:ifconfig\.me|ipinfo\.io|ip-api\.com|whatismyip|checkip)/i,
-  /(?:cat|type|Get-Content|head|tail|more)\s+[^\n]*(?:\.bash_history|\.zsh_history|\.python_history|\.psql_history|\.gitconfig|\.config[\\/]gh|hosts|passwd|shadow)/i,
-  /(?:echo|printf|Write-Output|Write-Host)\b[^\n]*(?:%USERNAME%|%COMPUTERNAME%|\$env:USERNAME|\$env:COMPUTERNAME|\$USER\b|\$HOME\b|\$env:USERPROFILE)/i,
-  /(?:^|[\s"'`])(?:ls|dir|Get-ChildItem|find)\s+(?:~|\$HOME|%USERPROFILE%|["']?[A-Za-z]:[\\/]Users[\\/][^\\/\s"']+["']?)(?:\s|$)/i,
-  /\bos\.hostname\s*\(|\bos\.userInfo\s*\(|\bprocess\.env\.USERNAME\b/i,
+  { kind: 'machine', regex: /^(?:sudo\s+)?(?:hostname|whoami|id|ipconfig|ifconfig|getmac|arp|nbtstat|route|systeminfo|msinfo32|dxdiag|printenv|env|set|ps|tasklist)(?=\s|$)/i },
+  { kind: 'credential', regex: /^(?:sudo\s+)?(?:net\s+user|net\s+localgroup|cmdkey|vaultcmd)(?=\s|$)/i },
+  { kind: 'credential', regex: /^(?:sudo\s+)?security\s+find-(?:generic|internet)-password\b/i },
+  { kind: 'machine', regex: /^(?:sudo\s+)?git\s+config\s+(?:--global\s+)?user\.(?:email|name)\b/i },
+  { kind: 'machine', regex: /^(?:sudo\s+)?(?:npm\s+whoami|aws\s+configure\s+list|aws\s+sts\s+get-caller-identity|az\s+account\s+show|gcloud\s+config\s+list|docker\s+info)\b/i },
+  { kind: 'credential', regex: /^(?:sudo\s+)?(?:gh\s+auth\s+token|kubectl\s+config\s+view)\b/i },
+  // env:\w 属于普通环境变量引用（$env:DSH_HOME 这类），归 machine；
+  // 只有整表列环境变量或点名敏感变量才算取凭据。
+  { kind: 'machine', regex: /Get-ComputerInfo\b|wmic\s+(?:computersystem|os|bios|csproduct|useraccount)\b|Get-LocalUser\b|Get-ChildItem\s+env:|\benv:\w/i },
+  { kind: 'credential', regex: /Get-StoredCredential\b/i },
+  { kind: 'machine', regex: /reg\s+(?:query|export)\s+[^\n]*(?:HKLM|HKCU)/i },
+  { kind: 'credential', regex: /reg\s+(?:query|export)\s+[^\n]*(?:SAM|SECURITY)/i },
+  { kind: 'machine', regex: /(?:curl|wget|Invoke-WebRequest|iwr)\s+[^\n]*(?:ifconfig\.me|ipinfo\.io|ip-api\.com|whatismyip|checkip)/i },
+  { kind: 'machine', regex: /(?:cat|type|Get-Content|head|tail|more)\s+[^\n]*(?:hosts)/i },
+  { kind: 'credential', regex: /(?:cat|type|Get-Content|head|tail|more)\s+[^\n]*(?:\.bash_history|\.zsh_history|\.python_history|\.psql_history|\.gitconfig|\.config[\\/]gh|passwd|shadow)/i },
+  { kind: 'machine', regex: /(?:echo|printf|Write-Output|Write-Host)\b[^\n]*(?:%USERNAME%|%COMPUTERNAME%|\$env:USERNAME|\$env:COMPUTERNAME|\$USER\b|\$HOME\b|\$env:USERPROFILE)/i },
+  { kind: 'machine', regex: /(?:^|[\s"'`])(?:ls|dir|Get-ChildItem|find)\s+(?:~|\$HOME|%USERPROFILE%|["']?[A-Za-z]:[\\/]Users[\\/][^\\/\s"']+["']?)(?:\s|$)/i },
+  { kind: 'machine', regex: /\bos\.hostname\s*\(|\bos\.userInfo\s*\(|\bprocess\.env\.USERNAME\b/i },
   // 直接引用敏感环境变量（回显、拼进命令、从 node/python 里读）等同于把密钥交出来。
-  /(?:\$env:|\$|%|env:)[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*(?:%|\b)/i,
-  /\bprocess\.env(?:\.[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*|\[['"`]?[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*['"`]?\])/i,
-  /\bos\.environ(?:\.get\s*\(\s*|\[\s*)['"][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]|os\.getenv\s*\(\s*['"][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]/i,
+  { kind: 'credential', regex: /(?:\$env:|\$|%|env:)[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*(?:%|\b)/i },
+  { kind: 'credential', regex: /\bprocess\.env(?:\.[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*|\[['"`]?[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*['"`]?\])/i },
+  { kind: 'credential', regex: /\bos\.environ(?:\.get\s*\(\s*|\[\s*)['"][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]|os\.getenv\s*\(\s*['"][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)[A-Z0-9_]*['"]/i },
+  // 裸 env/printenv/set 在创造模式放行；同行点名敏感变量仍然算取密钥。
+  { kind: 'credential', regex: /\b(?:printenv|env|set)\b[^\n]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i },
 ]
+
+// 创造模式允许 $env:DSH_HOME 这类普通环境变量引用；如果后面接的是独立的 fish-mind
+// 路径段（$env:DSH_HOME\fish-mind\...），仍按鱼脑数据封条拒绝。dsh-fish-mind 源码目录不命中。
+const FISH_MIND_SEGMENT = /(?:^|[\\/\s"'(=])fish-mind(?:[\\/"'\s);,]|$)/i
 
 // 不可逆或明显越界的高风险命令：删根、格式化、覆盖磁盘、关机、下载即执行、
 // 破坏启动配置或关掉安全防护。和“探测本机”不同，这些动作一旦执行就收不回来。
@@ -474,12 +488,15 @@ export function createBroker({
   const autonomousTools = new Set(config.permissions.autonomous.allowTools)
   const autonomousSessions = new Set()
 
-  /** 返回规则名；空串表示可以继续走后面的策略。 */
-  function privatePathRule(pathValue, allowedRoot = '') {
+  /** 返回规则名；空串表示可以继续走后面的策略。创造模式可读 DSH 目录，但写入仍限源码工作区。 */
+  function privatePathRule(pathValue, allowedRoot = '', { creator = false, pathWrites = false } = {}) {
     const target = fold(pathValue)
     const insideAllowed = allowedRoot !== '' && isInside(target, allowedRoot)
-    if (isInside(target, dshRoot) && !insideAllowed) return 'private.dsh-home'
-    if (target === homeRoot) return 'private.home-root'
+    if (isInside(target, dshRoot) && !insideAllowed) {
+      if (!creator) return 'private.dsh-home'
+      if (pathWrites) return 'creator.data-read-only'
+    }
+    if (target === homeRoot && !creator) return 'private.home-root'
     if (protectedRoots.some((root) => isInside(target, root))) return 'private.credential-store'
     // `.azure`、`.config/gcloud` 是目录，里面的文件同样算身份凭据。
     for (const identity of identityPaths) {
@@ -524,7 +541,9 @@ export function createBroker({
       case 'private.command':
         return '这条命令会探测本机身份、账号或网络信息，鱼脑不能执行。'
       case 'creator.traversal':
-        return '创造模式只能改当前源码工作区；命令里不能用 .. 跳出工作区。'
+        return '创造模式的命令里不能用 .. 跳目录；要读其它位置请用绝对路径。'
+      case 'creator.data-read-only':
+        return '创造模式可以读 DSH 目录，但写文件只限源码工作区；这里的改动也会在启动时被安装包恢复。'
       case 'private.credential-argument':
         return '工具参数里出现了账号、密码或密钥，鱼脑不会搬运这类秘密。'
       default:
@@ -557,18 +576,23 @@ export function createBroker({
     return false
   }
 
-  function isPrivateCommand(command, ignoreDshHome = false, allowedRoot = '') {
+  function isPrivateCommand(command, ignoreDshHome = false, allowedRoot = '', creator = false) {
     if (typeof command !== 'string' || command === '') return false
     const scanned = allowedRoot === '' ? command : stripCommandRoot(command, allowedRoot)
     if (shellTouchesPrivate(scanned, ignoreDshHome)) return true
+    const patterns = creator
+      ? HARD_COMMAND_PATTERNS.filter((item) => item.kind === 'credential')
+      : HARD_COMMAND_PATTERNS
     const segments = command
       .split(/(?:&&|\|\||[;|\n]|\$\(|`)/)
       .map((segment) => segment.trim())
       .filter(Boolean)
     for (const segment of segments) {
-      if (HARD_COMMAND_PATTERNS.some((pattern) => pattern.test(segment))) return true
+      if (patterns.some((item) => item.regex.test(segment))) return true
     }
     // 命令被包在 pwsh -Command、node -e 里时，看整条原文。
+    // 创造模式只看凭据；机器探测已经放行。
+    if (creator) return patterns.some((item) => item.regex.test(command))
     return /\b(?:whoami|hostname|ipconfig|ifconfig|getmac|systeminfo|msinfo32|dxdiag|printenv|Get-ComputerInfo|Get-LocalUser|Get-StoredCredential|%USERNAME%|%COMPUTERNAME%|\$env:USERNAME|\$env:COMPUTERNAME|\$env:USERPROFILE|os\.hostname\s*\(|os\.userInfo\s*\()/i.test(command)
   }
 
@@ -618,6 +642,8 @@ export function createBroker({
     const strings = []
     collectStrings(args, strings)
     const write = WRITE_TOOLS.has(exec?.name) || SHELL_TOOLS.has(exec?.name)
+    // 路径参数是不是写操作：shell 的 workdir/cwd 只是执行目录，不能按“写”处理。
+    const pathWrites = WRITE_TOOLS.has(exec?.name)
     // 开发者模式只给主人自己的前台会话开一条只读缝：群聊、子代理、后台会话都不算。
     const developerRead = config.developer.enabled === true
       && READ_TOOLS.has(exec?.name)
@@ -638,7 +664,7 @@ export function createBroker({
     const creator = isCreatorSession(exec) === true
     const allowedRoot = creator ? creatorRootPath : ''
     for (const pathValue of paths) {
-      let rule = privatePathRule(pathValue, allowedRoot)
+      let rule = privatePathRule(pathValue, allowedRoot, { creator, pathWrites })
       if (rule === 'private.dsh-home' && developerRead) rule = developerPathRule(pathValue)
       if (rule !== '') {
         privatePath = pathValue
@@ -646,7 +672,7 @@ export function createBroker({
         break
       }
     }
-    const privateCommand = commands.find((command) => isPrivateCommand(command, developerShellRead, allowedRoot)) || null
+    const privateCommand = commands.find((command) => isPrivateCommand(command, developerShellRead || creator, allowedRoot, creator)) || null
     const traversalCommand = creator ? commands.find((command) => hasParentTraversal(command)) || null : null
     const dangerousCommand = commands.find((command) => isDangerousCommand(command)) || null
     const credentialArgument = privacy !== null && typeof privacy.hasCredential === 'function'
@@ -662,7 +688,14 @@ export function createBroker({
     const sealedTargets = creator ? [mindRoot] : sealedRoots
     const sealedShellTargets = creator ? mindShellRoots : sealedShellRoots
     const sealedPath = write ? paths.find((pathValue) => sealedTargets.some((root) => isInside(fold(pathValue), root))) : undefined
-    const sealedCommand = commands.find((command) => !developerShellRead && sealedShellTargets.some((root) => shellTouchesRoot(command, root)))
+    const sealedCommand = commands.find((command) => {
+      if (developerShellRead) return false
+      const touches = sealedShellTargets.some((root) => shellTouchesRoot(command, root)) ||
+        // 相对穿越交给 creator.traversal，避免把 .. 的拒绝理由改成数据封条。
+        (creator && !hasParentTraversal(command) && FISH_MIND_SEGMENT.test(command))
+      // 创造模式可以用只读命令读鱼脑配置和日志；写型 shell 仍然封死。
+      return touches && !(creator && isReadOnlyShellCommand(command, exec.name))
+    })
     const developer = (developerRead && paths.some((pathValue) => isInside(fold(pathValue), dshRoot))) || developerShellRead
     return {
       paths,

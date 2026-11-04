@@ -189,7 +189,7 @@
 
 安装包把仓库的 `fish/` 作为 `resources/fish-src/fish` 打进去。Host 启动之前，桌面壳把它 seed 到 `<DSH_HOME>/fish-src`，再把 `dsh-fish-mind` 和 `dsh-qq-bridge` 作为相对 `file:` 依赖同步进桌面 profile 的 `node_modules`；profile 作用域的模块解析会优先加载它们，早于安装包里的同名副本。完全重启会重新执行这步准备，不需要 pnpm、重新构建或改 asar。只有行为白名单会跨重启保留，其它运行时文件（`index.js`、`permissions.js`、`privacy.js`、`budget.js`、`package.json`、`client.js`）都从安装包原版恢复，改过的版本留在 `.kernel-backup/<时间>/`。升级按文件哈希合并：改过的白名单文件和主人自建文件保留，没改过的跟着新包更新；删掉 `fish-src` 会从安装包重新生成。`fish/bundle` 和另外四个插件只作参考，因为 bundle 解析是 installation-first；出厂人设走设置页的「性格人设」。
 
-打开创造模式先用 `workspaces.create({ path: checkout })` 把 `checkout` 注册成工作区（已注册就复用），再走 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })` 在那里开会话：brief 只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。鱼脑的 broker 接受 creator root，在本该私有的 Harness home 里只放行这个根以下的路径；创造模式的 shell 不允许 `..` 穿越，`$DSH_HOME/fish-mind` 的数据、凭据、身份文件和危险命令照旧硬拒。代码改动跟着仓库和安装包走，不随记忆包；安装版的改动留在 `data/fish-src`，不进导出包。权限层加白名单是护栏不是沙箱——靠主人看 diff。
+打开创造模式先用 `workspaces.create({ path: checkout })` 把 `checkout` 注册成工作区（已注册就复用），再走 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis', prompt, clearPreviousDraft: false })` 在那里开会话：brief 只填进可编辑草稿，不自动发送，也不覆盖主人已有草稿。鱼脑的 broker 对创造模式放开 DSH 目录和本机信息的读取、允许执行自带运行时；写文件仍限 creator root，shell 仍不允许 `..` 穿越，`$DSH_HOME/fish-mind` 的数据写入、凭据、身份文件和危险命令照旧硬拒。代码改动跟着仓库和安装包走，不随记忆包；安装版的改动留在 `data/fish-src`，不进导出包。权限层加白名单是护栏不是沙箱——靠主人看 diff。
 
 ## 可搬运的配置
 
