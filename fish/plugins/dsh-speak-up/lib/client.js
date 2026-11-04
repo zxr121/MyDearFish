@@ -234,8 +234,42 @@ window.__ModuleLoader__.load({
         文字,
       )
     /** 房间勾选用；总开关/试运行一律用下面的 段选，不用这种勾选框。 */
-    const 勾 = (值, onChange) =>
-      h('input', { type: 'checkbox', checked: !!值, onChange: (e) => onChange(e.target.checked) })
+    const 勾 = (值, onChange) => {
+      const 开 = !!值
+      const 段 = (文本, 选中, 目标) => h('button', {
+        type: 'button',
+        'aria-pressed': 选中,
+        style: {
+          minWidth: 30,
+          border: 'none',
+          borderRadius: 999,
+          padding: '4px 11px',
+          fontFamily: 'inherit',
+          fontSize: 12,
+          lineHeight: '16px',
+          cursor: 选中 ? 'default' : 'pointer',
+          background: 选中
+            ? (目标 ? 'var(--dsw-alias-state-business-primary, #5096ff)' : 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.22))')
+            : 'transparent',
+          color: 选中
+            ? (目标 ? 'var(--dsw-static-neutral-00, #fff)' : 'var(--dsw-alias-label-primary, inherit)')
+            : 'var(--dsw-alias-label-tertiary, rgba(127,127,127,.7))',
+          fontWeight: 选中 ? 500 : 400,
+          transition: 'background .15s, color .15s',
+        },
+        onClick: () => { if (!选中) onChange(目标) },
+      }, 文本)
+      return h('div', {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: 2,
+          border: '0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
+          borderRadius: 999,
+          background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.06))',
+        },
+      }, 段('开', 开, true), 段('关', !开, false))
+    }
     const 数 = (值, onChange, 步, 关) =>
       h('input', {
         type: 'number',

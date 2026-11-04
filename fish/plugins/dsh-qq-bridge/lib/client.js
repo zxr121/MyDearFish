@@ -215,19 +215,22 @@ window.__ModuleLoader__.load({
         type: 'button',
         'aria-pressed': 选中,
         style: {
+          minWidth: 30,
           border: 'none',
           borderRadius: 999,
-          padding: '3px 12px',
+          padding: '4px 11px',
+          fontFamily: 'inherit',
           fontSize: 12,
-          lineHeight: 1.4,
+          lineHeight: '16px',
           cursor: 选中 ? 'default' : 'pointer',
           background: 选中
-            ? (目标 ? 'var(--dsw-alias-state-business-primary)' : 'var(--dsw-alias-border-l2)')
+            ? (目标 ? 'var(--dsw-alias-state-business-primary, #5096ff)' : 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.22))')
             : 'transparent',
-          color: 选中 && 目标 ? '#fff' : 'inherit',
-          opacity: 选中 ? 1 : 0.5,
-          fontWeight: 选中 ? 600 : 400,
-          transition: 'background .15s, opacity .15s',
+          color: 选中
+            ? (目标 ? 'var(--dsw-static-neutral-00, #fff)' : 'var(--dsw-alias-label-primary, inherit)')
+            : 'var(--dsw-alias-label-tertiary, rgba(127,127,127,.7))',
+          fontWeight: 选中 ? 500 : 400,
+          transition: 'background .15s, color .15s',
         },
         onClick: () => { if (!选中) onChange(目标) },
       }, 文本)
@@ -235,10 +238,10 @@ window.__ModuleLoader__.load({
         style: {
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 2,
           padding: 2,
-          border: '1px solid var(--dsw-alias-border-l2)',
+          border: '0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
           borderRadius: 999,
+          background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.06))',
         },
       }, 段('开', 开, true), 段('关', !开, false))
     }

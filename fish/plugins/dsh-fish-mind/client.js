@@ -215,14 +215,32 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
     }
 
     function pageHead({ title, intro, caps, effect }) {
-      return h('div', { 'data-fishm-pagehead': '' },
-        h('div', { 'data-fishm-pagehead-title': '' }, title,
+      return h('div', {
+        'data-fishm-pagehead': '',
+        style: {
+          display: 'flex', flexDirection: 'column', gap: 6,
+          padding: '4px 2px 14px', marginBottom: 2,
+          borderBottom: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.16))',
+        },
+      },
+        h('div', {
+          'data-fishm-pagehead-title': '',
+          style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 20, lineHeight: '28px', fontWeight: 500, letterSpacing: '-.01em' },
+        }, title,
           effect
             ? h('span', { 'data-fishm-effect': effect === 'restart' ? 'restart' : '' },
                 effect === 'restart' ? '重启后生效' : '立即生效')
             : null),
-        intro ? h('div', { 'data-fishm-note': '' }, intro) : null,
-        caps ? h('div', { 'data-fishm-caps': '' }, caps) : null)
+        intro ? h('div', { 'data-fishm-note': '', style: { fontSize: 12, lineHeight: 1.7, opacity: 0.62 } }, intro) : null,
+        caps ? h('div', {
+          'data-fishm-caps': '',
+          style: {
+            fontSize: 12, lineHeight: 1.7, padding: '8px 12px', borderRadius: 8,
+            background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.06))',
+            borderLeft: '2px solid var(--dsw-alias-state-business-primary, #5096ff)',
+            color: 'var(--dsw-alias-label-secondary, rgba(127,127,127,.8))',
+          },
+        }, caps) : null)
     }
 
     function 勾(值, onChange) {
@@ -231,9 +249,29 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         type: 'button',
         'data-on': 目标 ? 'true' : 'false',
         'aria-pressed': 选中,
+        style: {
+          minWidth: 30, border: 'none', borderRadius: 999, padding: '4px 11px',
+          fontFamily: 'inherit', fontSize: 12, lineHeight: '16px',
+          cursor: 选中 ? 'default' : 'pointer',
+          background: 选中
+            ? (目标 ? 'var(--dsw-alias-state-business-primary, #5096ff)' : 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.22))')
+            : 'transparent',
+          color: 选中
+            ? (目标 ? 'var(--dsw-static-neutral-00, #fff)' : 'var(--dsw-alias-label-primary, inherit)')
+            : 'var(--dsw-alias-label-tertiary, rgba(127,127,127,.7))',
+          fontWeight: 选中 ? 500 : 400,
+          transition: 'background .15s, color .15s',
+        },
         onClick: () => { if (!选中) onChange(目标) },
       }, 文本)
-      return h('div', { 'data-fishm-pill': '' }, 段('开', 开, true), 段('关', !开, false))
+      return h('div', {
+        'data-fishm-pill': '',
+        style: {
+          display: 'inline-flex', alignItems: 'center', padding: 2, borderRadius: 999,
+          border: '0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
+          background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.06))',
+        },
+      }, 段('开', 开, true), 段('关', !开, false))
     }
 
     function pane(id, active, ...children) {
@@ -267,19 +305,42 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           if (element && typeof element.focus === 'function') element.focus()
         }
       }
-      return h('div', { 'data-fishm-tabs': '', role: 'tablist', 'aria-label': label || '设置页' },
-        tabs.map((tab, index) => h('button', {
-          key: tab.id,
-          type: 'button',
-          role: 'tab',
-          'data-fishm-tab': '',
-          id: 'fishm-tab-' + tab.id,
-          'aria-selected': tab.id === active,
-          'aria-controls': 'fishm-panel-' + tab.id,
-          tabIndex: tab.id === active ? 0 : -1,
-          onClick: () => onSelect(tab.id),
-          onKeyDown: (event) => move(event, index),
-        }, tab.label)))
+      return h('div', {
+        'data-fishm-tabs': '',
+        role: 'tablist',
+        'aria-label': label || '设置页',
+        style: {
+          position: 'sticky', top: 0, zIndex: 3, display: 'flex', gap: 24, flexWrap: 'wrap',
+          padding: '2px 2px 0', margin: '0 0 18px',
+          background: 'var(--dsw-alias-bg-layer-2, #1e1e1e)',
+          borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.24))',
+        },
+      },
+      tabs.map((tab, index) => h('button', {
+        key: tab.id,
+        type: 'button',
+        role: 'tab',
+        'data-fishm-tab': '',
+        id: 'fishm-tab-' + tab.id,
+        'aria-selected': tab.id === active,
+        'aria-controls': 'fishm-panel-' + tab.id,
+        tabIndex: tab.id === active ? 0 : -1,
+        style: {
+          appearance: 'none', position: 'relative', border: 0, borderRadius: 0, background: 'transparent',
+          padding: '4px 0 11px', fontFamily: 'inherit', fontSize: 13, lineHeight: '20px',
+          cursor: 'pointer',
+          color: tab.id === active
+            ? 'var(--dsw-alias-label-primary, inherit)'
+            : 'var(--dsw-alias-label-tertiary, rgba(127,127,127,.7))',
+          fontWeight: tab.id === active ? 500 : 400,
+          boxShadow: tab.id === active
+            ? 'inset 0 -2px 0 var(--dsw-alias-state-business-primary, #5096ff)'
+            : 'none',
+          transition: 'color .15s',
+        },
+        onClick: () => onSelect(tab.id),
+        onKeyDown: (event) => move(event, index),
+      }, tab.label)))
     }
 
     function makeLedgerHook(slots, slotName) {

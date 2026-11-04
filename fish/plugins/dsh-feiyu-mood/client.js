@@ -136,9 +136,37 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
           type: 'button',
           'data-on': 目标 ? 'true' : 'false',
           'aria-pressed': 选中,
+          style: {
+            minWidth: 30,
+            border: 'none',
+            borderRadius: 999,
+            padding: '4px 11px',
+            fontFamily: 'inherit',
+            fontSize: 12,
+            lineHeight: '16px',
+            cursor: 选中 ? 'default' : 'pointer',
+            background: 选中
+              ? (目标 ? 'var(--dsw-alias-state-business-primary, #5096ff)' : 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.22))')
+              : 'transparent',
+            color: 选中
+              ? (目标 ? 'var(--dsw-static-neutral-00, #fff)' : 'var(--dsw-alias-label-primary, inherit)')
+              : 'var(--dsw-alias-label-tertiary, rgba(127,127,127,.7))',
+            fontWeight: 选中 ? 500 : 400,
+            transition: 'background .15s, color .15s',
+          },
           onClick: () => { if (!选中) onChange(目标) },
         }, 文本)
-        return h('div', { 'data-fm-pill': '' }, 段('开', 开, true), 段('关', !开, false))
+        return h('div', {
+          'data-fm-pill': '',
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: 2,
+            border: '0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
+            borderRadius: 999,
+            background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.06))',
+          },
+        }, 段('开', 开, true), 段('关', !开, false))
       }
 
       const numInput = (key, label, note, min, max) => h('div', { 'data-fm-row': '' },

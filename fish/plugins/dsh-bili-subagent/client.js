@@ -113,10 +113,39 @@ select[data-bd-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
         'data-on': target ? 'true' : 'false',
         'aria-pressed': selected,
         disabled: Boolean(disabled),
+        style: {
+          minWidth: 30,
+          border: 'none',
+          borderRadius: 999,
+          padding: '4px 11px',
+          fontFamily: 'inherit',
+          fontSize: 12,
+          lineHeight: '16px',
+          cursor: selected ? 'default' : 'pointer',
+          background: selected
+            ? (target ? 'var(--dsw-alias-state-business-primary, #5096ff)' : 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.22))')
+            : 'transparent',
+          color: selected
+            ? (target ? 'var(--dsw-static-neutral-00, #fff)' : 'var(--dsw-alias-label-primary, inherit)')
+            : 'var(--dsw-alias-label-tertiary, rgba(127,127,127,.7))',
+          fontWeight: selected ? 500 : 400,
+          opacity: disabled ? 0.45 : 1,
+          transition: 'background .15s, color .15s',
+        },
         onClick: () => { if (!disabled && !selected) onChange(target) },
       }, text)
-      return h('div', { 'data-bd-pill': '', 'data-disabled': disabled ? '' : undefined },
-        段('开', Boolean(on), true), 段('关', !on, false))
+      return h('div', {
+        'data-bd-pill': '',
+        'data-disabled': disabled ? '' : undefined,
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: 2,
+          border: '0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))',
+          borderRadius: 999,
+          background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.06))',
+        },
+      }, 段('开', Boolean(on), true), 段('关', !on, false))
     }
 
     function ToggleRow({ label, note, on, onChange, disabled }) {
