@@ -373,6 +373,15 @@ window.__ModuleLoader__.load({
           设信任说('没改成：' + ((s && s.说) || '未知错误'))
         }
       }
+      const 定位到人 = (号) => {
+        const 净号 = String(号 || '')
+        设人物搜(净号)
+        设展开人(净号)
+        const 节 = typeof document !== 'undefined' && document.querySelector
+          ? document.querySelector('[data-qq-sec="people"]')
+          : null
+        if (节 && typeof 节.scrollIntoView === 'function') 节.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
       // 思想活动只走 /thoughts：带上本地游标做增量，宿主不重发旧的；宿主重启过（序号回退）就整段重来。
       const 拉绪 = async () => {
         const 从 = 绪游标.current
@@ -1014,6 +1023,20 @@ window.__ModuleLoader__.load({
         const p = 人物页.find((x) => String(x.号) === String(号))
         return p ? String(p.名 || p.号) : ''
       }
+      const 主人人 = 人物页.find((p) => p && p.主人) || null
+      const 受信名单 = 信受信.map((x) => {
+        const 号 = String(x.号 || '')
+        const p = 人物页.find((y) => String(y.号) === 号) || null
+        const 关系 = (p && p.关系) || null
+        return {
+          号,
+          名: String(x.名 || (p && p.名) || 号),
+          手动: x.手动 === '加',
+          见过: 关系 ? 关系.见过 : null,
+          互动: 关系 ? 关系.互动 : null,
+          信: 关系 ? 关系.信 : null,
+        }
+      })
 
       const 兆 = (n) => (Number(n) || 0) >= 1048576
         ? (Number(n) / 1048576).toFixed(1) + ' MB'
@@ -1941,6 +1964,36 @@ window.__ModuleLoader__.load({
               ' · 自动受信 ' + (Number(信任规.自动受信数) || 0) + ' 人' +
               ' · 手动禁止 ' + (Number(信任规.手动禁数) || 信任手动禁.length || 0) + ' 人' +
               (信任规.自动 === false ? ' · 自动受信关着' : ''),
+          ),
+          h('div', { style: { fontSize: 12, marginTop: 8 } },
+            h('div', { style: { fontWeight: 600 } }, '受信名单（' + 受信名单.length + '）'),
+            h('div', { style: S.dim }, '自动达标和手动加的人都在这里；点名字跳到下面的人物卡。'),
+            主人人
+              ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' } },
+                  h('span', { style: S.信标 }, '主人'),
+                  h('span', null, String(主人人.名 || 主人人.号) + '（' + 主人人.号 + '）'),
+                  h('span', { style: S.dim }, '永远可以'),
+                )
+              : null,
+            受信名单.length === 0
+              ? h('div', { style: S.dim }, '（还没有受信的人，只有主人可以）')
+              : h('div', { style: { maxHeight: 240, overflowY: 'auto', marginTop: 2 } },
+                  受信名单.map((x) => h('div', {
+                    key: '信' + x.号,
+                    style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' },
+                  },
+                    h('span', { style: S.信标 }, x.手动 ? '手动' : '自动'),
+                    h('span', {
+                      style: { cursor: 'pointer' },
+                      title: '在人物志里展开这个人',
+                      onClick: () => 定位到人(x.号),
+                    }, x.名 + '（' + x.号 + '）'),
+                    h('span', { style: S.dim }, x.手动
+                      ? '你在受信名单里手动加的'
+                      : x.见过 !== null && x.见过 !== undefined
+                        ? '自动达标 · 见过 ' + x.见过 + ' 条 · 她回过 ' + x.互动 + ' 次 · 信任分 ' + (x.信 === undefined ? '—' : x.信)
+                        : '自动达标'),
+                  ))),
           ),
           h('div', { style: { ...S.row, marginTop: 8 } },
             h('label', { style: { ...S.lab, minWidth: 120 } }, '手动加 QQ 号'),
