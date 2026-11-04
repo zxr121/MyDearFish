@@ -1271,6 +1271,28 @@ const 改失发 = 发了.slice(之前改失).filter((x) => x.url.endsWith('/send
   JSON.stringify(改失发.map((x) => x.体.message)))
 备注修改失败 = false
 
+// ⑯k3b 只在嘴上说“这就改成…”，没写标记：改成实情，不假报
+私聊附加 = []
+私聊消息id = 9734
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3590
+私聊消息段 = null
+私聊消息文本 = '聊点别的'
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 之前承诺 = 发了.length
+监听[0](会话, 助手消息(174, 1, [块('text', '收到，这就改成「大绿毛」')], false))
+监听[0](会话, 转完(174))
+await 等到(() => 发了.slice(之前承诺).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
+const 承诺发 = 发了.slice(之前承诺).filter((x) => x.url.endsWith('/send_private_msg'))
+const 承诺后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.find((x) => x.id === 注图?.id)
+报('私聊：只在嘴上说“这就改成…”、没写标记 → 改口，不假报也不动备注',
+  承诺发.length === 1 && 承诺发[0].体.message[0].data.text.includes('我看看能不能改') &&
+    !承诺发[0].体.message[0].data.text.includes('这就改成') &&
+    !承诺发[0].体.message[0].data.text.includes('大绿毛') &&
+    !!承诺后档 && 承诺后档.label === '小绿',
+  JSON.stringify({ 发: 承诺发.map((x) => x.体.message), 贴: 承诺后档 }))
+
 // ⑯k4 这一轮没让她存、也没存：不能因为刚才存过就顺口说“存好了”
 私聊附加 = []
 私聊消息id = 9732

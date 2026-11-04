@@ -4882,6 +4882,109 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   报('收藏权限：自动达标的人不用手动加也能存', QQ收藏.size === 收藏数前自动 + 1 && !!阿黄, JSON.stringify(阿黄))
 }
 
+{
+  // ---------- 25 改备注：模糊命令开窗、标记落地、短应不假报 ----------
+  写配置({ 群: ['3103'], 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 信任: { 自动: false, 手动加: [], 手动禁: [], 最少天数: 3, 最少见过: 25, 最少互动: 3, 最少熟: 15, 最少信: 52, 最多疤: 8, 最多张力: 40 } })
+  const 索引前 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 目标贴 = 索引前.items.find((x) => x.emojiId && QQ收藏.has(x.emojiId))
+  const 旧名 = 目标贴 ? 目标贴.label : ''
+  const 取发文本 = (批) => 批.map((x) => (x.体.message || []).filter((s) => s.type === 'text').map((s) => s.data.text).join('\n')).join('\n')
+
+  群消息表.set(3103, [一条群消息('必须更正备注', { id: 991001, 是主人: true, atSelf: true })])
+  设判断(['991001'], true, 0.9, '主人在说收藏')
+  await 轮询社交()
+  await 等()
+  const 模糊轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-3103').at(-1)
+  const 模糊文 = String(模糊轮?.message?.content?.[0]?.text || '')
+  const 模糊后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  报('改备注：模糊的“必须更正备注”不猜目标，先提示问清',
+    !!目标贴 && 模糊后档.items.find((x) => x.id === 目标贴.id)?.label === 旧名 &&
+      模糊文.includes('【要改备注】') && 模糊文.includes('[改备注:#编号:短名字]'),
+    JSON.stringify({ 旧名, 文: 模糊文.slice(-600) }))
+
+  const 模糊发前 = 发的.length
+  await 收到回复('session-qq-social-group-3103', '收到主人，这就改成「指指点点」，以后不乱认了', 201)
+  await 等()
+  const 模糊发 = 发的.slice(模糊发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103)
+  const 模糊发文本 = 取发文本(模糊发)
+  报('改备注：没写标记的“这就改成”被改口，不会假报完成',
+    模糊发文本.includes('我看看能不能改') && !模糊发文本.includes('这就改成') && !模糊发文本.includes('指指点点'),
+    JSON.stringify(模糊发文本))
+
+  const 标记发前 = 发的.length
+  群消息表.set(3103, [一条群消息('还是更正备注', { id: 991005, 是主人: true, atSelf: true })])
+  设判断(['991005'], true, 0.9, '主人还在说收藏')
+  await 轮询社交()
+  await 等()
+  await 收到回复('session-qq-social-group-3103', `[改备注:#${目标贴?.id}:指指点点] 好啦`, 202)
+  await 等()
+  const 标记后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 改后贴 = 标记后档.items.find((x) => x.id === 目标贴?.id)
+  const 标记发 = 发的.slice(标记发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103)
+  const 标记发文本 = 取发文本(标记发)
+  报('改备注：群里的 [改备注] 标记真的改了本机备注，标记不发出去',
+    !!改后贴 && 改后贴.label === '指指点点' && !标记发文本.includes('改备注'),
+    JSON.stringify({ 贴: 改后贴, 发: 标记发文本 }))
+  报('改备注：本机改了，QQ 收藏备注也同步',
+    !!改后贴 && [...QQ收藏.values()].some((x) => x.emojiId === 改后贴.emojiId && x.desc === '指指点点'),
+    JSON.stringify([...QQ收藏.values()].filter((x) => x.desc === '指指点点')))
+
+  写配置({ 群: ['3104'], 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 信任: { 自动: false, 手动加: [], 手动禁: [], 最少天数: 3, 最少见过: 25, 最少互动: 3, 最少熟: 15, 最少信: 52, 最多疤: 8, 最多张力: 40 } })
+  群消息表.set(3104, [一条群消息('你把备注改一下', { id: 991002, uid: 888, atSelf: true })])
+  设判断(['991002'], true, 0.9, '群友在说收藏')
+  await 轮询社交()
+  await 等()
+  const 越权轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-3104').at(-1)
+  const 越权文 = String(越权轮?.message?.content?.[0]?.text || '')
+  报('改备注：没受信的人让改 → 提示拒绝，不开许可窗',
+    越权文.includes('【收藏权限】') && 越权文.includes('不在受信名单') && !越权文.includes('【要改备注】'),
+    JSON.stringify(越权文.slice(-500)))
+  await 收到回复('session-qq-social-group-3104', `[改备注:#${目标贴?.id}:篡改] 好啦`, 203)
+  await 等()
+  const 越权后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  报('改备注：没受信的人写 [改备注] 不落地',
+    越权后档.items.find((x) => x.id === 目标贴?.id)?.label === '指指点点',
+    JSON.stringify(越权后档.items.find((x) => x.id === 目标贴?.id)))
+
+  写配置({ 群: ['3105'], 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0 })
+  群消息表.set(3105, [一条群消息('刚才那个改了没', { id: 991003, uid: 888 })])
+  设短应(['991003'], '改好啦，不用查')
+  const 短发前 = 发的.length
+  await 轮询社交()
+  await 等()
+  const 短发 = 发的.slice(短发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3105)
+  const 短发文本 = 取发文本(短发)
+  报('短应：没真改却“改好啦” → 改成“我看看能不能改”，不再假报',
+    短发文本.includes('我看看能不能改') && !短发文本.includes('改好啦'),
+    JSON.stringify(短发文本))
+
+  写配置({ 群: ['3107'], 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 信任: { 自动: false, 手动加: ['3106'], 手动禁: [], 最少天数: 3, 最少见过: 25, 最少互动: 3, 最少熟: 15, 最少信: 52, 最多疤: 8, 最多张力: 40 } })
+  群消息表.set(3107, [一条群消息(`你把 #${目标贴?.id} 的备注改成 短应确认`, { id: 991004, uid: 3106 })])
+  设短应(['991004'], '改好啦')
+  const 真改发前 = 发的.length
+  await 轮询社交()
+  await 等()
+  const 真改后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+  const 真改发 = 发的.slice(真改发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3107)
+  const 真改发文本 = 取发文本(真改发)
+  报('短应：这一轮真改了 → “改好啦”原样发，不误伤',
+    真改后档.items.find((x) => x.id === 目标贴?.id)?.label === '短应确认' && 真改发文本.includes('改好啦'),
+    JSON.stringify({ 发: 真改发文本, 贴: 真改后档.items.find((x) => x.id === 目标贴?.id) }))
+
+  写配置({ 群: ['3108'], 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0, 信任: { 自动: false, 手动加: ['3106'], 手动禁: [], 最少天数: 3, 最少见过: 25, 最少互动: 3, 最少熟: 15, 最少信: 52, 最多疤: 8, 最多张力: 40 } })
+  群消息表.set(3108, [一条群消息('你把备注改一下', { id: 991006, uid: 3106 })])
+  设短应(['991006'], '改好啦，不用查')
+  const 回落前回合 = 回合.length
+  const 回落发前 = 发的.length
+  await 轮询社交()
+  await 等()
+  const 回落发 = 发的.slice(回落发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3108)
+  const 回落回合 = 回合.length - 回落前回合
+  报('短应：改备注窗口开着时假“改好啦” → 不走短应，转正常回复轮去真改',
+    回落回合 === 1 && 回落发.length === 0,
+    JSON.stringify({ 回合: 回落回合, 发: 回落发.map((x) => x.体.message) }))
+}
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
