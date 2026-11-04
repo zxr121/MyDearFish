@@ -72,6 +72,12 @@
     },
     {
       "kind": "context",
+      "name": "fish-mind-rest",
+      "order": 904,
+      "text": ""
+    },
+    {
+      "kind": "context",
       "name": "fish-mind-shortterm",
       "order": 905,
       "text": ""

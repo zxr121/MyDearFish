@@ -397,3 +397,17 @@ test('保存自动备份只改这两项，其它配置和自建字段原样保�
   })
   assert.equal(readFileSync(path, 'utf8'), '{ 坏 JSON')
 })
+
+test('作息过渡段默认 60 / 30 分钟，坏值退回或夹到边界', () => {
+  const home = tempHome()
+  const defaults = buildDefaults(home)
+  assert.deepEqual(defaults.sleep, { windDownMinutes: 60, freshWakeMinutes: 30 })
+
+  const tuned = normalizeConfig({ sleep: { windDownMinutes: 90, freshWakeMinutes: 9999 } }, { dshHome: home })
+  assert.deepEqual(tuned.sleep, { windDownMinutes: 90, freshWakeMinutes: 720 })
+
+  const lines = []
+  const bad = normalizeConfig({ sleep: 'nope' }, { dshHome: home, diag: (line) => lines.push(line) })
+  assert.deepEqual(bad.sleep, defaults.sleep)
+  assert.ok(lines.some((line) => line.includes('sleep 不是对象')))
+})

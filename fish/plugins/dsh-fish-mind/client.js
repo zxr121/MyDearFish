@@ -4,6 +4,7 @@
  * 这一页给主人看完整的一条鱼：
  *   · 出生设定：名字、物种、外形、称呼、来历、说话习惯和群友关系，只有这里能改；
  *   · 性格倾向：一段话编译成设置/每轮提示，能落地的保存时写进对应设置页，改代码的交给创造模式；
+ *   · 作息：休眠窗口跟「主动搭话」的安静时段走，总览只看状态；人设只写休眠的样子；
  *   · 自定义话术：私事被追问时的托词和零花钱用完时的本地回复，由主人自己写；
  *   · 开发者模式：只读调试资料、读鱼 QQ 名单、在对话里帮她改行为设置的开关，以及创造模式调试会话的入口；
  *   · 大肥鱼：总览 / 她是谁 / 记忆 / 心情 / 零花钱 / 梗百科；记忆、心情、人物志、边界只读；
@@ -1076,7 +1077,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           pageHead({
             title: '大肥鱼',
             intro: '她是怎样一条鱼，今天过得怎么样。下面这些只读，改设置在后面的 tab 里。',
-            caps: '本页可以看：能不能说话、心情、零花钱、记忆；日常四项在「她在外面 → 通到 QQ」。',
+            caps: '本页可以看：能不能说话、心情、零花钱、记忆、作息；日常四项在「她在外面 → 通到 QQ」。',
           }),
           h('div', { 'data-fishm-hero': '' },
             h('div', {},
@@ -1137,7 +1138,18 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                   : '账本还没启动')),
             h('div', { 'data-fishm-card': '' },
               h('div', { 'data-fishm-cardtitle': '' }, '记忆'),
-              h('div', { 'data-fishm-note': '' }, `${num(memory.total)} 条经历 · 今天 ${num(memory.today)} 条`))),
+              h('div', { 'data-fishm-note': '' }, `${num(memory.total)} 条经历 · 今天 ${num(memory.today)} 条`)),
+            h('div', { 'data-fishm-card': '' },
+              h('div', { 'data-fishm-cardtitle': '' }, '作息',
+                data.sleep && data.sleep.enabled
+                  ? (data.sleep.state && data.sleep.state.phase === 'sleeping'
+                      ? h('span', { 'data-fishm-chip': 'warn' }, '休眠中')
+                      : h('span', { 'data-fishm-chip': 'on' }, '醒着'))
+                  : h('span', { 'data-fishm-chip': 'off' }, '未启用')),
+              h('div', { 'data-fishm-note': '' },
+                data.sleep && data.sleep.enabled
+                  ? `安静时段 ${data.sleep.start}–${data.sleep.end}；${data.sleep.state ? data.sleep.state.summary : ''}（在「主动搭话」里改）`
+                  : '「主动搭话」的安静时段没启用，先不按作息提示'))),
           h('div', { 'data-fishm-note': '' },
             '日常只用管四项：QQ 总开关、主会话转发、群好友发言、在看的房，都在「她在外面 → 通到 QQ」。主动搭话、刷 B 站和零花钱各有自己的 tab。'),
           h('details', { 'data-fishm-details': '' },
@@ -2361,7 +2373,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           ctx.inject(['settingsSearch'], (child) => {
             child.effect(() => {
               const offs = [
-                { tabId: 'overview', label: '总览', keywords: ['总览', '状态', '能不能说话', '今天', '心情', '零花钱', '记忆', '关于'], mode: 'view' },
+                { tabId: 'overview', label: '总览', keywords: ['总览', '状态', '能不能说话', '今天', '心情', '零花钱', '记忆', '作息', '休眠', '睡觉', '睡眠', '关于'], mode: 'view' },
                 { tabId: 'who', label: '她是谁', keywords: ['名字', '物种', '主人', '称呼', '外形', '来历', '说话习惯', '群友关系', '性格倾向', '话术', '人设', '开发者模式'], applies: 'live' },
                 { tabId: 'memory', label: '记忆', keywords: ['记忆', '经历', '情景', '章节', '关系', '长期事实', '内心', '边界', '搬迁', '导入', '导出', '备份'], applies: 'live' },
                 { tabId: 'money', label: '零花钱', keywords: ['零花钱', '额度', '余额', '花费', 'B站巡检'], applies: 'live' },

@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 import { DEFAULT_BILI_SHARE, DEFAULT_PRICE, normalizePrice, normalizePriceEntry, officialPrices } from './budget.js'
+import { SLEEP_TRANSITIONS } from './sleep.js'
 
 const MODES = new Set(['off', 'shadow', 'live'])
 
@@ -146,6 +147,8 @@ export function buildDefaults(dshHome) {
     humor: {
       inject: true,
     },
+    // 作息：休眠窗口跟「主动搭话」的安静时段走，这里只调睡前/刚醒两段过渡。
+    sleep: { ...SLEEP_TRANSITIONS },
     // 她遇到两种情况时说的原话；设置页「大肥鱼 → 自定义话术」可以改写。
     phrases: { ...DEFAULT_PHRASES },
     // 自动备份：把整条鱼定时打包到安装目录下的 fish-backups，最多留 5 份。
@@ -358,6 +361,13 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     config.humor.inject = pickBoolean(raw.humor.inject, config.humor.inject)
   } else if (raw.humor !== undefined) {
     diag('config: humor 不是对象，使用默认值')
+  }
+
+  if (isPlainObject(raw.sleep)) {
+    config.sleep.windDownMinutes = pickNumber(raw.sleep.windDownMinutes, config.sleep.windDownMinutes, 0, 720)
+    config.sleep.freshWakeMinutes = pickNumber(raw.sleep.freshWakeMinutes, config.sleep.freshWakeMinutes, 0, 720)
+  } else if (raw.sleep !== undefined) {
+    diag('config: sleep 不是对象，使用默认过渡段')
   }
 
   if (isPlainObject(raw.phrases)) {

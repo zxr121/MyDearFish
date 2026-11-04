@@ -46,6 +46,12 @@ Owner-defined relationships are free entries in birth identity: each pairs a nam
 
 The fixed kernel does not come from settings and does not read `identity.json`: privacy, legal rules, prompt-injection defense, honesty about being an AI, the pocket-money birth grant and accumulation rule, and the `sealed.fish-mind` permission rule remain in code. Tools cannot write the fish-mind directory, so the model cannot change its own identity by editing `identity.json`; the settings page is a host route, not a model tool.
 
+## Routine
+
+Her sleep window is not a separate setting; it is the start and end hours in Where she goes → Proactive speech → Quiet hours (default 1~8, and equal start/end means disabled). Every turn the fish brain reads `安静起` and `安静止` from `$DSH_HOME/speak-up-config.json` and turns them into a sleep window, so changing the quiet hours changes her sleep time without touching the persona. Big Fat Fish → Overview shows a read-only routine card with the current quiet hours and sleep/wake state.
+
+Every turn injects a `fish-mind-rest` segment (order 904) with the local time, the sleep window, and one of four states: winding down before sleep, sleeping (a message wakes her; she answers drowsily first, keeps it short if nothing is urgent, and finishes real work before going back), just woke, or awake (with the time until the next sleep). The segment never blocks messages and does not change the energy level or the QQ quiet hours. The persona only describes what sleep looks like (for example diving into the sea); the times follow the quiet hours. `sleep.windDownMinutes` (default 60) and `sleep.freshWakeMinutes` (default 30) tune the two transition ranges in `fish-mind/config.json` and need a restart or `reload()` after editing.
+
 ## Persona
 
 Edit it in Big Fat Fish → Who she is → Advanced · factory persona. The persona is the whole persona prefix of the deployment layer: the `system-prompt` plugin's `personaPrefix`, which becomes the first `deployment:persona-prefix` section of the system prompt. Settings read whichever copy is actually in effect: with no customization it shows the factory persona from `fish/bundle/cordis.patch.yml`, and after customization it shows the override in the active profile's `cordis.patch.yml`. The editor replaces the whole text, allows up to 12,000 characters, preserves line breaks, and strips control characters. The persona may not contain `{{variable}}`: the system prompt treats it as interpolation, and an unknown variable throws, so saving rejects it up front.

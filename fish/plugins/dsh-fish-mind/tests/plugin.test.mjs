@@ -621,6 +621,31 @@ test('私密账本、隐私、法律和注入规则都进本地上下文，账�
   ctx.dispose()
 })
 
+test('作息提示跟着安静时段走：开着报休眠窗口，起止相同整段不注入', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
+  process.env.DSH_HOME = home
+  writeConfig(home, { mode: 'live', inject: true })
+  writeFileSync(join(home, 'speak-up-config.json'), JSON.stringify({ 总开关: true, 安静起: 1, 安静止: 8 }), 'utf8')
+  const ctx = fakeContext()
+  const harness = memoryHarness(ctx)
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+  const rest = harness.contexts.find((entry) => entry.name === 'fish-mind-rest')
+  assert.ok(rest)
+  assert.equal(rest.order, 904)
+  const text = rest.text()
+  assert.ok(text.includes('【作息·只给你自己看】'))
+  assert.ok(text.includes('01:00'))
+  assert.ok(text.includes('08:00'))
+  assert.ok(text.includes('按你人设里的说法'))
+  assert.equal(mind.state().sleep.start, '01:00')
+
+  writeFileSync(join(home, 'speak-up-config.json'), JSON.stringify({ 总开关: true, 安静起: 8, 安静止: 8 }), 'utf8')
+  assert.equal(harness.contexts.find((entry) => entry.name === 'fish-mind-rest').text(), '')
+  assert.equal(mind.state().sleep.enabled, false)
+  ctx.dispose()
+})
+
 test('影子模式不注入记忆协议和工作台，recall 明确说未启用', async () => {
   const home = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   process.env.DSH_HOME = home
@@ -1048,7 +1073,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   await ctx.emit('agent/created', { agent })
   assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const names = harness.contexts.map((entry) => entry.name)
-  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
+  for (const name of ['fish-mind-workspace', 'fish-mind-shortterm', 'fish-mind-rest', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
     assert.ok(names.includes(name), name)
   }
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))

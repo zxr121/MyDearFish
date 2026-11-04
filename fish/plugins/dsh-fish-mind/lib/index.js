@@ -24,6 +24,7 @@ import { buildSelfPrompt, DEFAULT_IDENTITY, IDENTITY_LIMITS, loadIdentity, reset
 import { createBiliQuota } from './bili-quota.js'
 import { localDay, openBudget } from './budget.js'
 import { BACKUP_INTERVAL_MAX, BACKUP_INTERVAL_MIN, DEFAULT_PHRASES, PHRASE_LIMIT, loadConfig, saveBackup, saveDeveloper, savePhrases } from './config.js'
+import { sleepPrompt, sleepStateOf, sleepWindowFromQuiet } from './sleep.js'
 import { INJECTION_SUMMARY, isUntrustedTool, scanInjection, untrustedNotice } from './injection.js'
 import { humorPrompt, humorTone } from './humor.js'
 import { createMemeWiki } from './memes.js'
@@ -1770,6 +1771,7 @@ export function apply(ctx) {
       mode: config.mode,
       inject: config.inject,
       enabled: config.mode !== 'off',
+      sleep: sleepPayload(),
       paths: { dir, db: store.dbPath, jsonl: store.jsonlPath, audit: auditPath, diag: diagPath },
       storage: {
         degraded: stats.degraded || store.degraded,
@@ -1845,6 +1847,27 @@ export function apply(ctx) {
         : config.mode === 'live'
           ? (config.inject ? 'live：情景记忆、工作台和只读召回已启用' : 'live：召回可用；工作台注入关闭（inject=false）')
           : '关闭',
+    }
+  }
+
+  /** 她的休眠窗口就是「主动搭话」的安静时段；文件读不到或起止相同就整段不注入。 */
+  function quietHoursWindow() {
+    try {
+      const quiet = JSON.parse(readFileSync(join(dshHome, 'speak-up-config.json'), 'utf8'))
+      return sleepWindowFromQuiet(quiet, config.sleep)
+    } catch {
+      return null
+    }
+  }
+
+  function sleepPayload(now = Date.now()) {
+    const window = quietHoursWindow()
+    return {
+      source: 'speak-up.quiet',
+      enabled: window !== null,
+      start: window === null ? '' : window.start,
+      end: window === null ? '' : window.end,
+      state: sleepStateOf(window, now),
     }
   }
 
@@ -2043,6 +2066,7 @@ export function apply(ctx) {
             tendency: tendencyPayload(tendencyState.compiled),
           }),
           inner: snapshot.inner,
+          sleep: sleepPayload(),
           phrases: { ...config.phrases },
           phraseDefaults: { ...DEFAULT_PHRASES },
           phraseLimit: PHRASE_LIMIT,
@@ -2578,6 +2602,18 @@ export function apply(ctx) {
             })
           } catch (error) {
             diag(`tendency: 组装倾向提示失败（${String((error && error.message) || error)}）`)
+            return ''
+          }
+        },
+      }))
+      offs.push(prompt.context({
+        name: 'fish-mind-rest',
+        order: 904,
+        text: () => {
+          try {
+            return sleepPrompt(quietHoursWindow())
+          } catch (error) {
+            diag(`sleep: 组装作息提示失败（${String((error && error.message) || error)}）`)
             return ''
           }
         },

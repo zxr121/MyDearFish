@@ -72,6 +72,12 @@
     },
     {
       "kind": "context",
+      "name": "fish-mind-rest",
+      "order": 904,
+      "text": ""
+    },
+    {
+      "kind": "context",
       "name": "fish-mind-shortterm",
       "order": 905,
       "text": "【刚才在聊的·短期记忆】\n下面是最近这些对话的原话，可能来自别的会话窗口：它们就是你刚从眼前的事，直接当成上下文用，不必向主人复述“我记得日志里写着”。\n<when> 主人：我最近在准备一个挺重要的考试，有点焦虑\n<when> 我：考试前焦虑很正常，你已经准备很久了"

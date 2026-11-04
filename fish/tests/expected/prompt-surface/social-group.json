@@ -62,6 +62,12 @@
     },
     {
       "kind": "context",
+      "name": "fish-mind-rest",
+      "order": 904,
+      "text": ""
+    },
+    {
+      "kind": "context",
       "name": "fish-mind-shortterm",
       "order": 905,
       "text": "【刚才在 QQ 上聊的·短期记忆】\n下面是这间群/好友会话最近说过的话，都是你当时看到或听到的：直接当成上下文用，不必向对方复述“我记得”。每行开头是谁的名字，就是谁说的。\n<when> 今晚八点开黑，来不来\n<when> 我：我不玩这个，你们玩"

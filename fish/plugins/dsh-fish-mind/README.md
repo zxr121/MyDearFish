@@ -22,6 +22,7 @@
 - 零花钱账本：监听全局 `llm/stream`，每次模型调用前预留、调用后按实际用量结算。默认每天 ¥10、用不完累计；每日额度和当前余额可在设置页「大肥鱼 → 零花钱」按元调整，对话、工具和 `config.json` 都改不了。余额只进本地上下文，QQ、B 站等对外通道在代码层再做一道脱敏。
 - 出生设定：名字、物种、外形、对主人的称呼、主人的性别（女/男/未说）、来历、说话习惯和自由填写的群友关系存在 `identity.json`，由设置里的「大肥鱼」页原子写入；每个会话用当前身份拼出注入提示，她按性别自己决定提到主人时用「他」还是「她」，这条判断优先于人设和旧记忆里的写法。工具写不了鱼脑目录，所以对话、记忆、心情、自我成长、配置和外部内容都改不了它。她仍知道自己是 AI 伙伴，不声称现实世界里有一具生物身体。
 - 性格倾向：设置里的「大肥鱼 → 性格倾向」写一段话（最多 2000 字），由 `lib/tendency.js` 确定性编译成五个高信号维度——话多话少、话长话短、玩笑多少、发不发表情、存不存表情。保存时，「安静 / 活泼」直接写进「通到QQ」的主动每时、主动每日、判断阈值和关注上限，设置页看到的数字就是她运行时用的数字；表情模式仍由 QQ 桥按固定规则换档；只能靠语气的进每轮提示，没有代码落点的原样保留并提示交给创造模式。`tendency.json` 除原文外还记下这次落地的基准值和写入值，重复保存不叠加、改口从基准值回算、手动改过的设置不覆盖；清空倾向会把基准值还回去。原文不进 12k 人设；安全、隐私、群规、额度和正事不受影响。安装版会在 `data/fish-src` 带一份可编辑源码副本，创造模式改完重启生效；可编辑范围和安全内核的边界见下文「创造模式」。
+- 作息：休眠窗口不单独设置，直接用「她在外面 → 主动搭话 → 安静时段」的起止小时（默认 1~8，起止相同表示没启用）。每轮提示带上本机当前时间和这段窗口，并区分收尾、睡中、刚醒、醒着四种状态；睡着时被消息叫醒，她会先带着困意回应，真有事照常处理。休眠不拦消息，也不改精力或 QQ 静音。人设只写休眠是什么样子（比如潜进海底），改安静时段就是改休眠时间，不用改人设。过渡段长短在 `config.json` 的 `sleep` 里调。
 - 出厂人设：`system-prompt` 的整段 `personaPrefix` 收在设置「大肥鱼 → 高级 · 出厂人设」，默认折叠；没有自定义时显示出厂人设。保存经宿主 `configEditor` 写入活动 profile 的 `cordis.patch.yml` 并热应用，下一轮生效；恢复出厂会删掉覆盖，而不是抄回出厂文案。最多 12000 字，不能写 `{{变量}}`。
 - 自定义话术：设置 →「大肥鱼 → 自定义话术」能改两句本地话——被问到主人私事细节时的托词（QQ 群/好友每轮现取，改完下一轮就生效，旧房间不用重启），和零花钱被账本拦住时她回主人的那句本地回复。句子存在 `config.json` 的 `phrases`，每句最多 200 字，空白压成单行；留空退回出厂那句。
 - 自动备份：设置 →「大肥鱼 → 自动备份」能开关并按小时设间隔（1–720，默认 24）。到点把整条鱼打包到 `$DSH_HOME/fish-backups/mydearfish-YYYY-MM-DD-HHMMSS.zip`，最多留 5 份，超出从最旧删起；只删本插件写出的文件，先写临时文件再改名。「立即备份」不受自动开关限制，导入等重启或重建索引时会跳过。
@@ -76,6 +77,7 @@
 | 每日额度、当前余额 | 主人 | 设置 →「大肥鱼 → 零花钱」；写入 `budget.json` |
 | 名字、物种、外形、称呼、主人的性别、来历、说话习惯和群友关系 | 主人 | 设置 →「大肥鱼」；写入 `identity.json` |
 | 性格倾向（长期偏好的一段话） | 主人 | 设置 →「大肥鱼 → 性格倾向」；原文写入 `tendency.json`，能落到旋钮的同时写进「通到QQ」设置 |
+| 作息（每天几点休眠） | 主人 | 「她在外面 → 主动搭话 → 安静时段」；鱼脑只读 `speak-up-config.json` 的 `安静起` / `安静止` |
 | 出厂人设（整段语气和说话方式） | 主人 | 设置 →「大肥鱼 → 高级」；写入活动 profile 的 `cordis.patch.yml` |
 | 倾向落不了地、需要改代码的 | 主人（在创造模式里看 diff） | 设置 →「性格倾向 → 让创造模式来改」；改动落在源码仓库 |
 | QQ 群 / 好友名单、关掉、只听、少掺和 | 主人（说一句话，她读名单后代填） | 开发者模式下的 `fish_config`；号码来自 `fish_qq_roster` |
@@ -95,7 +97,7 @@
 
 ## 设置页与搬迁
 
-`client.js` 在设置里注册两个父页：「大肥鱼」（order -40）声明 `settings.fish.tab` 子槽位，内部子页是总览、她是谁（出生设定、性格倾向、自定义话术、出厂人设、开发者模式）、记忆（记忆、内心、边界、搬迁、自动备份）、零花钱和梗百科；「她在外面」（order -35）声明 `settings.outside.tab` 子槽位，由心情、通到 QQ、主动搭话和 B 站插件注册。两个父页也注册 `settingsSearch` 条目，搜索可以落到具体子页。宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/tendency`、`GET /dsh-fish-mind/creation`、`POST /dsh-fish-mind/creation/brief`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/wallet`、`POST /dsh-fish-mind/phrases`、`POST /dsh-fish-mind/developer`、`POST /dsh-fish-mind/backup/config`、`POST /dsh-fish-mind/backup/now`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。`/overview` 带总览状态卡和开发者模式下她能改的行为设置清单（`settings.writable`）；出厂人设另走 `/persona`，展开高级区才读。`/creation` 返回 `checkout`、`source`（`repo`/`packaged`）、`editable` 白名单和上次同步的 `syncWarning`。QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
+`client.js` 在设置里注册两个父页：「大肥鱼」（order -40）声明 `settings.fish.tab` 子槽位，内部子页是总览、她是谁（出生设定、性格倾向、自定义话术、出厂人设、开发者模式）、记忆（记忆、内心、边界、搬迁、自动备份）、零花钱和梗百科；「她在外面」（order -35）声明 `settings.outside.tab` 子槽位，由心情、通到 QQ、主动搭话和 B 站插件注册。两个父页也注册 `settingsSearch` 条目，搜索可以落到具体子页。宿主路由 `GET /dsh-fish-mind/overview`、`POST /dsh-fish-mind/birth`、`POST /dsh-fish-mind/birth/reset`、`GET|POST /dsh-fish-mind/tendency`、`GET /dsh-fish-mind/creation`、`POST /dsh-fish-mind/creation/brief`、`GET|POST /dsh-fish-mind/persona`、`POST /dsh-fish-mind/persona/reset`、`POST /dsh-fish-mind/budget`、`POST /dsh-fish-mind/wallet`、`POST /dsh-fish-mind/phrases`、`POST /dsh-fish-mind/developer`、`POST /dsh-fish-mind/backup/config`、`POST /dsh-fish-mind/backup/now`、`GET /dsh-fish-mind/export`、`POST /dsh-fish-mind/import`，以及梗百科的 `GET /dsh-fish-mind/memes`、`POST /dsh-fish-mind/memes/save|delete|restore|config` 只接受本机界面请求（按 Host、`Sec-Fetch-Site` 和 Origin 判断）。`/overview` 带总览状态卡（含只读作息状态，跟着「主动搭话」的安静时段走）和开发者模式下她能改的行为设置清单（`settings.writable`）；出厂人设另走 `/persona`，展开高级区才读。`/creation` 返回 `checkout`、`source`（`repo`/`packaged`）、`editable` 白名单和上次同步的 `syncWarning`。QQ 号、群号、令牌、配置路径和本机路径不出去。人设读写由 `lib/persona.js` 负责：没有 `configEditor` 时返回 501，保存和恢复出厂都走同一条校验。`webServer` 是可选服务，没有它的宿主照常运行，只是没有这一页。
 
 「大肥鱼 → 她是谁」的开发者模式区读 `boundaries.permissions.developer`，开关写 `POST /dsh-fish-mind/developer`；旁边的按钮先把她自己的源码工作区注册成工作区（`workspaces.create`，已注册就复用；开发实例是源码仓库，安装版是 `$DSH_HOME/fish-src`），再调用客户端的 `uiWorkspace.startSession(workspaceId, { agentPreset: 'cordis' })` 在那里新开一个创造模式会话，然后关掉设置页；鱼脑在 `session/created` 里把这类会话钉成 `danger-full-access`（沙箱完全放开、审批 never），不再逐条弹确认。鱼的人设和记忆照常挂载。打开后，主人在自己的前台会话里还能让她读名单、改行为设置：`fish_qq_roster` 和 `fish_config` 的写入都要求开发者模式 + 主人前台会话（群聊、好友、子代理和后台会话一律拒绝），每次读取或写入进审计；`fish_config` 能改启用、群、好友、关掉、只听、少掺和、主动话量、判断阈值、关注上限、表情收藏、主动搭话节奏和性格倾向这些行为项，试运行/总开关、静音时段、最低余额、预算、记忆、权限、凭据和代码不开放。B 站设置走 `dsh-bili-subagent` 自己的 `bili_config`，自动评论 / 自动回复 / 私信收件人的改动仍然要主人当场确认——创造模式的审批是 never，这类改动会被拒绝，让主人回到普通会话改。
 
@@ -215,6 +217,19 @@ QQ 桥可以把 Tulpa 里已有的私聊历史**只读**导进经历流。这类
 - 每条新事实同时写回经历流，正文是【我自己想明白的】主人的昵称是EMT，来源标 `consolidation`、可信度 0.6。走的是同一条 `observe` 路径，所以清洗、脱敏、情景编码和账本一并生效，长期召回才查得到这句话。记忆协议写明这是她自己总结的、可能总结错，不能当成主人亲口说的。
 - 提炼用的模型跟着最近一个在线代理的档位走；拿不到代理或 `llm.stream` 就这一轮不做，状态记 `no-model`。这次调用走全局 `llm/stream`，所以照样预留零花钱、照样过输出脱敏。原文一条都不删：转长期只是多加几条查得到的说法。
 - 服务和状态：`ctx.get('fishMind').consolidate('手动整理')` 立刻跑一轮（不等计时器），`facts(limit)` 只读当前生效的事实，`recentWindow(options)` 只读短期窗口；`state().memory.working` 给出开关、水位、最近一次的状态和时间、写入/跳过条数与注入字数。
+
+## 作息
+
+她的休眠窗口就是「她在外面 → 主动搭话 → 安静时段」的起止小时，不另存一份。鱼脑每轮读 `$DSH_HOME/speak-up-config.json` 的 `安静起` / `安静止`，换算成休眠窗口；改安静时段就是改休眠时间，不用改人设。起止相同表示安静时段没启用，这时不注入作息提示；安静时段跨午夜按次日算，同一天内的窗口也支持。
+
+每轮提示里有一段 `fish-mind-rest`（order 904），用本机时间报出当前时刻和休眠窗口，并给出四种状态之一：
+
+- **收尾**：离休眠不到 `sleep.windDownMinutes`（默认 60 分钟），困意上来，手头的事收一收。
+- **睡中**：正在休眠窗口里。消息会把她叫醒，先带着刚醒的困意回应；没急事就简短说两句接着睡，有急事认真处理完再回去。
+- **刚醒**：结束休眠不到 `sleep.freshWakeMinutes`（默认 30 分钟），还没完全清醒，可以自然提一句刚睡醒。
+- **醒着**：其余时间，提示离下次休眠还有多久。
+
+提示只说明作息事实，不拦消息，也不改精力档位或 QQ 静音时段。休眠是什么样子、用什么说法（比如潜进海底）由人设决定；具体几点来自安静时段，所以改时间只改那一处设置。`windDownMinutes` 和 `freshWakeMinutes` 在 `fish-mind/config.json` 的 `sleep` 里调，范围 0–720 分钟。设置页「大肥鱼 → 总览」有一张只读作息卡，显示当前安静时段和睡/醒状态。
 
 ## 内心层
 
@@ -375,6 +390,10 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
     "privateDodge": "这个我不方便细说",
     "budgetBlock": "今天我这边有点转不动了，先歇一会儿，明天再找你。"
   },
+  "sleep": {
+    "windDownMinutes": 60,
+    "freshWakeMinutes": 30
+  },
   "backup": {
     "enabled": true,
     "intervalHours": 24
@@ -426,6 +445,7 @@ B 站巡检另有一道软上限：**最多花当天每日额度的四分之一*
 - `working`：短期层。`enabled` 关整层，`inject` 只关注入（仍转长期），`consolidate` 只关提炼（仍注入短期窗口）。`ttlMinutes` 1–1440、`rows` 2–60、`chars` 200–4000 决定当场想得起多少；`idleMinutes` 1–1440、`maxRows` 2–200、`minRows` 1–20 决定什么时候转长期；`maxFacts` 1–20、`maxTokens` 128–4096、`tickSeconds` 10–3600 是每次提炼的上限和检查频率。载入时会把 `minRows` 压到不超过 `maxRows`——门槛比窗口还高的话提炼永远攒不够，会静默死掉。
 - `humor.inject`：幽默层开关，默认开。关掉后 `fish-mind-humor` 整段不注入，其它提示和记忆不受影响。倾向里写「少开玩笑」时同样让这一段空转，但不改写这个配置。
 - `phrases.privateDodge` / `phrases.budgetBlock`：两句本地话，默认“这个我不方便细说”和“今天我这边有点转不动了，先歇一会儿，明天再找你。”。前者用在 QQ 群/好友的场景提示里，后者是额度拦住主人这一轮时直接发出去的本地回复。每句最多 200 字，空白压成单行后再存；留空或坏值退回默认。设置页写的就是这里，保存后当场生效，不用 `reload()`。
+- `sleep.windDownMinutes` / `sleep.freshWakeMinutes`：休眠提示里睡前收尾和刚醒过渡的长度，默认 60 / 30 分钟，范围 0–720。休眠窗口本身不在这里，读的是 `speak-up-config.json` 的 `安静起` / `安静止`；改完这两项 `reload()` 或重启生效。
 - `backup.enabled` / `backup.intervalHours`：自动备份开关和间隔，默认开、24 小时，范围 1–720 小时。备份目录固定为 `$DSH_HOME/fish-backups/`，保留份数固定 5 份；设置页写这两项，保存后当场生效。间隔改小后，下一分钟的检查就会按新间隔判断是否到期。
 - `developer.enabled`：开发者模式，默认关。打开后，主人自己的前台会话可以用 `read`、`glob`、`grep`、`read_image` 只读查看 `$DSH_HOME` 里的日志、配置和会话，也可以用只读 shell 命令（`Get-ChildItem`、`Get-Content`、`Select-String`、`ls`、`cat`、`grep` 这类；重定向、脚本块和写入命令不行）；凭据（`.env`、`.credentials.yaml`、`~/.ssh` 等）、身份文件、写入、群聊/好友会话和后台会话仍然拒绝。每次放行都以 `developer.read` 记入审计。同一个开关也是 `fish_config` 改行为设置和 `fish_qq_roster` 读 QQ 名单的前提：`fish_config` 读设置始终允许，写入另外要求主人前台会话，规则名 `fish.settings.write`；`fish_qq_roster` 只放行只读名单，规则名 `fish.qq.roster`；两种都进审计，可改项见「设置页与搬迁」。设置页的开关写这一项并当场 `reload()`，对话和模型工具碰不到它。
 - 梗百科的 `enabled`、`inject`、`socialInject`、`autoInject`、`activeUse`、`tool` 不在 `config.json`，而是和覆盖词条一起放在 `fish-mind/memes.json`，由设置页的「梗百科」页写入。`inject` 与 `autoInject` 都在打开时才预查；`activeUse` 只影响主动用梗；`tool` 只影响主人会话。

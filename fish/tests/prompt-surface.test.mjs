@@ -4,7 +4,8 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { matureOwnerPerson, normalizeSurface, expectedSurface, readPersonaPrefix, userEvent, assistantEvent } from './harness/composed.mjs'
+import { join } from 'node:path'
+import { matureOwnerPerson, normalizeSurface, expectedSurface, readPersonaPrefix, userEvent, assistantEvent, writeJson } from './harness/composed.mjs'
 
 const FORBIDDEN_FOR_OWNER = [
   '几个字就停',
@@ -307,7 +308,28 @@ test('主会话组合：好友私聊回合只看得到好友这间屋，主人�
   }
 })
 
-async function createHarness({ now }) {
+test('作息提示在主人和群聊窗口都带上安静时段里的休眠时间', async () => {
+  const now = Date.now()
+  const harness = await createHarness({ now })
+  try {
+    writeJson(join(harness.home, 'speak-up-config.json'), { 总开关: true, 安静起: 1, 安静止: 8 })
+    await ownerScene(harness, now)
+    const owner = component(harness.surface('session-desktop'), 'fish-mind-rest')
+    assert.ok(owner.includes('【作息·只给你自己看】'))
+    assert.ok(owner.includes('每天 01:00 到 08:00 休眠'))
+    assert.ok(owner.includes('按你人设里的说法'))
+
+    const groupSession = 'session-qq-social-group-7'
+    await harness.addAgent(groupSession)
+    const group = component(harness.surface(groupSession), 'fish-mind-rest')
+    assert.ok(group.includes('每天 01:00 到 08:00 休眠'), '群聊里也知道自己的作息')
+    assert.ok(!group.includes(OWNER_PRIVATE), '作息提示不带主人的私事')
+  } finally {
+    harness.dispose()
+  }
+})
+
+async function createHarness({ now } = {}) {
   const { createComposedHarness } = await import('./harness/composed.mjs')
   const harness = await createComposedHarness({
     people: { 837263217: matureOwnerPerson({ at: now }) },
