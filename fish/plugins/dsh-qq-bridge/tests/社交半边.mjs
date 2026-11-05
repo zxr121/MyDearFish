@@ -523,6 +523,9 @@ const 场景提示 = []
 const 装配监听 = []
 const 工具闸门 = []
 const 工具限制 = []
+const 工具顺序 = []
+const 预设注册们 = []
+const 预设挂载们 = []
 const 判断调用 = []
 const 建会话选项 = []
 const 存储 = []
@@ -654,8 +657,8 @@ const ctx = {
           },
           systemPrompt: { section: (s) => 场景提示.push(s) },
           tools: {
-            restrict: (筛选) => 工具限制.push(筛选),
-            guard: (fn) => 工具闸门.push(fn),
+            restrict: (筛选) => { 工具限制.push(筛选); 工具顺序.push('限制') },
+            guard: (fn) => { 工具闸门.push(fn); 工具顺序.push('闸门') },
           },
         })
       }
@@ -690,6 +693,12 @@ const ctx = {
     }
     if (名字 === 'llm') return 假llm
     if (名字 === 'attachments') return 假附件
+    if (名字 === 'agentPresets') {
+      return {
+        register: async (定义) => { 预设注册们.push(定义); return async () => {} },
+        mount: async (agentCtx, id) => { 预设挂载们.push({ id, agentCtx }); 工具顺序.push('预设'); return { id } },
+      }
+    }
     return undefined
   },
 }
@@ -940,6 +949,13 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
 报('群公告带进判断和回复', String(判断调用[0]?.system).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('测试禁词') && String(第一轮?.message.content[0].text).includes('关键词限制测试'))
 报('工具限制：社交会话只放开搜索', 工具限制.length > 0 && Array.isArray(工具限制.at(-1).allow) && 工具限制.at(-1).allow.length === 1 && 工具限制.at(-1).allow[0] === 'web_search', JSON.stringify(工具限制.at(-1)))
 报('工具闸门：只放搜索，其他工具仍拒绝', 工具闸门.length > 0 && 工具闸门.at(-1)({ name: 'web_search' }) === undefined && String(工具闸门.at(-1)({ name: 'bash' })).includes('只允许搜索查资料'))
+const QQ预设 = 预设注册们.find((x) => x.id === 'qq-social')
+const 预设工具行 = QQ预设 && QQ预设.plugins.find((x) => x.id === 'tool-web')
+报('预设：qq-social 里真的挂了 web_search', 预设工具行 && 预设工具行.name === '@deepseek-ai/dsh-tool-web' && 预设工具行.config.search === true && 预设工具行.config.fetch === false, JSON.stringify(预设工具行))
+报('预设先挂、再限制工具', 工具顺序.slice(0, 3).join(',') === '预设,限制,闸门', JSON.stringify(工具顺序.slice(0, 6)))
+报('预设：qq-social 真的挂到了社交 agent 上', 预设挂载们.some((x) => x.id === 'qq-social'))
+报('场景提示说明她真能联网查，不许没试就说不会', 社交文字.includes('你手里就有联网搜索') && 社交文字.includes('不要没试就说'))
+报('场景提示要求认不出的图先搜再答', 社交文字.includes('认不出的图，先用图里读得到的字和明显特征搜'))
 const 装配 = 装配监听.at(-1)
 报('聊天会话挂了提示过滤器，并在最外层收', 装配 !== undefined && 装配.选项 && 装配.选项.prepend === true, JSON.stringify(装配 && 装配.选项))
 const 过滤后 = await 装配.cb({}, {}, async () => ({
@@ -1511,7 +1527,7 @@ await 等()
 报('判断模型回落到 DSH 默认模型', 判断调用.length === 默认判之前 + 1 && 判断调用.at(-1).provider === 'fake' && 判断调用.at(-1).model === 'cheap', JSON.stringify({ 之前: 默认判之前, 现在: 判断调用.length, provider: 判断调用.at(-1)?.provider, model: 判断调用.at(-1)?.model }))
 报('回落后的判断照常开一轮', 回合.some((r) => r.sid === 'session-qq-social-group-1050'))
 const 建1050 = 建会话选项.filter((项) => 项.sessionId === 'session-qq-social-group-1050').at(-1)
-报('新建社交会话默认降到低推理档', 建1050?.agentOptions?.provider === 'fake' && 建1050?.agentOptions?.model === 'cheap' && 建1050?.agentOptions?.reasoningEffort === 'low', JSON.stringify(建1050?.agentOptions))
+报('新建社交会话默认继承主人的推理档', 建1050?.agentOptions?.provider === 'fake' && 建1050?.agentOptions?.model === 'cheap' && 建1050?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1050?.agentOptions))
 报('判断调用不跟着用最高推理档', 判断调用.at(-1)?.reasoningEffort === undefined, String(判断调用.at(-1)?.reasoningEffort))
 写配置({ 群: ['1053'], 判断模型: '', 回复模型: '', 回复推理: '继承', 判断冷却秒: 0 })
 群消息表.set(1053, [一条群消息('继承推理档', { id: 1912 })])

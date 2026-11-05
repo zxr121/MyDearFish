@@ -109,7 +109,9 @@ Three steps, with the first two landed:
 
 Guards: expiry, a confidence threshold, and a per-room cap; if someone else already answered the thread in the meantime, she drops it instead of adding a duplicate; a late line never interrogates, echoes, or asks "are you there". The settings page shows how many threads each room holds and when she last came back, and turning `社交.迟到` off disables late replies entirely. Late replies get their own acceptance spot check: stale, aimed at the wrong person, or repeated all count as failures.
 
-Since 0.2.135 a restart no longer relies on same-day threads alone: the poll cursor and the message ids she sent persist to `qq-bridge-social-state.json`. Within thirty minutes after a restart, a message that directly calls her, replies to her, or continues her opener gets one catch-up line (she may say she just saw it); ordinary chatter only enters the ledger. `社交.启动补话` and `补话分钟` control this. Social replies default to a low reasoning effort, so a one-line group answer does not inherit the owner's heavy reasoning, and the reply timeout becomes the configurable `社交.回复超时秒` (default 180).
+Since 0.2.135 a restart no longer relies on same-day threads alone: the poll cursor and the message ids she sent persist to `qq-bridge-social-state.json`. Within thirty minutes after a restart, a message that directly calls her, replies to her, or continues her opener gets one catch-up line (she may say she just saw it); ordinary chatter only enters the ledger. `社交.启动补话` and `补话分钟` control this. Since 0.2.137 social replies inherit the owner's reasoning tier by default (for example flash + max), with `社交.回复推理` still available to lower or raise it independently, and the reply timeout remains the configurable `社交.回复超时秒` (default 180).
+
+QQ sessions previously carried only the instruction to look things up, never a search tool: the Web layer disables the host `tool-web` row, the QQ social preset mounted only compaction, and the social `restrict` fell back to denying every tool because it could not find `web_search`. 0.2.137 mounts a search-only `web_search` in the QQ social preset (no link fetching), so both group and owner private chats can actually look things up; social sessions still expose only that one tool and deny the rest in the guard.
 
 ### Five-dimensional affinity (since 0.2.135)
 
@@ -161,7 +163,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 3. **Cache first**: persona, room rules, and fixed protocol go first in the prompt; character cards and time-sensitive content go last; the judge prompt for one room stays byte-stable, and a cache read is fifty times cheaper than input.
 4. **Short acknowledgments skip the reply model**: the judge model hands back a reaction that names something specific, or an echo or sticker is used.
 5. **Context by thread**: carry only the latest six messages in the same thread as this batch, not a fixed twenty; images travel only when mentioned.
-6. **Separate the judge from the reply**: judging always uses a cheap model at a low reasoning tier; replies inherit the owner's high tier only when she is called directly, and use the default otherwise.
+6. **Separate the judge from the reply**: judging always uses a cheap model at a low reasoning tier; replies inherit the owner's DSH tier by default so questions that need checking or thinking are not brushed aside, and `社交.回复推理` can be lowered to low or medium to save money.
 7. **Budget exploration**: below “normal” energy there is no exploration; the exploration quota is capped per hour and never mixes with the proactive quota.
 8. **Batch background work**: mood, distillation, and chapter summaries each get their own quota and never compete with chat; whatever exceeds its daily cap rolls over rather than retrying at a lower tier.
 
@@ -279,7 +281,7 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | `社交.迟到` | true | Whether a message blocked by cooldown, quota, quiet hours, or a busy room is kept as an open thread for a later line |
 | `社交.迟到分钟` | 10 | How long a thread waits before she comes back to it (up to 360); three times this delay or a day change drops it |
 | `社交.挂起上限` | 3 | How many threads one room holds at once; the oldest is pushed out first |
-| `社交.回复推理` | 低 | Social reply reasoning effort: inherit / low / medium / high; owner private chat is unaffected |
+| `社交.回复推理` | Inherit | Social reply reasoning effort: inherit / low / medium / high; defaults to the owner's DSH tier, and owner private chat is unaffected |
 | `社交.回复超时秒` | 180 | How long one social reply may take before it is dropped and logged as TIMEOUT |
 | `社交.启动补话` | true | After a restart, catch up messages that directly call her, reply to her, or continue her opener |
 | `社交.补话分钟` | 30 | How far back catch-up looks (1–120) |
