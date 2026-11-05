@@ -1018,7 +1018,7 @@ await 等()
 报('判不看 → 不开轮、不注入', 回合.length === 之前2 && 注入们.length === 注入之前2 && 判断调用.length === 判断之前2 + 1)
 报('有动静就先建社交房，哪怕判不看', 登记的会话.has('session-qq-social-group-1002'))
 报('不看也进日志', String(await 日志文本()).includes('都没看'))
-报('没写兴趣词时像小孩一样好奇，没兴趣也能短接', String(判断调用.at(-1)?.system).includes('对什么都好奇') && String(判断调用.at(-1)?.system).includes('没兴趣但接得上的，也可以短应一声'))
+报('没写兴趣词时像小孩一样好奇，没兴趣也能接一句具体的', String(判断调用.at(-1)?.system).includes('对什么都好奇') && String(判断调用.at(-1)?.system).includes('没兴趣但接得上、并且有具体想说的，也可以接一句'))
 报('不看后待看清空', (await 目标状态('group:1002')).待看 === 0)
 
 // ---------- 3 只看不回：挑一条 inject，不唤醒回复模型 ----------
@@ -3737,8 +3737,11 @@ const 存人态 = (存盘态度.社交.人的态度 || {})['group:1304'] || {}
     模.收拾短应('好的（笑）') === '' && 模.收拾短应('确实[图]') === '' &&
     模.收拾短应('真不错。') === '真不错。',
   JSON.stringify(['@小王 哈哈', '看这个 http://x', '好的（笑）', '确实[图]', '真不错。'].map((x) => [x, 模.收拾短应(x)])))
-报('判断提示教她用 short 短应，别为一句“嗯”开回复轮',
-  String(判断调用.at(-1)?.system || '').includes('"short"') && String(判断调用.at(-1)?.system || '').includes('2~12 个字'))
+报('判断提示只让 short 接具体的事，不再教空应声',
+  String(判断调用.at(-1)?.system || '').includes('"short"') && String(判断调用.at(-1)?.system || '').includes('2~12 个字') &&
+    String(判断调用.at(-1)?.system || '').includes('放到别的消息下面就不成立') &&
+    String(判断调用.at(-1)?.system || '').includes('没有具体内容就别写这个字段') &&
+    !String(判断调用.at(-1)?.system || '').includes('只写“嗯”“确实”“哈哈”“好家伙”“真的假的”“这什么”“救命”这类反应'))
 报('表情短应清洗：只认收藏编号，没挑或写歪了都当没有',
   模.收拾表情短应(16) === 16 && 模.收拾表情短应('16') === 16 && 模.收拾表情短应('#16') === 16 &&
     模.收拾表情短应(undefined) === 0 && 模.收拾表情短应(null) === 0 && 模.收拾表情短应('') === 0 &&
@@ -3819,6 +3822,14 @@ await 收到回复('session-qq-social-group-1411', '像鲸鱼')
     { 自己: false, 文字: '可爱' },
   ], 8)) === '[{"词":"可爱","次":2}]')
 报('表情场景显示名不把可爱喂回提示', 模.场景显示名('可爱') === '亲昵' && 模.场景显示名('笑') === '笑')
+报('空应声：纯笑、附和和感叹算空应声',
+  模.只是空应声('哈哈') && 模.只是空应声('哈哈哈，好家伙') && 模.只是空应声('确实有点道理') &&
+    模.只是空应声('这什么') && 模.只是空应声('666') && 模.只是空应声('嗯嗯'),
+  JSON.stringify(['哈哈', '哈哈哈，好家伙', '确实有点道理', '这什么', '666', '嗯嗯'].map((x) => [x, 模.只是空应声(x)])))
+报('空应声：带具体内容或对具体动作的回应不算',
+   !模.只是空应声('哈哈，这么一说也行') && !模.只是空应声('这鱼看着真香') &&
+    !模.只是空应声('在呢') && !模.只是空应声('戳了') && !模.只是空应声('早上好喵') && !模.只是空应声(''),
+  JSON.stringify(['哈哈，这么一说也行', '这鱼看着真香', '在呢', '戳了', '早上好喵', ''].map((x) => [x, 模.只是空应声(x)])))
 
 写配置({ 群: ['1451'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0 })
 鱼脑.availableCny = 100
@@ -3848,9 +3859,43 @@ const 发前32x2 = 发的.length
 await 轮询社交()
 await 等(80)
 const 短发32x2 = 发的.slice(发前32x2).filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1452)
-报('短应：纯应声照常发',
-  短发32x2.length === 1 && 短发32x2[0].体.message.some((b) => b.type === 'text' && b.data.text === '好家伙') && 回合.length === 回合前32x2,
+报('短应：空应声不发，改走正常回复轮',
+  短发32x2.length === 0 && 回合.length === 回合前32x2 + 1 &&
+    (await 日志文本()).includes('空应声') && (await 日志文本()).includes('改走正常回复'),
   JSON.stringify({ 发: 短发32x2.map((x) => x.体.message), 回合: 回合.length - 回合前32x2 }))
+await 收到回复('session-qq-social-group-1452', '热得我都不想动了')
+await 等(80)
+const 正常发32x2 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1452)
+报('短应压掉后，正常回复能接住具体的事',
+  正常发32x2.length === 1 && 正常发32x2[0].体.message.some((b) => b.type === 'text' && b.data.text === '热得我都不想动了'),
+  JSON.stringify(正常发32x2.map((x) => x.体.message)))
+
+写配置({ 群: ['1454'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0 })
+群消息表.set(1454, [一条群消息('今天好热', { uid: 888, id: 79981 })])
+设判断(['79981'], true, 0.9, '接一句')
+await 轮询社交()
+await 等(80)
+const 发前32x2b = 发的.length
+await 收到回复('session-qq-social-group-1454', '哈哈哈', 1)
+await 等(80)
+const 发32x2b = 发的.slice(发前32x2b).filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1454)
+报('正常回复：没被叫到时纯空应声不发',
+  发32x2b.length === 0 && (await 日志文本()).includes('只有空应声'),
+  JSON.stringify({ 发: 发32x2b.map((x) => x.体.message) }))
+
+写配置({ 群: ['1455'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0 })
+群消息表.set(1455, [一条群消息('今天好热', { uid: 888, id: 79991 })])
+设判断(['79991'], true, 0.9, '接一句')
+await 轮询社交()
+await 等(80)
+const 发前32x2c = 发的.length
+await 收到回复('session-qq-social-group-1455', '哈哈哈\n热得我都不想动了', 1)
+await 等(80)
+const 发32x2c = 发的.slice(发前32x2c).filter((x) => x.url.endsWith('/send_group_msg') && x.体?.group_id === 1455)
+报('正常回复：混合连发压掉空应声，留下具体那句',
+  发32x2c.length === 1 && 发32x2c[0].体.message.some((b) => b.type === 'text' && b.data.text === '热得我都不想动了') &&
+    发32x2c[0].体.message.every((b) => b.type !== 'text' || !b.data.text.includes('哈哈哈')),
+  JSON.stringify(发32x2c.map((x) => x.体.message)))
 
 写配置({ 群: ['1453'], 快判: false, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 判断冷却秒: 0, 聚拢秒: 0, 连说上限: 0, 连说歇秒: 0 })
 鱼脑.availableCny = 100
@@ -3966,16 +4011,16 @@ await 收到回复('session-qq-social-group-1420', '嗯')
 
 时间偏移 += 11_000
 群消息表.set(1420, [...群消息表.get(1420), 一条群消息('你说呢', { uid: 889, id: 79205 })])
-判断输出 = JSON.stringify({ watch: ['79205'], reply: true, confidence: 0.8, reason: '应一声', short: '确实', face: 999999 })
+判断输出 = JSON.stringify({ watch: ['79205'], reply: true, confidence: 0.8, reason: '应一声', short: '这话我没法接', face: 999999 })
 const 回合前32i = 回合.length
 const 发前32i = 发的.length
 await 轮询社交()
 await 等(60)
 const 短发32i = 发的.slice(发前32i).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1420)
-报('表情短应：收藏里没有的编号不发假表情，退回一句短应',
+报('表情短应：收藏里没有的编号不发假表情，退回一句具体短应',
   短发32i.length === 1 && 短发32i[0].体.message.length === 2 &&
     短发32i[0].体.message[0].type === 'reply' && 短发32i[0].体.message[0].data.id === '79205' &&
-    短发32i[0].体.message[1].data.text === '确实' &&
+    短发32i[0].体.message[1].data.text === '这话我没法接' &&
     发的.slice(发前32i).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1420)) &&
     回合.length === 回合前32i,
   JSON.stringify({ 发: 短发32i.map((x) => x.体.message), 回合: 回合.length - 回合前32i }))
@@ -4964,6 +5009,7 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
 
   const 模糊发前 = 发的.length
   await 收到回复('session-qq-social-group-3103', '收到主人，这就改成「指指点点」，以后不乱认了', 201)
+  await 等到(() => 发的.slice(模糊发前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103))
   await 等()
   const 模糊发 = 发的.slice(模糊发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103)
   const 模糊发文本 = 取发文本(模糊发)
@@ -4977,6 +5023,7 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   await 轮询社交()
   await 等()
   await 收到回复('session-qq-social-group-3103', `[改备注:#${目标贴?.id}:指指点点] 好啦`, 202)
+  await 等到(() => 发的.slice(标记发前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103))
   await 等()
   const 标记后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
   const 改后贴 = 标记后档.items.find((x) => x.id === 目标贴?.id)

@@ -55,13 +55,13 @@ The judge model no longer answers only “reply / stay silent”; it answers wit
 | Rung | Behavior | Cost |
 | --- | --- | --- |
 | 0 not watching | Record only, never enters her view | Zero |
-| 1 short acknowledgment | One sticker, an echo, or a reaction within twenty characters | The judge call alone; no reply-model call |
+| 1 short acknowledgment | One sticker, an echo, or a specific reaction within twenty characters | The judge call alone; no reply-model call |
 | 2 join | A normal reply turn | Judge + reply |
 | 3 start | Proactively open a new topic | Reply + proactive quota |
 
-Rung 1 landed in 0.2.90: besides `watch` and `reply`, the judge model may return `short` (2–12 characters); the bridge sanitizes it (strips quotes, rejects @-mentions, links, and parenthetical explanations, requires 2–20 characters), then sends it straight to the group without calling the reply model. Being called directly, being asked about herself, an affinity lookup, private chat, a room that is resting / listen-only / in dry-run, or the same line spoken within ten minutes all fall back to a normal reply. Turning `社交.短应` off sends everything through the full reply path.
+Rung 1 landed in 0.2.90: besides `watch` and `reply`, the judge model may return `short` (2–12 characters); the bridge sanitizes it (strips quotes, rejects @-mentions, links, and parenthetical explanations, requires 2–20 characters), then sends it straight to the group without calling the reply model. A short reaction must name something specific from the message; a generic `haha`, `good grief`, `indeed`, or `what is this` does not count: the bridge drops it and falls back to a normal reply, and a reply that still contains only such filler is dropped unless someone addressed her directly. Being called directly, being asked about herself, an affinity lookup, private chat, a room that is resting / listen-only / in dry-run, or the same line spoken within ten minutes all fall back to a normal reply. Turning `社交.短应` off sends everything through the full reply path.
 
-Rung 1 is the key to saving money: many group messages need only `嗯`, `确实`, `哈哈`, or one sticker, yet each previously cost another reply-model call; letting the judge model hand back a short reaction, or using an echo or sticker directly, removes that cost. Rungs 0 and 1 must genuinely be allowed to happen, or she remains the one who answers every sentence.
+Rung 1 still saves money when a specific reaction is enough: many group messages can be answered with one content-bearing line, and letting the judge model hand it back, echo, or use a sticker removes another reply-model call. It is not a license to send filler: generic acknowledgements are dropped, and silence is preferred over a line that would fit under any message. Rungs 0 and 1 must genuinely be allowed to happen, or she remains the one who answers every sentence.
 
 ### Answered and silence
 
@@ -147,7 +147,7 @@ A day of 100 judge calls and 20 replies costs about ¥0.7; 100 owner private tur
 1. **Leave the judge cooldown alone**: the factory default still adds no wait; as energy drops to “a bit tired”, “tired”, and “very tired”, the system imposes judge floors of 15, 30, and 60 seconds, so a tired fish judges less often and accumulates messages for the next round. A larger manual setting still wins.
 2. **Skip low signal**: three or more pure stickers, pure punctuation, or repeatedly pasted short lines that do not call her are recorded without judging, at zero calls.
 3. **Cache first**: persona, room rules, and fixed protocol go first in the prompt; character cards and time-sensitive content go last; the judge prompt for one room stays byte-stable, and a cache read is fifty times cheaper than input.
-4. **Short acknowledgments skip the reply model**: the judge model hands back a short reaction, or an echo or sticker is used.
+4. **Short acknowledgments skip the reply model**: the judge model hands back a reaction that names something specific, or an echo or sticker is used.
 5. **Context by thread**: carry only the latest six messages in the same thread as this batch, not a fixed twenty; images travel only when mentioned.
 6. **Separate the judge from the reply**: judging always uses a cheap model at a low reasoning tier; replies inherit the owner's high tier only when she is called directly, and use the default otherwise.
 7. **Budget exploration**: below “normal” energy there is no exploration; the exploration quota is capped per hour and never mixes with the proactive quota.
@@ -254,7 +254,7 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | Key | Default | Effect |
 | --- | --- | --- |
 | `社交.低信号跳过` | true | Skip judging when a batch is all stickers, echoes, or very short acknowledgments |
-| `社交.短应` | true | Allow the judge model to return a short reaction without a separate reply call |
+| `社交.短应` | true | Allow the judge model to return a specific short reaction without a separate reply call |
 | `社交.精力` | true | Whether the allowance affects group proactive talk, judging, exploration, and length |
 | `社交.电量` | true | Whether recent per-room speech lowers the proactive quota |
 | `社交.重说` | true | Whether a "?" or "didn't catch that" triggers a direct rephrase without another judgment |

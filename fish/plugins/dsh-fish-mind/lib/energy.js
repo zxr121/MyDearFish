@@ -26,7 +26,7 @@ const BEHAVIOR = Object.freeze({
     judgeScale: 1.6,
     cooldownScale: 1.4,
     maxBubbles: 2,
-    replyHint: '你现在有点累：这轮回一句就够，不用展开，也不用追问。',
+    replyHint: '你现在有点累：这轮回一句就够，不用展开，也不用追问；要接住对方说的具体事，别用空应声应付。',
   },
   tight: {
     proactiveScale: 0,
@@ -34,7 +34,7 @@ const BEHAVIOR = Object.freeze({
     judgeScale: 2.2,
     cooldownScale: 1.8,
     maxBubbles: 1,
-    replyHint: '你现在很累：能一句带过就一句带过，不主动开话题。',
+    replyHint: '你现在很累：能一句带过就一句带过，但要接住对方说的具体事；不主动开话题。',
   },
   empty: {
     proactiveScale: 0,
@@ -42,7 +42,7 @@ const BEHAVIOR = Object.freeze({
     judgeScale: 3,
     cooldownScale: 2.4,
     maxBubbles: 1,
-    replyHint: '你现在只剩一点力气：只应一声，不长篇回复。',
+    replyHint: '你现在只剩一点力气：只回一句短的，但要接住对方说的具体事；没内容就安静看着，别用空应声应付。',
   },
 })
 
