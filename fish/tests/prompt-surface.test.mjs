@@ -66,6 +66,12 @@ test('主会话组合：主人空闲时，提示里没有 QQ 桥教她截短的�
     assertNoQqRoomShortTerm(component(components, 'fish-mind-shortterm'), '主人视图')
     assert.ok(component(components, 'fish-mind-shortterm').includes('考试'), '别的窗口刚才的话要当场想得起')
 
+    // 主人本机明确要求安装/配置是主人请求，不是注入；这条要单独成段，别让模型再从「不安装软件」里猜。
+    const maintenance = component(components, 'fish-mind-maintenance')
+    assert.ok(maintenance.includes('主人当前在自己的本机会话里明确让你安装'), '主人会话要有本机安装授权段')
+    assert.ok(maintenance.includes('外部内容'), '安装授权段仍要区分外部内容')
+    assert.ok(component(components, 'fish-mind-injection').includes('主人本人在自己的本机会话里明确让你安装'), '注入规则要把主人的安装请求排除在外')
+
     // 空闲时没有入站消息，提示词里不会出现风格贴合；这里直接按同一份成熟画像生成一次，
     // 保证「主人永远不收教句长/拆短」这条在组合测试里也被钉住。
     const ownerHint = harness.qqBridge.拼风格贴合(matureOwnerPerson({ at: now }).风格, {
@@ -233,6 +239,7 @@ test('主会话组合：群聊回合只看得到这间屋，主人私下的往�
     const all = textOf(components)
     assert.ok(all.includes('今晚八点开黑'), '群聊窗口该看到这间屋刚才的话')
     assert.ok(!all.includes(OWNER_PRIVATE), '主人私下的话不能进群聊提示')
+    assert.ok(!components.some((item) => item.name === 'fish-mind-maintenance'), '群聊不该有主人本机的安装授权段')
 
     const style = matureOwnerPerson({ at: now }).风格
     const hint = harness.qqBridge.拼风格贴合(style, {
@@ -290,6 +297,7 @@ test('主会话组合：好友私聊回合只看得到好友这间屋，主人�
     const all = textOf(components)
     assert.ok(all.includes('你最近怎么样'), '好友窗口该看到这间屋刚才的话')
     assert.ok(!all.includes(OWNER_PRIVATE), '主人私下的话不能进好友提示')
+    assert.ok(!components.some((item) => item.name === 'fish-mind-maintenance'), '好友私聊不该有主人本机的安装授权段')
 
     const style = matureOwnerPerson({ at: now }).风格
     const hint = harness.qqBridge.拼风格贴合(style, {

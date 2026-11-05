@@ -601,7 +601,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           await postJson(API + '/developer', { enabled: next === true })
           await load()
           flash(next === true
-            ? '开发者模式已打开：她能只读看调试资料、读鱼 QQ 的群和好友号，也能在对话里帮你改行为设置'
+            ? '开发者模式已打开：她能只读看调试资料、读鱼 QQ 的群和好友号，也能在对话里帮你改行为设置；你明确让她安装或配置本机软件、依赖、插件、模型接口时，她会按你的请求做，凭据和鱼脑数据仍然不碰'
             : '开发者模式已关闭：读调试资料和改设置都停了')
         } catch (error) {
           flash('没改成：' + String((error && error.message) || error), 'error')
@@ -1330,14 +1330,14 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
 
         h(Section, {
           title: '开发者模式',
-          note: '给她一条调试和辅助配置的通道：在你自己的会话里只读查看 DSH 目录里的日志、配置和会话记录；也能读鱼 QQ 的群号和好友号，在对话里帮你改行为设置和 B 站设置。凭据、身份文件、安全边界、预算和鱼脑数据仍然拒绝；每次读名单、读调试资料和改设置都记进审计。',
+          note: '给她一条调试、维护和辅助配置的通道：在你自己的会话里只读查看 DSH 目录里的日志、配置和会话记录；也能读鱼 QQ 的群号和好友号，在对话里帮你改行为设置和 B 站设置。你明确让她安装或配置本机软件、依赖、插件、模型接口时，她会按你的请求做，不再把“安装”本身当拒绝理由；凭据、身份文件、安全边界、预算和鱼脑数据仍然拒绝，对 DSH 目录本身的写入仍受权限层限制。每次读名单、读调试资料和改设置都记进审计。',
         },
           h('div', { 'data-fishm-actions': '' },
             勾(permissions.developer === true, (v) => { if (!devBusy) toggleDeveloper(v) }),
             h('span', { 'data-fishm-note': '' }, devBusy
               ? '正在切换…'
               : permissions.developer === true
-                ? '已打开：你的前台会话里她能只读看调试资料、读鱼 QQ 名单、帮你改行为设置'
+                ? '已打开：你的前台会话里她能只读看调试资料、读鱼 QQ 名单、帮你改行为设置，也能按你的明确要求安装/配置本机工具'
                 : '关着：她读不了 DSH 目录，也改不了设置')),
           h('div', { 'data-fishm-h': '' }, '打开后她能帮你改的设置'),
           writableGroups.length === 0
@@ -1661,7 +1661,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           h('summary', {}, '边界'),
           h('div', { 'data-fishm-sec': '' },
             h(Row, { label: '权限层', value: `${permissions.enabled ? '开' : '关'} · 急停 ${permissions.emergencyStop ? '已按下' : '未按'} · 后台会话 ${permissions.autonomous ? '放行' : '全拒'}` }),
-            h(Row, { label: '开发者模式', value: permissions.developer ? '开 · 仅主人前台会话只读 DSH 目录、读鱼 QQ 名单、帮改行为设置' : '关' }),
+            h(Row, { label: '开发者模式', value: permissions.developer ? '开 · 仅主人前台会话只读 DSH 目录、读鱼 QQ 名单、帮改行为设置、按明确要求安装/配置本机工具' : '关' }),
             h(Row, { label: '受保护路径', value: `只读 ${num(permissions.protectedReadPaths)} 处 · 只写 ${num(permissions.protectedWritePaths)} 处 · 鱼脑封存 ${num(permissions.sealedPaths)} 处` }),
             h(Row, { label: '外部 MCP', value: `${num(permissions.mcpReadOnlyTools)} 类只读动作；其他默认拒绝` }),
             h(Row, { label: '硬拒绝', value: hardText.join(' · ') || '—' }),
@@ -1920,7 +1920,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         body: [
           '• 出生设定（大肥鱼 → 她是谁）：名字、物种、外形、怎么称呼你、来历、说话习惯，以及可以自由增删的群友关系',
           '• 性格倾向（大肥鱼 → 她是谁）：写一段你希望她长期是什么样。保存时会直接写进「她在外面 → 通到 QQ」的主动每时、主动每日、判断阈值和关注上限；只能靠语气的每轮提醒她；预览会告诉你哪些话写进了设置、哪些只是每轮提示、哪些需要交给创造模式改代码',
-          '• 开发者模式（大肥鱼 → 她是谁）：打开后她在你自己的会话里能只读查看调试资料，也能读鱼 QQ 的群号和好友号，再按你的话用 fish_config 改行为设置（群、好友、关掉、只听、少掺和、主动话量、阈值、关注上限、称呼、兴趣词、不聊话题、主动搭话和性格倾向）；B 站设置用 bili_config；安全、预算、凭据和鱼脑数据仍然不开放',
+          '• 开发者模式（大肥鱼 → 她是谁）：打开后她在你自己的会话里能只读查看调试资料，也能读鱼 QQ 的群号和好友号，再按你的话用 fish_config 改行为设置（群、好友、关掉、只听、少掺和、主动话量、阈值、关注上限、称呼、兴趣词、不聊话题、主动搭话和性格倾向）；B 站设置用 bili_config；你明确让她安装或配置本机软件、依赖、插件、模型接口时，她会按你的请求做，不再把“安装”本身当拒绝理由；安全、预算、凭据、鱼脑数据和对 DSH 目录本身的写入仍然不开放',
           '• 创造模式（大肥鱼 → 她是谁）：在安装目录工作区里开一个新的完全权限会话，可以读代码、改代码，也可以读 DSH 目录和本机信息、用自带 Node 跑测试；鱼脑数据写入、凭据、身份文件和危险命令仍然拒绝，改完要重启 DSH',
           '• 心情（大肥鱼 → 心情）：称呼和昵称、生效会话、判断模型、是否每轮判断、是否注入、基线、下限',
           '• 主动搭话（她在外面 → 主动搭话）：总开关、试运行、掷骰间隔和命中线、安静时段、冷却、目标会话、触发文案',
