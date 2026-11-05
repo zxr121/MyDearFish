@@ -556,8 +556,11 @@ const 设判断 = (watch, reply, confidence = 0.9, reason = '可以', people = u
   判断输出 = JSON.stringify(体)
 }
 
-const 设短应 = (watch, 短, confidence = 0.8, reason = '顺手应一声') => {
-  判断输出 = JSON.stringify({ watch, reply: true, confidence, reason, short: 短 })
+const 设短应 = (watch, 短, confidence = 0.8, reason = '顺手应一声', shortFor = '', point = '') => {
+  const 体 = { watch, reply: true, confidence, reason, short: 短 }
+  if (shortFor !== '') 体.shortFor = shortFor
+  if (point !== '') 体.point = point
+  判断输出 = JSON.stringify(体)
 }
 
 const 设表情短应 = (watch, 表情, confidence = 0.8, reason = '发张表情就够') => {
@@ -3935,6 +3938,74 @@ await 等(60)
     发的.slice(发前32d).every((x) => !(x.url.endsWith('/send_group_msg') && x.体?.group_id === 1411)),
   JSON.stringify({ 回合: 回合.length - 回合前32d }))
 await 收到回复('session-qq-social-group-1411', '像鲸鱼')
+
+// ---------- 32e 短应引用：引用她真正接的那条，不引批里的第一条/最后一条 ----------
+报('按时间最新：按 at 挑，不看数组顺序，同一秒后进来的算新',
+  模.按时间最新([]) === null &&
+    String(模.按时间最新([{ id: 'a', at: 20 }, { id: 'b', at: 10 }]).id) === 'a' &&
+    String(模.按时间最新([{ id: 'a', at: 20 }, { id: 'b', at: 30 }, { id: 'c', at: 10 }]).id) === 'b' &&
+    String(模.按时间最新([{ id: 'a', at: 20 }, { id: 'b', at: 20 }]).id) === 'b',
+  JSON.stringify([[], [{ id: 'a', at: 20 }, { id: 'b', at: 10 }], [{ id: 'a', at: 20 }, { id: 'b', at: 20 }]].map((x) => 模.按时间最新(x)?.id ?? null)))
+
+// 795789868 事故：判断挑中「秘密武器」和「桀桀桀」，短应接的是更晚那句；紧挨着最新一条，不该挂引用。
+写配置({ 群: ['1461'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+const 事故起 = Math.floor(Date.now() / 1000) + 100
+群消息表.set(1461, [
+  一条群消息('得让时光姐姐试试我的秘密武器了', { 是主人: true, id: 213176787, time: 事故起 }),
+  一条群消息('吓哭了', { uid: 889, id: -901609781, time: 事故起 + 9 }),
+  一条群消息('桀桀桀', { 是主人: true, id: 2088258425, time: 事故起 + 21 }),
+])
+设短应(['213176787', '2088258425'], '反派笑都这动静', 0.8, '主人那句反派笑声接得上', '2088258425', '反派笑声')
+const 事故前回合 = 回合.length
+const 事故前发 = 发的.length
+await 轮询社交()
+await 等(60)
+const 事故发 = 发的.slice(事故前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1461)
+报('短应：接的就是屋里最新一条时不挂引用（795789868 事故）',
+  事故发.length === 1 && 事故发[0].体.message.length === 1 &&
+    事故发[0].体.message[0].type === 'text' && 事故发[0].体.message[0].data.text === '反派笑都这动静' &&
+    回合.length === 事故前回合,
+  JSON.stringify({ 发: 事故发.map((x) => x.体.message), 回合: 回合.length - 事故前回合 }))
+
+// 接的是更早一条，屋里有更新但没被挑中的消息：引用她接的那条，不按批里最后一条判断。
+写配置({ 群: ['1462'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+const 接早起 = Math.floor(Date.now() / 1000) + 100
+群消息表.set(1462, [
+  一条群消息('这张海边照片真好看', { uid: 888, id: 79311, time: 接早起 }),
+  一条群消息('周末去不去爬山', { uid: 889, id: 79312, time: 接早起 + 10 }),
+  一条群消息('晚上一起吃饭吗', { uid: 890, id: 79313, time: 接早起 + 20 }),
+])
+设短应(['79311', '79312'], '爬山算我一个', 0.8, '接住爬山这句', '79312', '爬山')
+const 接早前发 = 发的.length
+await 轮询社交()
+await 等(60)
+const 接早发 = 发的.slice(接早前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1462)
+报('短应：接的更早、屋里有更新消息时，引用她接的那条',
+  接早发.length === 1 && 接早发[0].体.message.length === 2 &&
+    接早发[0].体.message[0].type === 'reply' && 接早发[0].体.message[0].data.id === '79312' &&
+    接早发[0].体.message[1].type === 'text' && 接早发[0].体.message[1].data.text === '爬山算我一个',
+  JSON.stringify(接早发.map((x) => x.体.message)))
+报('短应：引用目标记进账本', (await 日志文本()).includes('短应了一声「爬山算我一个」（引用 #79312）'))
+
+// 没给 shortFor 时按发言时间挑她看见的最新一条；watch 顺序不是发言顺序。
+写配置({ 群: ['1463'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+const 序起 = Math.floor(Date.now() / 1000) + 100
+群消息表.set(1463, [
+  一条群消息('第一句具体的事', { uid: 888, id: 79321, time: 序起 }),
+  一条群消息('第二句具体的事', { uid: 889, id: 79322, time: 序起 + 10 }),
+  一条群消息('第三句具体的事', { uid: 890, id: 79323, time: 序起 + 20 }),
+  一条群消息('第四句最新但没被挑中', { uid: 891, id: 79324, time: 序起 + 30 }),
+])
+设短应(['79321', '79323', '79322'], '第三句我也看到了')
+const 序前发 = 发的.length
+await 轮询社交()
+await 等(60)
+const 序发 = 发的.slice(序前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1463)
+报('短应：没给 shortFor 时按发言时间挑最新看的那条，不按 watch 顺序',
+  序发.length === 1 && 序发[0].体.message.length === 2 &&
+    序发[0].体.message[0].type === 'reply' && 序发[0].体.message[0].data.id === '79323' &&
+    序发[0].体.message[1].data.text === '第三句我也看到了',
+  JSON.stringify(序发.map((x) => x.体.message)))
 
 // ---------- 32a 短应只应声：评价词不当短应发；重复的空泛评价在出站前压掉 ----------
 报('评价词：含万能评价词的短句算空泛', 模.含空泛评价('猫猫泳装确实可爱') === '可爱' && 模.含空泛评价('好家伙') === '')

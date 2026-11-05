@@ -1474,6 +1474,20 @@ export function 是低信号(批 = []) {
 }
 
 /**
+ * 按发言时间取最新的一条：不看数组顺序，同一秒按数组里靠后的算新。
+ * @param {object[]} 消息们 - 要比较的消息。
+ * @returns {object|null} 最新的一条；空数组返回 null。
+ */
+export function 按时间最新(消息们) {
+  let 最新 = null
+  for (const m of Array.isArray(消息们) ? 消息们 : []) {
+    if (!m) continue
+    if (最新 === null || (Number(m.at) || 0) >= (Number(最新.at) || 0)) 最新 = m
+  }
+  return 最新
+}
+
+/**
  * 判断失败后的等待时长：普通批次 60s → 120s → 240s → 最多 5 分钟；直呼批次固定 30s。
  * @param {number} 失败次数 - 连续失败次数（从 1 开始）。
  * @param {boolean} [直呼] - 这批消息里有没有直接叫她的。
@@ -7590,9 +7604,12 @@ export function apply(ctx) {
     const 必须回语 = 必须回 ? '；被直接叫到/私聊，必须回' : ''
     const 原短应 = 收拾短应(判.short)
     const 短应id = String(判.shortFor || '').trim()
-    const 短应目标id = 短应id !== '' && 看.includes(短应id) ? 短应id : (看.length > 0 ? 看[看.length - 1] : '')
     const 短应点 = String(判.point || '').replace(/\s+/g, ' ').trim().slice(0, 40)
-    const 短应目标 = 短应目标id !== '' ? 待看id.get(短应目标id) : null
+    // 没给 shortFor 时按发言时间挑她看见的最新一条；watch 顺序不是发言顺序。
+    const 短应目标 = 短应id !== '' && 看.includes(短应id)
+      ? (待看id.get(短应id) || null)
+      : 按时间最新(看.map((id) => 待看id.get(id)).filter(Boolean))
+    const 短应目标id = 短应目标 === null ? '' : String(短应目标.id || '')
     // 模型给了 point 才要求短应接住它；动作确认（改好了/存好了/在呢）不用硬套内容重合。
     const 短应动作 = /(?:改好|改成|改完|存好|存进|收好|收到|在呢)/u.test(原短应)
     const 短应接住 = 原短应 !== '' && (短应点 === '' || 短应动作 || (短应目标 !== null && 短应接住具体事(原短应, 短应点)))
@@ -9485,6 +9502,12 @@ export function apply(ctx) {
     })
   }
 
+  /** 这间屋此刻最后一条别人说的话的 id；引用只在目标不是它时才挂。 */
+  function 最新人话id(目标) {
+    const 最新 = 按时间最新(近时缓冲(目标).filter((m) => m && !m.自己 && String(m.id || '') !== ''))
+    return 最新 === null ? '' : String(最新.id || '')
+  }
+
   /** 这间屋最近半小时她自己用过的万能评价词；短应和回复轮都拿它防重复。 */
   function 近用评价词(目标) {
     const 边界 = Date.now() - 评价重复窗毫秒
@@ -10715,8 +10738,10 @@ export function apply(ctx) {
     if (!脱敏.ok) return false
     const 文本 = 脱敏.text.trim()
     if (文本 === '') return false
-    const 最新id = 批.length > 0 ? String(批[批.length - 1].id || '') : ''
-    const 引用消息id = 引用id !== '' && 引用id !== 最新id ? 引用id : ''
+    // 挂不挂引用看这间屋此刻最后一条别人说的话；被引用的那条必须是她这一批真看见的。
+    const 最新id = 最新人话id(目标)
+    const 在这批 = 批.some((m) => m && String(m.id || '') === 引用id)
+    const 引用消息id = 在这批 && 引用id !== 最新id ? 引用id : ''
     const 段们 = [{ type: 'text', data: { text: 文本 } }]
     if (引用消息id !== '') 段们.unshift({ type: 'reply', data: { id: 引用消息id } })
     const r = await 发一个(配置.NapCat, 'send_group_msg', {
@@ -10730,9 +10755,9 @@ export function apply(ctx) {
     短应记录.set(目标.key, { ...(上次 || {}), 文: 短文, at: Date.now() })
     写社交状态(true)
     取最近收藏动作(目标.key)
-    记账(`${目标.叫}：短应了一声「${文本}」`)
+    记账(`${目标.叫}：短应了一声「${文本}」${引用消息id !== '' ? `（引用 #${引用消息id}）` : ''}`)
     记思绪('开口', `短应了一声「${文本}」：判断模型直接给的反应，不另开回复轮`, {
-      原文: [文本], 全过: true, 档: 1,
+      原文: [文本], 全过: true, 档: 1, 引用: 引用消息id,
     }, 目标.叫)
     const 发出id = r.数据 && r.数据.data && r.数据.data.message_id !== undefined && r.数据.data.message_id !== null
       ? String(r.数据.data.message_id) : ''
@@ -11863,8 +11888,7 @@ export function apply(ctx) {
       if (对上 === '') 记账(`${目标.叫}：想引用「${引.引用.原文 || `#${引.引用.id}`}」但没对上最近的消息，这条只发正文`)
     } else if (引用id !== '' && 目标.类型 === 'group' && !必引用) {
       // 自动引用只在接的不是最后一条时挂；紧挨着说的那句不挂，免得每条都顶一个引用。
-      const 近 = 近时缓冲(目标).filter((m) => m && !m.自己 && String(m.id || '') !== '')
-      const 最新 = 近.length > 0 ? String(近[近.length - 1].id || '') : ''
+      const 最新 = 最新人话id(目标)
       if (最新 !== '' && 引用id === 最新) 引用id = ''
     }
     if (文本.length > 1200) 文本 = `${文本.slice(0, 1200)}…`
