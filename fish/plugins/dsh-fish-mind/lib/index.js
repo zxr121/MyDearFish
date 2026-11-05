@@ -1539,26 +1539,46 @@ export function apply(ctx) {
         content: [{ type: 'text', text: prompt.user }],
         source: { kind: 'plugin', plugin: 'dsh-fish-mind' },
       }]
-      let out = ''
-      for await (const chunk of llm.stream({
-        provider: target.provider,
-        model: target.model,
-        system: prompt.system,
-        messages,
-        maxTokens: config.working.maxTokens,
-        temperature: 0.2,
-        budgetOrigin: 'memory',
-      })) {
-        if (!chunk) continue
-        if (chunk.type === 'text-delta') out += chunk.text
-        if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
+      const 提炼一次 = async (追加 = '') => {
+        let 出 = ''
+        for await (const chunk of llm.stream({
+          provider: target.provider,
+          model: target.model,
+          system: 追加 === '' ? prompt.system : `${prompt.system}\n${追加}`,
+          messages,
+          maxTokens: config.working.maxTokens,
+          temperature: 0.2,
+          budgetOrigin: 'memory',
+        })) {
+          if (!chunk) continue
+          if (chunk.type === 'text-delta') 出 += chunk.text
+          if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
+            return { 出, 错: String((chunk.reason.failure && chunk.reason.failure.message) || 'error') }
+          }
+        }
+        return { 出, 错: '' }
+      }
+      const 首 = await 提炼一次()
+      if (首.错 !== '') {
+        working.lastStatus = 'model-error'
+        backoffConsolidation()
+        diag(`memory: 提炼被模型拒绝（${首.错}）`)
+        return { ran: false, reason: 'model-error' }
+      }
+      let parsed = parseFactsDetailed(首.出, { max: config.working.maxFacts })
+      if (!parsed.ok) {
+        // 输出不是 JSON 数组多半是模型这轮话多；先用一句更硬的要求重问一次，
+        // 再决定退避，省得一条一句的闲话把整批记忆漏掉。
+        diag('memory: 提炼输出不是 JSON 数组，按更严格的要求重试一次')
+        const 再 = await 提炼一次('上一次输出不是 JSON 数组。只输出一个 JSON 数组，不要解释、不要代码块。')
+        if (再.错 !== '') {
           working.lastStatus = 'model-error'
           backoffConsolidation()
-          diag(`memory: 提炼被模型拒绝（${String((chunk.reason.failure && chunk.reason.failure.message) || 'error')}）`)
+          diag(`memory: 提炼重试被模型拒绝（${再.错}）`)
           return { ran: false, reason: 'model-error' }
         }
+        parsed = parseFactsDetailed(再.出, { max: config.working.maxFacts })
       }
-      const parsed = parseFactsDetailed(out, { max: config.working.maxFacts })
       if (!parsed.ok) {
         // 模型没给出可解析的数组：这批一条都不推水位，下一轮重试。连续三次
         // 都这样时跳过最早一条，免得一条怪消息把整条队列卡死（原文仍在）。

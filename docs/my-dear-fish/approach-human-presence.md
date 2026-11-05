@@ -48,6 +48,8 @@ Every message gets an addressee: `她`, a specific person, `大家`, or `不确�
 
 A message marked “addressed to someone else” gets no proactive interjection unless it also calls her. Both halves now live in the bridge (0.2.88): replies, @-mentions, and name-opening addresses all mark a message as addressed to someone else; such messages also enter the room ledger, so she can join a later turn on the same topic.
 
+Since 0.2.135 the addressee carries one more step: when a message has no reply, @, or opening name, it inherits the addressee of the same sender's previous message within 120 seconds. A line continuing to her is tagged `[对你]`; a line that only mentions her is tagged `[提到你]` and enters attention without forcing a reply. The reply prompt carries `【这一轮接这条】`, and the native quote attaches to that target; short replies use the judge's `shortFor` instead of the first item in the batch. A name counts as a vocative only at the opening or end of a sentence; third-person “大肥鱼今天好菜” is a mention. When she started the exchange and the other person answers “嗯嗯” without quoting, the bridge also treats it as a catch, so it forces a reply turn.
+
 ### Participation ladder
 
 The judge model no longer answers only “reply / stay silent”; it answers with a rung:
@@ -62,6 +64,8 @@ The judge model no longer answers only “reply / stay silent”; it answers wit
 Rung 1 landed in 0.2.90: besides `watch` and `reply`, the judge model may return `short` (2–12 characters); the bridge sanitizes it (strips quotes, rejects @-mentions, links, and parenthetical explanations, requires 2–20 characters), then sends it straight to the group without calling the reply model. A short reaction must name something specific from the message; a generic `haha`, `good grief`, `indeed`, or `what is this` does not count: the bridge drops it and falls back to a normal reply, and a reply that still contains only such filler is dropped unless someone addressed her directly. Being called directly, being asked about herself, an affinity lookup, private chat, a room that is resting / listen-only / in dry-run, or the same line spoken within ten minutes all fall back to a normal reply. Turning `社交.短应` off sends everything through the full reply path.
 
 Rung 1 still saves money when a specific reaction is enough: many group messages can be answered with one content-bearing line, and letting the judge model hand it back, echo, or use a sticker removes another reply-model call. It is not a license to send filler: generic acknowledgements are dropped, and silence is preferred over a line that would fit under any message. Rungs 0 and 1 must genuinely be allowed to happen, or she remains the one who answers every sentence.
+
+Since 0.2.135 a short reply must carry `shortFor` (which message it answers) and `point` (which concrete thing it catches), and the bridge checks for content overlap; generic acknowledgements, universal praise, or a line with no concrete point falls back to the normal reply. When someone has just said she only sends stickers / echoes / image captions / has no substance, the room enters a thirty-minute restraint period: no sticker-only replies, no echoing, a higher judgment threshold, and an explicit instruction to catch something concrete. Each room keeps its last six openings so she does not start every turn with “在呢”. Ordinary group images and old context images no longer go to the reply model; stickers, forwarded messages, and explicit image questions still do, and a reply with two or more visual-detail words that was not asked about an image is dropped.
 
 ### Answered and silence
 
@@ -87,6 +91,8 @@ Group reply delays stop being fixed: jitter of 0.6 to 1.6 times based on message
 
 Since 0.2.93, how many messages other people sent in the room during the last ten minutes becomes a heat level: twenty or more counts as chatty and cuts her proactive quota to sixty percent, forty or more counts as a flood and cuts it to thirty percent, always leaving at least one turn per hour and per day. People do not force their way into a lively conversation, and this saves money too. Being called, being asked about herself, owner messages, and friend private chats bypass this quota; turning `社交.电量` off uses the fixed quota only. Heat reads the room's activity, not how much she herself has said: consecutive-speech caps already bound that, and following the room's rhythm is what makes her look human.
 
+Since 0.2.135 each group has a “少说” (say less) rung: ordinary messages get at most one proactive reply per thirty minutes; no proactive openers, no echoing, no sticker-only replies; direct calls, replies to her, and questions about her still get answered. It affects speaking, not watching: the ledger, people file, and memory keep updating.
+
 ### Repair turn
 
 Since 0.2.94, when someone replies "?", "what did you say", "didn't catch that", or "what do you mean", and that message is a private chat, a reply to her, or an @ of her within ten minutes of her last line, the bridge skips judgment, carries her original sentence into the reply turn, and asks her to rephrase it: no verbatim repeat, no bare "huh?", no long apology. A question that sounds like a mishearing deserves an answer anyway, and this turn saves one judgment call. Question marks outside the ten-minute window or not aimed at her still go through judgment; listen-only and resting rooms stay silent. Turning `社交.重说` off sends everything through judgment.
@@ -102,6 +108,12 @@ Three steps, with the first two landed:
 3. **Next-day callbacks (later)**: turn facts that invite a follow-up (an interview, a trip, a pet, an exam, a promise) into time-aware openers, replacing the random dice roll in proactive speech — a callback with a reason feels more human and wastes less money.
 
 Guards: expiry, a confidence threshold, and a per-room cap; if someone else already answered the thread in the meantime, she drops it instead of adding a duplicate; a late line never interrogates, echoes, or asks "are you there". The settings page shows how many threads each room holds and when she last came back, and turning `社交.迟到` off disables late replies entirely. Late replies get their own acceptance spot check: stale, aimed at the wrong person, or repeated all count as failures.
+
+Since 0.2.135 a restart no longer relies on same-day threads alone: the poll cursor and the message ids she sent persist to `qq-bridge-social-state.json`. Within thirty minutes after a restart, a message that directly calls her, replies to her, or continues her opener gets one catch-up line (she may say she just saw it); ordinary chatter only enters the ledger. `社交.启动补话` and `补话分钟` control this. Social replies default to a low reasoning effort, so a one-line group answer does not inherit the owner's heavy reasoning, and the reply timeout becomes the configurable `社交.回复超时秒` (default 180).
+
+### Five-dimensional affinity (since 0.2.135)
+
+Besides the familiarity stage, each person carries five relationship dimensions that follow the person across rooms: understanding, trust, respect, need, and ease. Trust reads the existing total-relationship trust; the other four live in the people file and move deterministically on meetings, interactions, facts, closeness, slighting, boundary crossings, broken trust, arguments, repairs, and tones such as giving a gift or deciding for her. Positive movement is capped at +3 per dimension per day; negative movement has no daily cap. Understanding and respect do not decay; need and ease fall back slowly only after a long absence. Chat only speaks in stages (stranger / surface understanding / partial understanding / understands her well, and so on) and never reports numbers; asking about a third person gets “this is something I keep to myself”. The settings people file still shows the numbers; old files migrate from v3 to v4 with a `.v3.bak` copy.
 
 ## Energy: the balance is strength
 
@@ -214,6 +226,11 @@ Import applies configuration first, then writes birth settings and mood names, a
 | Native quote, ellipses never split a sentence | Done in 0.2.85 / 0.2.86 | Keep |
 | Recognize being addressed by name | Only replies and @ | Added this round |
 | Per-room off / listen-only / less mingling / resting | Done | Keep |
+| Per-room say-less, overview switches for QQ / social / proactive talk | Done in 0.2.135 | Keep |
+| Addressee inheritance, target quote, short `shortFor` | Done in 0.2.135 | Keep |
+| Five-dimensional affinity, staged display, no numbers | Done in 0.2.135 | Keep |
+| Restart catch-up and low social reasoning effort | Done in 0.2.135 | Keep |
+| Two-segment private split | Done in 0.2.135 | Keep |
 | Silent learning, volume, person attitudes | Done | Keep |
 | Balance priced at official peak and off-peak rates | Done | Keep |
 | Automatic backups, install-directory data | Done | Keep |
@@ -246,6 +263,7 @@ Import applies configuration first, then writes birth settings and mood names, a
 6. Done: page-by-page audit of settings dropdowns and the private-chat sticker path. All five fish pages carry dark option backgrounds, the TTS page has no dropdown, and settings pages of non-fish plugins are outside this plugin's scope; saving, renaming, sending by number, deduplicating stickers, and being honest about a missing number all have private-chat test coverage.
 7. Done (0.2.96–0.2.97): the first two steps of time continuity — a message she wanted to answer but that cooldown, battery, quota, quiet hours, or a busy room held back becomes an open thread, and she adds a line once the room has been quiet for a while; threads persist to local `qq-bridge-threads.json`, survive restarts within the same day, and the `迟到分钟` cap rises to 360 so they can cross hours. Next-day callbacks wait for a later round.
 8. Done (0.2.99): owner tendency compiles from one paragraph into five dimensions; those that land on a knob multiply or add directly, and the rest go to a creation-mode brief; export carries whitelisted configuration while older versions still import; the settings page keeps only the outer "tendency" layer, with the factory persona and collection prompts folded into a collapsed advanced section.
+9. Done (0.2.135): addressee inheritance and target quotes, short `shortFor` / `point`, restraint after criticism, group images kept out of the reply model, restart catch-up and low social reasoning, five-dimensional affinity and numeric removal, per-room say-less, overview switches, and the two-segment private split.
 
 Each round runs the plugin tests and `pnpm run test:docs` before committing and pushing; files another session is editing are never overwritten.
 
@@ -261,5 +279,10 @@ Each round runs the plugin tests and `pnpm run test:docs` before committing and 
 | `社交.迟到` | true | Whether a message blocked by cooldown, quota, quiet hours, or a busy room is kept as an open thread for a later line |
 | `社交.迟到分钟` | 10 | How long a thread waits before she comes back to it (up to 360); three times this delay or a day change drops it |
 | `社交.挂起上限` | 3 | How many threads one room holds at once; the oldest is pushed out first |
+| `社交.回复推理` | 低 | Social reply reasoning effort: inherit / low / medium / high; owner private chat is unaffected |
+| `社交.回复超时秒` | 180 | How long one social reply may take before it is dropped and logged as TIMEOUT |
+| `社交.启动补话` | true | After a restart, catch up messages that directly call her, reply to her, or continue her opener |
+| `社交.补话分钟` | 30 | How far back catch-up looks (1–120) |
+| `社交.少说` | [] | Rooms where ordinary messages get at most one proactive reply per thirty minutes; no openers, echoes, or sticker-only replies |
 
 `判断冷却秒` keeps its value (default 0); the energy floor only raises the effective wait and never rewrites the configured value. The owner tendency is in neither table: its raw text lives in `fish-mind/tendency.json` and writes neither the QQ config nor the fish-brain `config.json`.

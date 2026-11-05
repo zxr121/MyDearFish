@@ -459,6 +459,7 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
       const [creationBrief, setCreationBrief] = React.useState(null)
       const [creationBusy, setCreationBusy] = React.useState(false)
       const [busy, setBusy] = React.useState('')
+      const [remoteBusy, setRemoteBusy] = React.useState('')
       const [msg, setMsg] = React.useState('')
       const [msgKind, setMsgKind] = React.useState('')
       const [grantDraft, setGrantDraft] = React.useState(null)
@@ -541,6 +542,22 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
           flash('读取失败：' + String((error && error.message) || error), 'error')
         }
       }, [])
+
+      // 总览页的几个总开关：直接调对应插件的保存接口，成功后重拉一次总览。
+      const toggleRemote = async (路径, 体, 键) => {
+        if (remoteBusy !== '') return
+        setRemoteBusy(键)
+        try {
+          const r = await postJson(路径, 体 || {})
+          if (r && r.ok === false) throw new Error(r.说 || '宿主拒绝了这次保存')
+          flash('已保存，状态马上刷新')
+          await load()
+        } catch (error) {
+          flash('保存失败：' + String((error && error.message) || error), 'error')
+        } finally {
+          setRemoteBusy('')
+        }
+      }
 
       const loadPersona = React.useCallback(async () => {
         try {
@@ -1076,8 +1093,8 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
         pane('overview', active,
           pageHead({
             title: '大肥鱼',
-            intro: '她是怎样一条鱼，今天过得怎么样。下面这些只读，改设置在后面的 tab 里。',
-            caps: '本页可以看：能不能说话、心情、零花钱、记忆、作息；日常四项在「她在外面 → 通到 QQ」。',
+            intro: '她是怎样一条鱼，今天过得怎么样。运行状态和几个总开关在这里，细一点的在后面的 tab 里。',
+            caps: '本页可以看：能不能说话、心情、零花钱、记忆、作息；QQ 总开关、社交开关、主动搭话开关也能直接切。',
           }),
           h('div', { 'data-fishm-hero': '' },
             h('div', {},
@@ -1092,7 +1109,18 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
               h('div', { 'data-fishm-note': '' },
                 channels.qq && channels.qq.available
                   ? `试运行 ${yesNo(channels.qq.trial)} · 社交 ${channels.qq.socialEnabled ? '开' : '关'}${channels.qq.socialTrial ? '（试运行）' : ''}`
-                  : '没有配置')),
+                  : '没有配置'),
+              h('div', { style: { display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' } },
+                h('button', {
+                  'data-fishm-btn': '',
+                  disabled: remoteBusy !== '' || !(channels.qq && channels.qq.available),
+                  onClick: () => toggleRemote('/dsh-qq-bridge/save', { 总开关: !(channels.qq && channels.qq.enabled) }, 'qq-main'),
+                }, channels.qq && channels.qq.enabled ? '关掉总开关' : '打开总开关'),
+                h('button', {
+                  'data-fishm-btn': '',
+                  disabled: remoteBusy !== '' || !(channels.qq && channels.qq.available),
+                  onClick: () => toggleRemote('/dsh-qq-bridge/save', { 社交: { 启用: !(channels.qq && channels.qq.socialEnabled) } }, 'qq-social'),
+                }, channels.qq && channels.qq.socialEnabled ? '关掉社交' : '打开社交'))),
             h('div', { 'data-fishm-card': '' },
               h('div', { 'data-fishm-cardtitle': '' }, '主动搭话',
                 h('span', { 'data-fishm-chip': channels.speakUp && channels.speakUp.enabled ? 'on' : 'off' },
@@ -1100,7 +1128,13 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
               h('div', { 'data-fishm-note': '' },
                 channels.speakUp && channels.speakUp.available
                   ? `试运行 ${yesNo(channels.speakUp.trial)} · 目标 ${num(channels.speakUp.targets)} 个会话`
-                  : '没有配置')),
+                  : '没有配置'),
+              h('div', { style: { marginTop: 6 } },
+                h('button', {
+                  'data-fishm-btn': '',
+                  disabled: remoteBusy !== '' || !(channels.speakUp && channels.speakUp.available),
+                  onClick: () => toggleRemote('/dsh-speak-up/save', { 启用: !(channels.speakUp && channels.speakUp.enabled) }, 'speak-up'),
+                }, channels.speakUp && channels.speakUp.enabled ? '关掉主动搭话' : '打开主动搭话'))),
             h('div', { 'data-fishm-card': '' },
               h('div', { 'data-fishm-cardtitle': '' }, 'B 站',
                 channels.bili && channels.bili.available

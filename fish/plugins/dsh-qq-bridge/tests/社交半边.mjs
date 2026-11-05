@@ -999,6 +999,7 @@ await 收到回复('session-qq-social-group-1092', '群友888 我在啊[@群友7
 const 呼叫发们 = 发的.slice(呼叫前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1092)
 报('群里叫人的名字换成 QQ 真正的 @', 呼叫发们.length === 1
   && JSON.stringify(呼叫发们[0].体.message) === JSON.stringify([
+    { type: 'reply', data: { id: '3091' } },
     { type: 'at', data: { qq: '888' } },
     { type: 'text', data: { text: '我在啊' } },
     { type: 'at', data: { qq: '777' } },
@@ -1166,7 +1167,7 @@ const 句拆发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.�
 
 // ---------- 6c 图片：不单独触发，和文字一样走判断；被选中后作为 image 块进会话 ----------
 写配置({ 群: ['1016'] })
-群消息表.set(1016, [一条带图群消息(1603, { 是主人: true })])
+群消息表.set(1016, [一条带图群消息(1603, { 是主人: true, 文本: '这张像不像你？' })])
 设判断(['1603'], true, 0.9, '想看这张图')
 const 附件之前6c = 附件们.length
 const 群1016之前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1016').length
@@ -1186,7 +1187,7 @@ const 图判文 = String(图判?.messages?.[0]?.content?.[0]?.text || '')
 报('判断提示里带图片图注', 图判文.includes('【本批附来的图片】') && 图判文.includes('图 1·主人'), 图判文.slice(0, 400))
 // 判断模型是纯文本时，不把图片塞进判断请求，免得整轮调用被模型拒掉
 写配置({ 群: ['1031'], 判断模型: 'fake/chat' })
-群消息表.set(1031, [一条带图群消息(1810, { 是主人: true })])
+群消息表.set(1031, [一条带图群消息(1810, { 是主人: true, 文本: '这张像不像你？' })])
 设判断(['1810'], true, 0.9, '看图')
 const 纯文判前 = 判断调用.length
 await 轮询社交()
@@ -1315,7 +1316,7 @@ await 轮询社交()
 await 等()
 const 无关图轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1040').at(-1)
 const 无关图块 = (无关图轮?.message?.content || []).filter((b) => b.type === 'image')
-报('没在说图：上下文旧图不重复附', 无关图块.length === 1, JSON.stringify(无关图块.map((b) => b.attachment?.attachmentId)))
+报('没在说图：群里的随手图不进回复模型', 无关图块.length === 0, JSON.stringify(无关图块.map((b) => b.attachment?.attachmentId)))
 
 // 学习期把握 0.35 也愿意先应一声（门槛 0.3）
 写配置({ 群: ['1026'] })
@@ -1507,8 +1508,15 @@ await 等()
 报('判断模型回落到 DSH 默认模型', 判断调用.length === 默认判之前 + 1 && 判断调用.at(-1).provider === 'fake' && 判断调用.at(-1).model === 'cheap', JSON.stringify({ 之前: 默认判之前, 现在: 判断调用.length, provider: 判断调用.at(-1)?.provider, model: 判断调用.at(-1)?.model }))
 报('回落后的判断照常开一轮', 回合.some((r) => r.sid === 'session-qq-social-group-1050'))
 const 建1050 = 建会话选项.filter((项) => 项.sessionId === 'session-qq-social-group-1050').at(-1)
-报('新建社交会话继承主人的推理档', 建1050?.agentOptions?.provider === 'fake' && 建1050?.agentOptions?.model === 'cheap' && 建1050?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1050?.agentOptions))
+报('新建社交会话默认降到低推理档', 建1050?.agentOptions?.provider === 'fake' && 建1050?.agentOptions?.model === 'cheap' && 建1050?.agentOptions?.reasoningEffort === 'low', JSON.stringify(建1050?.agentOptions))
 报('判断调用不跟着用最高推理档', 判断调用.at(-1)?.reasoningEffort === undefined, String(判断调用.at(-1)?.reasoningEffort))
+写配置({ 群: ['1053'], 判断模型: '', 回复模型: '', 回复推理: '继承', 判断冷却秒: 0 })
+群消息表.set(1053, [一条群消息('继承推理档', { id: 1912 })])
+设判断(['1912'], true, 0.9, '想接')
+await 轮询社交()
+await 等()
+const 建1051 = 建会话选项.filter((项) => 项.sessionId === 'session-qq-social-group-1053').at(-1)
+报('社交回复推理设成继承时沿用主人档', 建1051?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1051?.agentOptions))
 
 // 连默认模型都没有：这批消息不能丢，等模型回来再判
 默认模型选择 = null
@@ -2352,20 +2360,23 @@ const 查询轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1090')
 const 查询文案 = String(查询轮?.message.content[0].text || '')
 const 判断查文案 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
 const 人950 = JSON.parse(readFileSync(join(家, 'qq-social-people.json'), 'utf8')).people['950']
-const 查询综合 = 人950 ? 模.综合好感(人950.关系) : -1
 报('查好感度：没被叫也能进慢判，并标出 [查好感度]',
   判断调用.length === 判断之前查 + 1 && 判断查文案.includes('[#7001]') && 判断查文案.includes('[查好感度]'),
   判断查文案.slice(0, 240))
 报('查好感度：判断说不接也照样开一轮', 回合.length === 回合之前查 + 1 && !!查询轮, '回合=' + (回合.length - 回合之前查))
-报('查好感度：回复提示注入问的人自己的综合数值',
+报('查好感度：回复提示注入问的人自己的五维阶段',
   查询文案.includes('[查好感度]') && 查询文案.includes('【好感度查询】') &&
-    查询文案.includes('综合 ' + 查询综合 + ' / 100') && 查询文案.includes('QQ 950') &&
+    查询文案.includes('理解') && 查询文案.includes('信任') && 查询文案.includes('QQ 950') &&
     !查询文案.includes('QQ 951'),
   查询文案.slice(-360))
-报('查好感度：尾注要求直接报数、别换成感觉',
-  查询文案.includes('把【好感度查询】里的综合数值报给他') && 查询文案.includes('别改写成感觉'))
+报('查好感度：尾注要求说阶段、不报数',
+  查询文案.includes('不报数字') && 查询文案.includes('只说阶段'))
 报('查好感度：日志写明是按关键词查', String(await 日志文本()).includes('按关键词查好感度'))
-await 收到回复('session-qq-social-group-1090', '让我看看……是 ' + 查询综合 + ' 分')
+const 查询前发 = 发的.length
+await 收到回复('session-qq-social-group-1090', '让我看看……是 92 分')
+await 等()
+const 查询发 = 发的.slice(查询前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1090)
+报('查好感度：外发里的数字好感被换成阶段说法', 查询发.length > 0 && !查询发.some((x) => /\d{1,3}\s*分/u.test(JSON.stringify(x.体.message))), JSON.stringify(查询发.map((x) => x.体.message)))
 时间偏移 = 0
 
 时间偏移 += 11_000
@@ -2376,12 +2387,10 @@ await 轮询社交()
 await 等()
 const 好友轮 = 回合.filter((r) => r.sid === 'session-qq-social-friend-960').at(-1)
 const 好友文案 = String(好友轮?.message.content[0].text || '')
-const 人960 = JSON.parse(readFileSync(join(家, 'qq-social-people.json'), 'utf8')).people['960']
-const 好友综合 = 人960 ? 模.综合好感(人960.关系) : -1
-报('好友私聊查好感度：判断说不接也直接报数',
-  好友文案.includes('【好感度查询】好友') && 好友文案.includes('直接报“现在是 ' + 好友综合 + ' 分”'),
+报('好友私聊查好感度：判断说不接也照常给阶段',
+  好友文案.includes('【好感度查询】好友') && 好友文案.includes('不报数字'),
   好友文案.slice(-300))
-await 收到回复('session-qq-social-friend-960', '现在是 ' + 好友综合 + ' 分啦')
+await 收到回复('session-qq-social-friend-960', '算熟人了，挺信你的')
 时间偏移 = 0
 
 时间偏移 += 11_000
@@ -2615,7 +2624,101 @@ await 等()
 await 轮询社交()
 await 等()
 const 自指提示 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
-报('有人叫她名字 → 回复提示标出在说她', 自指提示.includes('[说到你]') && 自指提示.includes('大肥鱼今天好菜'), 自指提示.slice(0, 300))
+报('有人叫她名字 → 回复提示标出在说她', 自指提示.includes('[提到你]') && 自指提示.includes('大肥鱼今天好菜'), 自指提示.slice(0, 300))
+
+// 21m2 句首叫名字才强制回；第三视角提到名字只进注意力
+写配置({ 群: ['1063'], 快判: false, 冷却秒: 0, 判断冷却秒: 0 })
+群消息表.set(1063, [一条群消息('大肥鱼，在吗', { id: 9601 })])
+设判断([], false, 0.1, '不想接')
+const 点名前轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1063').length
+await 轮询社交()
+await 等()
+const 点名轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1063').at(-1)
+const 点名提示 = String(点名轮?.message.content[0].text || '')
+报('点名：句首叫名字即使判断说不接也强制开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1063').length === 点名前轮 + 1)
+报('点名：回复提示标 [说到你]', 点名提示.includes('[说到你]') && 点名提示.includes('大肥鱼，在吗'), 点名提示.slice(0, 300))
+时间偏移 += 11_000
+写配置({ 群: ['1064'], 快判: false, 冷却秒: 0, 判断冷却秒: 0 })
+群消息表.set(1064, [一条群消息('大肥鱼今天好菜', { id: 9602 })])
+设判断([], false, 0.1, '不想接')
+const 提前轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1064').length
+await 轮询社交()
+await 等()
+报('提到：第三视角提名字不强制开一轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1064').length === 提前轮)
+
+// 21m3 收件人继承：同一人上一句在叫她，下一句没换人就还是对她
+时间偏移 += 11_000
+写配置({ 群: ['1065'], 快判: false, 冷却秒: 0, 判断冷却秒: 0 })
+群消息表.set(1065, [
+  一条群消息('大肥鱼，在吗', { id: 9603 }),
+  一条群消息('今天吃什么', { id: 9604 }),
+])
+设判断(['9603', '9604'], true, 0.9, '两句话')
+await 轮询社交()
+await 等()
+const 继承轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1065').at(-1)
+const 继承提示 = String(继承轮?.message.content[0].text || '')
+const 继承行 = 继承提示.split('\n').find((l) => l.includes('今天吃什么')) || ''
+报('收件人继承：同一人下一句没换人，标 [对你]', 继承行.includes('[对你]'), 继承提示.slice(0, 500))
+报('收件人继承：这一轮接的是叫她的那句', 继承提示.includes('【这一轮接这条】') && 继承提示.includes('[#9603]'), 继承提示.slice(0, 400))
+
+// 21m4 收件人继承：上一句在对别人说，下一句也不当成对她
+时间偏移 += 11_000
+写配置({ 群: ['1067'], 快判: false, 冷却秒: 0, 判断冷却秒: 0 })
+群消息表.set(1067, [
+  一条群消息('@群友777 你好', { atOther: true, id: 9605 }),
+  一条群消息('今天吃什么', { id: 9606 }),
+  一条群消息('大肥鱼，你看呢', { uid: 889, id: 9607 }),
+])
+设判断(['9605', '9606', '9607'], true, 0.9, '两句话')
+await 轮询社交()
+await 等()
+const 别人轮 = 回合.filter((r) => r.sid === 'session-qq-social-group-1067').at(-1)
+const 别人提示 = String(别人轮?.message.content[0].text || '')
+const 别人行们 = 别人提示.split('\n').filter((l) => l.includes('今天吃什么') || l.includes('@群友777'))
+报('收件人继承：上一句在对别人说，下一句也不当成对她', 别人行们.length > 0 && 别人行们.every((l) => !l.includes('[对你]')) && 别人行们.some((l) => l.includes('[对别人说]')), JSON.stringify(别人行们))
+
+// 21m5 少说：普通消息 30 分钟最多主动接一次，被叫照常回
+时间偏移 += 11_000
+写配置({ 群: ['1069'], 少说: ['group:1069'], 快判: false, 冷却秒: 0, 判断冷却秒: 0 })
+群消息表.set(1069, [一条群消息('今天好热', { id: 9701 })])
+设判断(['9701'], true, 0.9, '接一句')
+const 少说前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1069').length
+await 轮询社交()
+await 等()
+报('少说：普通消息最多主动接一次', 回合.filter((r) => r.sid === 'session-qq-social-group-1069').length === 少说前 + 1)
+await 收到回复('session-qq-social-group-1069', '是啊，挺热的')
+时间偏移 += 60_000
+群消息表.set(1069, [一条群消息('真的好热', { id: 9702 })])
+设判断(['9702'], true, 0.9, '再接一句')
+await 轮询社交()
+await 等()
+报('少说：30 分钟内不再主动接', 回合.filter((r) => r.sid === 'session-qq-social-group-1069').length === 少说前 + 1)
+时间偏移 += 11_000
+群消息表.set(1069, [一条群消息('大肥鱼，你呢', { id: 9703 })])
+设判断([], false, 0.1, '不想接')
+await 轮询社交()
+await 等()
+报('少说：被叫照常回', 回合.filter((r) => r.sid === 'session-qq-social-group-1069').length === 少说前 + 2)
+
+// 21m6 重启状态：游标和她发出的 message_id 落盘，重启后回复她还能认出来
+时间偏移 += 11_000
+写配置({ 群: ['1070'], 快判: false, 冷却秒: 0, 判断冷却秒: 0 })
+群消息表.set(1070, [一条群消息('在吗', { id: 9801 })])
+设判断(['9801'], true, 0.9, '在')
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-1070', '在呢')
+await 等()
+const 状态发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1070).at(-1)
+await new Promise((r) => setTimeout(r, 5200))
+await 轮询社交()
+await 等()
+const 状态档 = JSON.parse(readFileSync(join(家, 'qq-bridge-social-state.json'), 'utf8'))
+报('重启状态：游标和她发出的 message_id 落盘',
+  !!(状态档.rooms && 状态档.rooms['group:1070'] && 状态档.rooms['group:1070'].cursor > 0) &&
+    Array.isArray(状态档.selfIds) && 状态发 && 状态档.selfIds.includes(String(状态发.回id)),
+  JSON.stringify({ 房: 状态档.rooms && 状态档.rooms['group:1070'], selfIds: 状态档.selfIds, 回id: 状态发 && 状态发.回id }))
 
 // ---------- 21n 合并转发：展开成一行一个说话人；拉不到也不丢外层消息 ----------
 写配置({ 群: ['1062'], 判断冷却秒: 10, 冷却秒: 10 })
@@ -3250,7 +3353,7 @@ const 并行态 = await 目标状态('group:1085')
 await 收到回复('session-qq-social-group-1085', '看过呀', 1)
 await 收到回复('session-qq-social-group-1085-p2', '海边哪一段', 1)
 await 等到(async () => 发的.slice(并行前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1085).length >= 2)
-报('主屋和分线的回复都发回群里', 发的.slice(并行前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1085).map((x) => x.体.message[0].data.text).join('|') === '看过呀|海边哪一段', JSON.stringify(发的.slice(并行前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
+报('主屋和分线的回复都发回群里', 发的.slice(并行前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1085).map((x) => x.体.message.find((b) => b.type === 'text')?.data.text).join('|') === '看过呀|海边哪一段', JSON.stringify(发的.slice(并行前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
 报('两间屋都落地后没有残留待发', (await 目标状态('group:1085')).待发 === false && (await 目标状态('group:1085')).分线 === 0)
 
 // ---------- 26 关掉并行：同一间屋子排多轮也不覆盖 ----------
@@ -3270,7 +3373,7 @@ await 等到(async () => 回合.length === 串前回合 + 2)
 await 收到回复('session-qq-social-group-1086', '来啊', 1)
 await 收到回复('session-qq-social-group-1086', '我补位', 2)
 await 等到(async () => 发的.slice(串前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1086).length >= 2)
-报('同屋两轮回复按回合发出去、不互相覆盖', 发的.slice(串前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1086).map((x) => x.体.message[0].data.text).join('|') === '来啊|我补位', JSON.stringify(发的.slice(串前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
+报('同屋两轮回复按回合发出去、不互相覆盖', 发的.slice(串前发).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1086).map((x) => x.体.message.find((b) => b.type === 'text')?.data.text).join('|') === '来啊|我补位', JSON.stringify(发的.slice(串前发).map((x) => x.体 && x.体.message && x.体.message[0] && x.体.message[0].data)))
 报('两轮都落地后没有残留待发', (await 目标状态('group:1086')).待发 === false)
 
 // ---------- 27 群聊接龙：接不上时原样复读群友一句 ----------
@@ -3383,7 +3486,7 @@ await 轮询社交()
 const 开了认人 = await 等到(async () => 回合.length === 认人前回合 + 1)
 const 认人轮 = 回合.at(-1)
 const 认人文 = String(认人轮?.message.content[0].text || '')
-const 同名行 = 认人文.split('\n').filter((line) => line.includes('同名群友：'))
+const 同名行 = 认人文.split('\n').filter((line) => line.includes('同名群友：') && !line.includes('【这一轮接这条】'))
 报('认人：名片同名的两个人各占一行，不并成一条',
   开了认人 && 同名行.length === 2 && 同名行.some((line) => line.includes('我是甲')) && 同名行.some((line) => line.includes('我是乙')),
   认人文.slice(-360))
@@ -3748,6 +3851,30 @@ const 存人态 = (存盘态度.社交.人的态度 || {})['group:1304'] || {}
     模.收拾表情短应(0) === 0 && 模.收拾表情短应(-3) === 0 && 模.收拾表情短应('第16张') === 0 &&
     模.收拾表情短应(1_000_000_000) === 0,
   JSON.stringify([16, '16', '#16', undefined, null, '', 0, -3, '第16张', 1_000_000_000].map((x) => [String(x), 模.收拾表情短应(x)])))
+报('五维阶段：理解按 15/40/70 分四段',
+  模.维阶段('理解', 10) === '陌生' && 模.维阶段('理解', 20) === '理解表面' &&
+    模.维阶段('理解', 50) === '理解部分' && 模.维阶段('理解', 80) === '很理解',
+  JSON.stringify([10, 20, 50, 80].map((n) => [n, 模.维阶段('理解', n)])))
+报('五维：信任直接读总关系的信，其余读维',
+  JSON.stringify(模.五维数({ 理解: 50, 尊重: 60, 需要: 70, 自在: 80 }, 30)) ===
+    JSON.stringify({ 理解: 50, 信任: 30, 尊重: 60, 需要: 70, 自在: 80 }),
+  JSON.stringify(模.五维数({ 理解: 50, 尊重: 60, 需要: 70, 自在: 80 }, 30)))
+报('去数字好感：数字好感整句删掉，给阶段兜底',
+  模.去数字好感('你对我好感是 92 分') === '这个我用感觉说，不报数字' &&
+    模.去数字好感('好感度 86 分，算挺高的') === '这个我用感觉说，不报数字',
+  JSON.stringify([模.去数字好感('你对我好感是 92 分'), 模.去数字好感('好感度 86 分，算挺高的')]))
+报('去数字好感：普通分数和别的数字不动',
+  模.去数字好感('我数学考了 92 分') === '我数学考了 92 分' &&
+    模.去数字好感('今天好累') === '今天好累',
+  JSON.stringify([模.去数字好感('我数学考了 92 分'), 模.去数字好感('今天好累')]))
+报('私聊两段一短一长按空格拆开，群聊仍整条',
+  JSON.stringify(模.拆连发项('这还打上码了 第二句接后面的', true).map((x) => x.文字)) ===
+    JSON.stringify(['这还打上码了', '第二句接后面的']) &&
+    模.拆连发项('这还打上码了 第二句接后面的', false).length === 1,
+  JSON.stringify({
+    私: 模.拆连发项('这还打上码了 第二句接后面的', true).map((x) => x.文字),
+    群: 模.拆连发项('这还打上码了 第二句接后面的', false).map((x) => x.文字),
+  }))
 
 // ---------- 32 档位 1：判断直接短应，不叫回复模型 ----------
 写配置({ 群: ['1401'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
@@ -3760,9 +3887,8 @@ await 轮询社交()
 await 等(60)
 const 短发32 = 发的.slice(发前32).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1401)
 报('短应：判断给的一句直接发进群，不叫回复模型',
-  短发32.length === 1 && 短发32[0].体.message.length === 2 &&
-    短发32[0].体.message[0].type === 'reply' && 短发32[0].体.message[0].data.id === '79001' &&
-    短发32[0].体.message[1].data.text === '馋了' && 回合.length === 回合前32,
+  短发32.length === 1 && 短发32[0].体.message.length === 1 &&
+    短发32[0].体.message[0].type === 'text' && 短发32[0].体.message[0].data.text === '馋了' && 回合.length === 回合前32,
   JSON.stringify({ 发: 短发32.map((x) => x.体.message), 回合: 回合.length - 回合前32 }))
 报('短应：账本写明短应，鱼脑也记下她说了什么',
   (await 日志文本()).includes('短应了一声「馋了」') &&
@@ -4018,9 +4144,8 @@ await 轮询社交()
 await 等(60)
 const 短发32i = 发的.slice(发前32i).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1420)
 报('表情短应：收藏里没有的编号不发假表情，退回一句具体短应',
-  短发32i.length === 1 && 短发32i[0].体.message.length === 2 &&
-    短发32i[0].体.message[0].type === 'reply' && 短发32i[0].体.message[0].data.id === '79205' &&
-    短发32i[0].体.message[1].data.text === '这话我没法接' &&
+  短发32i.length === 1 && 短发32i[0].体.message.length === 1 &&
+    短发32i[0].体.message[0].type === 'text' && 短发32i[0].体.message[0].data.text === '这话我没法接' &&
     发的.slice(发前32i).every((x) => !(x.url.endsWith('/send_custom_face') && x.体?.group_id === 1420)) &&
     回合.length === 回合前32i,
   JSON.stringify({ 发: 短发32i.map((x) => x.体.message), 回合: 回合.length - 回合前32i }))

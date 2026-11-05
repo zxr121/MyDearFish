@@ -731,6 +731,7 @@ window.__ModuleLoader__.load({
       const 关掉们 = Array.isArray(社交.关掉) ? 社交.关掉 : []
       const 只听们 = Array.isArray(社交.只听) ? 社交.只听 : []
       const 少掺和们 = Array.isArray(社交.少掺和) ? 社交.少掺和 : []
+      const 少说们 = Array.isArray(社交.少说) ? 社交.少说 : []
       const 人态表 = 社交.人的态度 && typeof 社交.人的态度 === 'object' && !Array.isArray(社交.人的态度) ? 社交.人的态度 : {}
       const 人态字 = { warm: '多聊', quiet: '不主动', cold: '少理', ignore: '不理' }
       // 旧配置里可能还直接写着字符串；过期的人当没设，免得状态一直停在“少理”。
@@ -762,14 +763,16 @@ window.__ModuleLoader__.load({
       const 改房间态 = (key, v) => {
         改社交('关掉', 关掉们.filter((k) => k !== key))
         改社交('少掺和', 少掺和们.filter((k) => k !== key))
+        改社交('少说', 少说们.filter((k) => k !== key))
         改社交('只听', 只听们.filter((k) => k !== key))
         if (v === 'few') 改社交('少掺和', 少掺和们.includes(key) ? 少掺和们 : [...少掺和们, key])
+        else if (v === 'less') 改社交('少说', 少说们.includes(key) ? 少说们 : [...少说们, key])
         else if (v === 'listen') 改社交('只听', 只听们.includes(key) ? 只听们 : [...只听们, key])
         else if (v === 'off') 改社交('关掉', 关掉们.includes(key) ? 关掉们 : [...关掉们, key])
       }
       const 房间态选择 = (key) => {
         const 是群 = key.startsWith('group:')
-        const 值 = 关掉们.includes(key) ? 'off' : 少掺和们.includes(key) ? 'few' : 只听们.includes(key) ? 'listen' : 'normal'
+        const 值 = 关掉们.includes(key) ? 'off' : 少掺和们.includes(key) ? 'few' : 少说们.includes(key) ? 'less' : 只听们.includes(key) ? 'listen' : 'normal'
         return h('select', {
           style: { ...S.small, padding: '3px 6px' },
           value: 值,
@@ -777,6 +780,7 @@ window.__ModuleLoader__.load({
         },
           h('option', { style: S.option, value: 'normal' }, '正常'),
           ...(是群 ? [h('option', { style: S.option, value: 'few' }, '少掺和（只接叫我的）')] : []),
+          ...(是群 ? [h('option', { style: S.option, value: 'less' }, '少说（普通消息少接）')] : []),
           h('option', { style: S.option, value: 'listen' }, '只听不说'),
           h('option', { style: S.option, value: 'off' }, '关掉'),
         )
@@ -1535,7 +1539,7 @@ window.__ModuleLoader__.load({
                 ? h('span', { style: S.dim }, '先在「群号」「好友 QQ」里填好，这里会给每一间出规矩。')
                 : 可开房间.map((房) => 房规矩(房)),
             ),
-            '正常 = 看、学、说；少掺和 = 只接叫她的话（@、叫名字、回复她），没叫她的群友消息不进视线，主人随口说的仍照常；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。' +
+            '正常 = 看、学、说；少掺和 = 只接叫她的话（@、叫名字、回复她），没叫她的群友消息不进视线，主人随口说的仍照常；少说 = 普通消息少接、30 分钟最多主动接一次，不主动起话、不复读、不纯发表情，被叫照常回；只听不说 = 照常看和学（记人、学说话、进记忆），但一句都不发，被叫、被戳也不回，静音时段也照常学；关掉 = 这一间她既不接话也不看消息，戳一戳也不理。群 / 好友清单和聊天记录都留着，改回去就接着用。' +
               '「歇一会儿」是临时的只听不说：照常看和学，到点自己回来，不用记得去改回来。改完记得保存。',
           ),
           行('她跟谁说话',
@@ -1852,6 +1856,7 @@ window.__ModuleLoader__.load({
                   (社态.倾向.skippedToday ? '（今天安静少接 ' + 社态.倾向.skippedToday + ' 轮）' : '')
                 : '') +
               (少掺和们.length > 0 ? '｜少掺和：' + 少掺和们.length + ' 间' : '') +
+              (少说们.length > 0 ? '｜少说：' + 少说们.length + ' 间' : '') +
               (人态度数 > 0 ? '｜单独态度：' + 人态度数 + ' 人' : '') +
               (可开房间.filter(({ key }) => 房歇到(key) > 0).length > 0
                 ? '｜歇着：' + 可开房间.filter(({ key }) => 房歇到(key) > 0).length + ' 间'
@@ -1894,6 +1899,7 @@ window.__ModuleLoader__.load({
                     (t.允许 === false ? '已单独关掉（不看、不说） · ' : '') +
                     (t.允许 !== false && t.能说 === false ? '只听不说（照常看和学，不开口） · ' : '') +
                     (t.少掺和 ? '少掺和（只接叫她的） · ' : '') +
+                    (t.少说 ? '少说（普通消息少接） · ' : '') +
                     (t.歇到 ? '歇着（' + 时间短(t.歇到) + ' 自己回来，照常看和学） · ' : '') +
                     (t.人的态度 && Object.keys(t.人的态度).length > 0 ? '个别态度 ' + Object.keys(t.人的态度).length + ' 人 · ' : '') +
                     (t.活着 ? '会话活着' : '等它第一次开口') +
@@ -2195,6 +2201,14 @@ window.__ModuleLoader__.load({
                           )
                         : null,
                     )
+                  : null,
+                p.维 && p.维说明
+                  ? h('div', { style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' } },
+                      h('div', { style: { fontWeight: 600, fontSize: 12 } }, '五维相处（聊天里只说阶段）'),
+                      h('div', { style: S.dim }, p.维说明),
+                      h('div', { style: { fontSize: 11, opacity: 0.7 } },
+                        '理解 ' + p.维.理解 + ' · 信任 ' + p.维.信任 + ' · 尊重 ' + p.维.尊重 +
+                          ' · 需要 ' + p.维.需要 + ' · 自在 ' + p.维.自在 + '（只有这里看数字）'))
                   : null,
                 关系们.length || 被说.length
                   ? h('div', { style: { fontSize: 12, marginTop: 4 } },

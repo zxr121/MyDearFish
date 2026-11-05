@@ -1531,18 +1531,44 @@ test('提炼没给出 JSON 数组时不推水位，连续三次才跳过最早�
 
   assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'bad-output' })
   assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'backoff' }, '失败后先退避，不连着烧模型')
-  assert.equal(calls.length, 1)
+  assert.equal(calls.length, 2, '第一次坏输出给了重试，共两次')
   assert.equal(mind.state().memory.working.lastConsolidatedId, 0, '坏输出不推水位')
 
   t.mock.timers.tick(3 * 60_000)
   assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'bad-output' })
   t.mock.timers.tick(5 * 60_000)
   assert.deepEqual(await mind.consolidate('test'), { ran: false, reason: 'bad-output' })
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 6, '三次失败各含一次重试')
 
   const state = mind.state().memory.working
   assert.equal(state.lastConsolidatedId, 1, '连续三次后只跳过最早一条，后面的原文还在队列里')
   assert.equal(state.lastConsolidatedAt, now - 40 * 60_000)
+  ctx.dispose()
+})
+
+test('提炼第一次不是 JSON 时按更严格要求重试一次，成功就推水位', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'fish-mind-retry-'))
+  process.env.DSH_HOME = home
+  const now = 1_790_000_000_000
+  t.mock.timers.enable({ apis: ['Date'], now })
+  const { ctx, calls, mind } = consolidationHarness(home, (n) => (
+    n === 1
+      ? '我没想到要记什么'
+      : '[{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}]'
+  ))
+  await ctx.emit('session/event', session('session-a'), messageEvent('user/message', '我叫EMT', {
+    seq: 1,
+    time: now - 40 * 60_000,
+  }))
+  await ctx.emit('session/event', session('session-a'), messageEvent('assistant/message', '记住了', {
+    seq: 2,
+    time: now - 39 * 60_000,
+  }))
+  const result = await mind.consolidate('test')
+  assert.equal(result.ran, true)
+  assert.equal(calls.length, 2)
+  assert.match(calls[1].system, /只输出一个 JSON 数组/)
+  assert.ok(mind.state().memory.working.lastConsolidatedId > 0, '重试成功要推水位，别把事实漏掉')
   ctx.dispose()
 })
 
