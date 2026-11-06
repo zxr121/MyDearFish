@@ -50,6 +50,16 @@ const 模 = await import(new URL('../lib/host.js', import.meta.url).href + '?v='
   && !模.是低信号([{ 文字: '哈哈哈' }, { 文字: '哈哈哈' }, { 文字: '哈哈', 主人: true }])
   && !模.是低信号([{ 文字: '哈哈哈' }, { 文字: '哈哈哈' }, { 文字: '哈哈', 图片: [{}] }])
   && !模.是低信号([{ 文字: '哈哈哈' }, { 文字: '哈哈哈' }, { 文字: '真的吗？' }]))
+报('深想：再检查/想清楚/图注对不上才触发，普通改备注不算',
+  模.该深想(['那你再检查下，看看呢'])
+  && 模.该深想(['？', '再仔细思考下', '看看'])
+  && 模.该深想(['图和你备注的不一样啊'])
+  && !模.该深想([`你把 #1 的备注改成 短应确认`])
+  && !模.该深想(['今天食堂好难吃']))
+报('深想：同一场话来回几轮也算', 模.该深想(['嗯'], { 她开口: 2, 同人: 3 }) && !模.该深想(['嗯'], { 她开口: 1, 同人: 5 }))
+报('深想档：low→high、high→max、max 保持、off 不硬开',
+  模.升深想档('low') === 'high' && 模.升深想档('high') === 'max' && 模.升深想档('max') === 'max'
+  && 模.升深想档('off') === 'off' && 模.升深想档(undefined) === 'max')
 报('判断失败退避：60s → 120s → 240s → 最多 5 分钟；直呼固定 30s',
   模.判断退避毫秒(1) === 60_000 && 模.判断退避毫秒(2) === 120_000
   && 模.判断退避毫秒(3) === 240_000 && 模.判断退避毫秒(9) === 300_000
@@ -521,6 +531,7 @@ const 注入们 = []
 const 标题重命名 = []
 const 场景提示 = []
 const 装配监听 = []
+const 请求监听 = []
 const 工具闸门 = []
 const 工具限制 = []
 const 工具顺序 = []
@@ -653,6 +664,7 @@ const ctx = {
         setup({
           on: (名字, cb, 选项) => {
             if (名字 === 'system-prompt/assemble') 装配监听.push({ cb, 选项 })
+            if (名字 === 'agent/request') 请求监听.push({ sid: String(sessionId), cb, 选项 })
             return () => {}
           },
           systemPrompt: { section: (s) => 场景提示.push(s) },
@@ -660,7 +672,7 @@ const ctx = {
             restrict: (筛选) => { 工具限制.push(筛选); 工具顺序.push('限制') },
             guard: (fn) => { 工具闸门.push(fn); 工具顺序.push('闸门') },
           },
-        })
+        }, agent)
       }
       return handle
     },
@@ -796,8 +808,9 @@ globalThis.fetch = async (url, 选项) => {
     return { json: async () => ({ status: 'ok', retcode: 0, data: null }) }
   }
   if (u.endsWith('/send_custom_face')) {
-    发的.push({ url: u, 体 })
-    return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: ++发送序号 } }) }
+    const 回id = ++发送序号
+    发的.push({ url: u, 体, 回id })
+    return { json: async () => ({ status: 'ok', retcode: 0, data: { message_id: 回id } }) }
   }
   if (u.endsWith('/fetch_custom_face_detail')) {
     return {
@@ -935,7 +948,7 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
   社交文字.includes('我是不是人') && 社交文字.includes('逻辑不对'))
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
-报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('你说的是 xx 发的那张吗'))
+报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('这轮给了图就照图重答') && 社交文字.includes('没给图就照实说看不到'))
 报('场景提示教她引用哪句用标记、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('[引用:那句原话]') && 社交文字.includes('别写 [#编号] 当引用'))
 报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
 报('场景提示要求接图的意思而不是念图', 社交文字.includes('别念画面细节') && 社交文字.includes('发色、配色、耳朵、眼睛') && 社交文字.includes('照问照答'))
@@ -4154,7 +4167,8 @@ const 回近评32x3 = 回提示32x3.split('\n').find((l) => l.includes('【别�
 await 收到回复('session-qq-social-group-1453', '这张像在发呆', 3)
 
 // ---------- 32b 档位 1：判断只挑一张收藏表情，也算接上了 ----------
-const 表情表32 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.filter((x) => x && x.emojiId)
+const 表情表32 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items
+  .filter((x) => x && x.emojiId && x.label && !['表情', '未命名', '图片', '图', '动画表情', '贴图', '贴纸'].includes(String(x.label)))
 const 表情乙 = 表情表32.at(-1)
 const 表情甲 = 表情表32.at(-2) || 表情乙
 报('测试前提：收藏里至少两张能发的表情', 表情表32.length >= 2 && 表情甲.id !== 表情乙.id, `收藏=${表情表32.length}`)
@@ -4177,7 +4191,7 @@ const 表情发32e = 发的.slice(发前32e).filter((x) => x.url.endsWith('/send
     String(注入们.at(-1)?.message?.source?.excerpt || '').includes(`我：[发了一张表情包：#${表情甲.id}`),
   String(注入们.at(-1)?.message?.source?.excerpt || '').slice(-260))
 报('表情短应：判断提示列出收藏，并教她 face 和 short 只选一个',
-  String(判断调用.at(-1)?.system || '').includes('她 QQ 收藏里的表情') &&
+  String(判断调用.at(-1)?.system || '').includes('她 QQ 收藏里能盲挑的表情') &&
     String(判断调用.at(-1)?.system || '').includes('"face"') &&
     String(判断调用.at(-1)?.system || '').includes(`#${表情甲.id}`),
   String(判断调用.at(-1)?.system || '').slice(-600))
@@ -5302,6 +5316,104 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   报('短应：改备注窗口开着时假“改好啦” → 不走短应，转正常回复轮去真改',
     回落回合 === 1 && 回落发.length === 0,
     JSON.stringify({ 回合: 回落回合, 发: 回落发.map((x) => x.体.message) }))
+}
+
+// ---------- 33 追问自发表情：带原图、跳过短应、深想抬档；未命名表情不盲发 ----------
+{
+  const 索引33 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items
+  const 空标签33 = new Set(['', '表情', '未命名', '图片', '图', '动画表情', '贴图', '贴纸'])
+  const 自发贴33 = 索引33.find((x) => x && x.emojiId && x.url && x.label && !空标签33.has(String(x.label)))
+  const 未命名贴33 = 索引33.find((x) => x && x.emojiId && 空标签33.has(String(x.label))
+    && !Object.values(x.scenes || {}).some((c) => Number(c) >= 1.5))
+  报('测试前提：收藏里有一张带图址、起过名的表情', !!自发贴33, JSON.stringify(自发贴33))
+  报('测试前提：收藏里有一张只有编号的未命名表情', !!未命名贴33, JSON.stringify(未命名贴33))
+  const 取文33 = (批) => 批.map((x) => (x.体.message || []).filter((s) => s.type === 'text').map((s) => s.data.text).join('\n')).join('\n')
+
+  if (自发贴33) {
+    写配置({ 群: ['1601'], 快判: false, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 判断冷却秒: 0, 聚拢秒: 0, 短应: true, 深想: true, 判断阈值: 0.1 })
+    鱼脑.availableCny = 100
+    群消息表.set(1601, [一条群消息('来点表情', { id: 993001 })])
+    设判断(['993001'], true, 0.9, '发张表情')
+    await 轮询社交()
+    await 等()
+    await 收到回复('session-qq-social-group-1601', `[发表情:#${自发贴33.id}]`, 1)
+    await 等到(() => 发的.some((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1601 && x.体.emoji_id === 自发贴33.emojiId), 3000)
+    const 发自33 = 发的.filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1601 && x.体.emoji_id === 自发贴33.emojiId).at(-1)
+    报('测试前提：她自己发的表情带消息 id', !!发自33?.回id, JSON.stringify(发自33))
+
+    时间偏移 += 20_000
+    群消息表.set(1601, [一条群消息('这张是什么？图和你备注的不一样，再检查下', { id: 993002, replyId: String(发自33?.回id || ''), atSelf: true, 是主人: true })])
+    const 回合前33 = 回合.filter((r) => r.sid === 'session-qq-social-group-1601').length
+    const 发前33 = 发的.length
+    await 轮询社交()
+    await 等到(async () => 回合.filter((r) => r.sid === 'session-qq-social-group-1601').length > 回合前33, 3000)
+    await 等(100)
+    const 追回合33 = 回合.filter((r) => r.sid === 'session-qq-social-group-1601').at(-1)
+    const 追文33 = String(追回合33?.message?.content?.[0]?.text || '')
+    const 追图33 = (追回合33?.message?.content || []).filter((x) => x.type === 'image')
+    报('追问自发表情：回复轮附上她那张原图', 追图33.length >= 1, JSON.stringify((追回合33?.message?.content || []).map((x) => x.type)))
+    报('追问自发表情：提示说明图是她刚发的', 追文33.includes('【你自己刚发的表情】') && 追文33.includes(`#${自发贴33.id}`), 追文33.slice(-900))
+    报('追问备注：提示说明备注是收藏里的名字', 追文33.includes('【收藏备注】'), 追文33.slice(-900))
+    报('追问深想：提示要求先核对再答', 追文33.includes('【认真核对】'), 追文33.slice(-900))
+    报('追问深想：短应没有被直接发出去', !发的.slice(发前33).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1601 && 取文33([x]).includes('哈哈')), JSON.stringify(发的.slice(发前33).map((x) => x.体?.message)))
+
+    const 监听33 = 请求监听.filter((x) => x.sid === 'session-qq-social-group-1601').at(-1)
+    const 抬后33 = 监听33 ? await 监听33.cb({}, async () => ({ provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' })) : null
+    报('深想请求：high 抬到 max', 抬后33?.reasoningEffort === 'max', JSON.stringify(抬后33))
+    await 收到回复('session-qq-social-group-1601', '我看不到图，你说的是哪张？', 2)
+    await 等()
+    const 清后33 = 监听33 ? await 监听33.cb({}, async () => ({ provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' })) : null
+    报('深想只在那一轮：turn/end 后恢复原档', 清后33?.reasoningEffort === 'high', JSON.stringify(清后33))
+  }
+
+  // 追问但没 @ 她：判断模型给短应也不发，改走完整回复轮
+  写配置({ 群: ['1602'], 快判: false, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 判断冷却秒: 0, 聚拢秒: 0, 短应: true, 深想: true, 判断阈值: 0.1 })
+  鱼脑.availableCny = 100
+  群消息表.set(1602, [一条群消息('刚才那张图你再仔细想想，和备注不一样', { id: 993101 })])
+  设短应(['993101'], '嗯嗯', 0.9, '随口应一声', '993101', '图')
+  const 回合前33b = 回合.filter((r) => r.sid === 'session-qq-social-group-1602').length
+  const 发前33b = 发的.length
+  await 轮询社交()
+  await 等到(async () => 回合.filter((r) => r.sid === 'session-qq-social-group-1602').length > 回合前33b, 3000)
+  await 等(100)
+  const 追文33b = String(回合.filter((r) => r.sid === 'session-qq-social-group-1602').at(-1)?.message?.content?.[0]?.text || '')
+  报('深想跳过短应：追问这一轮开完整回复轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1602').length === 回合前33b + 1 && 追文33b.includes('【认真核对】'), 追文33b.slice(-600))
+  报('深想跳过短应：没有把“嗯嗯”直接发出去', !发的.slice(发前33b).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1602 && 取文33([x]).includes('嗯嗯')), '')
+
+  // 只有编号的未命名表情：判断模型挑中也不盲发，退回完整回复轮
+  if (未命名贴33) {
+    写配置({ 群: ['1603'], 快判: false, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 判断冷却秒: 0, 聚拢秒: 0, 短应: true, 深想: true, 判断阈值: 0.1 })
+    鱼脑.availableCny = 100
+    群消息表.set(1603, [一条群消息('来张表情', { id: 993201 })])
+    设表情短应(['993201'], 未命名贴33.id)
+    const 回合前33c = 回合.filter((r) => r.sid === 'session-qq-social-group-1603').length
+    const 发前33c = 发的.length
+    await 轮询社交()
+    await 等到(async () => 回合.filter((r) => r.sid === 'session-qq-social-group-1603').length > 回合前33c, 3000)
+    await 等(100)
+    const 未命名发33c = 发的.slice(发前33c).filter((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 1603 && x.体.emoji_id === 未命名贴33.emojiId)
+    const 判文33c = String(判断调用.at(-1)?.system || '')
+    const 回文33c = String(回合.filter((r) => r.sid === 'session-qq-social-group-1603').at(-1)?.message?.content?.[0]?.text || '')
+    报('未命名表情：判断模型不能盲挑它', !判文33c.includes(`#${未命名贴33.id}`), 判文33c.slice(-500))
+    报('未命名表情：短应被拦下，改走完整回复轮', 回合.filter((r) => r.sid === 'session-qq-social-group-1603').length === 回合前33c + 1 && 未命名发33c.length === 0, JSON.stringify(未命名发33c.map((x) => x.体.emoji_id)))
+    报('未命名表情：回复提示把它标成“未命名”并教她别猜', 回文33c.includes('未命名') && 回文33c.includes('别猜着发'), 回文33c.slice(-700))
+  }
+
+  // “中 / 高”映射到 DeepSeek 真认的 high / max，不再把 medium 递出去
+  写配置({ 群: ['1604'], 回复推理: '中', 判断冷却秒: 0, 聚拢秒: 0 })
+  群消息表.set(1604, [一条群消息('大肥鱼 在吗', { id: 993301, atSelf: true })])
+  设判断(['993301'], true, 0.9, '叫她')
+  await 轮询社交()
+  await 等()
+  const 建1604 = 建会话选项.filter((x) => x.sessionId === 'session-qq-social-group-1604').at(-1)
+  报('回复推理“中”映射到 high', 建1604?.agentOptions?.reasoningEffort === 'high', JSON.stringify(建1604?.agentOptions))
+  写配置({ 群: ['1605'], 回复推理: '高', 判断冷却秒: 0, 聚拢秒: 0 })
+  群消息表.set(1605, [一条群消息('大肥鱼 在吗', { id: 993401, atSelf: true })])
+  设判断(['993401'], true, 0.9, '叫她')
+  await 轮询社交()
+  await 等()
+  const 建1605 = 建会话选项.filter((x) => x.sessionId === 'session-qq-social-group-1605').at(-1)
+  报('回复推理“高”映射到 max', 建1605?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1605?.agentOptions))
 }
 
 Date.now = 真Now
