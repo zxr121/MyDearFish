@@ -538,6 +538,8 @@ const 工具顺序 = []
 const 预设注册们 = []
 const 预设挂载们 = []
 const 判断调用 = []
+const 起名调用 = []
+let 起名输出 = '猫猫贴贴'
 const 建会话选项 = []
 const 存储 = []
 const 发的 = []
@@ -586,6 +588,13 @@ const 假llm = {
     // 风格摘要走的是同一个判断模型，但不算一次“接话判断”，别混进判断调用里。
     if (String(选项.system || '').includes('说话风格观察器')) {
       yield { type: 'text-delta', text: '没有明显特征' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    // 按图起名也是独立的一次调用，别把判断输出队列吃掉。
+    if (String(选项.system || '').includes('只描述这张画面本身')) {
+      起名调用.push(选项)
+      yield { type: 'text-delta', text: 起名输出 }
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
@@ -1446,7 +1455,8 @@ const 状态6f = await 目标状态('group:1075')
 报('学表情：反复见到的同一张表情收进 QQ 收藏', QQ收藏.size === 收藏数前6f + 1, `收藏 +${QQ收藏.size - 收藏数前6f}`)
 const 自存项 = [...QQ收藏.values()].at(-1)
 const 自存索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.at(-1) || {}
-报('自动收藏用场景当短名字，并标明是自动收的', 自存项 && 自存项.desc === '接话' && String(自存索引.source).includes('·自动'), JSON.stringify({ desc: 自存项 && 自存项.desc, source: 自存索引.source }))
+报('自动收藏按画面起名，不拿场合当备注', 自存项 && 自存项.desc === '猫猫贴贴' && 自存项.desc !== '接话' && String(自存索引.source).includes('·自动') && 自存索引.label === '猫猫贴贴', JSON.stringify({ desc: 自存项 && 自存项.desc, label: 自存索引.label, source: 自存索引.source }))
+报('自动收藏起名也走能看图的模型', 起名调用.length > 0 && 起名调用.at(-1).messages[0].content.some((b) => b.type === 'image'), JSON.stringify(起名调用.at(-1) && 起名调用.at(-1).messages[0].content.map((b) => b.type)))
 报('自动收藏写进日志', String(await 日志文本()).includes('又见到同一张 2 次'))
 群消息表.set(1075, [一条群消息('大肥鱼 你看看这个', { id: 4015, atSelf: true, uid: 801 })])
 设判断(['4015'], true, 0.9, '叫她了')
@@ -2499,7 +2509,7 @@ await 轮询社交()
 await 等()
 const 提示21f2 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
 报('主人没 @ 说“你保存下这几个” → 同批别人的普通图也存进 QQ', QQ收藏.size === 收藏数前21f2 + 1, `收藏 +${QQ收藏.size - 收藏数前21f2}`)
-报('自动存下的普通图在图注里标着“你收藏的 #编号”', /【图 1·群友888·你收藏的 #\d+ 主人让存】/.test(提示21f2), 提示21f2.slice(0, 400))
+报('自动存下的普通图在图注里标着“你收藏的 #编号”', /【图 1·群友888·你收藏的 #\d+ 猫猫贴贴】/.test(提示21f2), 提示21f2.slice(0, 400))
 
 // ---------- 21f3 主人先说了存、图下一批才到：等图来了补存 ----------
 写配置({ 群: ['1038'], 判断冷却秒: 0 })
@@ -3218,6 +3228,16 @@ await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 关注上限: 99 }
 const 存盘2 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('关注上限夹在 1~30', 存盘2.社交.关注上限 === 30, String(存盘2.社交.关注上限))
 报('社交场景提示写进聊天行为', 场景提示.some((x) => 提示文本(x).includes('【怎么说话】') && 提示文本(x).includes('别主动开课') && 提示文本(x).includes('不争输赢')))
+// 按图重看：显式给编号时取原图让模型看，按画面改名并同步 QQ 备注。
+起名输出 = '青蛙举牌'
+await 路由.get('/dsh-qq-bridge/stickers/relabel')(造请求({ ids: [自存索引.id], limit: 1 }), fakeRes)
+const 重看果 = 存储.at(-1)
+const 重看后贴 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.find((x) => x.id === 自存索引.id)
+报('按图重看：取原图、按画面改名、同步 QQ 备注',
+  重看果 && 重看果.ok === true && 重看果.改.some((x) => x.id === 自存索引.id && x.新 === '青蛙举牌') &&
+    重看后贴 && 重看后贴.label === '青蛙举牌' && QQ收藏.get(自存项.emojiId)?.desc === '青蛙举牌',
+  JSON.stringify({ 果: 重看果, 贴: 重看后贴 && 重看后贴.label, desc: QQ收藏.get(自存项.emojiId)?.desc }))
+起名输出 = '猫猫贴贴'
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
@@ -4048,6 +4068,18 @@ const 序发 = 发的.slice(序前发).filter((x) => x.url.endsWith('/send_group
     { 自己: false, 文字: '可爱' },
   ], 8)) === '[{"词":"可爱","次":2}]')
 报('表情场景显示名不把可爱喂回提示', 模.场景显示名('可爱') === '亲昵' && 模.场景显示名('笑') === '笑')
+报('按图起名的清洗：留短名、去引号和句号',
+  模.净看图名('名字：猫猫贴贴。') === '猫猫贴贴' &&
+    模.净看图名('「猫被敲头」') === '猫被敲头' &&
+    模.净看图名('"青蛙举牌"') === '青蛙举牌',
+  [模.净看图名('名字：猫猫贴贴。'), 模.净看图名('「猫被敲头」'), 模.净看图名('"青蛙举牌"')].join('/'))
+报('按图起名的清洗：带解释只取前一段，评价和看不清不凑名字',
+  模.净看图名('可爱') === '' &&
+    模.净看图名('猫猫贴贴，两只猫抱在一起') === '猫猫贴贴' &&
+    模.净看图名('蓝发女仆低头看手机') === '蓝发女仆低头看手机' &&
+    模.净看图名('无') === '' &&
+    模.净看图名('看不清') === '',
+  [模.净看图名('可爱'), 模.净看图名('猫猫贴贴，两只猫抱在一起'), 模.净看图名('蓝发女仆低头看手机'), 模.净看图名('无'), 模.净看图名('看不清')].join('/'))
 报('空应声：纯笑、附和和感叹算空应声',
   模.只是空应声('哈哈') && 模.只是空应声('哈哈哈，好家伙') && 模.只是空应声('确实有点道理') &&
     模.只是空应声('这什么') && 模.只是空应声('666') && 模.只是空应声('嗯嗯'),

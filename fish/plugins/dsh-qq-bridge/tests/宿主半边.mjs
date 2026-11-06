@@ -1054,7 +1054,7 @@ await new Promise((r) => setTimeout(r, 30))
 const 存后1 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 绿 = 存后1.items.find((x) => x.source.includes('主人私聊'))
 const 存文 = 转进的.at(-1)?.content?.[0]?.text || ''
-报('私聊：主人说存下来 → 表情真写进 QQ 收藏', 转进的.length === 之前存 + 1 && !!绿 && 绿.label === '主人让存', JSON.stringify(存后1.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
+报('私聊：主人说存下来 → 表情真写进 QQ 收藏（先留空名）', 转进的.length === 之前存 + 1 && !!绿 && 绿.label === '', JSON.stringify(存后1.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
 报('私聊：存下的表情在提示里标成“你收藏的 #N”，并给出按图发送的写法', !!绿 && 存文.includes(`你收藏的 #${绿.id}`) && 存文.includes('【收藏对应】') && 存文.includes('[发表情:图N]'), JSON.stringify(存文.slice(-400)))
 
 // ⑯f 按收藏编号发回：发的就是刚存下的那张，不用她猜
@@ -1096,7 +1096,7 @@ const 蓝 = 存后2.items.find((x) => !存后1.items.some((y) => y.id === x.id))
   && 图发消息.length === 2
   && 图发消息[0].url.endsWith('/send_custom_face') && 图发消息[0].体.emoji_id === 蓝?.emojiId
   && 图发消息[1].url.endsWith('/send_private_msg') && 图发消息[1].体.message[0].data.text === '给你'
-  && !!蓝 && 蓝.label === '表情' && 存后2.items.length === 存后1.items.length + 1,
+  && !!蓝 && 蓝.label === '' && 存后2.items.length === 存后1.items.length + 1,
   JSON.stringify({ 发: 图发.map((x) => x.url), 蓝 }))
 
 // ⑯h 同一张表情再发一次（纯图，不带字）→ 按内容认出收藏号，不把两张说成一张
@@ -1134,7 +1134,7 @@ await 等稳()
 const 存后4 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 橙改 = 存后4.items.find((x) => x.id === 橙?.id)
 const 改发 = 发了.slice(之前改)
-报('私聊：[存表情:图1:短名字] 把自动收藏的通用名换成她起的名字', !!橙 && 橙.label === '主人让存' && 橙改?.label === '橘猫趴床', JSON.stringify({ 橙, 橙改 }))
+报('私聊：[存表情:图1:短名字] 把自动收藏的通用名换成她起的名字', !!橙 && 橙.label === '' && 橙改?.label === '橘猫趴床', JSON.stringify({ 橙, 橙改 }))
 报('私聊：改名同步回 QQ 收藏备注', 改发.some((x) => x.url.endsWith('/modify_custom_face') && x.体.emoji_id === 橙?.emojiId && x.体.desc === '橘猫趴床'), JSON.stringify(改发.map((x) => x.url)))
 报('私聊：[存表情] 不占发送位，话照发', 改发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '记好了'))
 私聊消息段 = null
@@ -1201,7 +1201,7 @@ await new Promise((r) => setTimeout(r, 30))
 const 存后5 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 普图 = 存后5.items.find((x) => !存后标记.items.some((y) => y.id === x.id))
 const 普文 = 转进的.at(-1)?.content?.[0]?.text || ''
-报('私聊：主人说“你保存下这几个” → 普通图也存进收藏', 转进的.length === 之前普 + 1 && !!普图 && 普图.label === '主人让存' && String(普图.source).includes('主人私聊'), JSON.stringify(存后5.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
+报('私聊：主人说“你保存下这几个” → 普通图也存进收藏（先留空名）', 转进的.length === 之前普 + 1 && !!普图 && 普图.label === '' && String(普图.source).includes('主人私聊'), JSON.stringify(存后5.items.map((x) => ({ id: x.id, label: x.label, source: x.source }))))
 报('私聊：普通图存下后也标“你收藏的 #N”', !!普图 && 普文.includes(`你收藏的 #${普图.id}`), JSON.stringify(普文.slice(-300)))
 
 // ⑯k 收藏写不进去时，她说“存好了”会被改成实情

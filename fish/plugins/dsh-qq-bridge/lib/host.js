@@ -1191,7 +1191,7 @@ function 本人的话(m) {
 export function 标收藏表情(文字, 图们) {
   const 注 = (Array.isArray(图们) ? 图们 : [])
     .filter((图) => 图 && 图.收藏号)
-    .map((图) => `#${图.收藏号} ${图.收藏名 || '表情'}`)
+    .map((图) => `#${图.收藏号} ${图.收藏名 || '未命名'}`)
   if (注.length === 0) return String(文字 || '')
   return `${String(文字 || '')}（你收藏的 ${注.join('、')}）`
 }
@@ -2504,6 +2504,40 @@ export function 数近用评价词(消息们, 条数 = 8) {
 export function 场景显示名(名) {
   return 名 === '可爱' ? '亲昵' : 名
 }
+
+// 只收画面本身的名字；评价、场合和来源都不是名字。
+const 看图起名系统 = [
+  '你在给 QQ 收藏表情起短名，只描述这张画面本身。',
+  '规则：',
+  '- 2 到 12 个字。只写看得见的主角、动作、表情，或图上最显眼的一小段字。',
+  '- 不写评价（可爱、好笑、萌、绝了），不写用它的场合（赞同、道别、无语、接话），不猜前因后果。',
+  '- 看不清、纯色、只有噪点或只是文字排版：整行输出「无」。',
+  '只输出名字，不要引号、标点、序号或解释。',
+].join('\n')
+const 空看图名 = new Set(['无', '看不清', '看不到', '表情', '表情包', '图片', '这张', '这个', '一张',
+  '未命名', '暂无', '未知', '可爱', '好笑', '萌', '绝了', '漂亮', '好看'])
+
+/**
+ * 把起名模型的一句话收成能写进收藏的短名；不像画面描述就返回空串。
+ * @param {unknown} 值 - 模型输出。
+ * @returns {string} 2–12 字的短名；不合规返回空串。
+ */
+export function 净看图名(值) {
+  const 行 = String(值 === undefined || 值 === null ? '' : 值)
+    .split(/\r?\n/u).map((x) => x.trim()).filter(Boolean)[0] || ''
+  const 首段 = 行
+    .replace(/^(?:名字|短名|命名|名称)\s*[:：]?\s*/u, '')
+    .replace(/^[「『“"']+|[」』”"']+$/gu, '')
+    .split(/[，,。；;：:！!？?]/u)[0]
+  const 名 = 首段.replace(/\s+/gu, '').trim()
+  if (/^(?:无|没有|看不清|看不到)$/u.test(名)) return ''
+  if (/[、~～…「」『』“”"'（）()\[\]【】<>《》]/u.test(名)) return ''
+  if (名.length < 2 || 名.length > 12) return ''
+  if (空看图名.has(名)) return ''
+  if (/^(?:表情包?|图片|一张|这张|那个|这个)$/u.test(名)) return ''
+  return 名
+}
+
 
 /** 群表情语感的空壳：多少条消息、其中多少条带表情、几张图、多少条只发图，以及常用场景。 */
 export function 空表情语感() {
@@ -8247,17 +8281,26 @@ export function apply(ctx) {
     return 表情们.filter(可认表情).slice(-数)
   }
 
-  /** 表情的展示名：学过场景的就带上场景标签，没有就用原来的 label；占位名统一叫“未命名”。 */
+  /** 表情的展示名就是收藏里的名字；占位名统一叫“未命名”。场合只用于挑选，不混进名字。 */
   function 表情展示名(贴) {
-    const 原 = String(贴.label || '')
-    const 学的 = Object.entries(贴.scenes || {})
+    const 原 = String((贴 && 贴.label) || '')
+    return 看不出内容的标签(原) ? '未命名' : 原
+  }
+
+  /** 学过、够清楚的场合；只在挑选清单里标成“场合”，不当成画面描述或备注。 */
+  function 表情场合们(贴) {
+    return Object.entries((贴 && 贴.scenes) || {})
       .filter(([, c]) => Number(c) >= 表情场景最少观察)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 2)
       .map(([名]) => 场景显示名(名))
-    const 底 = 看不出内容的标签(原) ? '未命名' : (原 || '未命名')
-    if (学的.length === 0) return 底
-    return 学的.includes(底) ? 底 : `${底}(${学的.join(',')})`
+  }
+
+  /** 判断模型盲挑用：名字后面把学过的场合单独标出来，说明是“场合”，不是画面。 */
+  function 表情挑选名(贴) {
+    const 名 = 表情展示名(贴)
+    const 场 = 表情场合们(贴)
+    return 场.length === 0 ? 名 : `${名}[场合:${场.join(',')}]`
   }
 
   /** 把收藏里学过的场景经验折成一句提示：哪个场景配哪张编号。 */
@@ -8301,6 +8344,11 @@ export function apply(ctx) {
     return 表情清单of(表情们, 最多)
   }
 
+  /** 判断模型挑表情用的清单：名字是名字，学过的场合单独写，免得把“场合”当成图里的样子。 */
+  function 判断表情清单(最多 = 12) {
+    return 可挑表情(最多).map((x) => `#${x.id} ${表情挑选名(x)}`).join(' · ')
+  }
+
   function 表情提示(配置 = null) {
     if (表情们.length === 0) return ''
     const 有未命名 = 表情们.some((x) => 看不出内容的标签(x.label))
@@ -8309,8 +8357,136 @@ export function apply(ctx) {
     return `【你在 QQ 收藏的表情包】（共 ${表情们.length} 张）${表情清单(表情上限)}。想发就写 [发表情:#编号]：能和话混着写，按顺序发，一轮最多两张；主人或受信的人让发哪张、连发几张就照编号写。编号只从上面列的和图注里”你收藏的 #编号”挑，别自己往后数。这批图写 [发表情:图N]。`
       + '\n只写 [发表情:#编号] 不配字也算接话；短回复可以只发一张表情，不用先打字；一轮最多两张，别每句都发。'
       + (有未命名 ? '\n清单里叫“未命名”的只有编号、看不出画面，别猜着发；图注里只写着“#编号 表情/未命名”的也一样。别人问起一张没起过名的表情，就照实说没起过名、你看不到画面；要发只能等主人点到编号或图注标着“你收藏的 #编号”。' : '')
-      + '\n“备注”就是收藏里的名字：清单和图注怎么写就怎么答，别把你在聊天里顺口说过的描述当成备注。'
+      + '\n“备注”就是收藏里的名字：清单和图注怎么写就怎么答，别把你在聊天里顺口说过的描述当成备注；也别把“那张常用在什么场合”说成图里的画面。'
       + (偏好 ? `\n【表情偏好】${偏好}` : '')
+  }
+
+  /** 找一个能看图、能用来起名的模型：优先判断模型，其次回复模型。 */
+  async function 起名模型(llm, 配置) {
+    if (!llm || typeof llm.stream !== 'function') return null
+    const 候选 = [判断模型(配置), 回复模型选项(配置)].filter(Boolean)
+    for (const 模型 of 候选) {
+      if (await 模型看图能力(llm, 模型.provider, 模型.model) === true) return 模型
+    }
+    return null
+  }
+
+  /**
+   * 让能看图的模型按画面给一张表情起短名。看不清或没有能看图的模型时返回空串；不改收藏。
+   * @param {object} 配置 - 归一化配置。
+   * @param {object} ref - 图片附件引用。
+   * @returns {Promise<string>} 2–8 字短名；起不了返回空串。
+   */
+  async function 看图起名(配置, ref) {
+    if (!ref) return ''
+    const llm = ctx.get('llm')
+    const 模型 = await 起名模型(llm, 配置)
+    if (!模型) return ''
+    const 停 = new AbortController()
+    const 钟 = setTimeout(() => 停.abort(), 30_000)
+    let 出 = ''
+    try {
+      for await (const chunk of llm.stream({
+        provider: 模型.provider,
+        model: 模型.model,
+        system: 看图起名系统,
+        messages: [{
+          role: 'user',
+          id: randomUUID(),
+          content: [
+            { type: 'text', text: '看这张图，按规则起一个短名。' },
+            { type: 'image', attachment: ref },
+          ],
+          source: { kind: 'plugin', plugin: 'dsh-qq-bridge' },
+        }],
+        maxTokens: 512,
+        temperature: 0.1,
+        signal: 停.signal,
+        budgetOrigin: 'sticker',
+      })) {
+        if (chunk && chunk.type === 'text-delta') 出 += chunk.text
+      }
+    } catch (error) {
+      if (!停.signal.aborted) 记账(`按图起名没成：${String((error && error.message) || error)}`)
+      return ''
+    } finally {
+      clearTimeout(钟)
+    }
+    const 名 = 净看图名(出)
+    if (名 === '' && 出.trim() !== '') 记账(`按图起名没认：${出.replace(/\s+/g, ' ').slice(0, 50)}`)
+    return 名
+  }
+
+  /**
+   * 给一张还没有名字的收藏按图起名并写回 QQ 收藏；已经有名字的跳过。
+   * @param {object} 配置 - 归一化配置。
+   * @param {object} 贴 - 收藏条目。
+   * @param {object} ref - 图片附件引用。
+   * @param {string} 来源 - 写日志用。
+   * @returns {Promise<string>} 最终名字；没起成返回空串。
+   */
+  async function 按图起名(配置, 贴, ref, 来源 = '') {
+    if (!贴 || !ref) return ''
+    if (!看不出内容的标签(贴.label)) return String(贴.label || '')
+    const 名 = await 看图起名(配置, ref)
+    if (名 === '') return ''
+    const 果 = await 改收藏表情备注(配置, 贴.id, 名, `${来源}·按图起名`)
+    if (!果.ok) {
+      记账(`按图起名没落地：#${贴.id} ${果.因}`)
+      return ''
+    }
+    return 名
+  }
+
+  /** 这一张的备注是不是场合 / 来源 / 占位这类“不是画面”的名字，值得按图重看。 */
+  function 该重看备注(贴) {
+    return 看不出内容的标签(贴.label) || 泛标签(贴.label)
+  }
+
+  let 重看备注中 = false
+
+  /**
+   * 把还是占位 / 场合 / 来源名的收藏逐张取原图重看，让能看图的模型按画面起名。
+   * 每次只处理一小批，剩下的下次再跑；取不到图或看不清就原样留着，不拿猜的名字凑。
+   * @param {object} 配置 - 归一化配置。
+   * @param {{ids?: number[], limit?: number}} [选项] - 指定编号；不指定就挑所有该重看的。
+   * @returns {Promise<{ok: boolean, 说?: string, 改: object[], 没成: object[], 剩下: number}>} 这一批的结果。
+   */
+  async function 重看收藏备注(配置, 选项 = {}) {
+    if (重看备注中) return { ok: false, 说: '正在重看上一批，等这批跑完', 改: [], 没成: [], 剩下: 0 }
+    const 限 = Math.max(1, Math.min(30, Math.round(Number(选项.limit) || 12)))
+    const 指定 = Array.isArray(选项.ids) ? 选项.ids.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0) : []
+    const 全 = 指定.length > 0
+      ? 指定.map((id) => 表情们.find((x) => x.id === id)).filter(Boolean)
+      : 表情们.filter(该重看备注)
+    const 候选 = 全.slice(0, 限)
+    if (候选.length === 0) return { ok: true, 改: [], 没成: [], 剩下: 0 }
+    重看备注中 = true
+    const 改 = []
+    const 没成 = []
+    try {
+      for (const 贴 of 候选) {
+        const 旧 = 表情展示名(贴)
+        const 图 = await 取收藏表情图(配置, 贴)
+        if (!图 || !图.ref) {
+          没成.push({ id: 贴.id, 旧, 因: '取不到原图' })
+          continue
+        }
+        const 名 = await 看图起名(配置, 图.ref)
+        if (名 === '') {
+          没成.push({ id: 贴.id, 旧, 因: '看不清或起不了名' })
+          continue
+        }
+        const 果 = await 改收藏表情备注(配置, 贴.id, 名, '按图重看备注')
+        if (果.ok) 改.push({ id: 贴.id, 旧, 新: 名 })
+        else 没成.push({ id: 贴.id, 旧, 因: 果.因 || '改备注没成' })
+      }
+    } finally {
+      重看备注中 = false
+    }
+    const 剩下 = 表情们.filter(该重看备注).length
+    if (改.length > 0) 记账(`按图重看表情备注：改了 ${改.length} 张，还剩 ${剩下} 张没重看`)
+    return { ok: true, 改, 没成, 剩下 }
   }
 
   /** 这个说话人现在能不能让她动收藏：主人永远可以，其他人按信任规则。 */
@@ -8435,6 +8611,7 @@ export function apply(ctx) {
   /** 自动收藏用的通用名，后面她真给了短名字时可以覆盖；场景名也算通用名。 */
   function 泛标签(名) {
     const s = String(名 || '')
+    if (s.trim() === '') return true
     return ['表情', '未命名', '主人让收藏', '主人让存', '主人存的', '主人要的', '这一批的',
       '受信让收藏', '受信让存', '受信存的', '受信要的'].includes(s)
       || /^(?:主人|受信)让存\d*$/u.test(s)
@@ -8723,16 +8900,17 @@ export function apply(ctx) {
     const 哈希 = createHash('md5').update(bytes).digest('hex')
     const 已有 = 表情们.find((x) => x.md5 === 哈希)
     if (已有) {
-      // 自动收藏只能起个通用名；她后面真给了短名字，就用她的，别一直叫“笑”。
-      // 自动再遇到同一张时也不能拿场景名把已经起好的名字盖掉；受信人明确给的备注可以覆盖。
+      // 自动收藏不拿场合起名；受信人明确给的短名字可以覆盖空名、场合名或来源名。
       if (!选项.自动 && 干净标签 && !泛标签(干净标签) && (选项.强制改名 || 泛标签(已有.label)) && 干净标签 !== 已有.label) {
         const 改 = await 改收藏表情备注(配置, 已有.id, 干净标签, 来源)
         if (!改.ok) 记账(`表情 #${已有.id} 改名没成：${改.因}`)
+      } else if (看不出内容的标签(已有.label) && 图.ref) {
+        await 按图起名(配置, 已有, 图.ref, '又见到')
       }
       图.收藏号 = 已有.id
       图.收藏名 = 表情展示名(已有)
       delete 图.没存
-      记账(`这张表情已经收藏过：#${已有.id} ${已有.label}`)
+      记账(`这张表情已经收藏过：#${已有.id} ${表情展示名(已有)}`)
       return 已有
     }
     const 上传 = await 上传QQ表情(配置, bytes)
@@ -8740,7 +8918,7 @@ export function apply(ctx) {
       记账(`写进 QQ 收藏表情失败：${JSON.stringify(上传.响应 && 上传.响应.数据).slice(0, 160)}`)
       return null
     }
-    const 落名 = 干净标签 || '表情'
+    const 落名 = 干净标签
     if (落名) await 改QQ表情备注(配置, 上传.emojiId, 落名)
     const 条目 = {
       id: 表情下一个id++,
@@ -8753,11 +8931,12 @@ export function apply(ctx) {
       source: String(来源 || '').slice(0, 40),
     }
     表情们.push(条目)
+    if (!落名) await 按图起名(配置, 条目, 图.ref, '新收藏')
     图.收藏号 = 条目.id
     图.收藏名 = 表情展示名(条目)
     delete 图.没存
     存表情索引()
-    记账(`收藏了一张表情包（已存进 QQ）：#${条目.id} ${条目.label}`)
+    记账(`收藏了一张表情包（已存进 QQ）：#${条目.id} ${表情展示名(条目)}`)
     return 条目
   }
 
@@ -8904,11 +9083,11 @@ export function apply(ctx) {
         if (图.收藏号 && !备注) continue
         已处理.add(图)
         图.受信让存 = true
-        const 名 = 图们.length > 1 ? `${标签}${i + 1}` : 标签
+        const 名 = 图们.length > 1 && 标签 ? `${标签}${i + 1}` : 标签
         const 条目 = await 存表情包(配置, 图, 名, 来源, { 允许普通图: true, 强制改名: !!备注 })
         if (条目) {
           成 += 1
-          说明.push(`已存 #${条目.id}「${条目.label}」`)
+          说明.push(`已存 #${条目.id}「${表情展示名(条目)}」`)
         } else {
           败 += 1
           图.没存 = 'QQ 收藏没写进去'
@@ -8935,7 +9114,7 @@ export function apply(ctx) {
           for (const 图 of m.图片 || []) if (图 && 图.ref && !已处理.has(图)) 图们.push(图)
         }
         if (图们.length > 0) {
-          const 标签 = 待.备注 || (待.主人 ? '主人让存' : '受信让存')
+          const 标签 = 待.备注
           const 果 = await 存图们(图们, 标签, 待.来源 || `${待.主人 ? '主人' : '受信'}要求·${目标.叫}`, 待.备注)
           存了 += 果.成
           存败 += 果.败
@@ -9004,7 +9183,7 @@ export function apply(ctx) {
         说明.push(`${m.说话人 || '对方'} 让存表情，但图还没到`)
         continue
       }
-      const 标签 = 要.备注 || (主人 ? '主人让存' : '受信让存')
+      const 标签 = 要.备注
       const 果 = await 存图们(图们, 标签, 来源, 要.备注)
       存了 += 果.成
       存败 += 果.败
@@ -9022,8 +9201,6 @@ export function apply(ctx) {
   // 自动收藏的账：同一张在半小时内又见到、或者这屋常用的场景在配表情，才值得存。
   const 表情近见 = new Map() // md5 → { 次, at }
   let 表情自存日 = { 日: '', 存: 0 }
-  let 上次场景改名At = 0
-  const 场景改名间隔 = 10 * 60_000
 
   /**
    * 自动收藏的三个数跟着主人倾向走：勤存放宽、少存收紧、不存关掉。
@@ -9069,13 +9246,13 @@ export function apply(ctx) {
       const 次 = 旧 && Date.now() - 旧.at < 30 * 60_000 ? 旧.次 + 1 : 1
       表情近见.set(哈希, { 次, at: Date.now() })
       if (次 < 策略.见过 && !场景热) continue
-      const 条目 = await 存表情包(配置, 图, 场景 || '表情', `${目标.叫}·自动`, { 自动: true, 允许普通图: false })
+      const 条目 = await 存表情包(配置, 图, '', `${目标.叫}·自动`, { 自动: true, 允许普通图: false })
       if (条目) {
         表情自存日.存 += 1
         存了 += 1
         最后 = 条目
         记最近收藏动作(目标.key, { 存了: 1 })
-        记账(`${目标.叫}：把一张表情收进 QQ 收藏 #${条目.id} ${条目.label}（${次 > 1 ? `又见到同一张 ${次} 次` : `这屋常用“${场景}”发表情`}）`)
+        记账(`${目标.叫}：把一张表情收进 QQ 收藏 #${条目.id} ${表情展示名(条目)}（${次 > 1 ? `又见到同一张 ${次} 次` : `这屋常用“${场景}”发表情`}）`)
       }
     }
     if (表情近见.size > 400) {
@@ -9084,26 +9261,6 @@ export function apply(ctx) {
       }
     }
     return 最后
-  }
-
-  /** 场景数据够清楚、标签还通用的贴纸，按主导场景改名；改完同步到 QQ 收藏。 */
-  async function 试场景改名(配置) {
-    if (!配置 || !配置.NapCat) return
-    let 改了 = false
-    for (const 贴 of 表情们) {
-      if (!贴.scenes || typeof 贴.scenes !== 'object') continue
-      if (!泛标签(贴.label)) continue
-      const entries = Object.entries(贴.scenes)
-        .filter(([, c]) => Number(c) >= 表情场景最少观察 * 2)
-      if (entries.length === 0) continue
-      entries.sort((a, b) => b[1] - a[1])
-      const 主导 = entries[0][0]
-      if (主导 === 贴.label) continue
-      贴.label = 主导
-      if (贴.emojiId) await 改QQ表情备注(配置, 贴.emojiId, 主导)
-      改了 = true
-    }
-    if (改了) 存表情索引()
   }
 
   /** 旧版存在本机的表情：连上 QQ 后逐张写进账号收藏，成功就删掉本地图片。 */
@@ -9183,7 +9340,8 @@ export function apply(ctx) {
           项.url = 远.url
           补图 += 1
         }
-        if (远.label && (!项.label || 泛标签(项.label)) && 远.label !== 项.label) {
+        // 备注以 QQ 收藏为准：在 QQ 里改过、清成占位名，都跟着带回来，本机不再留旧名字。
+        if (远.label && 远.label !== 项.label) {
           项.label = 远.label
           改名 += 1
         }
@@ -10944,12 +11102,13 @@ export function apply(ctx) {
           记账(`${目标.叫}：表情短应没发出去（${JSON.stringify(r.数据).slice(0, 120)}），这轮改成正常回`)
           if (短 === '') return false
         } else {
-          const 标 = `[发了一张表情包：#${贴纸.id} ${贴纸.label}]`
+          const 贴名 = 表情展示名(贴纸)
+          const 标 = `[发了一张表情包：#${贴纸.id} ${贴名}]`
           短应记录.set(目标.key, { ...(上次 || {}), 文: '', 表情: 贴纸.id, 表情At: Date.now(), at: Date.now() })
           写社交状态(true)
-          记账(`${目标.叫}：短应只发了一张表情包：#${贴纸.id} ${贴纸.label}`)
-          记思绪('开口', `只发了一张表情包「#${贴纸.id} ${贴纸.label}」：判断模型挑的，不另开回复轮`, {
-            原文: [], 表情: [`#${贴纸.id} ${贴纸.label}`], 全过: true, 档: 1,
+          记账(`${目标.叫}：短应只发了一张表情包：#${贴纸.id} ${贴名}`)
+          记思绪('开口', `只发了一张表情包「#${贴纸.id} ${贴名}」：判断模型挑的，不另开回复轮`, {
+            原文: [], 表情: [`#${贴纸.id} ${贴名}`], 全过: true, 档: 1,
           }, 目标.叫)
           const 发出id = r.数据 && r.数据.data && r.数据.data.message_id !== undefined && r.数据.data.message_id !== null
             ? String(r.数据.data.message_id) : ''
@@ -11916,11 +12075,6 @@ export function apply(ctx) {
         const 净文 = 净表情文字(段.正文)
         const 当前场景 = 净文 === '' ? 判表情场景(上一句) : 判表情场景(净文)
         记表情场景观察(图片, 当前场景)
-        // 场景数据攒够后，给通用标签的贴纸按主导场景改名；十分钟一次就够
-        if (Date.now() - 上次场景改名At >= 场景改名间隔) {
-          上次场景改名At = Date.now()
-          await 试场景改名(配置)
-        }
       }
       记一次人见(配置, 目标, 消息)
       记自认账号(配置, 目标, 消息)
@@ -12343,17 +12497,17 @@ export function apply(ctx) {
           const r = await 发QQ表情(配置, 目标.类型, 目标.号, 贴纸)
           if (r.ok) {
             真发出 = true
-            发出的表情.push({ id: 贴纸.id, label: 贴纸.label })
+            发出的表情.push({ id: 贴纸.id, label: 表情展示名(贴纸) })
             const mid = r.数据 && r.数据.data ? r.数据.data.message_id : undefined
             if (mid !== undefined && mid !== null) {
               她的消息id.add(String(mid))
               发出id们.push(String(mid))
               if (她的消息id.size > 500) 她的消息id.clear()
             }
-            记账(`✅ 在 ${目标.叫} 发了张表情包：#${贴纸.id} ${贴纸.label}`)
+            记账(`✅ 在 ${目标.叫} 发了张表情包：#${贴纸.id} ${表情展示名(贴纸)}`)
           } else {
             全过 = false
-            记账(`⚠ 在 ${目标.叫} 发表情包失败：#${贴纸.id} ${贴纸.label}`)
+            记账(`⚠ 在 ${目标.叫} 发表情包失败：#${贴纸.id} ${表情展示名(贴纸)}`)
           }
         }
       } else if (项.戳人 !== undefined) {
@@ -12924,10 +13078,10 @@ export function apply(ctx) {
       ? 干净
       : (图.length > 0 ? `[发了${图.length}${视频数 > 0 && 视频数 === 图.length ? '个视频分镜' : '张图'}]` : '')
     const 注 = 图
-      .map((x, i) => `【图 ${i + 1}${x.主人 ? '·主人' : x.说话人 ? '·' + x.说话人 : ''}${x.表情 ? '·表情' : ''}${x.视频 ? `·视频 ${Math.round(x.秒)} 秒·${x.帧} 帧` : ''}${x.收藏号 ? `·你收藏的 #${x.收藏号} ${x.收藏名 || '表情'}` : ''}${x.没存 ? `·没存成（${x.没存}）` : ''}】`)
+      .map((x, i) => `【图 ${i + 1}${x.主人 ? '·主人' : x.说话人 ? '·' + x.说话人 : ''}${x.表情 ? '·表情' : ''}${x.视频 ? `·视频 ${Math.round(x.秒)} 秒·${x.帧} 帧` : ''}${x.收藏号 ? `·你收藏的 #${x.收藏号} ${x.收藏名 || '未命名'}` : ''}${x.没存 ? `·没存成（${x.没存}）` : ''}】`)
       .join('\n')
     const 收藏对应 = 图
-      .map((x, i) => (x.收藏号 ? `图 ${i + 1} 就是你收藏的 #${x.收藏号} ${x.收藏名 || '表情'}` : ''))
+      .map((x, i) => (x.收藏号 ? `图 ${i + 1} 就是你收藏的 #${x.收藏号} ${x.收藏名 || '未命名'}` : ''))
       .filter(Boolean)
     const 认表情 = 收藏对应.length > 0
       ? `【收藏对应】${收藏对应.join('；')}。要发哪张就写它的编号（[发表情:#编号]）或 [发表情:图N]，别换成别的编号，也别把别的表情说成这一张。`
@@ -13400,7 +13554,7 @@ export function apply(ctx) {
       社交: await 社交概况(配置, snow状态.已连QQ),
       表情包: {
         数量: 表情们.length,
-        最近: 表情们.slice(-8).map((x) => ({ id: x.id, label: x.label })),
+        最近: 表情们.slice(-8).map((x) => ({ id: x.id, label: 表情展示名(x) })),
         偏好: (配置.社交 && 配置.社交.表情偏好) || '',
         不存: (配置.社交 && Array.isArray(配置.社交.不存表情)) ? 配置.社交.不存表情 : [],
         selfSave: {
@@ -13437,6 +13591,13 @@ export function apply(ctx) {
     if (!要方法(req, 'GET', res)) return
     await 读体(req)
     回(res, await 概况())
+  })
+
+  // 维护用：把占位 / 场合 / 来源名逐张取原图重看，按画面改名；每次一小批，剩下的下次再跑。
+  路线(`${路由前缀}/stickers/relabel`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    回(res, await 重看收藏备注(读配置(), { ids: 来 && 来.ids, limit: 来 && 来.limit }))
   })
 
   // 设置页的「装 ffmpeg」：立刻开下载，进度靠 /state 里的 视频.安装 轮询，不在这里等。
