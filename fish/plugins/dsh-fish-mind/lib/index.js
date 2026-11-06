@@ -2554,6 +2554,12 @@ export function apply(ctx) {
         })
       })
 
+      // 心情页只读这一段，不拉整份记忆概览；鱼脑没挂时由调用方退回心情自身。
+      route('/dsh-fish-mind/inner', async (req, res) => {
+        if (req.method !== 'GET') return methodNotAllowed(res, 'GET')
+        sendJson(res, 200, { ok: true, inner: innerLife.snapshot() })
+      })
+
       route('/dsh-fish-mind/birth', async (req, res) => {
         if (req.method !== 'POST') return methodNotAllowed(res, 'POST')
         const body = await readJsonLimited(req)

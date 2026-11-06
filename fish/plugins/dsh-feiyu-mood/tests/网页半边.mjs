@@ -61,7 +61,16 @@ exports.apply({ get: (n) => (n === 'slots' ? slots : undefined), effect: (fn) =>
     autoJudge: true, injectMood: false, moodBase: 70, moodFloor: 0,
     targetSession: '', judgeProvider: '', judgeModel: '',
   },
-  { mood: 70, moodLabel: '一般', lastReason: '', updatedAt: 0, timeline: [] },
+  {
+    mood: 70, moodLabel: '一般', lastReason: '主人一步一步教我怎么找系列', updatedAt: 0, timeline: [],
+    inner: {
+      enabled: true,
+      strength: 0.62,
+      affect: { phrase: '心里有点雀跃', family: 'joy', mood: 70 },
+      urges: [{ key: 'recognition', phrase: '想让主人看见我做成的事' }],
+      cue: { text: '今天把那个弄成了' },
+    },
+  },
   [], [], '', '',
 ]
 下标 = 0
@@ -69,7 +78,25 @@ const 外壳 = 组件()
 const 树 = 外壳.t(外壳.p)
 const 文 = JSON.stringify(树)
 报('页头写清本页能设置什么', 文.includes('本页可以设置') && 文.includes('基线'))
+报('鱼脑内心占据主标题', 文.includes('心里有点雀跃') && 文.includes('想让主人看见我做成的事') && 文.includes('今天把那个弄成了'))
+报('主标题带情绪大类', 文.includes('"data-fm-chip"') && 文.includes('"喜"'))
+报('底色和原始记录放进折叠区', 文.includes('底色与原始记录') && 文.includes('"data-fm-details"') && 文.includes('重置到基线'))
 报('名字是只读展示', 文.includes('被关心的那个人') && !文.includes('placeholder":"小鱿鱼"'))
 报('两个开关是开/关分段', (文.match(/"aria-pressed":/g) || []).length >= 4 && 文.includes('"data-on":"true"') && 文.includes('"data-on":"false"'))
+
+// 鱼脑没挂时，退回心情插件自己的标签和原因，不显示空的“此刻”。
+状态槽 = [
+  {
+    ownerName: '主人', selfName: '大肥鱼', selfAliases: '',
+    autoJudge: true, injectMood: false, moodBase: 70, moodFloor: 0,
+    targetSession: '', judgeProvider: '', judgeModel: '',
+  },
+  { mood: 55, moodLabel: '一般', lastReason: '今天有点累', updatedAt: 0, timeline: [] },
+  [], [], '', '',
+]
+下标 = 0
+const 外壳2 = 组件()
+const 文2 = JSON.stringify(外壳2.t(外壳2.p))
+报('没有鱼脑内心时退回心情标签', 文2.includes('一般') && 文2.includes('今天有点累') && !文2.includes('此刻 · 鱼脑内心'))
 
 process.exitCode = 挂了 === 0 ? 0 : 1
