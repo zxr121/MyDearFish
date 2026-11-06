@@ -123,7 +123,17 @@ globalThis.fetch = async (url, 选项) => {
     }
     return { json: async () => ({ status: 'failed', retcode: 1200, data: null }) }
   }
-  if (u.includes('multimedia.nt.qq.com.cn')) {
+  if (u.includes('i.gtimg.cn/club/item/parcel/')) {
+    const 目录 = {
+      id: 246925, name: '小喵包', mark: '小喵包的日常生活w', author: '', price: 0, updateTime: 0,
+      imgs: [
+        { id: '52a3d779b6269d22adf0acb567281524', name: '捏捏', keywords: ['捏捏'] },
+        { id: '9282b49b61ee17739f4bbbd2a36564c2', name: '目移', keywords: ['目移'] },
+      ],
+    }
+    return { ok: true, url: u, text: async () => JSON.stringify(目录), json: async () => 目录 }
+  }
+  if (u.includes('multimedia.nt.qq.com.cn') || u.includes('gxh.vip.qq.com')) {
     // 每张图按地址给不同字节，收藏去重（md5）才分得清是不是同一张。
     const 尾巴 = createHash('md5').update(u).digest()
     const 字节 = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...尾巴.subarray(0, 12)])
@@ -1155,6 +1165,34 @@ const 注图 = 存后注.items.find((x) => !存后4.items.some((y) => y.id === x
 报('私聊：主人让存并给备注 → 表情和备注一起落地', !!注图 && 注图.label === '绿毛' && String(注图.source).includes('主人要求'), JSON.stringify(注图))
 私聊消息段 = null
 
+// ⑯i2b 商城表情：包目录里的官方名和系列名一起带回来
+私聊附加 = []
+私聊消息id = 971405
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3355
+私聊消息段 = [
+  {
+    type: 'image',
+    data: {
+      url: 'https://gxh.vip.qq.com/club/item/parcel/item/52/52a3d779b6269d22adf0acb567281524/raw300.gif',
+      file: '52-52a3d779b6269d22adf0acb567281524.gif',
+      summary: '[捏捏]',
+      sub_type: 0,
+      emoji_id: '52a3d779b6269d22adf0acb567281524',
+      emoji_package_id: 246925,
+      key: '42c60969b5f716aa',
+    },
+  },
+  { type: 'text', data: { text: '这个也存下来' } },
+]
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 存后商 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+const 商 = 存后商.items.find((x) => x.packId === 246925)
+const 商文 = 转进的.at(-1)?.content?.[0]?.text || ''
+报('私聊：商城表情按官方名和系列名落地', !!商 && 商.label === '捏捏' && 商.packName === '小喵包', JSON.stringify(商))
+报('私聊：商城表情的图注带系列名', 商文.includes('来自《小喵包》'), JSON.stringify(商文.slice(-300)))
+私聊消息段 = null
+
 // ⑯i3 主人说“把 #N 的备注改成…”：直接改已有收藏，不靠她写标记
 私聊消息id = 9715
 私聊消息时间 = Math.floor(Date.now() / 1000) + 3360
@@ -1271,7 +1309,26 @@ const 改失发 = 发了.slice(之前改失).filter((x) => x.url.endsWith('/send
   JSON.stringify(改失发.map((x) => x.体.message)))
 备注修改失败 = false
 
+// 先走一轮不涉及收藏的话，把上一轮可能没消费的动作记录清掉，避免测试之间串状态
+私聊附加 = []
+私聊消息id = 9735
+私聊消息时间 = Math.floor(Date.now() / 1000) + 3585
+私聊消息段 = null
+私聊消息文本 = '聊点别的'
+await 轮询回调()
+await new Promise((r) => setTimeout(r, 30))
+const 清前承诺 = 发了.length
+监听[0](会话, 助手消息(1740, 1, [块('text', '嗯嗯')], false))
+监听[0](会话, 转完(1740))
+await 等到(() => 发了.slice(清前承诺).some((x) => x.url.endsWith('/send_private_msg')))
+await 等稳()
+
 // ⑯k3b 只在嘴上说“这就改成…”，没写标记：改成实情，不假报
+// 换一间全新的目标会话，别读到前面用例留下的“最近改成功”记录。
+const 会话Y = { id: 'session-Y' }
+const 配置Y = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+配置Y.目标会话 = 'session-Y'
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify(配置Y, null, 2), 'utf8')
 私聊附加 = []
 私聊消息id = 9734
 私聊消息时间 = Math.floor(Date.now() / 1000) + 3590
@@ -1280,8 +1337,8 @@ const 改失发 = 发了.slice(之前改失).filter((x) => x.url.endsWith('/send
 await 轮询回调()
 await new Promise((r) => setTimeout(r, 30))
 const 之前承诺 = 发了.length
-监听[0](会话, 助手消息(174, 1, [块('text', '收到，这就改成「大绿毛」')], false))
-监听[0](会话, 转完(174))
+监听[0](会话Y, 助手消息(174, 1, [块('text', '收到，这就改成「大绿毛」')], false))
+监听[0](会话Y, 转完(174))
 await 等到(() => 发了.slice(之前承诺).some((x) => x.url.endsWith('/send_private_msg')))
 await 等稳()
 const 承诺发 = 发了.slice(之前承诺).filter((x) => x.url.endsWith('/send_private_msg'))
@@ -1292,6 +1349,8 @@ const 承诺后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf
     !承诺发[0].体.message[0].data.text.includes('大绿毛') &&
     !!承诺后档 && 承诺后档.label === '小绿',
   JSON.stringify({ 发: 承诺发.map((x) => x.体.message), 贴: 承诺后档 }))
+配置Y.目标会话 = 'session-X'
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify(配置Y, null, 2), 'utf8')
 
 // ⑯k4 这一轮没让她存、也没存：不能因为刚才存过就顺口说“存好了”
 私聊附加 = []
