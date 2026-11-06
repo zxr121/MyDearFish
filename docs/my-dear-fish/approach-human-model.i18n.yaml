@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for approach-human-model.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/my-dear-fish/approach-human-model.md
+/one-human-model-from-core-affect-to-relationships:
+  en: d29cacbbc856bbd7
+  zh: fb645dced864a3e0
+/one-human-model-from-core-affect-to-relationships/in-one-sentence:
+  en: b2224ccd980561ec
+  zh: 6ed8b7a829ed37ff
+/one-human-model-from-core-affect-to-relationships/the-current-problem-three-dimension-sets-that-cannot-explain-each-other:
+  en: 061e621730da1596
+  zh: 9521dd3a12da6bbc
+/one-human-model-from-core-affect-to-relationships/four-layers-from-human-research:
+  en: 72ca67c36e833606
+  zh: 8c76e609410267c5
+/one-human-model-from-core-affect-to-relationships/four-layers-from-human-research/core-affect-three-continuous-axes:
+  en: d799ca3f181ace00
+  zh: b793e46e25bec306
+/one-human-model-from-core-affect-to-relationships/four-layers-from-human-research/appraisal-four-checks:
+  en: 8cd17f83190dca7f
+  zh: 3d1ff0e87406ee0c
+/one-human-model-from-core-affect-to-relationships/four-layers-from-human-research/emotion-seven-families-twenty-one-facets:
+  en: 72299a25d11677bf
+  zh: ac1cc36c7646f70b
+/one-human-model-from-core-affect-to-relationships/four-layers-from-human-research/needs-eleven-directions:
+  en: 02bab602d65605c7
+  zh: ad871bb6a15f4845
+/one-human-model-from-core-affect-to-relationships/four-layers-from-human-research/relationships-ten-dimensions:
+  en: dcdf1018c255be66
+  zh: c069df467eed99b2
+/one-human-model-from-core-affect-to-relationships/how-the-six-layers-connect:
+  en: e526441f56e88890
+  zh: 545e345c47c02584
+/one-human-model-from-core-affect-to-relationships/only-one-layer-is-exposed:
+  en: 31cd6c7864b646a7
+  zh: c8b883020a818ad8
+/one-human-model-from-core-affect-to-relationships/simulation-eight-scenarios:
+  en: 012f446f192bd85e
+  zh: 3930cdaabbd14525
+/one-human-model-from-core-affect-to-relationships/phased-implementation:
+  en: 8eed8658bf031ea2
+  zh: 199c9ec1cfa76800
+/one-human-model-from-core-affect-to-relationships/what-not-to-do:
+  en: 3f331e9848cce4d2
+  zh: 768024820ee71e08
+/one-human-model-from-core-affect-to-relationships/acceptance:
+  en: 5697babe0352a2c7
+  zh: bdcb9ec1ac7c2a9c
+/one-human-model-from-core-affect-to-relationships/research-references:
+  en: bda34adcf12ad361
+  zh: 82a5e71727560275
