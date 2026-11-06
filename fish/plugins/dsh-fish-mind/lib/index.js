@@ -37,6 +37,7 @@ import { createPrivacyGuard } from './privacy.js'
 import { readQqRoster } from './qq-roster.js'
 import { applyFishSettings, listFishSettings } from './settings-catalog.js'
 import { confidePrompt as buildConfidePrompt, createInnerLife, innerPrompt } from './inner-life.js'
+import { enrichAffectMeta } from './human-model.js'
 import { summarize, textOfMessage } from './sanitize.js'
 import { openStore } from './store.js'
 import { ageText, dayGapText, dayText, gapText, nowText, whenText } from './time.js'
@@ -461,6 +462,7 @@ export function apply(ctx) {
         archivedChars: archived.length,
         truncated: raw.length > archiveMax,
         indexChars: config.maxTextChars,
+        ...(input.kind === 'affect' ? { human: enrichAffectMeta(input.meta, raw) } : {}),
         ...(redacted === undefined ? {} : { redacted }),
       },
     }

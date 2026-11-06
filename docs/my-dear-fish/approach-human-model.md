@@ -135,7 +135,7 @@ The dangerous design is to put twenty-one facets, eleven needs, and ten relation
 
 ## Simulation: eight scenarios
 
-The simulator lives at `fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs`. It is a design probe and is not shipped. It runs the same formulas over eight hand-built scenarios and checks whether core affect, emotion, needs, and relationship can explain one another. Run it with:
+The simulator lives at `fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs`. It is a design probe and is not shipped. It runs the same dimensions over eight hand-built scenarios and checks whether core affect, emotion, needs, and relationship can explain one another. The production formulas live in `lib/human-model.js`; the simulator keeps a simplified version to check whether the dimensions, wording, and scenarios make sense. Run it with:
 
 ```
 node fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs
@@ -163,6 +163,8 @@ These eight scenarios are not the whole acceptance set, but they expose three cr
 | 2 Relationship v2 | Five dimensions become ten; person profile v5 migration; ledger and stage words | `dsh-qq-bridge/lib/host.js`, person memory, settings person memory | v4 migration keeps a backup; stages only; repair, reciprocity, and commitment tested |
 | 3 Mood wiring | Derive core affect and appraisal from the seven dimensions; write them into affect meta | `dsh-feiyu-mood/lib/index.js`, fish-mind affect experiences | Old mood behavior unchanged; new fields optional |
 | 4 Evaluation and tuning | Twenty scenarios, real-chat sampling, thresholds and baselines | Tests and simulation script | No emotional coercion, no message flooding, no private leaks; cost does not rise |
+
+Implementation status: core affect, appraisal, twenty-one facets, eleven needs, ten relationship dimensions, and the settings summary are wired into the runtime; the five new relationship dimensions are derived from relationship totals and the ledger, without changing the person-memory format. Need baselines live in `config.json` under `innerLife.baselines` and can be overridden per item.
 
 ## What not to do
 

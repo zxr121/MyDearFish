@@ -2221,11 +2221,14 @@ window.__ModuleLoader__.load({
                   : null,
                 p.维 && p.维说明
                   ? h('div', { style: { padding: '6px 0', borderTop: '1px dashed var(--dsw-alias-border-l2)' } },
-                      h('div', { style: { fontWeight: 600, fontSize: 12 } }, '五维相处（聊天里只说阶段）'),
+                      h('div', { style: { fontWeight: 600, fontSize: 12 } }, '十维相处（聊天里只说阶段）'),
                       h('div', { style: S.dim }, p.维说明),
                       h('div', { style: { fontSize: 11, opacity: 0.7 } },
                         '理解 ' + p.维.理解 + ' · 信任 ' + p.维.信任 + ' · 尊重 ' + p.维.尊重 +
-                          ' · 需要 ' + p.维.需要 + ' · 自在 ' + p.维.自在 + '（只有这里看数字）'))
+                          ' · 需要 ' + p.维.需要 + ' · 自在 ' + p.维.自在),
+                      h('div', { style: { fontSize: 11, opacity: 0.7 } },
+                        '熟悉 ' + p.维.熟悉 + ' · 亲近 ' + p.维.亲近 + ' · 互惠 ' + p.维.互惠 +
+                          ' · 承诺 ' + p.维.承诺 + ' · 修复 ' + p.维.修复 + '（只有这里看数字）'))
                   : null,
                 关系们.length || 被说.length
                   ? h('div', { style: { fontSize: 12, marginTop: 4 } },

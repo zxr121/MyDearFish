@@ -7,81 +7,10 @@
 //
 // 用法：node scripts/simulate-human-model.mjs
 //
-// 生产实现要把这里的纯函数搬进 lib/，按真实信号接线，并补单元测试；
-// 模拟器里的场景输入是手工构造的，不代表真实经历。
+// 生产公式在 `lib/human-model.js`，这里只保留设计期的简化算法，用来检查
+// 维度、话术和场景是否讲得通；两者不承诺逐位一致，模拟器里的场景输入是手工构造的。
 
-const NEEDS = [
-  { key: 'stability', label: '安稳', cluster: '安全', baseline: 0.70, phrase: '想稳一点，不想被突然打乱' },
-  { key: 'comfort', label: '舒适', cluster: '安全', baseline: 0.55, phrase: '想躲一会儿清静' },
-  { key: 'autonomy', label: '自主', cluster: '自主', baseline: 0.65, phrase: '想自己拿主意，不想被推着走' },
-  { key: 'curiosity', label: '好奇', cluster: '成长', baseline: 0.65, phrase: '想知道点新鲜事' },
-  { key: 'competence', label: '胜任', cluster: '成长', baseline: 0.45, phrase: '想做成一件拿得出手的事' },
-  { key: 'play', label: '玩心', cluster: '成长', baseline: 0.50, phrase: '想轻轻松松玩一会儿' },
-  { key: 'intimacy', label: '亲密', cluster: '联结', baseline: 0.80, phrase: '想跟主人单独待一会儿' },
-  { key: 'recognition', label: '被看见', cluster: '联结', baseline: 0.50, phrase: '想被看见，不想做完了也没人知道' },
-  { key: 'expression', label: '表达', cluster: '联结', baseline: 0.70, phrase: '心里有话，还没说出口' },
-  { key: 'care', label: '照顾', cluster: '联结', baseline: 0.60, phrase: '想照顾一下主人' },
-  { key: 'belonging', label: '归属', cluster: '归属', baseline: 0.60, phrase: '想在这个屋里有个位置' },
-]
-
-const FACETS = {
-  joy: {
-    label: '喜',
-    items: [
-      { key: 'contentment', label: '满足', mild: '心里挺满足', strong: '心里满满当当的' },
-      { key: 'excitement', label: '雀跃', mild: '心里有点雀跃', strong: '心里一下子亮起来' },
-      { key: 'relief', label: '释然', mild: '心里松了一口气', strong: '悬着的那口气终于放下了' },
-    ],
-  },
-  anger: {
-    label: '怒',
-    items: [
-      { key: 'boundary', label: '被冒犯', mild: '心里有点不痛快，像被踩到了边', strong: '心里很明确：这条线不能过' },
-      { key: 'impatient', label: '不耐烦', mild: '心里有点烦，耐性变短', strong: '心里燥得厉害' },
-      { key: 'indignation', label: '不甘', mild: '心里有点不服气', strong: '这口气咽不下去' },
-    ],
-  },
-  sorrow: {
-    label: '哀',
-    items: [
-      { key: 'disappointment', label: '失落', mild: '心里有点空落落的', strong: '心里空了一大块' },
-      { key: 'loneliness', label: '孤单', mild: '有点想有人陪着', strong: '很想有人在身边' },
-      { key: 'hurt', label: '委屈', mild: '心里有点委屈', strong: '委屈得厉害' },
-    ],
-  },
-  fear: {
-    label: '惧',
-    items: [
-      { key: 'worry', label: '担心', mild: '心里有点担心', strong: '心里一直悬着' },
-      { key: 'insecurity', label: '不安', mild: '心里有点没底', strong: '心里很没底' },
-      { key: 'dread', label: '发怵', mild: '心里有点发怵', strong: '心里发怵得厉害' },
-    ],
-  },
-  love: {
-    label: '爱',
-    items: [
-      { key: 'tenderness', label: '温柔', mild: '心里软软的', strong: '心里软得一塌糊涂' },
-      { key: 'longing', label: '想念', mild: '有点想他', strong: '很想他' },
-      { key: 'heartache', label: '心疼', mild: '有点心疼', strong: '心疼得不行' },
-    ],
-  },
-  dislike: {
-    label: '恶',
-    items: [
-      { key: 'jealousy', label: '吃醋', mild: '心里有点酸', strong: '心里酸得厉害' },
-      { key: 'repulsion', label: '反感', mild: '心里有点反感', strong: '心里很反感' },
-      { key: 'awkwardness', label: '别扭', mild: '心里有点别扭', strong: '心里别扭得厉害' },
-    ],
-  },
-  desire: {
-    label: '欲',
-    items: [
-      { key: 'anticipation', label: '期待', mild: '心里有点期待', strong: '心里很期待' },
-      { key: 'craving', label: '想要', mild: '心里有点想要', strong: '心里很想要' },
-      { key: 'curiosity', label: '好奇', mild: '想知道更多', strong: '特别想知道' },
-    ],
-  },
-}
+import { FACETS, NEEDS } from '../lib/human-model.js'
 
 const RELATIONSHIP = [
   { key: 'familiarity', label: '熟悉', cluster: '知道', stages: [[15, '刚认识'], [40, '见过几次'], [70, '熟面孔'], [101, '老熟人']] },

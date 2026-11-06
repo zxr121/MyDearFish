@@ -135,7 +135,7 @@
 
 ## 模拟：八个场景
 
-模拟器在 `fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs`，只做设计验证，不随包发布；它把同一套公式跑在八个手工构造的场景上，检查体感、情绪、需要和关系能不能互相解释。运行方式：
+模拟器在 `fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs`，只做设计验证，不随包发布；它把同一套维度跑在八个手工构造的场景上，检查体感、情绪、需要和关系能不能互相解释。生产公式在 `lib/human-model.js`，模拟器保留一版简化算法，只用来检查维度、话术和场景是否讲得通。运行方式：
 
 ```
 node fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs
@@ -163,6 +163,8 @@ node fish/plugins/dsh-fish-mind/scripts/simulate-human-model.mjs
 | 2 关系 v2 | 五维扩到十维；人物志 v5 迁移；账目与阶段话 | `dsh-qq-bridge/lib/host.js`、人物志、设置页人物志 | v4 迁移留备份；只报阶段；修复、互惠、承诺有测试 |
 | 3 心情接线 | 七维派生体感和评价，写进 affect meta | `dsh-feiyu-mood/lib/index.js`、鱼脑 affect 经历 | 旧心情行为不变；新增字段可缺省 |
 | 4 评估与调参 | 二十个场景、真实聊天抽查、阈值和基线 | 测试与模拟脚本 | 不出现情感胁迫、不连发、不泄私事；成本不升 |
+
+落地状态：体感、评价、二十一细目、十一个需要、十维关系和设置页摘要已经接进运行时；关系新增五维从总关系和关系账目推导，没有改人物志存储格式。需要基线在 `config.json` 的 `innerLife.baselines` 里，可逐项覆盖。
 
 ## 不做什么
 

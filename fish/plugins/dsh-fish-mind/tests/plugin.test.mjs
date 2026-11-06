@@ -59,6 +59,34 @@ test('插件挂着就能写经历，默认就是完整功能', async () => {
   ctx.dispose()
 })
 
+test('心情经历带上体感和评价，内心状态给出细目和需要', () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-human-'))
+  const ctx = fakeContext()
+  apply(ctx)
+  const mind = ctx.get('fishMind')
+  const result = mind.observe({
+    kind: 'affect',
+    role: 'system',
+    actor: 'fish',
+    source: 'mood',
+    sessionId: 'fish-mood',
+    text: '今天被主人夸了，心里有点雀跃',
+    meta: { mood: 78, moodDelta: 4, dims: { happy: 60, sweet: 20 }, dimsDelta: { happy: 5 } },
+  })
+  assert.equal(result.ok, true)
+  const inner = mind.state().inner
+  assert.equal(inner.needs.length, 11)
+  assert.ok(inner.affect.core && inner.affect.core.pleasure >= 0)
+  assert.ok(inner.affect.appraisal && inner.affect.appraisal.relevance >= 0)
+  assert.ok(inner.affect.family && inner.affect.facet)
+  const store = openStore({ dir: join(process.env.DSH_HOME, 'fish-mind'), diag: () => {} })
+  const row = store._db().prepare("SELECT meta FROM experiences WHERE kind = 'affect' ORDER BY id DESC LIMIT 1").get()
+  const meta = JSON.parse(row.meta)
+  assert.ok(meta.human && meta.human.core && meta.human.appraisal)
+  store.close()
+  ctx.dispose()
+})
+
 test('敏感内容只留元数据，计数加一', async () => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-plugin-'))
   const ctx = fakeContext()

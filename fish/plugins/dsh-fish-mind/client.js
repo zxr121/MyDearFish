@@ -69,6 +69,7 @@ window.__ModuleLoader__.load({
       ['comfort', '舒适'],
       ['intimacy', '亲密'],
     ]
+    const INNER_NEED_CLUSTERS = ['安全', '自主', '成长', '联结', '归属']
 
     const CSS = `
 [data-fishm-wrap]{display:flex;flex-direction:column;gap:16px;padding:4px 2px 32px;}
@@ -1571,23 +1572,52 @@ select[data-fishm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);c
                   `${relation.src} · ${relation.relation} · ${relation.dst}`))))),
 
         h('details', { 'data-fishm-details': '' },
-          h('summary', {}, `内心${inner.enabled ? ` · 倾述欲 ${Math.round(num(inner.strength) * 100)}%` : ' · 还没启动'}`),
+          h('summary', {}, `内心${inner.enabled ? `${inner.affect && inner.affect.familyLabel ? ` · ${inner.affect.familyLabel}${inner.affect.facetLabel ? '·' + inner.affect.facetLabel : ''}` : ''} · 倾述欲 ${Math.round(num(inner.strength) * 100)}%` : ' · 还没启动'}`),
           inner.enabled
             ? h('div', { 'data-fishm-sec': '' },
-                h(Row, { label: '此刻', value: inner.affect && inner.affect.phrase ? `${inner.affect.phrase}${inner.affect.mood ? `（心情 ${num(inner.affect.mood)}）` : ''}` : '—' }),
+                h(Row, {
+                  label: '此刻',
+                  value: inner.affect && inner.affect.phrase
+                    ? `${inner.affect.phrase}${inner.affect.familyLabel ? `（${inner.affect.familyLabel}·${inner.affect.facetLabel || ''}）` : ''}${inner.affect.mood ? ` · 底色 ${num(inner.affect.mood)}` : ''}`
+                    : '—',
+                }),
+                h(Row, { label: '体感', value: (inner.affect && inner.affect.corePhrase) || '—' }),
+                h(Row, { label: '评价', value: (inner.affect && inner.affect.appraisalPhrase) || '—' }),
+                h(Row, {
+                  label: '最想要',
+                  value: list(inner.surfaceNeeds).length > 0
+                    ? list(inner.surfaceNeeds).map((need) => need.phrase).join('；')
+                    : (list(inner.urges).length > 0 ? list(inner.urges).map((urge) => urge.phrase).join('；') : '这会儿没有明显缺口'),
+                }),
                 inner.cue
                   ? h(Row, { label: '心里挂着', value: inner.cue.text })
                   : h(Row, { label: '心里挂着', value: '这会儿没有特别想讲的事' }),
                 h(Row, { label: '上次开口', value: inner.state && inner.state.lastSpokeAt ? when(inner.state.lastSpokeAt) : '还没记过' }),
-                h('div', { 'data-fishm-bars': '' }, INNER_DRIVES.map(([key, label]) => h('div', {
-                  'data-fishm-bar': '',
-                  key,
-                },
-                  h('span', { 'data-fishm-barlabel': '' }, label),
-                  h('span', { 'data-fishm-track': '' },
-                    h('span', { 'data-fishm-fill': '', style: { width: `${Math.max(0, Math.min(100, num(inner.drives && inner.drives[key]) * 100))}%` } })),
-                  h('span', { 'data-fishm-barval': '' }, `${Math.round(num(inner.drives && inner.drives[key]) * 100)}`)))),
-                h('div', { 'data-fishm-note': '' }, '只读。数值是行为权重，不是需求条；群聊和好友会话不会拿到只属于主人的由头。'))
+                list(inner.needs).length > 0
+                  ? h('div', {},
+                      INNER_NEED_CLUSTERS.map((cluster) => {
+                        const needs = list(inner.needs).filter((need) => need.cluster === cluster)
+                        if (needs.length === 0) return null
+                        return h('div', { key: cluster },
+                          h('div', { 'data-fishm-note': '' }, cluster),
+                          h('div', { 'data-fishm-bars': '' }, needs.map((need) => h('div', {
+                            'data-fishm-bar': '',
+                            key: need.key,
+                          },
+                            h('span', { 'data-fishm-barlabel': '' }, need.label),
+                            h('span', { 'data-fishm-track': '' },
+                              h('span', { 'data-fishm-fill': '', style: { width: `${Math.max(0, Math.min(100, num(need.gap) * 100))}%` } })),
+                            h('span', { 'data-fishm-barval': '' }, `${Math.round(num(need.gap) * 100)}`)))))
+                      }))
+                  : h('div', { 'data-fishm-bars': '' }, INNER_DRIVES.map(([key, label]) => h('div', {
+                      'data-fishm-bar': '',
+                      key,
+                    },
+                      h('span', { 'data-fishm-barlabel': '' }, label),
+                      h('span', { 'data-fishm-track': '' },
+                        h('span', { 'data-fishm-fill': '', style: { width: `${Math.max(0, Math.min(100, num(inner.drives && inner.drives[key]) * 100))}%` } })),
+                      h('span', { 'data-fishm-barval': '' }, `${Math.round(num(inner.drives && inner.drives[key]) * 100)}`)))),
+                h('div', { 'data-fishm-note': '' }, '只读。数值是此刻的需要缺口，不是需求条；群聊和好友会话不会拿到只属于主人的由头。'))
             : h('div', { 'data-fishm-note': '' }, '内心层会跟着心情经历和相处空档慢慢长出来。')),
 
         )),

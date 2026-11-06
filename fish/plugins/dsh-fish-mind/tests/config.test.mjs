@@ -18,6 +18,8 @@ test('默认配置是完整功能，权限开着，后台自主关着', () => {
   assert.equal(config.permissions.emergencyStop, false)
   assert.equal(config.permissions.autonomous.enabled, false)
   assert.equal(config.innerLife.inject, true)
+  assert.equal(config.innerLife.baselines.care, 0.60)
+  assert.equal(Object.keys(config.innerLife.baselines).length, 11)
   assert.equal(config.humor.inject, true)
   assert.ok(config.permissions.protectedReadPaths.includes('~/.ssh'))
   assert.ok(config.permissions.protectedReadPaths.some((path) => path.includes('.credentials.yaml')))
@@ -78,6 +80,20 @@ test('幽默层可以单独关掉，坏值退回默认', () => {
   assert.equal(normalizeConfig({ humor: { inject: false } }, { dshHome: home }).humor.inject, false)
   assert.equal(normalizeConfig({ humor: { inject: 'no' } }, { dshHome: home }).humor.inject, true)
   assert.equal(normalizeConfig({ humor: [] }, { dshHome: home }).humor.inject, true)
+})
+
+test('需要基线可以逐项覆盖，坏值退回默认', () => {
+  const home = tempHome()
+  const config = normalizeConfig({
+    innerLife: { baselines: { care: 0.9, curiosity: -1, intimacy: 'no' } },
+  }, { dshHome: home })
+  assert.equal(config.innerLife.baselines.care, 0.9)
+  assert.equal(config.innerLife.baselines.curiosity, 0)
+  assert.equal(config.innerLife.baselines.intimacy, 0.8)
+  const lines = []
+  const bad = normalizeConfig({ innerLife: { baselines: 'nope' } }, { dshHome: home, diag: (line) => lines.push(line) })
+  assert.equal(bad.innerLife.baselines.care, 0.6)
+  assert.ok(lines.some((line) => line.includes('baselines 不是对象')))
 })
 
 test('自定义话术：默认两句，坏值退回默认，多行压成一行', () => {

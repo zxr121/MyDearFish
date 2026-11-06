@@ -216,14 +216,18 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
       const moodLabel = (st && st.moodLabel) || ''
       const hasInner = Boolean(innerAffect && innerAffect.phrase)
       const headline = hasInner ? innerAffect.phrase : (moodLabel || '还没有记录')
-      const urge = inner && Array.isArray(inner.urges) && inner.urges[0] ? inner.urges[0].phrase : ''
+      const needs = inner && Array.isArray(inner.surfaceNeeds) && inner.surfaceNeeds.length > 0
+        ? inner.surfaceNeeds
+        : (inner && Array.isArray(inner.urges) ? inner.urges : [])
+      const needLine = needs.map((need) => need.phrase).join('；')
       const rawCue = inner && inner.cue && inner.cue.text ? inner.cue.text : ''
       // 只被脱敏标记占满的由头没有信息量，不占主卡；长由头压到两行以内。
       const cue = rawCue && !/^\[[^\]]*已隐去\]$/.test(rawCue.trim())
         ? (rawCue.length > 90 ? rawCue.slice(0, 90) + '…' : rawCue)
         : ''
       const family = innerAffect && innerAffect.family ? (FAMILY_LABELS[innerAffect.family] || '') : ''
-      const detail = urge || (st && st.lastReason) || '跟 TA 聊起来就有了'
+      const facetLabel = innerAffect && innerAffect.facetLabel ? innerAffect.facetLabel : ''
+      const detail = needLine || (st && st.lastReason) || '跟 TA 聊起来就有了'
       const baseline = mood != null
         ? `底色 ${mood}${moodLabel ? ' · ' + moodLabel : ''}${st && st.updatedAt ? ' · ' + new Date(st.updatedAt).toLocaleString() : ''}`
         : '还没有心情记录'
@@ -241,7 +245,7 @@ select[data-fm-input]>option{background:var(--dsw-alias-bg-layer-1,#1e1e1e);colo
             h('div', { 'data-fm-kicker': '' }, hasInner ? '此刻 · 鱼脑内心' : '此刻'),
             h('div', { 'data-fm-titlerow': '' },
               h('span', { 'data-fm-title': '' }, headline),
-              family ? h('span', { 'data-fm-chip': '' }, family) : null),
+              family ? h('span', { 'data-fm-chip': '' }, `${family}${facetLabel ? '·' + facetLabel : ''}`) : null),
             h('div', { 'data-fm-detail': '' }, detail),
             cue ? h('div', { 'data-fm-cue': '' }, `心里挂着：${cue}`) : null,
             h('div', { 'data-fm-baseline': '' }, baseline))),

@@ -464,6 +464,8 @@ The existing seven dimensions (happy, calm, sweet, heartache, worry, sad, jealou
 
 ### Seven emotions, six desires, and the urge to confide
 
+> This section records the earlier design; the current implementation extends it into the [unified human model](approach-human-model.md) with core affect, appraisal, twenty-one facets, and eleven needs. The six-desire list below remains as design background.
+
 The classical "seven emotions and six desires" is not a programmable state machine. The Book of Rites lists joy, anger, sorrow, fear, love, dislike, and desire; traditional Chinese medicine lists joy, anger, worry, thought, grief, fear, and fright; the six desires have competing lists, from life, death, ear, eye, mouth, and nose in the Lüshi Chunqiu to later survival, knowledge, expression, recognition, comfort, and sexual desire. Their common point is not "seven switches and six progress bars" but a reminder that behavior is pulled by a set of concerns that change with relationship and situation. My Dear Fish adopts the structure, not any one list.
 
 The implementation has three layers and does not add a second affect system beside the core affect and drives above. The bottom layer is core affect and mood inertia. The middle layer is appraisal, which turns "what does this mean for me" into seven observable tendencies: joy, anger, sorrow, fear, love, dislike, and desire. The top layer is six adapted desires, used as behavioral weights rather than need bars. The seven emotions are labels and expression policies; the six desires weight what to do next. Neither layer decides whether she speaks; context, boundaries, and autonomy still do.

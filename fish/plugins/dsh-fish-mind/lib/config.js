@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 import { DEFAULT_BILI_SHARE, DEFAULT_PRICE, normalizePrice, normalizePriceEntry, officialPrices } from './budget.js'
+import { DEFAULT_NEED_BASELINES } from './human-model.js'
 import { SLEEP_TRANSITIONS } from './sleep.js'
 
 const MODES = new Set(['off', 'shadow', 'live'])
@@ -141,6 +142,8 @@ export function buildDefaults(dshHome) {
     innerLife: {
       inject: true,
       cueThreshold: 0.3,
+      // 十一个需要的个体基线；可以从 config.json 覆盖，设置页不直接改。
+      baselines: { ...DEFAULT_NEED_BASELINES },
     },
     // 幽默层：只在轻松、没有正事和情绪负担的轮次给具体接话动作；
     // 群聊/好友只在对方先开玩笑时给收敛版。
@@ -353,6 +356,15 @@ export function normalizeConfig(raw, { dshHome, diag = () => {} } = {}) {
     const inner = raw.innerLife
     config.innerLife.inject = pickBoolean(inner.inject, config.innerLife.inject)
     config.innerLife.cueThreshold = pickFraction(inner.cueThreshold, config.innerLife.cueThreshold, 0, 1)
+    if (isPlainObject(inner.baselines)) {
+      for (const key of Object.keys(config.innerLife.baselines)) {
+        if (inner.baselines[key] !== undefined) {
+          config.innerLife.baselines[key] = pickFraction(inner.baselines[key], config.innerLife.baselines[key], 0, 1)
+        }
+      }
+    } else if (inner.baselines !== undefined) {
+      diag('config: innerLife.baselines 不是对象，使用默认基线')
+    }
   } else if (raw.innerLife !== undefined) {
     diag('config: innerLife 不是对象，使用默认值')
   }

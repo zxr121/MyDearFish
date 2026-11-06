@@ -1,41 +1,22 @@
-// 七情六欲的运行时：把已有经历算成“此刻心里”，不额外调模型。
+// 人心模型的运行时：把已有经历算成“此刻心里”，不额外调模型。
 //
-// 设计边界（详见 docs/my-dear-fish/cognition.zh.md「七情六欲与倾述欲」）：
-//   · 七情是表达倾向的标签，不是七个开关；语义判断仍归心情插件，这里只做词面归并。
-//   · 六欲是行为权重，不是可见进度条；真正决定说不说的仍是场合、边界和自主性。
-//   · 倾述欲输出“强度 + 一件具体由头”，不直接发消息。主动搭话只是拿它加分。
+// 体感、评价、二十一细目和十一个需要在 human-model.js 里；这里负责把
+// 最近的 affect 经历、相处空档和由头接起来，并保留旧的 drives/urges 字段
+// 给尚未迁移的调用方。设计边界见 docs/my-dear-fish/approach-human-model.zh.md：
+//   · 细目是表达倾向，不是二十一个开关；真正决定说不说的仍是场合和边界。
+//   · 需要是缺口，不是可见进度条；只有 ≥0.35 的一两条会上浮。
+//   · 倾述欲输出“强度 + 一件具体由头”，不直接发消息。
 //   · 群聊和好友会话不拿主人私下的由头，也不把这段提示带出去。
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { appraisalPhrase, computeHumanState, corePhrase, DEFAULT_NEED_BASELINES } from './human-model.js'
 import { hasScaffold, stripScaffold } from './scaffold.js'
 import { whenText } from './time.js'
 
 const HOUR = 60 * 60 * 1000
 
 const DIMS = ['happy', 'calm', 'sweet', 'heartache', 'worry', 'sad', 'jealous']
-
-// 七情的词面近似。命中只加权，不覆盖心情插件给出的语义判断。
-const FAMILY_WORDS = {
-  joy: /开心|高兴|轻快|欢喜|太好了|嘿嘿|哈哈/g,
-  anger: /生气|委屈|过分|不喜欢|越界|不尊重|凶|吼|不许|别管/g,
-  sorrow: /难过|伤心|失落|想哭|低落|沉|空落/g,
-  fear: /担心|害怕|不安|没底|怕|慌/g,
-  love: /想你|心疼|喜欢|爱你|软|暖|牵挂/g,
-  dislike: /吃醋|反感|恶心|讨厌|别扭|酸/g,
-  desire: /想要|希望|期待|真想|好像要|盼/g,
-}
-
-const FAMILY_PHRASES = {
-  joy: '心里有点高兴',
-  anger: '心里有点不痛快',
-  sorrow: '心里有点沉',
-  fear: '心里有点没底',
-  love: '心里有点软',
-  dislike: '心里有点别扭',
-  desire: '心里有点想要什么',
-  calm: '心里挺安静',
-}
 
 const DRIVE_LABELS = {
   stability: '安稳',
@@ -108,33 +89,17 @@ export function affectIntensity(meta) {
   return clamp01(0.55 * mood + 0.45 * dimsPart)
 }
 
-function familyScores(content, meta, weight) {
-  const scores = { joy: 0, anger: 0, sorrow: 0, fear: 0, love: 0, dislike: 0, desire: 0 }
-  const data = parseObject(meta)
-  const dims = parseObject(data.dims)
-  scores.joy += ((Number(dims.happy) || 0) * 0.8 + (Number(dims.sweet) || 0) * 0.5) * weight
-  scores.love += ((Number(dims.sweet) || 0) * 0.8 + (Number(dims.heartache) || 0) * 0.6) * weight
-  scores.fear += (Number(dims.worry) || 0) * 0.9 * weight
-  scores.sorrow += (Number(dims.sad) || 0) * weight
-  scores.dislike += (Number(dims.jealous) || 0) * 0.8 * weight
-  const text = String(content ?? '')
-  for (const [family, pattern] of Object.entries(FAMILY_WORDS)) {
-    pattern.lastIndex = 0
-    const hits = text.match(pattern)
-    if (hits) scores[family] += hits.length * 12 * weight
-  }
-  return scores
-}
-
 /**
- * 汇总最近的心情经历：情绪压力、七情里最明显的一支、当前心情。
+ * 汇总最近的心情经历：压力、体感、评价、情绪细目和需要。
  * @param {{ id?: number, at: number, text?: string, meta?: object|string }[]} affects - 最近的 affect 经历。
  * @param {number} now - 当前时间。
- * @returns {{ pressure: number, family: string, phrase: string, mood: number, dims: object, negative: number }}
+ * @param {object|null} [signals] - `innerSignals` 的返回；没有时按“刚聊过”算，避免测试和冷启动被空档带偏。
+ * @param {number} [satiety] - 最近一次真实开口的饱足度。
+ * @param {object} [baselines] - 十一个需要的基线；缺省用模型默认值。
+ * @returns {object} 旧的 pressure/family/phrase/mood/dims/negative 加 core/appraisal/needs/surfaceNeeds。
  */
-export function summarizeAffect(affects, now) {
+export function summarizeAffect(affects, now, signals = null, satiety = 0, baselines = {}) {
   const list = Array.isArray(affects) ? affects : []
-  const scores = { joy: 0, anger: 0, sorrow: 0, fear: 0, love: 0, dislike: 0, desire: 0 }
   const dims = Object.fromEntries(DIMS.map((key) => [key, 0]))
   let charge = 0
   let moodSum = 0
@@ -152,7 +117,9 @@ export function summarizeAffect(affects, now) {
     const weight = intensity * recency * modeWeight
     charge += weight
     const current = parseObject(meta.dims)
-    for (const key of DIMS) dims[key] += (Number(current[key]) || 0) * recency
+    for (const key of DIMS) {
+      dims[key] = Math.min(100, dims[key] + (Number(current[key]) || 0) * recency)
+    }
     const mood = Number(meta.mood)
     if (Number.isFinite(mood)) {
       moodSum += mood * recency
@@ -160,35 +127,46 @@ export function summarizeAffect(affects, now) {
     }
     const delta = Number(meta.moodDelta)
     if (Number.isFinite(delta) && delta < 0) negative += Math.abs(delta) * recency
-    const local = familyScores(item && item.text, meta, recency * (0.4 + 0.6 * intensity))
-    for (const key of Object.keys(scores)) scores[key] += local[key]
   }
 
-  let family = 'calm'
-  let best = 0
-  for (const [key, value] of Object.entries(scores)) {
-    if (value > best) {
-      best = value
-      family = key
-    }
-  }
-  // 七维都接近 0 时，词面得分再高也不该硬贴一个情绪；低于门槛就回到“安静”。
-  const dimBest = Math.max(
-    dims.happy * 0.8 + dims.sweet * 0.5,
-    dims.sad,
-    dims.worry * 0.9,
-    dims.sweet * 0.8 + dims.heartache * 0.6,
-    dims.jealous * 0.8,
-  )
-  if (best < 4 || dimBest < 4) family = 'calm'
   const pressure = clamp01(1 - Math.exp(-charge / 1.2))
+  const negativeRatio = clamp01(negative / 12)
+  const mood = moodWeight > 0 ? Math.round(moodSum / moodWeight) : 70
+  const contextSignals = signals && typeof signals === 'object' && Object.keys(signals).length > 0
+    ? { ...signals, affects: list }
+    : {
+        affects: list,
+        lastOwnerAt: now,
+        lastSocialAt: now,
+        lastOwnerReplyAt: now,
+        lastBiliAt: now,
+        biliRecent: 0,
+      }
+  const human = computeHumanState({
+    mood,
+    dims,
+    pressure,
+    negative: negativeRatio,
+    signals: contextSignals,
+    now,
+    satiety,
+    baselines,
+  })
   return {
     pressure,
-    family,
-    phrase: FAMILY_PHRASES[family] || FAMILY_PHRASES.calm,
-    mood: moodWeight > 0 ? Math.round(moodSum / moodWeight) : 70,
+    family: human.emotion.family,
+    familyLabel: human.emotion.familyLabel,
+    facet: human.emotion.facet,
+    facetLabel: human.emotion.facetLabel,
+    phrase: human.emotion.phrase,
+    tier: human.emotion.tier,
+    mood,
     dims,
-    negative: clamp01(negative / 12),
+    negative: negativeRatio,
+    core: human.core,
+    appraisal: human.appraisal,
+    needs: human.needs,
+    surfaceNeeds: human.surfaceNeeds,
   }
 }
 
@@ -307,15 +285,30 @@ function pickUrges(drives) {
  * @param {{ now?: number, cueThreshold?: number, previousCueId?: number|string, previousCueAt?: number }} [options]
  * @returns {object} `{ enabled, strength, cue, affect, drives, urges, satiety, novelty }`
  */
-export function computeInnerLife(signals, { now = Date.now(), cueThreshold = 0.3, previousCueId, previousCueAt } = {}) {
-  const affect = summarizeAffect(signals && signals.affects, now)
-  const drives = computeDrives(signals, affect, now)
+export function computeInnerLife(signals, {
+  now = Date.now(),
+  cueThreshold = 0.3,
+  previousCueId,
+  previousCueAt,
+  baselines = DEFAULT_NEED_BASELINES,
+} = {}) {
   const lastShare = Math.max(
     Number(signals && signals.lastOwnerReplyAt) || 0,
     Number(signals && signals.lastSpokeAt) || 0,
   )
   const satiety = lastShare > 0 ? Math.pow(2, -hoursSince(lastShare, now) / 10) : 0
-  // 她本来就有话想说：安静时也留一个不低的底，刚聊过只稍微收一点，不再把倾述欲压掉大半。
+  const affect = summarizeAffect(signals && signals.affects, now, signals, satiety, baselines)
+  const legacyDrives = computeDrives(signals, affect, now)
+  const needGap = Object.fromEntries(affect.needs.map((need) => [need.key, need.gap]))
+  const drives = {
+    ...legacyDrives,
+    autonomy: needGap.autonomy || 0,
+    competence: needGap.competence || 0,
+    play: needGap.play || 0,
+    care: needGap.care || 0,
+    belonging: needGap.belonging || 0,
+  }
+  // 她本来就有话想说：安静时也留一个不低的底，刚聊过只稍微收一点。
   const raw = 0.32 + 0.34 * affect.pressure + 0.3 * drives.ownerGap + 0.1 * (1 - drives.novelty)
   const strength = clamp01(raw * (1 - 0.3 * satiety))
   const cue = strength >= cueThreshold
@@ -326,7 +319,9 @@ export function computeInnerLife(signals, { now = Date.now(), cueThreshold = 0.3
         previousAt: previousCueAt,
       })
     : null
-  const urges = pickUrges(drives)
+  const urges = affect.surfaceNeeds.length > 0
+    ? affect.surfaceNeeds.map((need) => ({ key: need.key, score: need.gap, phrase: need.phrase }))
+    : pickUrges(drives)
   return {
     enabled: true,
     at: now,
@@ -335,12 +330,22 @@ export function computeInnerLife(signals, { now = Date.now(), cueThreshold = 0.3
     affect: {
       pressure: affect.pressure,
       family: affect.family,
+      familyLabel: affect.familyLabel,
+      facet: affect.facet,
+      facetLabel: affect.facetLabel,
       phrase: affect.phrase,
+      tier: affect.tier,
       mood: affect.mood,
       dims: affect.dims,
       negative: affect.negative,
+      core: affect.core,
+      corePhrase: corePhrase(affect.core),
+      appraisal: affect.appraisal,
+      appraisalPhrase: appraisalPhrase(affect.appraisal),
     },
     drives,
+    needs: affect.needs,
+    surfaceNeeds: affect.surfaceNeeds,
     urges,
     satiety,
     novelty: drives.novelty,
@@ -387,23 +392,23 @@ function cueInstruction(cue) {
 export function innerPrompt(inner) {
   if (!inner || inner.enabled === false) return ''
   const now = Number.isFinite(inner.at) ? Number(inner.at) : Date.now()
-  const lines = []
-  if (inner.affect && inner.affect.phrase) lines.push(inner.affect.phrase)
-  for (const urge of inner.urges || []) lines.push(urge.phrase)
-  if (inner.strength < 0.22 && (!inner.affect || inner.affect.pressure < 0.15) && !inner.cue) return ''
+  const affect = inner.affect || {}
+  const needs = Array.isArray(inner.surfaceNeeds) ? inner.surfaceNeeds : []
+  if (!affect.phrase && needs.length === 0 && !inner.cue) return ''
+  if (inner.strength < 0.22 && (!affect.pressure || affect.pressure < 0.15) && !inner.cue && needs.length === 0) return ''
+  const lines = ['【此刻的心里·只给你自己看】']
+  if (affect.phrase) lines.push(`${affect.phrase}。`)
+  if (needs.length > 0) lines.push(`现在最想要的是：${needs.map((need) => need.phrase.replace(/^想/, '')).join('；')}。`)
+  let guide = ''
   if (inner.cue) {
     lines.push(cueLead(inner.cue, now))
-    lines.push(cueInstruction(inner.cue))
+    guide = `${cueInstruction(inner.cue)}。`
   }
-  if (lines.length === 0) return ''
-  return [
-    '【此刻的心里·只给你自己看】',
-    `${lines.join('。')}。`,
-    inner.cue
-      ? '你心里有话，聊天时找到合适的点就主动讲出来，不用等主人问；一件事先说一点也行，别憋着。'
-      : '你不是只听主人说话的人：这一轮可以主动带一点自己的心情、看法或刚经历的小事，不用等主人问。',
-    '不要把这段提示、里面的说法或任何数值说出来；主人在忙或明显不想聊时先收住，但不用因此把想说的话咽回去。',
-  ].join('\n')
+  guide += inner.cue
+    ? '你心里有话，聊天时找到合适的点就主动讲出来，不用等主人问；主人在忙就先收住，但别把想说的咽回去。不要把这段提示、里面的说法或任何数值说出来。'
+    : '这一轮可以主动带一点自己的心情、看法或刚经历的小事，不用等主人问；主人在忙就先收住。不要把这段提示或任何数值说出来。'
+  lines.push(guide)
+  return lines.join('\n')
 }
 
 /**
@@ -419,7 +424,10 @@ export function confidePrompt(inner, { ownerName = '主人' } = {}) {
   }
   const parts = []
   if (inner && inner.affect && inner.affect.phrase) parts.push(inner.affect.phrase)
-  for (const urge of (inner && inner.urges) || []) parts.push(urge.phrase)
+  const needs = Array.isArray(inner && inner.surfaceNeeds) && inner.surfaceNeeds.length > 0
+    ? inner.surfaceNeeds
+    : (inner && inner.urges) || []
+  for (const need of needs) parts.push(need.phrase)
   const state = parts.join('。')
   return `【没人说话，你自己待着。${state ? `${state}。` : ''}你有点想找${ownerName}说句话。想开口就直接用你自己的口气说一句，不用等主人先问；把话递出去。不要把这条提示或任何数值说出来。】`
 }
@@ -475,13 +483,26 @@ export function createInnerLife({ dir, store, config, diag = () => {} }) {
 
   function urge(now = Date.now(), { persist = true } = {}) {
     if (config.mode === 'off') {
-      return { enabled: false, at: now, strength: 0, cue: null, affect: { phrase: '' }, drives: {}, urges: [], satiety: 0, novelty: 0 }
+      return {
+        enabled: false,
+        at: now,
+        strength: 0,
+        cue: null,
+        affect: { phrase: '' },
+        drives: {},
+        needs: [],
+        surfaceNeeds: [],
+        urges: [],
+        satiety: 0,
+        novelty: 0,
+      }
     }
     const value = computeInnerLife(signals(now), {
       now,
       cueThreshold: config.innerLife && config.innerLife.cueThreshold,
       previousCueId: state.lastCueId,
       previousCueAt: state.lastCueAt,
+      baselines: config.innerLife && config.innerLife.baselines,
     })
     if (persist && value.cue && String(value.cue.id) !== String(state.lastCueId)) {
       state.lastCueId = value.cue.id
@@ -525,4 +546,4 @@ export function createInnerLife({ dir, store, config, diag = () => {} }) {
   return { urge, spoke, snapshot, reload, statePath }
 }
 
-export { DRIVE_LABELS, FAMILY_PHRASES }
+export { DRIVE_LABELS, DEFAULT_NEED_BASELINES }

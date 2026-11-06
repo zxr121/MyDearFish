@@ -13,6 +13,7 @@ import {
   selectCue,
   summarizeAffect,
 } from '../lib/inner-life.js'
+import { FACETS, NEEDS } from '../lib/human-model.js'
 import { openStore } from '../lib/store.js'
 
 const HOUR = 60 * 60 * 1000
@@ -52,9 +53,14 @@ test('心情强度把心情变化和七维变化合成到 0 到 1', () => {
 test('最近的强烈心情归到最明显的一支，过期和空心情回到安静', () => {
   const strong = summarizeAffect([chargedAffect()], NOW)
   assert.equal(strong.family, 'sorrow')
-  assert.equal(strong.phrase, '心里有点沉')
+  assert.equal(strong.facet, 'disappointment')
+  assert.equal(strong.phrase, '心里空了一大块')
   assert.ok(strong.pressure > 0.3)
   assert.ok(strong.negative > 0)
+  assert.equal(strong.needs.length, 11)
+  assert.ok(strong.surfaceNeeds.length <= 2)
+  assert.ok(strong.core.pleasure >= 0 && strong.core.pleasure <= 1)
+  assert.ok(strong.appraisal.congruence >= 0 && strong.appraisal.congruence <= 1)
 
   const expired = summarizeAffect([chargedAffect(NOW - 80 * HOUR)], NOW)
   assert.equal(expired.family, 'calm')
@@ -62,8 +68,56 @@ test('最近的强烈心情归到最明显的一支，过期和空心情回到�
 
   const empty = summarizeAffect([], NOW)
   assert.equal(empty.family, 'calm')
+  assert.equal(empty.phrase, '心里挺安静')
   assert.equal(empty.pressure, 0)
   assert.equal(empty.mood, 70)
+  assert.equal(empty.needs.length, 11)
+})
+
+test('七类各三个细目、十一个需要，都是模型里写死的可观察项', () => {
+  assert.equal(Object.keys(FACETS).length, 7)
+  for (const family of Object.values(FACETS)) {
+    assert.equal(family.items.length, 3)
+    for (const item of family.items) {
+      assert.ok(item.mild.length > 0)
+      assert.ok(item.strong.length > 0)
+    }
+  }
+  assert.equal(NEEDS.length, 11)
+  assert.equal(new Set(NEEDS.map((need) => need.key)).size, 11)
+})
+
+test('照顾是机会型需要：主人露出疲惫时上浮，照顾过就回落', () => {
+  const base = {
+    ...calmSignals(),
+    lastOwnerAt: NOW - HOUR,
+    lastOwnerReplyAt: NOW - 3 * HOUR,
+    lastSpokeAt: 0,
+    affects: [],
+    cues: [{
+      id: 21,
+      at: NOW - 2 * HOUR,
+      kind: 'user',
+      source: 'user',
+      salience: 0.8,
+      text: '主人今天加班到很晚，累得不想说话',
+    }],
+  }
+  const before = computeInnerLife(base, { now: NOW })
+  assert.ok(before.surfaceNeeds.some((need) => need.key === 'care'), JSON.stringify(before.surfaceNeeds))
+
+  const after = computeInnerLife({ ...base, lastOwnerReplyAt: NOW - HOUR, lastSpokeAt: NOW - HOUR }, { now: NOW })
+  const care = after.needs.find((need) => need.key === 'care')
+  assert.ok(care.gap < 0.2, `照顾后缺口应回落，实际 ${care.gap}`)
+})
+
+test('需要基线可以从外面覆盖；覆盖成 0 就不再抢镜头', () => {
+  const quiet = computeInnerLife(
+    { ...calmSignals(), lastOwnerAt: NOW - 30 * HOUR, lastOwnerReplyAt: NOW - 30 * HOUR, biliRecent: 0 },
+    { now: NOW, baselines: { curiosity: 0, recognition: 0, intimacy: 0 } },
+  )
+  assert.equal(quiet.needs.find((need) => need.key === 'curiosity').gap, 0)
+  assert.ok(!quiet.surfaceNeeds.some((need) => need.key === 'curiosity'))
 })
 
 test('没有七维证据时，单靠词面命中不硬贴七情标签', () => {
