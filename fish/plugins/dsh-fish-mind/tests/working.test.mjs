@@ -33,6 +33,18 @@ test('短期窗口按时间正序，并在字数不够时先丢最旧的', () =>
   assert.ok(!tight.includes('甲'))
 })
 
+test('短期窗口的行首用今天、昨天说时间，告诉模型这是发生时间', () => {
+  const now = new Date(2026, 10, 6, 15, 30).getTime()
+  const text = shorttermText([
+    { at: new Date(2026, 10, 5, 22, 30).getTime(), role: 'user', text: '昨晚说到哪了' },
+    { at: new Date(2026, 10, 6, 15, 20).getTime(), role: 'assistant', text: '说到周末去海边' },
+  ], { now })
+  assert.ok(text.includes('昨天 22:30 主人：昨晚说到哪了'))
+  assert.ok(text.includes('今天 15:20 我：说到周末去海边'))
+  assert.match(text, /最近一小时/)
+  assert.match(text, /行首的今天\/昨天是发生时间/)
+})
+
 test('单条原文只留一小截，短期层不放逐字稿', () => {
   const long = '啊'.repeat(400)
   const text = shorttermText([{ at: BASE, role: 'user', text: long }])
@@ -142,6 +154,16 @@ test('提炼提示带上已记住的事实和对话原文', () => {
   assert.match(prompt.system, /别把主人的名字写成大肥鱼的称呼/)
   assert.ok(prompt.user.includes('主人 · 昵称 · EMT'))
   assert.ok(prompt.user.includes('第 1 句'))
+})
+
+test('提炼也看得见句话发生在昨天，并要求事件类事实保留日期', () => {
+  const now = new Date(2026, 10, 6, 15, 30).getTime()
+  const prompt = extractionPrompt([
+    { at: new Date(2026, 10, 5, 22, 30).getTime(), role: 'user', actor: 'owner', source: 'user', text: '我昨天去看了牙医' },
+  ], { now })
+  assert.ok(prompt.user.includes('昨天 22:30 主人：我昨天去看了牙医'))
+  assert.match(prompt.system, /行首是那句话发生的时间/)
+  assert.match(prompt.system, /别把昨天的事写成今天或最近/)
 })
 
 test('提炼按来源标说话人：群友、好友不是主人，主动搭话的脚手架整行不进去', () => {

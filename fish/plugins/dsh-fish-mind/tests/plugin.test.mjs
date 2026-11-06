@@ -1073,7 +1073,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   await ctx.emit('agent/created', { agent })
   assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const names = harness.contexts.map((entry) => entry.name)
-  for (const name of ['fish-mind-workspace', 'fish-mind-commitments', 'fish-mind-shortterm', 'fish-mind-rest', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
+  for (const name of ['fish-mind-time', 'fish-mind-workspace', 'fish-mind-commitments', 'fish-mind-shortterm', 'fish-mind-rest', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
     assert.ok(names.includes(name), name)
   }
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))

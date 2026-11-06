@@ -415,6 +415,53 @@ test('时间窗识别昨天、上周和具体日期', () => {
   assert.equal(parseTimeWindow('随便聊聊', now), null)
 })
 
+test('昨晚、今晚、大前天和刚才都能变成时间窗', () => {
+  const now = new Date(2026, 10, 6, 0, 30).getTime()
+  const tonight = parseTimeWindow('今晚聊的那个', now)
+  assert.equal(tonight.label, '今天')
+  assert.ok(tonight.start <= now && tonight.end > now)
+  const lastNight = parseTimeWindow('昨晚说的', now)
+  assert.equal(lastNight.label, '昨晚')
+  assert.equal(new Date(lastNight.start).getDate(), 5)
+  const before = parseTimeWindow('大前天', now)
+  assert.equal(before.label, '大前天')
+  assert.equal(new Date(before.start).getDate(), 3)
+  const justNow = parseTimeWindow('刚才那句', now)
+  assert.equal(justNow.label, '刚才')
+  assert.ok(now - justNow.start <= 2 * 60 * 60 * 1000 + 1)
+})
+
+test('上次说话跳过提示和心情快照，社交房间只看自己这间屋', () => {
+  const { store } = tempStore()
+  const now = new Date(2026, 10, 6, 15, 30).getTime()
+  const hour = 60 * 60 * 1000
+  store.insert(record('昨晚在桌面说的话', { sessionId: 'session-desktop', seq: 1, at: now - 18 * hour }))
+  store.insert(record('昨晚她回的话', {
+    sessionId: 'session-desktop', seq: 2, at: now - 18 * hour + 60_000,
+    kind: 'assistant', role: 'assistant', source: 'model',
+  }))
+  store.insert(record('（我自己主动开的口）', {
+    sessionId: 'session-desktop', seq: 3, at: now - 20 * 60_000,
+    kind: 'proactive', role: 'user', source: 'speak-up',
+  }))
+  store.insert(record('群里的一句话', {
+    sessionId: 'session-qq-social-group-7', seq: 1, at: now - 10 * 60_000,
+    kind: 'qq-group', role: 'user', source: 'qq-group',
+  }))
+  store.insert(record('分线里的另一句', {
+    sessionId: 'session-qq-social-group-7-p2', seq: 1, at: now - 5 * 60_000,
+    kind: 'qq-group', role: 'user', source: 'qq-group',
+  }))
+
+  const owner = store.lastExchange({ scope: 'owner', before: now })
+  assert.equal(owner.at, now - 18 * hour + 60_000, '主人时间线不夹带群聊，也不把主动搭话提示当上一句')
+  const room = store.lastExchange({ scope: 'room', sessionId: 'session-qq-social-group-7', before: now })
+  assert.equal(room.at, now - 5 * 60_000, '分线和主屋算同一间')
+  assert.equal(room.kind, 'qq-group')
+  assert.equal(store.lastExchange({ scope: 'owner', before: now - 18 * hour }), null, '截止时间之前没有更早的话')
+  store.close()
+})
+
 test('会话摘要按最近活动倒序，空会话不出现', () => {
   const { store } = tempStore()
   const now = Date.now()

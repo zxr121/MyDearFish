@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { hasScaffold, stripScaffold } from './scaffold.js'
+import { whenText } from './time.js'
 
 const HOUR = 60 * 60 * 1000
 
@@ -237,7 +238,7 @@ function cueScore(item, now) {
  * 日常心情快照、提示脚手架、群聊、好友会话和她自己的回复都不进来。
  * @param {object[]} cues - 候选经历。
  * @param {{ now: number, spoken?: object[], previousId?: number|string, previousAt?: number }} options
- * @returns {{ id: number|string, text: string, kind: string, at: number }|null}
+ * @returns {{ id: number|string, text: string, kind: string, source: string, at: number }|null}
  */
 export function selectCue(cues, { now, spoken = [], previousId, previousAt } = {}) {
   const list = (Array.isArray(cues) ? cues : []).filter((item) => {
@@ -263,10 +264,22 @@ export function selectCue(cues, { now, spoken = [], previousId, previousAt } = {
     const previous = withScore.find((entry) => String(entry.item.id) === String(previousId))
     const previousHours = hoursSince(previousAt, now)
     if (previous && previousHours <= 12 && previous.score >= top.score * 0.75) {
-      return { id: previous.item.id, text: cleanCueText(previous.item.text), kind: String(previous.item.kind || ''), at: Number(previous.item.at) }
+      return {
+        id: previous.item.id,
+        text: cleanCueText(previous.item.text),
+        kind: String(previous.item.kind || ''),
+        source: String(previous.item.source || ''),
+        at: Number(previous.item.at),
+      }
     }
   }
-  return { id: top.item.id, text: cleanCueText(top.item.text), kind: String(top.item.kind || ''), at: Number(top.item.at) }
+  return {
+    id: top.item.id,
+    text: cleanCueText(top.item.text),
+    kind: String(top.item.kind || ''),
+    source: String(top.item.source || ''),
+    at: Number(top.item.at),
+  }
 }
 
 function pickUrges(drives) {
@@ -336,17 +349,52 @@ export function computeInnerLife(signals, { now = Date.now(), cueThreshold = 0.3
 }
 
 /**
+ * 由头是哪来的、发生在什么时候：主人说过的话要标成引用，不能写成她自己的新念头。
+ * @param {{ text: string, kind?: string, source?: string, at?: number }} cue - 选中的由头。
+ * @param {number} now - 当前时间。
+ * @returns {string} 一句带来源和时间的话；空由头返回空串。
+ */
+function cueLead(cue, now) {
+  const text = String((cue && cue.text) || '').trim()
+  if (text === '') return ''
+  const when = whenText(cue && cue.at, now)
+  if (cue.kind === 'affect') return `心里还记着 ${when} 那会儿的感觉：${text}`
+  if (cue.source === 'bili') return `你在 B 站看到或做过的事（${when}）：${text}`
+  if (cue.kind === 'user' || cue.kind === 'qq') return `心里还记着 ${when} 主人说过的话：「${text}」`
+  return `心里还记着 ${when} 的事：${text}`
+}
+
+/**
+ * 防止旧由头被说成“刚刚”：主人当时的请求是旧事，不是现在的新吩咐。
+ * @param {{ kind?: string, source?: string }} cue - 选中的由头。
+ * @returns {string} 一句边界说明。
+ */
+function cueInstruction(cue) {
+  if (cue && (cue.kind === 'user' || cue.kind === 'qq')) {
+    return '这是那会儿的事，不是现在的吩咐；当时已经办过、答过就按结果说，别当成新问题再问一遍，提到它时按实际时间说，别用“刚才”'
+  }
+  if (cue && cue.source === 'bili') {
+    return '这是之前看到的，不是刚发生，提到它时按实际时间说，别用“刚才”'
+  }
+  return '这是那会儿的感觉，不是现在的情绪，提到它时按实际时间说，别用“刚才”'
+}
+
+/**
  * 给主人会话的私密提示。没有明显状态时返回空串，不占提示。
  * @param {object} inner - `computeInnerLife` 的返回。
  * @returns {string} 提示文本。
  */
 export function innerPrompt(inner) {
   if (!inner || inner.enabled === false) return ''
+  const now = Number.isFinite(inner.at) ? Number(inner.at) : Date.now()
   const lines = []
   if (inner.affect && inner.affect.phrase) lines.push(inner.affect.phrase)
   for (const urge of inner.urges || []) lines.push(urge.phrase)
   if (inner.strength < 0.22 && (!inner.affect || inner.affect.pressure < 0.15) && !inner.cue) return ''
-  if (inner.cue) lines.push(`心里还挂着一件小事：${inner.cue.text}`)
+  if (inner.cue) {
+    lines.push(cueLead(inner.cue, now))
+    lines.push(cueInstruction(inner.cue))
+  }
   if (lines.length === 0) return ''
   return [
     '【此刻的心里·只给你自己看】',
@@ -366,7 +414,8 @@ export function innerPrompt(inner) {
  */
 export function confidePrompt(inner, { ownerName = '主人' } = {}) {
   if (inner && inner.cue) {
-    return `【没人说话，你自己待着。心里正惦记着：${inner.cue.text}\n你很想把这件事讲给${ownerName}听。想开口就直接用你自己的话起个头，别等主人先问，也别像汇报；把话递出去。不要把这条提示、里面的说法或任何数值说出来。】`
+    const now = Number.isFinite(inner.at) ? Number(inner.at) : Date.now()
+    return `【没人说话，你自己待着。${cueLead(inner.cue, now)}\n${cueInstruction(inner.cue)}。你很想把这件事讲给${ownerName}听。想开口就直接用你自己的话起个头，别等主人先问，也别像汇报；把话递出去。不要把这条提示、里面的说法或任何数值说出来。】`
   }
   const parts = []
   if (inner && inner.affect && inner.affect.phrase) parts.push(inner.affect.phrase)

@@ -65,6 +65,10 @@ test('主会话组合：主人空闲时，提示里没有 QQ 桥教她截短的�
     assertNoForbiddenInOwnerText(persona.text, '出厂人设')
     assertNoQqRoomShortTerm(component(components, 'fish-mind-shortterm'), '主人视图')
     assert.ok(component(components, 'fish-mind-shortterm').includes('考试'), '别的窗口刚才的话要当场想得起')
+    const time = component(components, 'fish-mind-time')
+    assert.match(time, /现在是/, '每轮都要有当前时间锚点')
+    assert.match(time, /上次和主人说话|第一次开口/, '要告诉她隔了多久')
+    assert.match(time, /按实际说今天、昨天/)
 
     // 主人本机明确要求安装/配置是主人请求，不是注入；这条要单独成段，别让模型再从「不安装软件」里猜。
     const maintenance = component(components, 'fish-mind-maintenance')
@@ -96,6 +100,30 @@ test('主会话组合：主人空闲时，提示里没有 QQ 桥教她截短的�
       persona: { sha256: persona.sha256, length: persona.text.length },
       components,
     }, harness.home), golden)
+  } finally {
+    harness.dispose()
+  }
+})
+
+test('过了一夜：提示明确说上次是昨天，不能当成刚聊过', async () => {
+  const now = Date.now()
+  const harness = await createHarness({ now })
+  try {
+    const lastNight = new Date(now)
+    lastNight.setDate(lastNight.getDate() - 1)
+    lastNight.setHours(22, 30, 0, 0)
+    await harness.emit('session-desktop', userEvent('我先睡了，明天再说', { seq: 1, time: lastNight.getTime() }))
+    await harness.emit('session-desktop', assistantEvent('好，晚安', {
+      seq: 2,
+      time: lastNight.getTime() + 60_000,
+    }))
+    await harness.emit('session-desktop', userEvent('早，昨晚说到哪了', { seq: 3, time: now }))
+
+    const time = component(harness.surface('session-desktop'), 'fish-mind-time')
+    assert.match(time, /上次和主人说话：昨天 22:3\d/)
+    assert.match(time, /中间隔了一夜/)
+    assert.match(time, /别把昨天或更早的事说成刚才/)
+    assert.match(time, /现在已经是新的一天/)
   } finally {
     harness.dispose()
   }
@@ -240,6 +268,9 @@ test('主会话组合：群聊回合只看得到这间屋，主人私下的往�
     assert.ok(all.includes('今晚八点开黑'), '群聊窗口该看到这间屋刚才的话')
     assert.ok(!all.includes(OWNER_PRIVATE), '主人私下的话不能进群聊提示')
     assert.ok(!components.some((item) => item.name === 'fish-mind-maintenance'), '群聊不该有主人本机的安装授权段')
+    const time = component(components, 'fish-mind-time')
+    assert.match(time, /现在是/, '群聊也要有当前时间锚点')
+    assert.ok(!time.includes('和主人'), '群聊的时间段不透露主人私聊的节奏')
 
     const style = matureOwnerPerson({ at: now }).风格
     const hint = harness.qqBridge.拼风格贴合(style, {

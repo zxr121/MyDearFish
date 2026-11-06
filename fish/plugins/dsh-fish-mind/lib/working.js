@@ -4,6 +4,8 @@
 // 把最近若干条拼成一段提示、判断什么时候该提炼、把模型给的事实句子收干净。
 // 纯函数，不碰 fs 和 sqlite，方便单测。
 
+import { whenText } from './time.js'
+
 const ROLE_LABEL = { user: '主人', assistant: '我' }
 const ACTOR_LABEL = { owner: '主人', guest: '群友', friend: '好友', fish: '我', plugin: '旁白', memory: '旁白', system: '旁白' }
 
@@ -31,27 +33,22 @@ function extractionLabel(row) {
 /** 一条短期原文最多带多少字：这是“刚聊过”，不是逐字稿。 */
 const ROW_CHARS = 240
 
-function shortWhen(at) {
-  const date = new Date(Number(at))
-  if (Number.isNaN(date.getTime())) return '时间不详'
-  const pad = (value) => String(value).padStart(2, '0')
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
 /**
  * 拼出【刚才在聊的】那一段。
  * 空窗口返回空串——不留一段“什么都没有”的话占预算。
  * @param {{ at: number, role: string, text: string }[]} rows - 正序的短期窗口。
- * @param {{ chars?: number, social?: boolean }} [options] - 整段字数上限，超出时从最旧的开始丢；
- *   social 表示 QQ 群/好友会话，正文里已经带说话人，不再套“主人/我”的标签。
+ * @param {{ chars?: number, social?: boolean, now?: number }} [options] - 整段字数上限，超出时从最旧的开始丢；
+ *   social 表示 QQ 群/好友会话，正文里已经带说话人，不再套“主人/我”的标签；
+ *   now 用来把时间戳写成“今天/昨天”，默认当前时间。
  * @returns {string}
  */
 export function shorttermText(rows, options = {}) {
   if (!Array.isArray(rows) || rows.length === 0) return ''
   const social = options.social === true
+  const now = Number.isFinite(options.now) ? Number(options.now) : Date.now()
   const header = social
-    ? '【刚才在 QQ 上聊的·短期记忆】\n下面是这间群/好友会话最近说过的话，都是你当时看到或听到的：直接当成上下文用，不必向对方复述“我记得”。每行开头是谁的名字，就是谁说的。'
-    : '【刚才在聊的·短期记忆】\n下面是最近这些对话的原话，可能来自别的会话窗口：它们就是你刚从眼前的事，直接当成上下文用，不必向主人复述“我记得日志里写着”。'
+    ? '【刚才在 QQ 上聊的·短期记忆】\n下面是这间群/好友会话最近一小时说过的话，都是你当时看到或听到的：直接当成上下文用，不必向对方复述“我记得”。每行开头是谁的名字，就是谁说的；行首的今天/昨天是发生时间。'
+    : '【刚才在聊的·短期记忆】\n下面是最近一小时这些对话的原话，可能来自别的会话窗口：它们就是你刚从眼前的事，直接当成上下文用，不必向主人复述“我记得日志里写着”。行首的今天/昨天是发生时间。'
   const max = Math.max(60, Number(options.chars) || 1200) - header.length - 1
   const lines = []
   let used = 0
@@ -70,8 +67,8 @@ export function shorttermText(rows, options = {}) {
       ? clipped.split(/\r?\n/).map((句) => 句.replace(/\s+/g, ' ').trim()).filter(Boolean)
       : [clipped.replace(/\s+/g, ' ').trim()]
     const rendered = 句们.map((句) => social
-      ? `${shortWhen(row && row.at)} ${label}${句}`
-      : `${shortWhen(row && row.at)} ${label}：${句}`)
+      ? `${whenText(row && row.at, now)} ${label}${句}`
+      : `${whenText(row && row.at, now)} ${label}：${句}`)
     if (rendered.length === 0) continue
     const 增 = rendered.reduce((sum, line) => sum + line.length, 0)
     if (used + 增 > max) break
@@ -120,18 +117,20 @@ export function planConsolidation(rows, options = {}) {
 /**
  * 提炼用的提示词。只准她记“关于人和关系的事实”，并且明确把秘密和闲聊挡在外面。
  * @param {{ at: number, role: string, actor?: string, source?: string, text: string }[]} rows - 待提炼窗口。
- * @param {{ knownFacts?: { subject: string, predicate: string, object: string }[], maxFacts?: number }} [options]
+ * @param {{ knownFacts?: { subject: string, predicate: string, object: string }[], maxFacts?: number, now?: number }} [options]
+ *   行首用相对日期告诉模型“这是昨天/今天发生的事”。
  * @returns {{ system: string, user: string }}
  */
 export function extractionPrompt(rows, options = {}) {
   const max = Math.min(Math.max(1, Number(options.maxFacts) || 8), 20)
   const known = Array.isArray(options.knownFacts) ? options.knownFacts : []
+  const now = Number.isFinite(options.now) ? Number(options.now) : Date.now()
   const transcript = rows.map((row) => {
     const label = extractionLabel(row)
     if (label === '') return ''
     const text = String((row && row.text) ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)
     if (text === '') return ''
-    return `${shortWhen(row && row.at)} ${label}：${text}`
+    return `${whenText(row && row.at, now)} ${label}：${text}`
   }).filter(Boolean).join('\n')
   const knownText = known.length === 0
     ? '（还没有记住过任何事实）'
@@ -143,6 +142,7 @@ export function extractionPrompt(rows, options = {}) {
       '行首标签是谁说的：「主人」只有一个人，就是她自己的主人；「群友」「好友」是别人，「我」是大肥鱼自己。',
       '群友和好友不是主人：别把他们的话记成主人说的，也别把主人的名字、昵称写成对他们的称呼，更别把主人的名字写成大肥鱼的称呼。',
       '不整理：闲聊的玩笑、一次性的任务细节、你的猜测、你没听说过的事。',
+      '行首是那句话发生的时间。只在那天成立的事（去了哪里、做了什么、哪天有事）把日期写进 object，例如「11月5日晚上去了医院」；长期有效的喜好、身份和关系不用带日期。别把昨天的事写成今天或最近。',
       '密码、密钥、令牌、余额、住址这类私密内容一律不写，宁可少写。',
       '只输出 JSON 数组，不要解释、不要代码块。每项形如',
       '{"subject":"主人","predicate":"昵称","object":"EMT","confidence":0.9}',

@@ -207,7 +207,28 @@ test('倾述欲有稳定底子，安静时也不低，久没说话又有心事�
   assert.match(prompt, /海边那件事/)
   assert.match(prompt, /不要.*说出来/)
   assert.match(prompt, /不用等主人问/)
-  assert.doesNotMatch(prompt, /\d/)
+  assert.match(prompt, /今天 \d{2}:\d{2} 那会儿的感觉/, '由头要带发生时间')
+  assert.doesNotMatch(prompt, /倾述欲|六欲|强度是|权重/)
+})
+
+test('主人说过的旧话不能写成她心里的新任务，要带时间和引用', () => {
+  const inner = computeInnerLife(
+    {
+      ...calmSignals(),
+      lastOwnerAt: NOW - 26 * HOUR,
+      lastOwnerReplyAt: NOW - 26 * HOUR,
+      biliRecent: 0,
+      cues: [{ id: 9, at: NOW - 26 * HOUR, text: '帮我查一下今天上海的天气', kind: 'user', source: 'user', salience: 0.9 }],
+    },
+    { now: NOW },
+  )
+  assert.ok(inner.cue, '主人说过的话仍可以作为由头')
+  const prompt = innerPrompt(inner)
+  assert.match(prompt, /主人说过的话：「帮我查一下今天上海的天气」/)
+  assert.match(prompt, /昨天 \d{2}:\d{2}/)
+  assert.match(prompt, /不是现在的吩咐/)
+  assert.match(prompt, /办过、答过就按结果说/)
+  assert.doesNotMatch(prompt, /心里还挂着一件小事：帮我查/)
 })
 
 test('刚开口过会压低倾述欲；没到门槛时不挑由头', () => {
@@ -249,7 +270,8 @@ test('开口提示用由头替换固定文案，也不报数值', () => {
   assert.match(text, /阿岚/)
   assert.match(text, /想开口就直接/)
   assert.match(text, /别等主人先问/)
-  assert.doesNotMatch(text, /\d/)
+  assert.match(text, /今天 \d{2}:\d{2}/, '开口由头也带发生时间')
+  assert.doesNotMatch(text, /倾述欲|六欲|强度是|权重/)
 
   const fallback = confidePrompt({ affect: { phrase: '心里有点沉' }, urges: [{ phrase: '想跟主人单独待一会儿' }], cue: null })
   assert.match(fallback, /心里有点沉/)

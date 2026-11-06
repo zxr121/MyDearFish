@@ -433,6 +433,12 @@ export function normalizeSurface(value, home) {
       .replace(/\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?/g, '<when>')
       .replace(/\b\d{4}-\d{2}-\d{2}\b/g, '<date>')
       .replace(/\b\d{2}-\d{2} \d{2}:\d{2}\b/g, '<when>')
+      .replace(/现在是 [^。\n]+本机时间）/g, '现在是 <now>')
+      .replace(/现在是 <when> 星期[一二三四五六日]（[^）]*）/g, '现在是 <now>')
+      .replace(/(?:今天|昨天|前天|上周[一二三四五六日]|\d+ 天前) \d{2}:\d{2}/g, '<when>')
+      .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '<when>')
+      .replace(/(上次(?:和主人|在这间屋)说话：)<when>，[^。\n]+/g, '$1<last>')
+      .replace(/（(?:今天|昨天|前天|\d+ 天前|上周[一二三四五六日])）/g, '（<day>）')
   }
   if (typeof value === 'string') return replaceHome(value)
   if (Array.isArray(value)) return value.map((item) => normalizeSurface(item, home))

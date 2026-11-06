@@ -258,9 +258,12 @@ export function parseTimeWindow(query, now = Date.now()) {
     if (start > now + DAY_MS) start = new Date(year - 1, Number(match[1]) - 1, Number(match[2])).getTime()
     return { start, end: start + DAY_MS, label: match[0] }
   }
-  if (/前天/.test(text)) return { start: day - 2 * DAY_MS, end: day - DAY_MS, label: '前天' }
+  if (/大前天/.test(text)) return { start: day - 3 * DAY_MS, end: day - 2 * DAY_MS, label: '大前天' }
+  if (/前天|前晚/.test(text)) return { start: day - 2 * DAY_MS, end: day - DAY_MS, label: '前天' }
+  if (/昨晚|昨天晚上|昨夜/.test(text)) return { start: day - DAY_MS, end: day, label: '昨晚' }
   if (/昨天|昨日/.test(text)) return { start: day - DAY_MS, end: day, label: '昨天' }
-  if (/今天|今日/.test(text)) return { start: day, end: now + 1, label: '今天' }
+  if (/今晚|今早|今天早上|今天上午|今天下午|今天晚上|今天|今日/.test(text)) return { start: day, end: now + 1, label: '今天' }
+  if (/刚才|刚刚/.test(text)) return { start: now - 2 * 60 * 60 * 1000, end: now + 1, label: '刚才' }
 
   // 先认“上周三”“这周三”“周三”；否则“上周”会把具体星期吞掉。
   if ((match = text.match(/(上周|上个星期|上星期|这周|本周|这个星期|下周|下个星期|下星期)\s*([一二三四五六日天])/))) {
@@ -302,7 +305,7 @@ export function parseTimeWindow(query, now = Date.now()) {
     const date = new Date(now)
     return { start: new Date(date.getFullYear(), date.getMonth(), 1).getTime(), end: now + 1, label: '这个月' }
   }
-  if (/最近|这几天|近期/.test(text)) return { start: day - 6 * DAY_MS, end: now + 1, label: '最近' }
+  if (/最近|这几天|前几天|近期/.test(text)) return { start: day - 6 * DAY_MS, end: now + 1, label: '最近' }
   return null
 }
 
@@ -786,6 +789,27 @@ export function openStore({ dir, config, diag = () => {} }) {
     SELECT id, ts, content, meta, salience FROM experiences
     WHERE dropped IS NULL AND content <> '' AND source_kind = 'bili' AND salience >= 0.3 AND ts >= ?
     ORDER BY ts DESC, id DESC LIMIT ?
+  `)
+  // 上一句真正的人话：用来告诉她隔了多久，跳过主动搭话提示、心情快照、
+  // 提炼事实和压缩摘要这些不是对话的行。
+  const lastOwnerExchangeStmt = db && db.prepare(`
+    SELECT ts, role, kind, source_kind FROM experiences
+    WHERE dropped IS NULL AND ts < ? AND content <> ''
+      AND role IN ('user', 'assistant')
+      AND kind IN ('user', 'qq', 'assistant')
+      AND session_id NOT LIKE 'session-qq-social-%'
+      AND session_id NOT LIKE 'qq-social-%'
+      AND session_id NOT LIKE 'session-qq-import-%'
+      AND source_kind NOT IN ('speak-up', 'mood', 'consolidation', 'compaction')
+    ORDER BY ts DESC, id DESC LIMIT 1
+  `)
+  const lastRoomExchangeStmt = db && db.prepare(`
+    SELECT ts, role, kind, source_kind FROM experiences
+    WHERE dropped IS NULL AND ts < ? AND content <> ''
+      AND role IN ('user', 'assistant')
+      AND (session_id = ? OR session_id LIKE ?)
+      AND source_kind NOT IN ('speak-up', 'mood', 'consolidation', 'compaction')
+    ORDER BY ts DESC, id DESC LIMIT 1
   `)
   const factActiveStmt = db && db.prepare(`
     SELECT id, object, valid_from FROM facts
@@ -3026,6 +3050,37 @@ export function openStore({ dir, config, diag = () => {} }) {
     return 出
   }
 
+  /**
+   * 当前这一轮之前，最近一句真正的人话。
+   * 主人会话看所有非社交房间（桌面、QQ 私聊）；社交房间只看这间屋，分线合在一起。
+   * @param {{ scope?: 'owner'|'room', sessionId?: string, before?: number }} [options] - 作用域、房间 id 和截止时间。
+   * @returns {{ at: number, role: string, kind: string, source: string }|null} 时间、角色、来源；没有时 null。
+   */
+  function lastExchange(options = {}) {
+    if (db === null) return null
+    const before = Number.isFinite(options.before) ? Number(options.before) : Date.now()
+    const sessionId = typeof options.sessionId === 'string' ? options.sessionId : ''
+    try {
+      let row = null
+      if (options.scope === 'room' && sessionId !== '') {
+        const base = sessionId.replace(/-p\d+$/, '')
+        row = lastRoomExchangeStmt.get(before, base, `${base}-p%`)
+      } else {
+        row = lastOwnerExchangeStmt.get(before)
+      }
+      if (!row) return null
+      return {
+        at: Number(row.ts) || 0,
+        role: String(row.role ?? ''),
+        kind: String(row.kind ?? ''),
+        source: String(row.source_kind ?? ''),
+      }
+    } catch (error) {
+      diag(`store: 读上次说话时间失败（${String((error && error.message) || error)}）`)
+      return null
+    }
+  }
+
   function innerSignals(now = Date.now()) {
     const empty = {
       lastSocialAt: 0,
@@ -3131,6 +3186,7 @@ export function openStore({ dir, config, diag = () => {} }) {
     pendingExperiences,
     experienceById,
     innerSignals,
+    lastExchange,
     groupSafeCues,
     upsertFact,
     listFacts,
