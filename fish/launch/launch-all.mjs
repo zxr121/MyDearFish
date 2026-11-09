@@ -131,8 +131,8 @@ async function 主() {
       DSH_DESKTOP_OPEN_DEVTOOLS: '0',
       PATH: `${NODE_DIR};${process.env.PATH || ''}`,
     }
-    // corepack.cmd 在这台机器上没了；直接用仓库里的 pnpm 起，绕开 cmd 一层也更稳。
-    拉起(join(NODE_DIR, 'node.exe'), [join(REPO, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'), '--filter', '@deepseek-ai/dsh-desktop', 'run', 'start'], { cwd: REPO, env: 环境 }, join(家, 'DSH启动.log'))
+    // 优先用 Node 目录里能跑通的 pnpm.cmd；仓库 node_modules/pnpm 可能只剩空壳，别再指着它。
+    拉起(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', join(NODE_DIR, 'pnpm.cmd'), '--filter', '@deepseek-ai/dsh-desktop', 'run', 'start'], { cwd: REPO, env: 环境 }, join(家, 'DSH启动.log'))
     if (await 等端口(19388, 180)) 记('DSH + QQ 桥就绪（19388）')
     else 记(`DSH 180 秒内没就绪，检查 ${join(家, 'DSH启动.log')}`)
   }
