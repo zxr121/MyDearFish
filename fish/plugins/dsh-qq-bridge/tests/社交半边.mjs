@@ -4990,6 +4990,42 @@ const 勤后态 = (await 宿主.概况()).表情包.selfSave
 报('勤存表情：第一次见到就收，一条消息里的两张都收', QQ收藏.size === 勤前收藏 + 2 && 勤后态.count === 勤前态.count + 2, JSON.stringify({ 收藏: QQ收藏.size - 勤前收藏, 存: 勤后态.count - 勤前态.count }))
 报('勤存表情：状态里上限放宽到 40、模式是 more', 勤后态.cap === 40 && 勤后态.mode === 'more' && (await 宿主.概况()).社交.倾向.stickerSave === 'more', JSON.stringify(勤后态))
 
+// 41e-2 只存可爱的表情包：认不出可爱的一张不收，讲着可爱时第一次见就收。
+const 不萌图 = 倾向图('cute-no')
+const 好萌图 = 倾向图('cute-yes')
+固定图.set(不萌图, Buffer.from([0xff, 0xd8, 0xff, 0xe9, 0x01]))
+固定图.set(好萌图, Buffer.from([0xff, 0xd8, 0xff, 0xe9, 0x02]))
+倾向态.policy = 偏({ stickerSave: { mode: 'cute' } })
+写配置({
+  群: ['1349'], 学表情: true, 判断冷却秒: 0, 聚拢秒: 0, 冷却秒: 0,
+  连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1349, [
+  带图说话(4671, '无语', { uid: 826, url: 不萌图 }),
+  带图说话(4672, '服了', { uid: 827, url: 不萌图 }),
+])
+const 可爱前收藏 = QQ收藏.size
+const 可爱前态 = (await 宿主.概况()).表情包.selfSave
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等(50)
+const 可爱后态 = (await 宿主.概况()).表情包.selfSave
+报('只存可爱：同一张无语表情看两次也不收', QQ收藏.size === 可爱前收藏 && 可爱后态.count === 可爱前态.count, JSON.stringify({ 收藏: QQ收藏.size - 可爱前收藏, 存: 可爱后态.count - 可爱前态.count }))
+报('只存可爱：状态里模式是 cute、上限还是 12', 可爱后态.cap === 12 && 可爱后态.mode === 'cute' && (await 宿主.概况()).社交.倾向.stickerSave === 'cute', JSON.stringify(可爱后态))
+
+写配置({
+  群: ['1350'], 学表情: true, 判断冷却秒: 0, 聚拢秒: 0, 冷却秒: 0,
+  连说上限: 0, 主动每时: 0, 主动每日: 0, 低信号跳过: false,
+})
+群消息表.set(1350, [带图说话(4681, '这只猫猫好可爱', { uid: 828, url: 好萌图 })])
+const 萌前收藏 = QQ收藏.size
+const 萌前态 = (await 宿主.概况()).表情包.selfSave
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等(50)
+const 萌后态 = (await 宿主.概况()).表情包.selfSave
+报('只存可爱：讲着可爱的表情第一次见就收', QQ收藏.size === 萌前收藏 + 1 && 萌后态.count === 萌前态.count + 1, JSON.stringify({ 收藏: QQ收藏.size - 萌前收藏, 存: 萌后态.count - 萌前态.count }))
+
 // 41f 旧版鱼脑没有 tendency()：全部回推出厂值。
 倾向态.无接口 = true
 const 回退图 = 倾向图('fallback')

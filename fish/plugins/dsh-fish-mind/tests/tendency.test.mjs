@@ -35,6 +35,10 @@ test('五个维度都能从一句话里编译出来', () => {
     ['勤保存表情包', 'stickerSave', 'more'],
     ['少存表情', 'stickerSave', 'less'],
     ['别存表情', 'stickerSave', 'off'],
+    ['只保存可爱的表情包', 'stickerSave', 'cute'],
+    ['只收可爱的表情', 'stickerSave', 'cute'],
+    ['可爱表情包才存', 'stickerSave', 'cute'],
+    ['别存那些不可爱的', 'stickerSave', 'cute'],
   ]
   for (const [clause, dimension, mode] of cases) {
     const compiled = compileTendency(clause)
@@ -52,6 +56,23 @@ test('否定优先，后写的覆盖先写的', () => {
   assert.equal(compileTendency('安静一点，活泼一点').policy.talk.mode, 'more')
   assert.equal(compileTendency('活泼一点，安静一点').policy.talk.mode, 'less')
   assert.equal(compileTendency('勤保存表情包，别存表情').policy.stickerSave.mode, 'off')
+  assert.equal(compileTendency('勤保存表情包，只保存可爱的表情包').policy.stickerSave.mode, 'cute')
+})
+
+test('只存可爱：说明写明是内容门槛，不是数量档', () => {
+  const compiled = compileTendency('只保存可爱的表情包')
+  const lines = describeTendency(compiled)
+  assert.equal(lines.length, 1)
+  assert.equal(lines[0].dimension, 'stickerSave')
+  assert.equal(lines[0].mode, 'cute')
+  assert.equal(lines[0].landing, 'code')
+  assert.match(lines[0].effect, /只收可爱的表情/)
+  assert.match(lines[0].effect, /认不出的不收/)
+  assert.match(lines[0].effect, /手动收藏和受信人的要求不受影响/)
+
+  const block = buildTendencyPrompt(compiled.policy, '只保存可爱的表情包')
+  assert.match(block, /只存可爱的表情包/)
+  assert.deepEqual(compiled.unmatchedClauses, [], '认出落点后不再交给创造模式')
 })
 
 test('不确定的句子原样留下，交给创造模式', () => {

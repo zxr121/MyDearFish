@@ -2332,7 +2332,7 @@ window.__ModuleLoader__.load({
           'QQ 收藏表情：' + ((态.表情包 && 态.表情包.数量) || 0) + ' 张' +
             (态.表情包 && 态.表情包.selfSave
               ? '｜今天自动存 ' + (态.表情包.selfSave.count || 0) + ' / ' + (态.表情包.selfSave.cap || 0) + ' 张（倾向：' +
-                (态.表情包.selfSave.mode === 'more' ? '勤存' : 态.表情包.selfSave.mode === 'less' ? '少存' : 态.表情包.selfSave.mode === 'off' ? '不存' : '默认') + '）'
+                (态.表情包.selfSave.mode === 'more' ? '勤存' : 态.表情包.selfSave.mode === 'less' ? '少存' : 态.表情包.selfSave.mode === 'off' ? '不存' : 态.表情包.selfSave.mode === 'cute' ? '只存可爱' : '默认') + '）'
               : '') +
             (态.表情包 && Array.isArray(态.表情包.不存) && 态.表情包.不存.length > 0
               ? '｜不存：' + 态.表情包.不存.join('、')

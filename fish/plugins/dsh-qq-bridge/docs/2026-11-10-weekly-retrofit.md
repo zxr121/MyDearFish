@@ -100,6 +100,7 @@
 ## 落实记录
 
 - `dsh-qq-bridge` 0.2.142：`lib/host.js` 的 `剥不接话`、`被嫌` / `忌讳类们`、`表情来源说明`、`可挑表情(最多, 房)`；社交状态文件升到 v2（多 `feedback`）；测试在 `tests/社交半边.mjs`。
+- `dsh-qq-bridge` 0.2.143 / `dsh-fish-mind` 0.7.37：「只保存可爱的表情包」落到 `stickerSave: cute`；自动收藏先过 `判可爱表情` 内容门槛，认不出的一张不收、不占重复次数，可爱的第一次见到就收；手动收藏和受信人的要求不受影响。
 - `dsh-feiyu-mood` 0.2.9：`lib/index.js` 的 `该判心情` 和 `source.owner`；测试 `tests/心情来源.mjs`。
 - `dsh-fish-mind` 0.7.36：`lib/birth.js` 增加「电脑性能差不是禁令」；测试 `tests/birth.test.mjs`。
 - 提示词快照：`fish/tests/expected/prompt-surface/*.json` 已按新提示刷新。

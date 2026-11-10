@@ -2454,6 +2454,24 @@ export function 判表情场景(文字) {
   return ''
 }
 
+// 「可爱」只认三类信号：字面上在说可爱/萌，软甜系的说法，和常见的小动物贴图名字。
+const 可爱词 = /可爱|萌|软萌|软乎|甜甜|甜妹|奶乎乎|小奶|猫|喵|兔|汪|小狗|小熊|鲸|心心|比心|抱抱|贴贴|亲亲|啾|啵|团子|宝宝|宠物|崽/iu
+
+/**
+ * 这张表情包算不算可爱：发出来的时候上下文在说可爱/萌，或者它自己的官方名带着可爱、小动物这类字。
+ * 只服务于「只保存可爱的表情包」这条倾向，认不出可爱就当成不可爱，宁可不收。
+ * @param {object|null} 图 - 这一批里的一张图 `{ 官方名?, label? }`。
+ * @param {string} 场景 - `判表情场景` 认出的场合。
+ * @param {...string} 文 - 这张图前后的原话。
+ * @returns {boolean} true 表示认得出可爱信号。
+ */
+export function 判可爱表情(图, 场景, ...文) {
+  if (String(场景 || '') === '可爱') return true
+  const 名 = String((图 && (图.官方名 || 图.label)) || '')
+  if (名 !== '' && 可爱词.test(名)) return true
+  return 文.some((句) => 可爱词.test(净表情文字(句)))
+}
+
 // 万能夸奖词：什么图都能套，反复说会像敷衍；只用于防重复，不是禁词表。
 const 万能评价词 = ['可爱', '好萌', '好看', '漂亮', '喜欢', '爱了', '绝了', '心动']
 
@@ -6876,7 +6894,7 @@ export function apply(ctx) {
       length: { mode: 模式(policy.length, ['normal', 'short', 'long']) },
       humor: { mode: 模式(policy.humor, ['normal', 'less', 'more']) },
       stickerSend: { mode: 模式(policy.stickerSend, ['normal', 'less', 'off', 'more']) },
-      stickerSave: { mode: 模式(policy.stickerSave, ['normal', 'less', 'off', 'more']) },
+      stickerSave: { mode: 模式(policy.stickerSave, ['normal', 'less', 'off', 'more', 'cute']) },
     }
   }
 
@@ -9476,15 +9494,17 @@ export function apply(ctx) {
   let 表情自存日 = { 日: '', 存: 0 }
 
   /**
-   * 自动收藏的三个数跟着主人倾向走：勤存放宽、少存收紧、不存关掉。
-   * 只调现有上限，不改去重、场景和总收藏上限这些硬约束。
+   * 自动收藏的三个数跟着主人倾向走：勤存放宽、少存收紧、不存关掉、只存可爱加一道内容门槛。
+   * 只调现有上限和内容门槛，不改去重、场景和总收藏上限这些硬约束。
    */
   function 表情自存策略() {
     const 模式 = 倾向策略().stickerSave.mode
-    if (模式 === 'more') return { 每日上限: 40, 见过: 1, 每条上限: 2 }
-    if (模式 === 'less') return { 每日上限: 4, 见过: 3, 每条上限: 1 }
-    if (模式 === 'off') return { 每日上限: 0, 见过: 0, 每条上限: 0 }
-    return { 每日上限: 表情自存每日上限, 见过: 表情自存见过, 每条上限: 1 }
+    if (模式 === 'more') return { 每日上限: 40, 见过: 1, 每条上限: 2, 只收可爱: false }
+    if (模式 === 'less') return { 每日上限: 4, 见过: 3, 每条上限: 1, 只收可爱: false }
+    if (模式 === 'off') return { 每日上限: 0, 见过: 0, 每条上限: 0, 只收可爱: false }
+    // 只存可爱：可爱的见到一次就收，认不出可爱的一张不收。
+    if (模式 === 'cute') return { 每日上限: 表情自存每日上限, 见过: 1, 每条上限: 1, 只收可爱: true }
+    return { 每日上限: 表情自存每日上限, 见过: 表情自存见过, 每条上限: 1, 只收可爱: false }
   }
 
   /** 这一轮要不要把她收到的表情存进收藏：群和好友私聊都收，只收表情类，不碰主人的图，试运行不写。 */
@@ -9511,15 +9531,21 @@ export function apply(ctx) {
     const 候选 = (Array.isArray(图片) ? 图片 : [])
       .filter((图) => 图 && 图.ref && 图.表情 && !图.收藏号 && !图.主人 && String(图.md5 || '') !== '')
     let 存了 = 0
+    let 不够可爱 = 0
     let 最后 = null
     for (const 图 of 候选) {
       if (存了 >= 策略.每条上限 || 表情自存日.存 >= 策略.每日上限) break
+      // 「只存可爱的表情包」：认不出可爱的候选连近见次数都不记，免得它靠重复次数混进去。
+      if (策略.只收可爱 && !判可爱表情(图, 场景, 净文, 上文)) {
+        不够可爱 += 1
+        continue
+      }
       const 哈希 = String(图.md5)
       const 旧 = 表情近见.get(哈希)
       const 次 = 旧 && Date.now() - 旧.at < 30 * 60_000 ? 旧.次 + 1 : 1
       表情近见.set(哈希, { 次, at: Date.now() })
       if (次 < 策略.见过 && !场景热) continue
-      const 条目 = await 存表情包(配置, 图, 图.官方名 && !泛标签(图.官方名) ? 图.官方名 : '', `${目标.叫}·自动`, { 自动: true, 允许普通图: false })
+      const 条目 = await 存表情包(配置, 图, 图.官方名 && !泛标签(图.官方名) ? 图.官方名 : '', `${目标.叫}·自动`, { 自动: true, 允许普通图: false, 房: 目标.key })
       if (条目) {
         表情自存日.存 += 1
         存了 += 1
@@ -9533,6 +9559,7 @@ export function apply(ctx) {
         if (Date.now() - 值.at >= 30 * 60_000) 表情近见.delete(哈希)
       }
     }
+    if (不够可爱 > 0) 记账(`${目标.叫}：${不够可爱} 张认不出可爱，按「只存可爱的表情包」没存`)
     return 最后
   }
 

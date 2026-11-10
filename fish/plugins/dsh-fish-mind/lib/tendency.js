@@ -102,6 +102,11 @@ const RULES = Object.freeze({
   ],
   stickerSave: [
     {
+      // 「只存可爱的」是内容门槛，不是数量档：先判，别被后面的「多存 / 少存」抢先。
+      mode: 'cute',
+      pattern: /(?:(?:只|仅|光|专门)(?:存|保存|收|收藏|留)[^，。；\n]{0,8}?(?:可爱|萌|软萌))|(?:(?:可爱|萌)(?:一点)?(?:的)?(?:表情包|表情|图)?(?:才|再|就)(?:存|保存|收|收藏|留))|(?:(?:别|不要|不用)(?:再)?(?:存|保存|收|收藏)(?:那些?)?(?:不可爱|丑|搞怪))/,
+    },
+    {
       mode: 'less',
       pattern: /((?:少|别多|不要多|不用多)(?:存|保存|收|收藏)(?:点|一点)?(?:表情|表情包|图)|(?:表情|表情包)(?:少存|存少|少收|少收藏))/,
     },
@@ -461,7 +466,9 @@ export function describeTendency(compiled, base = {}, status = 'pending') {
         ? '自动收藏上限放宽：每天 40 张、见过 1 次就收、每条最多 2 张（固定规则）。'
         : match.mode === 'less'
           ? '自动收藏收紧：每天 4 张、见过 3 次才收、每条最多 1 张（固定规则）。'
-          : '不再自动收藏表情（固定规则；手动收藏不受影响）。'
+          : match.mode === 'cute'
+            ? '只收可爱的表情：自动收藏要先认出可爱信号（发表情时在说可爱/萌/贴贴，或官方名里有猫、兔、软、甜这类词），认不出的不收，可爱的见到一次就收（固定规则；手动收藏和受信人的要求不受影响）。'
+            : '不再自动收藏表情（固定规则；手动收藏不受影响）。'
     }
     lines.push({
       clause: match.clause,
@@ -591,6 +598,7 @@ export function buildTendencyPrompt(policy, text, extra = {}) {
   if (存 === 'more') lines.push('- 看到合适的表情包就顺手存下来，别嫌麻烦。')
   if (存 === 'less') lines.push('- 表情包少存一点，只留真的会用的。')
   if (存 === 'off') lines.push('- 不用自动存表情包。')
+  if (存 === 'cute') lines.push('- 只存可爱的表情包：可爱的才收起，别的一般不存。')
   const unmatched = Array.isArray(extra.unmatchedClauses) ? extra.unmatchedClauses : []
   if (unmatched.length > 0) lines.push(`- 主人还说过：${unmatched.join('；')}。这些还没有专门规则，按原话理解。`)
 
