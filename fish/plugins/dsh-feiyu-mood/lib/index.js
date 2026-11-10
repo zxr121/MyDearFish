@@ -332,10 +332,23 @@ const 外部触发 = new Set(['bili-duty-scan'])
 const 自主搭话 = new Set(['speak-up'])
 // ⭐ 从别处进来的主人消息也算真人在说话；QQ 不再被当成插件噪声跳过
 const 真人在说话 = new Set(['user', 'qq', 'qq-group', 'qq-friend'])
-// 群聊/好友会话由 QQ 桥单独开，不在那里判心情（省一次模型调用，也避免把私事带进群）
+// 群聊/好友会话由 QQ 桥单独开：群友之间的话不在这里判心情（省一次模型调用，
+// 也不把群里的私事写进心情理由）；但主人自己在这间屋说话时照常判，
+// 否则主人只在 QQ 里找她时，心情会一直停在上一次主会话的判定上。
 const 社交会话 = (sid) => /^(session-)?qq-social-/.test(String(sid || ''))
 
-// 返回 { text, sourceKind }：从最后往前找**第一条真人/真触发**的消息
+/**
+ * 哪一轮该判心情：主人自己的会话都判；QQ 社交房里只有主人说话的轮次判。
+ * @param {string} sid - 会话 id。
+ * @param {{ owner?: boolean } | null} info - 这一轮最后一条真人消息。
+ * @returns {boolean} true 表示这一轮要判。
+ */
+export function 该判心情(sid, info) {
+  if (!社交会话(sid)) return true
+  return !!(info && info.owner === true)
+}
+
+// 返回 { text, sourceKind, owner }：从最后往前找**第一条真人/真触发**的消息
 function lastUserTurnOf(session) {
   try {
     if (!session || typeof session.snapshotEvents !== 'function') return null
@@ -348,9 +361,10 @@ function lastUserTurnOf(session) {
       if (!txt) continue
       const src = p && p.source && p.source.kind ? String(p.source.kind) : ''
       if (注入上下文.has(src)) continue          // 宿主注入的上下文：跳过
-      if (外部触发.has(src) || 自主搭话.has(src)) return { text: txt, sourceKind: src }
+      const owner = !!(p && p.source && p.source.owner === true)
+      if (外部触发.has(src) || 自主搭话.has(src)) return { text: txt, sourceKind: src, owner }
       if (src && !真人在说话.has(src)) continue   // 其它插件消息：不是她在说话
-      return { text: txt, sourceKind: src || 'user' }
+      return { text: txt, sourceKind: src || 'user', owner }
     }
   } catch (e) { /* ignore */ }
   return null
@@ -554,6 +568,7 @@ export function apply(ctx) {
   function mountFor(agent, sid) {
     let lastText = ''
     let lastSrc = ''
+    let lastOwner = false
     const offs = []
 
     // 1) 收这一轮小鱿鱼说的话（宿主注入的上下文不算）
@@ -565,16 +580,22 @@ export function apply(ctx) {
         if (!txt || 注入上下文.has(src)) return
         lastText = txt
         lastSrc = src
+        lastOwner = !!(msg && msg.source && msg.source.owner === true)
       }))
     } catch (e) { diag('监听 inbox 失败：' + (e && e.message)) }
 
     // 2) 这轮结束 → 判断心情（异步，不阻塞对话）
     try {
       offs.push(agent.ctx.on('agent/turn-stopping', () => {
-        if (!cfg.autoJudge || 社交会话(sid)) return
+        if (!cfg.autoJudge) return
         // 以会话事件为准（带 source.kind），拿不到才退回 inbox 缓存
-        const info = lastUserTurnOf(agent.session) || (lastText ? { text: lastText, sourceKind: lastSrc } : null)
+        const info = lastUserTurnOf(agent.session) || (lastText ? { text: lastText, sourceKind: lastSrc, owner: lastOwner } : null)
         if (!info || !info.text) return
+        // QQ 群里只在主人自己开口的轮次判；群友之间的话不把私事带进心情。
+        if (!该判心情(sid, info)) {
+          diag('这一轮不是主人说话，不判心情：' + sid)
+          return
+        }
         const reply = lastAssistantTextOf(agent.session)
         // ⭐ 三种口径：干活（bili-duty-scan）/ 自己搭话（speak-up）/ 她本人在说话
         const kind = String(info.sourceKind || '')

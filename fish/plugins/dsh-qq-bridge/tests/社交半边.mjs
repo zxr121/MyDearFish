@@ -36,6 +36,17 @@ const 模 = await import(new URL('../lib/host.js', import.meta.url).href + '?v='
 // ---------- 纯函数 ----------
 报('社交会话 id：群/好友各一间', 模.社交会话id('group', '555') === 'session-qq-social-group-555' && 模.社交会话id('friend', '777') === 'session-qq-social-friend-777', 模.社交会话id('group', '555'))
 报('识别社交会话', 模.是社交会话('session-qq-social-group-555') && 模.是社交会话('qq-social-group-555') && !模.是社交会话('session-X'))
+报('不接话标记：写在哪儿都剥掉，剥完只剩标点也算没话说',  模.剥不接话('[不接话]').文字 === '' && 模.剥不接话('[不接话]').只剩标点
+  && 模.剥不接话('[不接话]\n').只剩标点 && 模.剥不接话('[不接话]。').只剩标点
+  && 模.剥不接话('【不接话】').只剩标点 && 模.剥不接话('？').只剩标点
+  && 模.剥不接话('[不接话] 那我先不说').文字 === '那我先不说' && !模.剥不接话('[不接话] 那我先不说').只剩标点
+  && 模.剥不接话('[不起话]').只剩标点 && 模.剥不接话('😊').只剩标点 === false,
+  JSON.stringify([模.剥不接话('[不接话]。'), 模.剥不接话('[不接话] 那我先不说'), 模.剥不接话('？')]))
+报('表情来源：同屋直说，别屋不点名，记不清就认记不清',
+  模.表情来源说明('group', 'group:1001', [{ id: 7, label: '猫猫贴贴', 房: 'group:1001' }]).includes('在这个群见到的')
+  && 模.表情来源说明('group', 'group:1002', [{ id: 7, label: '猫猫贴贴', 房: 'group:1001' }]).includes('别报群号、群名和人名')
+  && 模.表情来源说明('friend', 'friend:777', [{ id: 7, label: '猫猫贴贴' }]).includes('记不清')
+  && 模.表情来源说明('group', 'group:1001', []) === '')
 报('在叫别人：名字起头、@、在吗', 模.在叫别人('小王，你觉得呢', ['小王', '小李'], ['大肥鱼']) === '小王'
   && 模.在叫别人('@小王 你看这个', ['小王'], ['大肥鱼']) === '小王'
   && 模.在叫别人('小王在吗', ['小王'], ['大肥鱼']) === '小王')
@@ -959,6 +970,7 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
 报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
 报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('这轮给了图就照图重答') && 社交文字.includes('没给图就照实说看不到'))
 报('场景提示教她引用哪句用标记、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('[引用:那句原话]') && 社交文字.includes('别写 [#编号] 当引用'))
+报('场景提示把引用错和识图错分开认', 社交文字.includes('引用和识图是两件事') && 社交文字.includes('别拿看不清图当引用错的借口') && 社交文字.includes('别反过来拿“引用错了”顶认图的错'))
 报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
 报('场景提示要求接图的意思而不是念图', 社交文字.includes('别念画面细节') && 社交文字.includes('发色、配色、耳朵、眼睛') && 社交文字.includes('照问照答'))
 报('场景提示禁止自导自演', 社交文字.includes('别自导自演') && 社交文字.includes('没有前文支撑'))
@@ -1091,6 +1103,31 @@ await 等()
 报('判接 → 开一轮', 回合.length === 之前4 + 1 && 回合.at(-1).sid === 'session-qq-social-group-1004')
 await 收到回复('session-qq-social-group-1004', '[不接话]')
 报('[不接话] → 一个字都不发', 发的.length === 发之前4, JSON.stringify(发的.at(-1)))
+
+// ---------- 4b 标记写歪、只回标点，也不能当正文发出去 ----------
+for (const [群号, 歪] of [[9005, '？'], [9006, '[不接话]\n'], [9007, '[不接话]。']]) {
+  写配置({ 群: [String(群号)] })
+  群消息表.set(群号, [一条群消息('有人吗', { id: 90000 + 群号, uid: 777 })])
+  设判断([String(90000 + 群号)], true, 0.9, '接一句')
+  const 发之前歪 = 发的.length
+  await 轮询社交()
+  await 等()
+  await 收到回复(`session-qq-social-group-${群号}`, 歪)
+  await 等()
+  报(`「${JSON.stringify(歪)}」→ 一个字都不发`, 发的.length === 发之前歪, JSON.stringify(发的.at(-1)))
+}
+// ---------- 4c 标记夹在正文里：只发正文 ----------
+写配置({ 群: ['9008'] })
+群消息表.set(9008, [一条群消息('有人吗', { id: 90081, uid: 777 })])
+设判断(['90081'], true, 0.9, '接一句')
+const 发之前4c = 发的.length
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-9008', '[不接话] 那我先不说')
+await 等()
+报('标记夹在正文里 → 只发正文，不发标记', 发的.length === 发之前4c + 1
+  && JSON.stringify(发的.at(-1).体.message).includes('那我先不说')
+  && !JSON.stringify(发的.at(-1).体.message).includes('不接话'), JSON.stringify(发的.at(-1).体))
 
 // ---------- 5 好友私聊：也由她判断；可以拒绝 ----------
 写配置({ 好友: ['777'] })
@@ -5447,6 +5484,33 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   const 建1605 = 建会话选项.filter((x) => x.sessionId === 'session-qq-social-group-1605').at(-1)
   报('回复推理“高”映射到 max', 建1605?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1605?.agentOptions))
 }
+
+// ---------- 34 被嫌的收敛按行为分类：半小时后仍不许纯发表情，一天后才恢复 ----------
+写配置({ 群: ['9011'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0 })
+群消息表.set(9011, [一条群消息('大肥鱼 你只会发表情', { atSelf: true, id: 90111 })])
+设判断(['90111'], true, 0.9, '叫到她了')
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-group-9011', '好嘛，我收着点')
+报('被嫌表情：写进社交状态，跨重启也拦',
+  JSON.parse(readFileSync(join(家, 'qq-bridge-social-state.json'), 'utf8')).feedback
+    .some((x) => x.key === 'group:9011' && x.每个 && x.每个.表情 > Date.now()), readFileSync(join(家, 'qq-bridge-social-state.json'), 'utf8').slice(0, 400))
+时间偏移 += 31 * 60_000 // 过了 30 分钟的强收敛提示
+群消息表.set(9011, [...群消息表.get(9011), 一条群消息('大肥鱼 在吗', { atSelf: true, id: 90112 })])
+设判断(['90112'], true, 0.9, '叫到她了')
+await 轮询社交()
+await 等()
+const 发前嫌 = 发的.length
+await 收到回复('session-qq-social-group-9011', `[发表情:#${表情甲.id}]`)
+报('被嫌表情：半小时后纯发表情也不发', 发的.slice(发前嫌).every((x) => !x.url.endsWith('/send_custom_face')), JSON.stringify(发的.slice(发前嫌).map((x) => x.url)))
+时间偏移 += 24 * 60 * 60_000 // 一天之后
+群消息表.set(9011, [...群消息表.get(9011), 一条群消息('大肥鱼 在吗', { atSelf: true, id: 90113 })])
+设判断(['90113'], true, 0.9, '叫到她了')
+await 轮询社交()
+await 等()
+const 发前恢复 = 发的.length
+await 收到回复('session-qq-social-group-9011', `[发表情:#${表情甲.id}]`)
+报('被嫌表情：一天之后恢复发表情', 发的.slice(发前恢复).some((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 9011), JSON.stringify(发的.slice(发前恢复).map((x) => x.url)))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

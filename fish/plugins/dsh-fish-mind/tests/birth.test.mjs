@@ -67,6 +67,7 @@ test('出生设定能保存、读回、重置；坏文件退回出厂值', () =>
   assert.ok(prompt.includes('时光：干妈'))
   assert.ok(prompt.includes('这些关系是固定的'))
   assert.ok(prompt.includes('权限层也会拒绝改鱼脑代码'))
+  assert.ok(prompt.includes('电脑卡、性能差、耗电') && prompt.includes('不是让你以后什么都别做') && prompt.includes('先问一句再动手'))
 
   const reset = resetIdentity(dir, 5678)
   assert.equal(reset.name, DEFAULT_IDENTITY.name)
