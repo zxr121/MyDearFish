@@ -3,20 +3,23 @@
 // 不把 SnowLuma 的二进制放进交付包：它的 EULA 禁止单独再分发专有组件。
 // 安装说明里只给镜像地址、文件名和摘要，接收方自己在设置页下载或用「从本地 zip 安装」。
 
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
+  closeSync,
   copyFileSync,
   createReadStream,
-  existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
+  readSync,
   rmSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { crc32 } from 'node:zlib'
 import { 最后已知发行包, 发行镜像仓库 } from '../plugins/dsh-qq-bridge/lib/snowluma-release.js'
 
 function MB(n) {
@@ -79,6 +82,166 @@ export function 安装说明文本({ 版本, 安装包名, 大小, sha }) {
 const 交付文件 = (安装包名) => [安装包名, '安装说明.txt', 'nightly.yml']
 
 /**
+ * 读出 zip 中央目录里的文件名。只解析本交付包会用到的普通 zip，不依赖 PowerShell / unzip 的输出编码。
+ * @param {string} 文件 - 磁盘上的 zip。
+ * @returns {string[]} zip 里的条目名。
+ */
+export function 列zip条目(文件) {
+  const 大小 = statSync(文件).size
+  const 尾长 = Math.min(大小, 65557)
+  if (尾长 < 22) throw new Error('不是有效的 zip（文件太小）')
+  const 尾 = Buffer.alloc(尾长)
+  const 句柄 = openSync(文件, 'r')
+  try {
+    let 读 = 0
+    while (读 < 尾长) {
+      const n = readSync(句柄, 尾, 读, 尾长 - 读, 大小 - 尾长 + 读)
+      if (n <= 0) break
+      读 += n
+    }
+  } finally {
+    closeSync(句柄)
+  }
+  let eocd = -1
+  for (let i = 尾.length - 22; i >= 0; i--) {
+    if (尾.readUInt32LE(i) === 0x06054b50) {
+      eocd = i
+      break
+    }
+  }
+  if (eocd < 0) throw new Error('不是有效的 zip（找不到中央目录）')
+  const 条目数 = 尾.readUInt16LE(eocd + 10)
+  const 目录偏移 = 尾.readUInt32LE(eocd + 16)
+  const 目录结束 = (大小 - 尾长) + eocd
+  const 目录长 = 目录结束 - 目录偏移
+  if (目录偏移 <= 0 || 目录长 <= 0 || 目录长 > 100 * 1024 * 1024) {
+    throw new Error('不是有效的 zip（中央目录位置不对）')
+  }
+  const 目录 = Buffer.alloc(目录长)
+  const 目录句柄 = openSync(文件, 'r')
+  try {
+    let 读 = 0
+    while (读 < 目录长) {
+      const n = readSync(目录句柄, 目录, 读, 目录长 - 读, 目录偏移 + 读)
+      if (n <= 0) break
+      读 += n
+    }
+  } finally {
+    closeSync(目录句柄)
+  }
+  const 名们 = []
+  let 位置 = 0
+  for (let i = 0; i < 条目数; i++) {
+    if (位置 + 46 > 目录.length || 目录.readUInt32LE(位置) !== 0x02014b50) {
+      throw new Error(`不是有效的 zip（第 ${i + 1} 个目录项读不出来）`)
+    }
+    const 名长 = 目录.readUInt16LE(位置 + 28)
+    const 额外长 = 目录.readUInt16LE(位置 + 30)
+    const 注释长 = 目录.readUInt16LE(位置 + 32)
+    if (位置 + 46 + 名长 > 目录.length) throw new Error('不是有效的 zip（文件名越界）')
+    名们.push(目录.subarray(位置 + 46, 位置 + 46 + 名长).toString('utf8'))
+    位置 += 46 + 名长 + 额外长 + 注释长
+  }
+  return 名们
+}
+
+/**
+ * 写一个只存储不压缩的 zip，文件名统一标 UTF-8。
+ * exe 本身已经是压缩过的安装包，再 deflate 省不了多少；自己写可以避开
+ * Windows bsdtar 按控制台代码页写中文名、PowerShell 列目录编码不一致的问题。
+ * @param {string} 输出 - 输出 zip 路径。
+ * @param {{名: string, 路径: string}[]} 文件们 - 要写进去的文件。
+ */
+function 写zip(输出, 文件们) {
+  const 现在 = new Date()
+  const 时间 = ((现在.getHours() & 0x1f) << 11) | ((现在.getMinutes() & 0x3f) << 5) | ((现在.getSeconds() >> 1) & 0x1f)
+  const 日期 = (((现在.getFullYear() - 1980) & 0x7f) << 9) | (((现在.getMonth() + 1) & 0x0f) << 5) | (现在.getDate() & 0x1f)
+  const 句柄 = openSync(输出, 'w')
+  const 写全 = (buf, 位置) => {
+    let 完 = 0
+    while (完 < buf.length) {
+      const n = writeSync(句柄, buf, 完, buf.length - 完, 位置 + 完)
+      if (n <= 0) throw new Error('写 zip 失败')
+      完 += n
+    }
+  }
+  try {
+    const 目录 = []
+    let 偏移 = 0
+    for (const 项 of 文件们) {
+      const 名 = Buffer.from(项.名, 'utf8')
+      const 大小 = statSync(项.路径).size
+      const 头偏移 = 偏移
+      const 头 = Buffer.alloc(30)
+      头.writeUInt32LE(0x04034b50, 0)
+      头.writeUInt16LE(20, 4)
+      头.writeUInt16LE(0x0800, 6) // 文件名是 UTF-8
+      头.writeUInt16LE(0, 8) // store：不压缩
+      头.writeUInt16LE(时间, 10)
+      头.writeUInt16LE(日期, 12)
+      头.writeUInt16LE(名.length, 26)
+      写全(头, 偏移)
+      偏移 += 头.length
+      写全(名, 偏移)
+      偏移 += 名.length
+      let crc = 0
+      let 已读 = 0
+      const 读句柄 = openSync(项.路径, 'r')
+      const 块 = Buffer.alloc(1024 * 1024)
+      try {
+        while (已读 < 大小) {
+          const n = readSync(读句柄, 块, 0, Math.min(块.length, 大小 - 已读), 已读)
+          if (n <= 0) break
+          crc = crc32(块.subarray(0, n), crc)
+          写全(块.subarray(0, n), 偏移)
+          偏移 += n
+          已读 += n
+        }
+      } finally {
+        closeSync(读句柄)
+      }
+      if (已读 !== 大小) throw new Error(`读 ${项.路径} 时少读了字节`)
+      const 补 = Buffer.alloc(12)
+      补.writeUInt32LE(crc >>> 0, 0)
+      补.writeUInt32LE(大小, 4)
+      补.writeUInt32LE(大小, 8)
+      写全(补, 头偏移 + 14)
+      目录.push({ 名, crc: crc >>> 0, 大小, 头偏移 })
+    }
+    const 目录起点 = 偏移
+    for (const 项 of 目录) {
+      const 头 = Buffer.alloc(46)
+      头.writeUInt32LE(0x02014b50, 0)
+      头.writeUInt16LE(20, 4)
+      头.writeUInt16LE(20, 6)
+      头.writeUInt16LE(0x0800, 8)
+      头.writeUInt16LE(0, 10)
+      头.writeUInt16LE(时间, 12)
+      头.writeUInt16LE(日期, 14)
+      头.writeUInt32LE(项.crc, 16)
+      头.writeUInt32LE(项.大小, 20)
+      头.writeUInt32LE(项.大小, 24)
+      头.writeUInt16LE(项.名.length, 28)
+      头.writeUInt32LE(项.头偏移, 42)
+      写全(头, 偏移)
+      偏移 += 头.length
+      写全(项.名, 偏移)
+      偏移 += 项.名.length
+    }
+    const 目录大小 = 偏移 - 目录起点
+    const eocd = Buffer.alloc(22)
+    eocd.writeUInt32LE(0x06054b50, 0)
+    eocd.writeUInt16LE(目录.length, 8)
+    eocd.writeUInt16LE(目录.length, 10)
+    eocd.writeUInt32LE(目录大小, 12)
+    eocd.writeUInt32LE(目录起点, 16)
+    写全(eocd, 偏移)
+  } finally {
+    closeSync(句柄)
+  }
+}
+
+/**
  * 打交付 zip：exe + 安装说明 + nightly.yml。
  * SnowLuma 的二进制不放进去；说明里给镜像地址、文件名和摘要。
  * @param {{输出目录: string, 版本: string, 安装包: string, 大小: number, sha: string, nightly: string}} 输入 - 已校验的安装包和清单。
@@ -103,35 +266,10 @@ export async function 打交付zip({ 输出目录, 版本, 安装包, 大小, sh
       throw new Error(`旧的交付 zip 删不掉（可能正被打开）：${错误.message}`)
     }
 
-    let 列表 = ''
-    if (process.platform === 'win32') {
-      const tar = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
-      if (!existsSync(tar)) throw new Error(`找不到 Windows 自带的 ${tar}，没法打 zip`)
-      execFileSync(tar, ['-a', '-cf', 输出, '-C', 暂存, ...文件们], {
-        windowsHide: true,
-        timeout: 30 * 60_000,
-      })
-      // 不用 tar -tf 列内容：中文文件名会按控制台代码页输出，Node 侧比对会变成乱码。
-      const 单引 = String(输出).replace(/'/g, "''")
-      列表 = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        `$OutputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ` +
-          `Add-Type -AssemblyName System.IO.Compression.FileSystem; ` +
-          `$zip=[System.IO.Compression.ZipFile]::OpenRead('${单引}'); ` +
-          `$zip.Entries | ForEach-Object { $_.FullName }; $zip.Dispose()`,
-      ], { encoding: 'utf8', windowsHide: true, timeout: 120_000 })
-    } else {
-      try {
-        execFileSync('zip', ['-q', '-j', 输出, ...文件们.map((名) => join(暂存, 名))], { timeout: 30 * 60_000 })
-        列表 = execFileSync('unzip', ['-Z1', 输出], { encoding: 'utf8', timeout: 120_000 })
-      } catch (错误) {
-        throw new Error(`打 zip 失败（需要 zip / unzip）：${错误.message}`)
-      }
-    }
+    写zip(输出, 文件们.map((名) => ({ 名, 路径: join(暂存, 名) })))
 
-    const 行们 = 列表.split(/\r?\n/).map((x) => x.trim().replace(/^\.\//, '')).filter(Boolean)
+    // 自己读 zip 中央目录核对内容；不依赖 tar -tf / PowerShell / unzip 的输出编码。
+    const 行们 = 列zip条目(输出)
     for (const 名 of 文件们) {
       if (!行们.some((x) => x === 名 || x.endsWith('/' + 名))) throw new Error(`交付 zip 里没有 ${名}`)
     }
