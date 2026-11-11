@@ -24,9 +24,16 @@ import {
   写OneBot配置,
   写SnowLuma配置,
   创建SnowLuma,
-  发行地址候选,
-  下载地址候选,
 } from '../lib/snowluma.js'
+import {
+  发行镜像仓库,
+  发布元数据地址候选,
+  发行包下载地址,
+  选Windows发行包,
+  下载地址候选,
+  下载源标签,
+  最后已知发行包,
+} from '../lib/snowluma-release.js'
 
 let 挂了 = 0
 const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 'PASS' : 'FAIL'}  ${标签}${详情 ? '  :: ' + 详情 : ''}`) }
@@ -41,15 +48,49 @@ try {
   报('坏地址回退默认端口', 规范OneBot地址('不是地址') === `http://127.0.0.1:${默认OneBot端口}`)
 
   // ---------- 下载源 ----------
-  const 发布源 = 发行地址候选()
-  报('发布查询直连在前、gh-proxy 兜底',
-    发布源.length === 2 && 发布源[0] === 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest' &&
-      发布源[1] === 'https://gh-proxy.com/' + 发布源[0], JSON.stringify(发布源))
-  const 发行包 = 'https://github.com/SnowLuma/SnowLuma/releases/download/v1.0.0/SnowLuma-v1.0.0-win-x64.zip'
+  // 上游 SnowLuma/SnowLuma 已下线：元数据只认镜像仓库的 release.json，不再碰 GitHub API。
+  const 发布源 = 发布元数据地址候选()
+  报('发行元数据先走国内镜像、最后才回直连',
+    发布源.length === 6 &&
+      发布源[0].地址 === 'https://gh-proxy.com/https://github.com/XingYunStar/snowluma/releases/latest/download/release.json' &&
+      发布源[0].仓库 === 发行镜像仓库[0].仓库 &&
+      发布源[1].地址.includes('https://gh-proxy.com/https://github.com/TomyJan/SnowLuma/') &&
+      发布源[2].地址.startsWith('https://ghproxy.net/https://github.com/XingYunStar/snowluma/') &&
+      发布源[4].地址 === 'https://github.com/XingYunStar/snowluma/releases/latest/download/release.json' &&
+      发布源[5].地址 === 'https://github.com/TomyJan/SnowLuma/releases/latest/download/release.json',
+    JSON.stringify(发布源.map((x) => x.地址)))
+  报('不再请求已下线的官方仓库和 GitHub API',
+    !发布源.some((x) => x.地址.includes('api.github.com') || x.地址.includes('SnowLuma/SnowLuma')),
+    JSON.stringify(发布源.map((x) => x.地址)))
+
+  const 发行包 = 发行包下载地址('XingYunStar/snowluma', 'v2.4.2', 'SnowLuma-v2.4.2-win-x64.zip')
+  报('发行包地址按实际镜像仓库重新拼，不用镜像里指向旧仓库的地址',
+    发行包 === 'https://github.com/XingYunStar/snowluma/releases/download/v2.4.2/SnowLuma-v2.4.2-win-x64.zip', 发行包)
   const 下载源 = 下载地址候选(发行包)
   报('发行包先走两个镜像、最后回直连',
     下载源.length === 3 && 下载源[0] === 'https://gh-proxy.com/' + 发行包 &&
       下载源[1] === 'https://ghproxy.net/' + 发行包 && 下载源[2] === 发行包, JSON.stringify(下载源))
+  报('下载源标签能直接写进进度和错误里',
+    下载源标签(下载源[0]) === 'gh-proxy 镜像' && 下载源标签(下载源[1]) === 'ghproxy.net 镜像' &&
+      下载源标签(下载源[2]) === 'GitHub 直连',
+    JSON.stringify(下载源.map(下载源标签)))
+  报('已经是镜像地址时不再套第二层前缀',
+    JSON.stringify(下载地址候选(下载源[0])) === JSON.stringify([下载源[0]]))
+  const 资产们 = [
+    { name: 'SnowLuma-v2.4.2-win-x64-lite.zip', size: 1, digest: 'sha256:aa' },
+    { name: 'SnowLuma-v2.4.2-linux-x64.tar.gz', size: 2, digest: 'sha256:bb' },
+    { name: 'SnowLuma-v2.4.2-win-x64.zip', size: 3, digest: 'sha256:cc' },
+    { name: 'checksums.sha256', size: 4, digest: 'sha256:dd' },
+  ]
+  const 选中 = 选Windows发行包(资产们)
+  报('只挑带 node.exe 的 Windows 完整包，不挑 lite / linux / 校验文件',
+    !!选中 && 选中.name === 'SnowLuma-v2.4.2-win-x64.zip', JSON.stringify(选中))
+  报('只有 lite 包时宁可不装，也不拿缺 node.exe 的包凑数',
+    选Windows发行包([{ name: 'SnowLuma-v2.4.2-win-x64-lite.zip' }]) === null)
+  报('元数据全挂时还有一份核对过的完整包兜底',
+    最后已知发行包.标签 === 'v2.4.2' && 最后已知发行包.资产.name === 'SnowLuma-v2.4.2-win-x64.zip' &&
+      最后已知发行包.资产.size === 43_361_462 && /^sha256:[0-9a-f]{64}$/.test(最后已知发行包.资产.digest),
+    JSON.stringify(最后已知发行包))
 
   // ---------- 后台密码 ----------
   const 密码 = 生成后台密码()

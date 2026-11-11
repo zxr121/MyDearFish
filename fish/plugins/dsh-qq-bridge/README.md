@@ -632,7 +632,7 @@ node tests/历史导入.mjs
 ## 它依赖什么：一个 QQ 后端（固定 SnowLuma，设置页一键装）
 
 插件本身**不碰 QQ 协议**，它只会说 **OneBot 11 的 HTTP**。所以本机要跑一个「QQ 接口」程序
-[**SnowLuma**](https://github.com/SnowLuma/SnowLuma)，插件通过配置里的 OneBot 地址（默认 `http://127.0.0.1:3000`）跟它说话。
+[**SnowLuma**](https://github.com/XingYunStar/snowluma)（上游 `SnowLuma/SnowLuma` 仓库已下线，这里指向保留官方发行包的镜像），插件通过配置里的 OneBot 地址（默认 `http://127.0.0.1:3000`）跟它说话。
 一键配置会先认已经在跑的实例；都连不上时才挑空闲端口，避免撞上 Grafana 这类同样占着 3000 的程序。
 
 ### 一次装好：设置页三步
@@ -640,7 +640,7 @@ node tests/历史导入.mjs
 不用自己找安装包、改配置文件。打开 **DSH → 设置 → 她在外面 → 通到 QQ**，最上面的「第一次接通 QQ」就是完整流程：
 
 1. **安装并配置 SnowLuma** —— 先认本机已有的安装：正在运行的实例、盘根（`D:\SnowLuma\app` 这种）、`Program Files`、`LocalAppData`、桌面 / 下载里的解压目录都会看一遍，认出后设置页直接列出来，点「用这个并启用」就写配置、开起来，**不会再下载第二份**。安装目录里留着以前接受过的 `consent.json`（协议正文没改过），或这个目录本来就是 DSH 带着同意启动的（`.dsh-launch.json` 的进程还活着）时，DSH 启动就会自动接管并拉起，不用重勾。
-   只有真的没找到时才需要勾选同意 EULA / 隐私政策、点「一键安装并配置」：插件从官方 Releases 下最新 Windows 版（国内网络自动换 gh-proxy / ghproxy.net 镜像）、核对 SHA-256、解压到 `<DSH_HOME>/snowluma`，
+   只有真的没找到时才需要勾选同意 EULA / 隐私政策、点「一键安装并配置」：插件从保留官方发行包的镜像仓库（`XingYunStar/snowluma`，备用 `TomyJan/SnowLuma`）读 `release.json`、取 Windows 完整包（国内网络先走 gh-proxy / ghproxy.net，不用能直连 GitHub，也不调 GitHub API）、核对 SHA-256，解压到 `<DSH_HOME>/snowluma`，
    写好 OneBot HTTP（默认 `127.0.0.1:3000`，被占用就换空闲端口，并把同一个地址写进设置）、戳一戳上报和本机网页后台（`127.0.0.1:5099`），然后启动它。
    装过的话按钮会变成「配置并启动」/「重新配置并重启」，不会重复下载；如果机器上已经有别的 SnowLuma 实例在跑，会直接沿用它的 OneBot，不会硬启第二个。
    每次写 OneBot 配置都会顺手关掉 SnowLuma 自带的 `#sl` 状态指令：群里不会再冒一张「版本 / 平台 / 运行时长」的机器人口径状态卡；要看状态，设置页的 SnowLuma 卡片里有。

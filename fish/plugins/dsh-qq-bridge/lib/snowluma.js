@@ -10,6 +10,7 @@ import { createHash, randomBytes, scryptSync } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import {
   closeSync,
+  cpSync,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -25,29 +26,34 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { createServer } from 'node:net'
+import {
+  发行镜像仓库,
+  发布元数据地址候选,
+  发行包下载地址,
+  选Windows发行包,
+  下载地址候选,
+  下载源标签,
+  最后已知发行包,
+} from './snowluma-release.js'
 
 export const 后台端口 = 5099
 export const 默认OneBot端口 = 3000
 /** 认已有实例时先看这几个常见端口；3000 可能被 Grafana 之类的程序占着，SnowLuma 在 3002 被占时会顺延到 3003。 */
 export const 认得的OneBot端口 = [3002, 3003, 3000]
-const 发行接口 = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest'
-const 镜像前缀 = [
-  'https://gh-proxy.com/',
-  'https://ghproxy.net/',
-]
 const 探测缓存毫秒 = 2000
 const 事件客户端名 = 'dsh-event'
 const 默认启动文件 = '.dsh-launch.json'
 
-/** 发布查询直连优先；ghproxy.net 不代理 API，只让 gh-proxy 参与兜底。 */
-export function 发行地址候选() {
-  return [发行接口, `https://gh-proxy.com/${发行接口}`]
-}
-
-/** 发行包先走国内镜像，最后回 GitHub 直连；摘要仍以官方 API 的 digest 为准。 */
-export function 下载地址候选(地址) {
-  return [...镜像前缀.map((前缀) => `${前缀}${地址}`), 地址]
-}
+export {
+  发行镜像仓库,
+  发行元数据文件,
+  最后已知发行包,
+  发布元数据地址候选,
+  发行包下载地址,
+  选Windows发行包,
+  下载地址候选,
+  下载源标签,
+} from './snowluma-release.js'
 
 function 读JSON(文件, 兜 = null) {
   try {
@@ -1006,30 +1012,61 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     ])
   }
 
+  /**
+   * 读镜像仓库随 Release 发布的 release.json，拿到资产名、大小和摘要。
+   * 上游 API 已随仓库下线，这里只认 release.json；国内镜像排在最前面。
+   * @returns {Promise<{仓库: string, 发布: object, 资产: object, 标签: string, 版本: string}>} 选中的 Windows 完整包。
+   */
   async function 取发布() {
     const 失败 = []
-    for (const 地址 of 发行地址候选()) {
-      const 名 = 地址 === 发行接口 ? 'GitHub 直连' : 'gh-proxy 镜像'
+    for (const 候选 of 发布元数据地址候选()) {
       try {
-        const r = await fetch(地址, {
-          headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-qq-bridge' },
-          signal: AbortSignal.timeout(20_000),
+        const r = await fetch(候选.地址, {
+          headers: { accept: 'application/json', 'user-agent': 'dsh-qq-bridge' },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(12_000),
         })
         if (!r.ok) {
-          失败.push(`${名} HTTP ${r.status}`)
+          失败.push(`${候选.说明} HTTP ${r.status}`)
           continue
         }
-        const 发布 = await r.json()
-        if (!发布 || !Array.isArray(发布.assets)) {
-          失败.push(`${名} 没返回 assets`)
+        let 发布 = null
+        try {
+          发布 = await r.json()
+        } catch (error) {
+          失败.push(`${候选.说明} 返回的不是 JSON`)
           continue
         }
-        return 发布
+        const 资产 = 选Windows发行包(发布 && 发布.assets)
+        if (!资产) {
+          失败.push(`${候选.说明} 没有 Windows x64 完整包`)
+          continue
+        }
+        const 资产名 = String(资产.name)
+        const 标签 = String((发布 && 发布.tag_name) || '').trim() ||
+          (资产名.match(/SnowLuma-(v[\d.]+)-win-x64\.zip/i) || [])[1] || ''
+        if (标签 === '') {
+          失败.push(`${候选.说明} 没写版本号`)
+          continue
+        }
+        return { 仓库: 候选.仓库, 发布, 资产, 标签, 版本: 标签.replace(/^v/i, '') }
       } catch (错) {
-        失败.push(`${名} ${String(错?.name || 错?.message || 错).slice(0, 40)}`)
+        失败.push(`${候选.说明} ${String(错?.name || 错?.message || 错).slice(0, 40)}`)
       }
     }
-    throw new Error(`查不到 SnowLuma 最新版（${失败.join('；')}）`)
+    // 元数据全挂时不要直接放弃：按最后一次核对过的发行包继续试下载，
+    // 镜像的 release.json 临时 404 / 限流时仍然装得上。
+    if (失败.length > 0) {
+      return {
+        仓库: 发行镜像仓库[0].仓库,
+        发布: { tag_name: 最后已知发行包.标签, assets: [最后已知发行包.资产] },
+        资产: 最后已知发行包.资产,
+        标签: 最后已知发行包.标签,
+        版本: 最后已知发行包.版本,
+        兜底: true,
+      }
+    }
+    throw new Error('查不到 SnowLuma 发行包（没有可用的下载源）')
   }
 
   async function 下载文件(地址, 文件, 进度) {
@@ -1065,33 +1102,36 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
   }
 
   async function 下载并解压(目录) {
-    安装任务 = { 进行中: true, 阶段: '查询最新版', 错: '', 已下载: 0, 总: 0 }
-    const 发布 = await 取发布()
-    const 资产 = (Array.isArray(发布.assets) ? 发布.assets : []).find((a) =>
-      /^SnowLuma-v[\d.]+-win-x64\.zip$/i.test(String((a && a.name) || '')),
-    )
-    if (!资产) throw new Error('SnowLuma 最新版里没有 Windows x64 发行包')
-    const 版本 = String(发布.tag_name || '').replace(/^v/, '') || String(资产.name)
+    安装任务 = { 进行中: true, 阶段: '查询发行包', 错: '', 已下载: 0, 总: 0 }
+    const { 资产, 标签, 版本, 兜底 } = await 取发布()
     const 期望摘要 = String(资产.digest || '').replace(/^sha256:/i, '').toLowerCase()
     const 期望大小 = Number(资产.size) || 0
-    const 下载源 = 下载地址候选(String(资产.browser_download_url))
+    // release.json 里的 browser_download_url 还指向已下线的官方仓库；
+    // 改成从保留发行包的镜像仓库下载，两个镜像互为兜底。
+    const 下载源 = []
+    for (const 镜像 of 发行镜像仓库) {
+      const 直连 = 发行包下载地址(镜像.仓库, 标签, String(资产.name))
+      for (const 地址 of 下载地址候选(直连)) {
+        下载源.push({ 地址, 标签: `${下载源标签(地址)}（${镜像.仓库}）` })
+      }
+    }
+    const 源 = [...new Map(下载源.map((x) => [x.地址, x])).values()]
     const 压缩包 = `${目录}.download.zip`
     mkdirSync(dirname(压缩包), { recursive: true })
 
     let 已 = 0
     const 失败 = []
     let 成功 = false
-    for (const [序号, 地址] of 下载源.entries()) {
-      const 标签 = 序号 === 下载源.length - 1 ? 'GitHub 直连' : `镜像 ${序号 + 1}`
+    for (const [序号, 源项] of 源.entries()) {
       安装任务 = {
         进行中: true,
-        阶段: 序号 === 0 ? `下载 SnowLuma v${版本}（国内镜像）` : `换源重试（${标签}）`,
+        阶段: 序号 === 0 ? `下载 SnowLuma v${版本}（国内镜像）` : `换源重试（${源项.标签}）`,
         错: '',
         已下载: 0,
         总: 期望大小,
       }
       try {
-        const 结果 = await 下载文件(地址, 压缩包, (n) => { 安装任务.已下载 = n })
+        const 结果 = await 下载文件(源项.地址, 压缩包, (n) => { 安装任务.已下载 = n })
         已 = 结果.已
         if (期望摘要 && 结果.摘要 !== 期望摘要) throw new Error('SHA-256 校验失败')
         if (期望大小 && 已 !== 期望大小) throw new Error(`大小不符（${已}/${期望大小}）`)
@@ -1101,16 +1141,26 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
         try {
           rmSync(压缩包, { force: true })
         } catch {}
-        失败.push(`${标签}：${String(错?.message || 错).slice(0, 80)}`)
+        失败.push(`${源项.标签}：${String(错?.message || 错).slice(0, 80)}`)
       }
     }
-    if (!成功) throw new Error(`下载 SnowLuma 失败（已试 ${下载源.length} 个源）：${失败.join('；')}`)
+    if (!成功) {
+      throw new Error(`下载 SnowLuma 失败（已试 ${源.length} 个源${兜底 ? '；发行元数据也没取到，用的是上次核对过的版本' : ''}）：${失败.join('；')}`)
+    }
 
     安装任务 = { ...安装任务, 阶段: '解压', 已下载: 已, 总: 期望大小 || 已 }
+    // 先解到旁边的暂存目录，确认是完整安装再合进去；
+    // 半截的包不会把已有目录里的配置覆盖坏。
+    const 暂存 = `${目录}.installing-${process.pid}`
     try {
-      await 解压(压缩包, 目录)
+      rmSync(暂存, { recursive: true, force: true })
+      await 解压(压缩包, 暂存)
+      if (!是SnowLuma目录(暂存)) throw new Error('安装包解压后没有 index.mjs / node.exe')
+      mkdirSync(目录, { recursive: true })
+      cpSync(暂存, 目录, { recursive: true, force: true })
     } finally {
       rmSync(压缩包, { force: true })
+      rmSync(暂存, { recursive: true, force: true })
     }
     if (!是SnowLuma目录(目录)) throw new Error('解压完了，但没找到 index.mjs / node.exe')
     return 版本
@@ -1191,7 +1241,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       总: 0,
     }
     void 执行安装({ 目录, 密码: 选项.密码, 自动启动: 选项.自动启动 !== false })
-    return { ok: true, 说: 已有 ? '正在配置并启动 SnowLuma' : '正在下载 SnowLuma（约 42MB），装好会自动配置并启动' }
+    return { ok: true, 说: 已有 ? '正在配置并启动 SnowLuma' : '正在从镜像下载 SnowLuma（约 43MB），装好会自动配置并启动' }
   }
 
   function 手动启动() {

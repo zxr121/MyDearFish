@@ -1258,7 +1258,8 @@ window.__ModuleLoader__.load({
           ),
           h('div', { style: S.dim },
             '固定用 SnowLuma。先找本机已有的安装（正在运行的实例、盘根 / Program Files / 桌面等常见位置），找到就直接配置启动，不会重新下载；' +
-              '真的没有才从官方 GitHub Releases 下载 Windows 版（国内网络自动换镜像），并把 OneBot HTTP（' + 雪OneBot + '）、事件上报和后台密码都写好；' +
+              '真的没有才从保留官方发行包的镜像下载 Windows 版（不走 GitHub API，国内网络自动换 gh-proxy / ghproxy.net），' +
+              '并把 OneBot HTTP（' + 雪OneBot + '）、事件上报和后台密码都写好；' +
               '你只剩两步：登录鱼 QQ、在 SnowLuma 后台把它接上。',
           ),
           雪装好 && 雪.外部实例
@@ -1275,7 +1276,7 @@ window.__ModuleLoader__.load({
                     ? '已安装 v' + String(雪.版本 || '?') + '：' + String(雪.目录 || '')
                     : (Array.isArray(雪.候选) && 雪.候选.length > 0
                         ? '本机已经认出 ' + String(雪.候选.length) + ' 个 SnowLuma；选一个直接用，不会重新下载。'
-                        : '还没装。点击下载安装（约 40–60 MB），装好会自动配置并启动。'),
+                        : '还没装。点一下从镜像下载安装（约 43 MB，不需要能直连 GitHub），装好会自动配置并启动。'),
               ),
               !雪装好 && Array.isArray(雪.候选) && 雪.候选.length > 0
                 ? h('div', { style: { ...S.card, marginTop: 6 } },
@@ -1301,7 +1302,7 @@ window.__ModuleLoader__.load({
                 h('span', null,
                   '我已阅读并同意 SnowLuma 的 ',
                   h('a', {
-                    href: 'https://github.com/SnowLuma/SnowLuma',
+                    href: 'https://github.com/XingYunStar/snowluma/blob/v2.4.2/EULA.md',
                     target: '_blank',
                     rel: 'noreferrer',
                     style: { color: 'var(--dsw-alias-state-business-primary)' },
