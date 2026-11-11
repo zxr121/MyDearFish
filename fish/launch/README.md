@@ -16,7 +16,7 @@ Windows 快捷方式指向 `start-dsh.bat`（前台）或 `start-dsh-silent.vbs`
 node fish/launch/release-fish.mjs
 ```
 
-一条命令走完：预检工作区 → 先在本地打一版 unsigned exe（不签名，产物在 `apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts`）→ 推 `fish-release-<UTC日期>` 标签触发 CI → 等 GitHub Release → 把安装包下到 `Downloads` → 对照 `nightly.yml` 校验大小和 SHA-512，最后同时打印本地包和 CI 包的路径与校验值。过程中显示每个阶段的耗时、CI 的 Run 编号与状态、下载百分比和速度；下载支持断点续传和自动重试，直连不通时改走 `gh-proxy.com` 镜像。
+一条命令走完：预检工作区 → 先在本地打一版 unsigned exe（不签名，产物在 `apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts`）→ 推 `fish-release-<UTC日期>` 标签触发 CI → 等 GitHub Release → 把安装包下到 `Downloads` → 对照 `nightly.yml` 校验大小和 SHA-512 → 打成 `大肥鱼-<版本>-win-x64.zip`（exe + `安装说明.txt` + `nightly.yml`，旁边附 `.sha512`），最后同时打印本地包、CI 包和交付 zip 的路径与校验值。交付 zip 不含 SnowLuma 的二进制：说明里给镜像地址、文件名、摘要和「从本地 zip 安装」的做法。过程中显示每个阶段的耗时、CI 的 Run 编号与状态、下载百分比和速度；下载支持断点续传和自动重试，直连不通时改走 `gh-proxy.com` 镜像。
 
 本地打包会重写 `apps/desktop/.desktop-build/targets/win-x64/runtime`，开发桌面端开着时脚本会先停下并提示退出；本地打包失败不会推标签，也不会触发 CI。`--tag` 只等已有发布，跳过本地打包。Windows 本机打包需要 Visual Studio C++ Build Tools，`tar` 用 System32 下的 bsdtar；Electron / electron-builder 二进制默认走 npmmirror，可用 `ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR` 覆盖。
 
@@ -26,7 +26,7 @@ node fish/launch/release-fish.mjs
 - `--again`：这个提交已经打过版，仍要再打一版（默认会提示并退出）。
 - `--dry-run`：只预检并打印计划，不本地打包、不推标签。
 - `--skip-local`：跳过本地打包，直接推标签等 CI（本机没装 VS C++ Build Tools 时用）。
-- `--out <目录>`：安装包下载目录，默认 `Downloads`。
+- `--out <目录>`：安装包和交付 zip 的输出目录，默认 `Downloads`。
 - `--timeout <分钟>`：等 CI 的上限，默认 60。
 
 打版前要有干净的提交；脚本会自己补好 node 和 pnpm 的 PATH，pre-push 的 typecheck 照常跑。

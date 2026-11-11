@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-// 打版：本地先打 unsigned 安装包 → 推 fish-release 标签 → 等 CI 发布 → 下载安装包 → 对照 nightly.yml 校验 → 交付路径。
+// 打版：本地先打 unsigned 安装包 → 推 fish-release 标签 → 等 CI 发布 → 下载安装包 → 对照 nightly.yml 校验 → 打成交付 zip（exe + 安装说明 + nightly.yml）。
 // 常用：node fish/launch/release-fish.mjs [--tag <已有标签>] [--again] [--dry-run] [--out <目录>] [--timeout <分钟>]
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
-import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { 打交付zip, SHA512 } from './delivery-zip.mjs'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const REMOTE = 'ssh'
@@ -37,7 +36,7 @@ for (let i = 0; i < argv.length; i++) {
   --again          这个提交已经打过版，仍要再打一版
   --dry-run        只预检并打印计划，不本地打包、不推标签
   --skip-local     跳过本地打包，直接推标签等 CI（本机没装 VS C++ Build Tools 时用）
-  --out <目录>     安装包下载目录（默认 ${DOWNLOADS}）
+  --out <目录>     安装包和交付 zip 的输出目录（默认 ${DOWNLOADS}）
   --timeout <分>   等 CI 的上限分钟数（默认 60）`)
     process.exit(0)
   } else {
@@ -187,12 +186,6 @@ async function 取小文件(url, 名) {
     await 睡(1200 * i)
   }
   throw 最后错误 || new Error(`${名} 取不到`)
-}
-
-async function SHA512(path) {
-  const hash = createHash('sha512')
-  for await (const 块 of createReadStream(path)) hash.update(块)
-  return hash.digest('base64')
 }
 
 function 解析nightly(文本, 文件名) {
@@ -471,7 +464,7 @@ async function 本地打一版() {
 
 async function 主流程() {
   说('打版开始')
-  阶段(1, 7, '预检')
+  阶段(1, 8, '预检')
   const HEAD = git(['rev-parse', 'HEAD']).trim()
   const 短 = HEAD.slice(0, 7)
   const 分支 = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim()
@@ -515,7 +508,7 @@ async function 主流程() {
       说('--dry-run：不本地打包、不推送，到此为止')
       return
     }
-    阶段(2, 7, '本地打包')
+    阶段(2, 8, '本地打包')
     if (参数.skipLocal) {
       说('  按 --skip-local 跳过本地打包，直接推标签等 CI')
     } else {
@@ -538,7 +531,7 @@ async function 主流程() {
     return
   }
 
-  阶段(3, 7, '等 CI 构建')
+  阶段(3, 8, '等 CI 构建')
   let 版本 = ''
   const 已有发布 = [...标签表].find(([名, sha]) => 名.startsWith('v') && sha === 目标提交)
   if (已有发布) 版本 = 已有发布[0].slice(1)
@@ -573,7 +566,7 @@ async function 主流程() {
   }
   说(`发布完成：v${版本}`)
 
-  阶段(4, 7, '取 nightly.yml')
+  阶段(4, 8, '取 nightly.yml')
   const 安装包名 = `deepseek-harness-${版本}-win-x64-unsigned.exe`
   const 发布地址 = `https://github.com/${SLUG}/releases/download/v${版本}/${安装包名}`
   const nightly = await 取小文件(`https://github.com/${SLUG}/releases/download/v${版本}/nightly.yml`, 'nightly.yml')
@@ -581,18 +574,30 @@ async function 主流程() {
   if (!清单.sha || !清单.size) 失败(`nightly.yml 里没找到 ${安装包名} 的大小或 SHA-512`)
   说(`  安装包 ${basename(清单.url || 安装包名)} · ${MB(清单.size)}`)
 
-  阶段(5, 7, '下载安装包')
+  阶段(5, 8, '下载安装包')
   说(`  目标目录 ${参数.out}`)
   const 安装包 = await 下载安装包({ url: 发布地址, 文件: 安装包名, 大小: 清单.size, sha: 清单.sha })
 
-  阶段(6, 7, '校验')
+  阶段(6, 8, '校验')
   const 实际大小 = statSync(安装包).size
   const 实际sha = await SHA512(安装包)
   if (实际大小 !== 清单.size || 实际sha !== 清单.sha) 失败('安装包与 nightly.yml 对不上')
   说(`  大小 ${实际大小.toLocaleString('en-US')} 字节`)
   说(`  SHA-512 ${实际sha}`)
 
-  阶段(7, 7, '交付')
+  阶段(7, 8, '打交付 zip')
+  let 交付 = null
+  try {
+    交付 = await 打交付zip({ 输出目录: 参数.out, 版本, 安装包, 大小: 实际大小, sha: 实际sha, nightly })
+  } catch (错误) {
+    说(`  安装包已经下载并校验：${安装包}`)
+    失败(`交付 zip 没打成：${错误.message}`)
+  }
+  说(`  ${交付.文件}`)
+  说(`  ${交付.大小.toLocaleString('en-US')} 字节（${MB(交付.大小)}）· SHA-512 ${交付.sha}`)
+  说(`  内容：${交付.内容.join(' + ')}`)
+
+  阶段(8, 8, '交付')
   说('──────────────────────────────')
   if (本地包) {
     说(`本地包    ${本地包.文件}`)
@@ -602,6 +607,12 @@ async function 主流程() {
   说(`安装包    ${安装包}`)
   说(`大小      ${实际大小.toLocaleString('en-US')} 字节（${MB(实际大小)}）`)
   说(`SHA-512   ${实际sha}`)
+  说(`交付包    ${交付.文件}`)
+  说(`大小      ${交付.大小.toLocaleString('en-US')} 字节（${MB(交付.大小)}）`)
+  说(`SHA-512   ${交付.sha}`)
+  说(`校验文件  ${交付.文件}.sha512`)
+  说(`内容      ${交付.内容.join(' + ')}`)
+  说('交付包里不含 SnowLuma 的二进制；安装说明里给了镜像地址和「从本地 zip 安装」的做法。')
   说(`发布页    https://github.com/${SLUG}/releases/tag/v${版本}`)
   说('未签名：先在托盘完全退出旧版再安装；SmartScreen 点「更多信息 → 仍要运行」。')
   说('打版完成')
