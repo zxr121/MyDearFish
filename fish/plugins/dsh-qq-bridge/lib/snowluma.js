@@ -17,8 +17,10 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  readSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
@@ -104,6 +106,28 @@ function 端口空着(端口) {
 export function 是SnowLuma目录(目录) {
   try {
     return existsSync(join(目录, 'index.mjs')) && existsSync(join(目录, 'node.exe'))
+  } catch (error) {
+    return false
+  }
+}
+
+/**
+ * 只看文件头四个字节，确认是普通 zip；不把整个安装包读进内存。
+ * 本地安装包上传后先过这一道，避免把网页、快捷方式或没传完的文件当 zip 解。
+ * @param {string} 文件 - 磁盘上的候选安装包。
+ * @returns {boolean} 是否是 zip。
+ */
+export function 是zip文件(文件) {
+  try {
+    if (!statSync(文件).isFile()) return false
+    const 句柄 = openSync(文件, 'r')
+    try {
+      const 头 = Buffer.alloc(4)
+      const 读 = readSync(句柄, 头, 0, 4, 0)
+      return 读 === 4 && 头[0] === 0x50 && 头[1] === 0x4b && 头[2] === 0x03 && 头[3] === 0x04
+    } finally {
+      closeSync(句柄)
+    }
   } catch (error) {
     return false
   }
@@ -524,8 +548,8 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     return 出
   }
 
-  const 目标目录 = (配置) => {
-    const 指定 = 绝对目录(配置 && 配置.SnowLuma && 配置.SnowLuma.目录)
+  const 目标目录 = (配置, 覆盖 = '') => {
+    const 指定 = 绝对目录(覆盖) || 绝对目录(配置 && 配置.SnowLuma && 配置.SnowLuma.目录)
     if (指定 !== '') return 指定
     const 候选 = 候选目录(配置)
     return 候选.length > 0 ? 候选[0].目录 : join(家目录, 'snowluma')
@@ -1101,54 +1125,81 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     }
   }
 
-  async function 下载并解压(目录) {
-    安装任务 = { 进行中: true, 阶段: '查询发行包', 错: '', 已下载: 0, 总: 0 }
-    const { 资产, 标签, 版本, 兜底 } = await 取发布()
-    const 期望摘要 = String(资产.digest || '').replace(/^sha256:/i, '').toLowerCase()
-    const 期望大小 = Number(资产.size) || 0
-    // release.json 里的 browser_download_url 还指向已下线的官方仓库；
-    // 改成从保留发行包的镜像仓库下载，两个镜像互为兜底。
-    const 下载源 = []
-    for (const 镜像 of 发行镜像仓库) {
-      const 直连 = 发行包下载地址(镜像.仓库, 标签, String(资产.name))
-      for (const 地址 of 下载地址候选(直连)) {
-        下载源.push({ 地址, 标签: `${下载源标签(地址)}（${镜像.仓库}）` })
-      }
-    }
-    const 源 = [...new Map(下载源.map((x) => [x.地址, x])).values()]
+  /**
+   * 把 SnowLuma 装进目录：默认从镜像下载；本地包 = 用设置页刚上传到
+   * `<目录>.download.zip` 的那份，不联网、不取发行元数据。
+   * @param {string} 目录 - 安装目录。
+   * @param {{本地包?: boolean}} [选项] - 本地包只认上传后的固定路径。
+   * @returns {Promise<string>} 装好的版本。
+   */
+  async function 下载并解压(目录, 选项 = {}) {
+    const 本地包 = 选项.本地包 === true
     const 压缩包 = `${目录}.download.zip`
     mkdirSync(dirname(压缩包), { recursive: true })
+    安装任务 = { 进行中: true, 阶段: 本地包 ? '安装本地安装包' : '查询发行包', 错: '', 已下载: 0, 总: 0 }
 
+    let 版本 = ''
     let 已 = 0
-    const 失败 = []
-    let 成功 = false
-    for (const [序号, 源项] of 源.entries()) {
-      安装任务 = {
-        进行中: true,
-        阶段: 序号 === 0 ? `下载 SnowLuma v${版本}（国内镜像）` : `换源重试（${源项.标签}）`,
-        错: '',
-        已下载: 0,
-        总: 期望大小,
-      }
+    let 期望大小 = 0
+    if (本地包) {
       try {
-        const 结果 = await 下载文件(源项.地址, 压缩包, (n) => { 安装任务.已下载 = n })
-        已 = 结果.已
-        if (期望摘要 && 结果.摘要 !== 期望摘要) throw new Error('SHA-256 校验失败')
-        if (期望大小 && 已 !== 期望大小) throw new Error(`大小不符（${已}/${期望大小}）`)
-        成功 = true
-        break
+        if (!existsSync(压缩包)) throw new Error('没找到刚上传的安装包，请重新选择文件')
+        已 = statSync(压缩包).size
+        期望大小 = 已
+        if (已 < 1024 * 1024) throw new Error('本地安装包不完整（不到 1 MB），请重新选择')
+        if (!是zip文件(压缩包)) throw new Error('这个文件不是 zip 安装包')
       } catch (错) {
-        try {
-          rmSync(压缩包, { force: true })
-        } catch {}
-        失败.push(`${源项.标签}：${String(错?.message || 错).slice(0, 80)}`)
+        rmSync(压缩包, { force: true })
+        throw 错
       }
-    }
-    if (!成功) {
-      throw new Error(`下载 SnowLuma 失败（已试 ${源.length} 个源${兜底 ? '；发行元数据也没取到，用的是上次核对过的版本' : ''}）：${失败.join('；')}`)
+      安装任务 = { ...安装任务, 阶段: '解压本地安装包', 已下载: 已, 总: 期望大小 }
+    } else {
+      const { 资产, 标签, 版本: 网络版本, 兜底 } = await 取发布()
+      版本 = 网络版本
+      const 期望摘要 = String(资产.digest || '').replace(/^sha256:/i, '').toLowerCase()
+      期望大小 = Number(资产.size) || 0
+      // release.json 里的 browser_download_url 还指向已下线的官方仓库；
+      // 改成从保留发行包的镜像仓库下载，两个镜像互为兜底。
+      const 下载源 = []
+      for (const 镜像 of 发行镜像仓库) {
+        const 直连 = 发行包下载地址(镜像.仓库, 标签, String(资产.name))
+        for (const 地址 of 下载地址候选(直连)) {
+          下载源.push({ 地址, 标签: `${下载源标签(地址)}（${镜像.仓库}）` })
+        }
+      }
+      const 源 = [...new Map(下载源.map((x) => [x.地址, x])).values()]
+
+      const 失败 = []
+      let 成功 = false
+      for (const [序号, 源项] of 源.entries()) {
+        安装任务 = {
+          进行中: true,
+          阶段: 序号 === 0 ? `下载 SnowLuma v${版本}（国内镜像）` : `换源重试（${源项.标签}）`,
+          错: '',
+          已下载: 0,
+          总: 期望大小,
+        }
+        try {
+          const 结果 = await 下载文件(源项.地址, 压缩包, (n) => { 安装任务.已下载 = n })
+          已 = 结果.已
+          if (期望摘要 && 结果.摘要 !== 期望摘要) throw new Error('SHA-256 校验失败')
+          if (期望大小 && 已 !== 期望大小) throw new Error(`大小不符（${已}/${期望大小}）`)
+          成功 = true
+          break
+        } catch (错) {
+          try {
+            rmSync(压缩包, { force: true })
+          } catch {}
+          失败.push(`${源项.标签}：${String(错?.message || 错).slice(0, 80)}`)
+        }
+      }
+      if (!成功) {
+        throw new Error(`下载 SnowLuma 失败（已试 ${源.length} 个源${兜底 ? '；发行元数据也没取到，用的是上次核对过的版本' : ''}）：${失败.join('；')}`)
+      }
+
+      安装任务 = { ...安装任务, 阶段: '解压', 已下载: 已, 总: 期望大小 || 已 }
     }
 
-    安装任务 = { ...安装任务, 阶段: '解压', 已下载: 已, 总: 期望大小 || 已 }
     // 先解到旁边的暂存目录，确认是完整安装再合进去；
     // 半截的包不会把已有目录里的配置覆盖坏。
     const 暂存 = `${目录}.installing-${process.pid}`
@@ -1156,6 +1207,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       rmSync(暂存, { recursive: true, force: true })
       await 解压(压缩包, 暂存)
       if (!是SnowLuma目录(暂存)) throw new Error('安装包解压后没有 index.mjs / node.exe')
+      版本 = 读SnowLuma版本(暂存) || 版本
       mkdirSync(目录, { recursive: true })
       cpSync(暂存, 目录, { recursive: true, force: true })
     } finally {
@@ -1166,10 +1218,10 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
     return 版本
   }
 
-  async function 执行安装({ 目录, 密码, 自动启动 }) {
+  async function 执行安装({ 目录, 密码, 自动启动, 本地包 = false }) {
     try {
       if (!是SnowLuma目录(目录)) {
-        await 下载并解压(目录)
+        await 下载并解压(目录, { 本地包 })
       } else {
         安装任务 = { 进行中: true, 阶段: '配置 SnowLuma', 错: '', 已下载: 0, 总: 0 }
       }
@@ -1228,20 +1280,31 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
   function 设置(选项 = {}) {
     if (选项.同意协议 !== true) return { ok: false, 说: '要先勾选同意 SnowLuma 的 EULA 和隐私政策' }
     if (安装任务.进行中) return { ok: true, 说: '正在装，等这一步跑完', 安装: { ...安装任务 } }
+    const 本地包 = 选项.本地包 === true
     const 配置 = 读配置()
     const 目录 = 绝对目录(选项.目录) || 目标目录(配置)
     if (目录 === '') return { ok: false, 说: 'SnowLuma 目录无效' }
     const 已有 = 是SnowLuma目录(目录)
+    if (本地包 && 已有) {
+      return { ok: false, 说: '这个目录已经装好 SnowLuma 了；本地安装包只在还没装时用。要装到别处，先在高级里把安装目录改成一个空目录' }
+    }
     改配置({ 目录, 同意协议: true, 自动启动: 选项.自动启动 !== false })
     安装任务 = {
       进行中: true,
-      阶段: 已有 ? '准备配置' : '准备下载',
+      阶段: 已有 ? '准备配置' : (本地包 ? '准备安装本地包' : '准备下载'),
       错: '',
       已下载: 0,
       总: 0,
     }
-    void 执行安装({ 目录, 密码: 选项.密码, 自动启动: 选项.自动启动 !== false })
-    return { ok: true, 说: 已有 ? '正在配置并启动 SnowLuma' : '正在从镜像下载 SnowLuma（约 43MB），装好会自动配置并启动' }
+    void 执行安装({ 目录, 密码: 选项.密码, 自动启动: 选项.自动启动 !== false, 本地包 })
+    return {
+      ok: true,
+      说: 已有
+        ? '正在配置并启动 SnowLuma'
+        : (本地包
+            ? '正在安装本地安装包，装好会自动配置并启动'
+            : '正在从镜像下载 SnowLuma（约 43MB），装好会自动配置并启动'),
+    }
   }
 
   function 手动启动() {

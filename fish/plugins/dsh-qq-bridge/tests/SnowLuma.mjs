@@ -15,6 +15,7 @@ import {
   取端口,
   规范OneBot地址,
   是SnowLuma目录,
+  是zip文件,
   读SnowLuma版本,
   协议指纹,
   读SnowLuma同意,
@@ -468,8 +469,41 @@ try {
     事件地址: () => 事件地址,
   })
   报('设置里指定的目录优先', 管理器2.目标目录({ SnowLuma: { 目录: 指定目录 } }) === 指定目录)
+  const 覆盖目录 = join(家, '上传时选的目录')
+  报('上传时传的目录优先于设置里还没保存的旧目录',
+    管理器2.目标目录({ SnowLuma: { 目录: 指定目录 } }, 覆盖目录) === 覆盖目录, 覆盖目录)
   管理器2.停止()
   报('没有进程时停止不炸', true)
+
+  // ---------- 本地安装包 ----------
+  const 假zip = join(家, '假的.zip')
+  writeFileSync(假zip, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]))
+  const 不是zip = join(家, '不是.zip')
+  writeFileSync(不是zip, '这不是压缩包', 'utf8')
+  报('只认 zip 文件头，网页 / 空文件 / 没传完的都不算',
+    是zip文件(假zip) === true && 是zip文件(不是zip) === false && 是zip文件(join(家, '没有这个.zip')) === false)
+
+  const 本地包家 = join(家, '本地包家')
+  let 本地配置 = { SnowLuma: { 目录: '', 后台密码: '', 同意协议: false, 自动启动: true }, 戳一戳: { 端口: 19388 } }
+  const 本地管理器 = 创建SnowLuma({
+    家目录: 本地包家,
+    读配置: () => 本地配置,
+    存配置: (c) => { 本地配置 = c },
+    记账: () => {},
+    事件地址: () => 事件地址,
+  })
+  const 本地目录 = join(本地包家, '想装到这里')
+  报('本地安装包用上传时选的目录，不再去扫本机已有安装',
+    本地管理器.目标目录(本地配置, 本地目录) === 本地目录, 本地目录)
+  const 本地设置 = 本地管理器.设置({ 同意协议: true, 本地包: true, 目录: 本地目录 })
+  报('本地安装包立刻进安装流程，不走下载', 本地设置.ok === true && String(本地设置.说).includes('本地安装包'), JSON.stringify(本地设置))
+  await new Promise((r) => setTimeout(r, 50))
+  const 本地错 = 本地管理器.快照().安装
+  报('本地包没上传时明确报错，不会偷偷联网下载',
+    本地错.进行中 === false && String(本地错.错).includes('没找到刚上传'), JSON.stringify(本地错))
+  const 本地已有 = 管理器.设置({ 同意协议: true, 本地包: true })
+  报('已经装好的目录拒绝本地包，避免上传白传',
+    本地已有.ok === false && String(本地已有.说).includes('已经装好'), JSON.stringify(本地已有))
 
   // 我们以前拉起过的目录：没有 consent.json，但启动记录 + 活着的 PID 也算同意证据
   const 启动过家 = join(家, '由DSH启动')

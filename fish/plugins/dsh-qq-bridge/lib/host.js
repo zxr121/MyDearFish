@@ -16,9 +16,11 @@
 
 import {
   readFileSync, writeFileSync, appendFileSync, renameSync, mkdirSync, readdirSync,
-  existsSync, unlinkSync, rmSync, statSync, openSync, readSync, closeSync,
+  existsSync, unlinkSync, rmSync, statSync, openSync, readSync, closeSync, createWriteStream,
 } from 'node:fs'
 import { createServer } from 'node:http'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13361,6 +13363,20 @@ export function apply(ctx) {
     }
   }
 
+  /** 流式收下本地上传的 SnowLuma 安装包；超过上限立刻停，不把整包读进内存。 */
+  const 收安装包 = async (req, 文件, 上限) => {
+    let 已收 = 0
+    const 计量 = new Transform({
+      transform(块, 编码, 回调) {
+        已收 += 块.length
+        if (已收 > 上限) 回调(new Error('安装包太大（上限 200 MB）'))
+        else 回调(null, 块)
+      },
+    })
+    await pipeline(req, 计量, createWriteStream(文件))
+    return 已收
+  }
+
   const 短id = (id) => {
     const s = String(id)
     return s.length <= 8 ? s : s.slice(-8)
@@ -13973,8 +13989,35 @@ export function apply(ctx) {
     回(res, await snowluma.状态())
   })
 
+  // 本地安装包：设置页选一个 SnowLuma 的 zip，先传到目标目录旁边，再由 setup 用本地包模式安装。
+  // 不联网、不取发行元数据；路径固定，不接受客户端指定任意文件。
+  路线(`${路由前缀}/snowluma/upload`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 快 = snowluma.快照()
+    if (快.安装.进行中) return 回(res, { ok: false, 说: '正在装，等这一步跑完' })
+    const 参 = new URL(String((req && req.url) || ''), 'http://127.0.0.1')
+    const 目录 = snowluma.目标目录(读配置(), 参.searchParams.get('目录') || '')
+    if (目录 === '') return 回(res, { ok: false, 说: 'SnowLuma 目录无效' })
+    if (snowluma.是SnowLuma目录(目录)) {
+      return 回(res, { ok: false, 说: '这个目录已经装好 SnowLuma 了；本地安装包只在还没装时用。要装到别处，先在高级里把安装目录改成一个空目录' })
+    }
+    const 上限 = 200 * 1024 * 1024
+    const 声明 = Number(req.headers && req.headers['content-length'])
+    if (Number.isFinite(声明) && 声明 > 上限) return 回(res, { ok: false, 说: '安装包太大（上限 200 MB）' }, 413)
+    const 文件 = `${目录}.download.zip`
+    try {
+      mkdirSync(dirname(文件), { recursive: true })
+      const 已收 = await 收安装包(req, 文件, 上限)
+      if (已收 < 1024 * 1024) throw new Error('安装包不完整（不到 1 MB）')
+      return 回(res, { ok: true, 说: '本地安装包已收到', 大小: 已收 })
+    } catch (错) {
+      try { rmSync(文件, { force: true }) } catch (error) {}
+      return 回(res, { ok: false, 说: String((错 && 错.message) || 错) })
+    }
+  })
+
   // 一键装：下载官方发行包 → 写 OneBot / 事件上报 / 后台密码 → 启动。
-  // 必须带 同意协议: true；不替用户默认接受。
+  // 必须带 同意协议: true；不替用户默认接受。带 本地包: true 时用刚上传的那份，不联网。
   路线(`${路由前缀}/snowluma/setup`, async (req, res) => {
     if (!要方法(req, 'POST', res)) return
     const 来 = await 读体(req)
@@ -13983,6 +14026,7 @@ export function apply(ctx) {
       密码: 来 && 来.密码,
       同意协议: !!(来 && 来.同意协议),
       自动启动: !(来 && 来.自动启动 === false),
+      本地包: !!(来 && 来.本地包 === true),
     })
     回(res, { ...出, 状态: snowluma.快照() })
   })

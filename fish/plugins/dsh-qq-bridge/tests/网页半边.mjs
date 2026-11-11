@@ -309,5 +309,45 @@ const 文2 = (() => { 下标2 = 0; return JSON.stringify(组件2()) })()
 报('落盘路径写在提示里，能回看', 文2.includes('qq-thoughts.jsonl'), '')
 globalThis.setInterval = 真setInterval
 
+// ③ 还没装 SnowLuma 时：除了镜像下载，还要有「从本地 zip 安装」的隐藏文件选择
+const 未装态 = JSON.parse(JSON.stringify(初始态))
+未装态.配置.SnowLuma = { ...未装态.配置.SnowLuma, 目录: '', 同意协议: false }
+未装态.SnowLuma = {
+  ...未装态.SnowLuma, 目录: '', 已安装: false, 版本: '', 运行中: false, 后台在跑: false, 已连QQ: false,
+  是我们启动的: false, 候选: [], 账号们: { 当前: '', 列表: [], 错: '' },
+  安装: { 进行中: false, 阶段: '', 错: '', 已下载: 0, 总: 0 },
+}
+let 下标3 = 0
+let 槽3 = [未装态]
+const 造React3 = () => ({
+  createElement: (t, p, ...kids) => ({ t, p: p || {}, kids: kids.flat(9).filter((k) => k !== null && k !== undefined && k !== false) }),
+  useState: (init) => {
+    const i = 下标3++
+    if (!(i in 槽3)) 槽3[i] = init
+    return [槽3[i], (v) => { 槽3[i] = typeof v === 'function' ? v(槽3[i]) : v }]
+  },
+  useEffect: () => {},
+  useRef: (init) => ({ current: init }),
+  useCallback: (f) => f,
+})
+const 捕获3 = 捕获
+const exports3 = 捕获3.factory(造React3)
+let 组件3 = null
+exports3.apply({
+  get: (n) => (n === 'slots' ? {
+    inject: (n2, cb) => cb(),
+    register: (_d, c) => { 组件3 = c; return () => {} },
+  } : undefined),
+})
+下标3 = 0
+槽3 = [未装态]
+const 树3 = 组件3()
+const 文3 = JSON.stringify(树3)
+报('未安装时出现「从本地 zip 安装」入口', 文3.includes('从本地 zip 安装') && 文3.includes('SnowLuma 包'), '')
+const 文件框 = 收标签(树3, 'input').filter((n) => n.p && n.p.type === 'file')
+报('本地 zip 入口是隐藏文件框，只收 .zip',
+  文件框.length === 1 && 文件框[0].p.style.display === 'none' && String(文件框[0].p.accept).includes('.zip'),
+  JSON.stringify(文件框.map((n) => n.p)))
+
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
 process.exitCode = 挂了 === 0 ? 0 : 1

@@ -8,10 +8,11 @@
 //   6) 连发：文字按空行/句尾拆条，表情包 [发表情:#N] 按写下顺序排进队列、可连发多张、可和话混排
 // 跑法： node tests/宿主半边.mjs
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { Readable } from 'node:stream'
 
 const 家 = mkdtempSync(join(tmpdir(), 'qq-bridge-'))
 process.env.DSH_HOME = 家
@@ -1539,6 +1540,34 @@ const 概况 = await 宿主.概况()
 报('状态：社交里带倾向（没有 tendency 的旧鱼脑回推出厂值）', 概况.社交 && 概况.社交.倾向
   && 概况.社交.倾向.talk === 'normal' && 概况.社交.倾向.stickerSave === 'normal' && 概况.社交.倾向.skippedToday === 0,
   JSON.stringify(概况.社交 && 概况.社交.倾向))
+
+// ⑱ 本地安装包上传：只写目标目录旁边，坏包明确报错并清掉
+const 上传目录 = join(家, '本地包安装')
+const 上传体 = Buffer.alloc(1024 * 1024 + 16, 0)
+const 上传请求 = Readable.from([上传体])
+上传请求.method = 'POST'
+上传请求.headers = { host: '127.0.0.1:3080', 'content-length': String(上传体.length) }
+上传请求.url = '/dsh-qq-bridge/snowluma/upload?目录=' + encodeURIComponent(上传目录)
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/snowluma/upload')(上传请求, fakeRes)
+报('本地上传：收到安装包并返回大小', 存储[0] && 存储[0].ok === true && 存储[0].大小 === 上传体.length, JSON.stringify(存储[0]))
+const 上传文件 = 上传目录 + '.download.zip'
+报('本地上传：落到目标目录旁边，不写别处', existsSync(上传文件), 上传文件)
+
+const 设请求 = 造请求({ 目录: 上传目录, 同意协议: true, 本地包: true })
+设请求.url = '/dsh-qq-bridge/snowluma/setup'
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/snowluma/setup')(设请求, fakeRes)
+const 设结果 = 存储[0]
+报('本地上传：setup 带本地包进安装流程', 设结果 && 设结果.ok === true && String(设结果.说).includes('本地安装包'), JSON.stringify(设结果))
+await new Promise((r) => setTimeout(r, 100))
+const 雪请求 = 造请求(undefined, { method: 'GET' })
+雪请求.url = '/dsh-qq-bridge/snowluma'
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/snowluma')(雪请求, fakeRes)
+const 坏包状态 = 存储[0]
+报('本地上传：不是 zip 的包明确报错', 坏包状态 && 坏包状态.安装 && 坏包状态.安装.进行中 === false && String(坏包状态.安装.错).includes('不是 zip'), JSON.stringify(坏包状态 && 坏包状态.安装))
+报('本地上传：坏包用完就删，不留在磁盘上', !existsSync(上传文件))
 
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)

@@ -284,6 +284,7 @@ window.__ModuleLoader__.load({
       const [视频忙, 设视频忙] = React.useState(false)
       const [视频说, 设视频说] = React.useState('')
       const 雪初化 = React.useRef(false)
+      const 雪包Input = React.useRef(null)
       const [目标号, 设目标号] = React.useState('')
       const [目标忙, 设目标忙] = React.useState(false)
       const [目标说, 设目标说] = React.useState('')
@@ -1066,6 +1067,50 @@ window.__ModuleLoader__.load({
         await 拉雪()
       }
 
+      // 本地安装包：选一个 SnowLuma 的 zip 传给本机宿主，装的时候不联网。
+      const 装雪包 = async (文件) => {
+        if (!文件) return
+        if (!同意雪) {
+          设雪说('先把下面的协议勾上：安装前需要你明确同意 SnowLuma 的 EULA 和隐私政策')
+          return
+        }
+        if (!/\.zip$/i.test(String(文件.name || ''))) {
+          设雪说('选 SnowLuma 的 .zip 安装包（SnowLuma-vX-win-x64.zip）')
+          return
+        }
+        if (Number(文件.size) > 200 * 1024 * 1024) {
+          设雪说('安装包太大（上限 200 MB）')
+          return
+        }
+        设雪忙(true)
+        设雪说('正在上传本地安装包（' + 兆(文件.size) + '）…')
+        // 上传和解压用同一个目录：中途改了输入框也不影响这一包落在哪。
+        const 目录 = 雪目录.trim()
+        const 传 = await fetch(B + '/snowluma/upload?目录=' + encodeURIComponent(目录), {
+          method: 'POST',
+          headers: { 'content-type': 'application/zip' },
+          body: 文件,
+        }).then((r) => r.json()).catch(() => null)
+        if (!传 || !传.ok) {
+          设雪忙(false)
+          设雪说((传 && 传.说) || '上传失败：看下面的记录')
+          return
+        }
+        设雪说('安装包已收到，正在解压安装…')
+        const s = await post('/snowluma/setup', {
+          目录,
+          密码: 雪密码.trim(),
+          同意协议: true,
+          自动启动: true,
+          本地包: true,
+        })
+        设雪忙(false)
+        设雪说((s && s.说) || '没反应')
+        if (s && s.状态) 吃雪(s.状态)
+        if (s && s.ok) 设雪密码('')
+        await 拉雪()
+      }
+
       // 本机已经有的 SnowLuma：之前同意过的直接启用；没有同意记录的只填目录，协议仍由主人自己勾。
       const 用已有 = async (候选) => {
         const 目录 = String((候选 && 候选.目录) || '')
@@ -1276,7 +1321,7 @@ window.__ModuleLoader__.load({
                     ? '已安装 v' + String(雪.版本 || '?') + '：' + String(雪.目录 || '')
                     : (Array.isArray(雪.候选) && 雪.候选.length > 0
                         ? '本机已经认出 ' + String(雪.候选.length) + ' 个 SnowLuma；选一个直接用，不会重新下载。'
-                        : '还没装。点一下从镜像下载安装（约 43 MB，不需要能直连 GitHub），装好会自动配置并启动。'),
+                        : '还没装。点一下从镜像下载安装（约 43 MB，不需要能直连 GitHub），或用「从本地 zip 安装」选一份已经下好的 SnowLuma 包；装好都会自动配置并启动。'),
               ),
               !雪装好 && Array.isArray(雪.候选) && 雪.候选.length > 0
                 ? h('div', { style: { ...S.card, marginTop: 6 } },
@@ -1313,6 +1358,29 @@ window.__ModuleLoader__.load({
               h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
                 按钮(雪装中 ? '正在安装…' : (雪装好 ? (雪在跑 ? '重新配置并重启' : '配置并启动') : '一键安装并配置'),
                   装雪, true, 雪忙 || 雪装中 || !同意雪),
+                !雪装好
+                  ? 按钮('从本地 zip 安装', () => {
+                      if (!同意雪) {
+                        设雪说('先把下面的协议勾上：安装前需要你明确同意 SnowLuma 的 EULA 和隐私政策')
+                        return
+                      }
+                      雪包Input.current?.click()
+                    }, false, 雪忙 || 雪装中 || !同意雪)
+                  : null,
+                !雪装好
+                  ? h('input', {
+                      key: '雪包',
+                      ref: 雪包Input,
+                      type: 'file',
+                      accept: '.zip,application/zip',
+                      style: { display: 'none' },
+                      onChange: (e) => {
+                        const 文 = e.target.files && e.target.files[0]
+                        e.target.value = ''
+                        if (文) void 装雪包(文)
+                      },
+                    })
+                  : null,
                 按钮('重新检测', () => { void 拉雪() }, false, 雪忙 || 雪装中),
                 雪装好 ? 按钮('打开后台', 打开雪后台, false, 雪忙) : null,
                 雪装好 && 雪后台.密码 ? 按钮('复制后台密码', () => 复制(雪后台.密码), false, false) : null,
