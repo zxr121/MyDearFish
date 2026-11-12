@@ -550,7 +550,7 @@ const 预设注册们 = []
 const 预设挂载们 = []
 const 判断调用 = []
 const 起名调用 = []
-let 起名输出 = '猫猫贴贴'
+let 起名输出 = '样子：猫猫贴贴\n文字：无\n可存：可以'
 const 建会话选项 = []
 const 存储 = []
 const 发的 = []
@@ -602,8 +602,8 @@ const 假llm = {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
-    // 按图起名也是独立的一次调用，别把判断输出队列吃掉。
-    if (String(选项.system || '').includes('只描述这张画面本身')) {
+    // 看图登记也是独立的一次调用，别把判断输出队列吃掉。
+    if (String(选项.system || '').includes('你在给 QQ 收藏表情做内容登记')) {
       起名调用.push(选项)
       yield { type: 'text-delta', text: 起名输出 }
       yield { type: 'finish', reason: { kind: 'stop' } }
@@ -837,7 +837,7 @@ globalThis.fetch = async (url, 选项) => {
       json: async () => ({
         status: 'ok',
         retcode: 0,
-        data: [...QQ收藏.values()].map((x) => ({ emoji_id: x.emojiId, resId: x.emojiId, url: '', md5: x.md5, desc: x.desc })),
+        data: [...QQ收藏.values()].map((x) => ({ emoji_id: x.emojiId, resId: x.emojiId, url: x.url || '', md5: x.md5, desc: x.desc })),
       }),
     }
   }
@@ -1274,7 +1274,8 @@ const 纯文判 = 判断调用.at(-1)
 报('纯文本判断模型不硬塞图片', 判断调用.length === 纯文判前 + 1 && 纯文判.model === 'chat' && !纯文判.messages[0].content.some((b) => b.type === 'image'), `判断=${判断调用.length - 纯文判前} 模型=${纯文判?.model} ${JSON.stringify(纯文判 && 纯文判.messages[0].content.map((b) => b.type))}`)
 报('纯文本回复模型收到图会提醒', String(await 日志文本()).includes('纯文本模型'))
 
-// 看中的表情才收藏；收藏后聊天时能发出去
+// 看中的表情才收藏；收藏后聊天时能发出去（上面临时换过纯文本模型，这里换回能看图的）
+写配置({ 群: ['1031'], 判断模型: 'fake/cheap' })
 await 收到回复('session-qq-social-group-1016', '[存表情:图1:测试表情] 这张好笑')
 await new Promise((r) => setTimeout(r, 30))
 const 表情索引文本 = readFileSync(join(家, 'qq-stickers.json'), 'utf8')
@@ -1324,7 +1325,7 @@ const 追问文 = String(追问轮?.message?.content?.[0]?.text || '')
 // ---------- 6c-2b QQ 里手动加的表情：对账后自动记住，能按编号发出去 ----------
 const 手动表情号 = '700_manual_0123456789abcdef0123456789abcdef_0_0'
 const 手动空名号 = '700_manual_fedcba9876543210fedcba9876543210_0_0'
-QQ收藏.set(手动表情号, { emojiId: 手动表情号, md5: '0123456789abcdef0123456789abcdef', desc: '手动加的海獭' })
+QQ收藏.set(手动表情号, { emojiId: 手动表情号, md5: '0123456789abcdef0123456789abcdef', desc: '手动加的海獭', url: 'https://multimedia.nt.qq.com.cn/audit-manual.jpg' })
 QQ收藏.set(手动空名号, { emojiId: 手动空名号, md5: 'fedcba9876543210fedcba9876543210', desc: '' })
 // 对账有 5 分钟节流；这里把钟往前拨够，再拨回去，别让别的屋子的消息游标停在将来。
 const 同步前偏移 = 时间偏移
@@ -1495,6 +1496,39 @@ const 自存索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf
 报('自动收藏按画面起名，不拿场合当备注', 自存项 && 自存项.desc === '猫猫贴贴' && 自存项.desc !== '接话' && String(自存索引.source).includes('·自动') && 自存索引.label === '猫猫贴贴', JSON.stringify({ desc: 自存项 && 自存项.desc, label: 自存索引.label, source: 自存索引.source }))
 报('自动收藏起名也走能看图的模型', 起名调用.length > 0 && 起名调用.at(-1).messages[0].content.some((b) => b.type === 'image'), JSON.stringify(起名调用.at(-1) && 起名调用.at(-1).messages[0].content.map((b) => b.type)))
 报('自动收藏写进日志', String(await 日志文本()).includes('又见到同一张 2 次'))
+
+// ---------- 6f1 自动收藏先读图上的字：脏话/性内容不收，普通字写进备注 ----------
+写配置({ 群: ['1087'], 学表情: true, 判断冷却秒: 0 })
+const 脏话图 = 'https://multimedia.nt.qq.com.cn/auto-collect-dirty.jpg'
+const 有字图 = 'https://multimedia.nt.qq.com.cn/auto-collect-text.jpg'
+固定图.set(脏话图, Buffer.from([0xff, 0xd8, 0xff, 0xfa, 0x01]))
+固定图.set(有字图, Buffer.from([0xff, 0xd8, 0xff, 0xfa, 0x02]))
+起名输出 = '样子：粉发紫眼坏笑\n文字：我一鸡巴插死你\n可存：色情'
+群消息表.set(1087, [
+  带图说话(6401, '嗯', { uid: 801, url: 脏话图 }),
+  带图说话(6402, '哦', { uid: 802, url: 脏话图 }),
+])
+const 脏话前 = QQ收藏.size
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等()
+报('自动收藏先读图上的字：脏话/性内容一张不收',
+  QQ收藏.size === 脏话前 && String(await 日志文本()).includes('色情内容'),
+  JSON.stringify({ 收藏: QQ收藏.size - 脏话前, 日志: (await 日志文本()).slice(-240) }))
+起名输出 = '样子：猫猫举牌\n文字：今天也要开心\n可存：可以'
+群消息表.set(1087, [
+  一条带图群消息(6403, { 是主人: true, 表情: true, 文本: '这张存一下', url: 有字图 }),
+])
+const 有字前 = QQ收藏.size
+await 轮询社交()
+await 等()
+const 有字项 = [...QQ收藏.values()].at(-1)
+const 有字索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.at(-1) || {}
+报('主人让存的图把图上的字写进备注',
+  QQ收藏.size === 有字前 + 1 && 有字项 && 有字项.desc === '猫猫举牌「今天也要开心」' && 有字索引.看图文字 === '今天也要开心',
+  JSON.stringify({ desc: 有字项 && 有字项.desc, 文字: 有字索引.看图文字 }))
+起名输出 = '样子：猫猫贴贴\n文字：无\n可存：可以'
+写配置({ 群: ['1075'], 学表情: true, 判断冷却秒: 0, 冷却秒: 1 })
 群消息表.set(1075, [一条群消息('大肥鱼 你看看这个', { id: 4015, atSelf: true, uid: 801 })])
 设判断(['4015'], true, 0.9, '叫她了')
 await 轮询社交()
@@ -1504,6 +1538,30 @@ const 学表情提示 = String(学表情轮?.message?.content?.[0]?.text || '')
 报('学表情：回复提示带上这个群的表情习惯', 学表情提示.includes('【群里的表情习惯') && 学表情提示.includes('这个群的表情多用在：接话'), 学表情提示.slice(0, 900))
 报('学表情：判断提示说明只发一张表情也算接上', String(判断调用.at(-1)?.system).includes('只发一张表情接住也算接上了'))
 报('表情包当接话方式的场景提示挂上了', 场景提示.some((s) => 提示文本(s).includes('表情包也是一种接话方式')))
+
+// ---------- 6f1b 主人明确让存的不雅图：照存但标慎用，不进盲挑 ----------
+写配置({ 群: ['1088'], 判断冷却秒: 0, 冷却秒: 0 })
+const 主人脏图 = 'https://multimedia.nt.qq.com.cn/owner-dirty.jpg'
+固定图.set(主人脏图, Buffer.from([0xff, 0xd8, 0xff, 0xfa, 0x03]))
+起名输出 = '样子：粉发紫眼坏笑\n文字：我一鸡巴插死你\n可存：色情'
+const 主人脏前 = QQ收藏.size
+群消息表.set(1088, [
+  一条带图群消息(6411, { 是主人: true, 表情: true, url: 主人脏图 }),
+  一条群消息('收藏下表情包', { 是主人: true, atSelf: true, id: 6412 }),
+])
+设判断([], false, 0.1, '先看看')
+await 轮询社交()
+await 等()
+const 主人脏索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.at(-1) || {}
+报('主人明确让存的不雅图：照存但标慎用、字写进备注',
+  QQ收藏.size === 主人脏前 + 1 && 主人脏索引.慎用 === '色情' && String(主人脏索引.label).includes('插死你'),
+  JSON.stringify(主人脏索引))
+const 主人脏态 = await 宿主.概况()
+报('主人让存的不雅图不进可发清单',
+  主人脏态.表情包.慎用.some((x) => x.id === 主人脏索引.id) &&
+    !主人脏态.表情包.最近.some((x) => x.id === 主人脏索引.id),
+  JSON.stringify(主人脏态.表情包.慎用))
+起名输出 = '样子：猫猫贴贴\n文字：无\n可存：可以'
 
 // ---------- 6f2 学表情：好友私聊里反复见到的同一张也自动收 ----------
 const 好友带图 = (id, 文本, { uid = 879, url, 表情 = true } = {}) => ({
@@ -3265,8 +3323,8 @@ await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 关注上限: 99 }
 const 存盘2 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('关注上限夹在 1~30', 存盘2.社交.关注上限 === 30, String(存盘2.社交.关注上限))
 报('社交场景提示写进聊天行为', 场景提示.some((x) => 提示文本(x).includes('【怎么说话】') && 提示文本(x).includes('别主动开课') && 提示文本(x).includes('不争输赢')))
-// 按图重看：显式给编号时取原图让模型看，按画面改名并同步 QQ 备注。
-起名输出 = '青蛙举牌'
+// 按图重看：显式给编号时取原图让模型看，按画面和字改名并同步 QQ 备注。
+起名输出 = '样子：青蛙举牌\n文字：无\n可存：可以'
 await 路由.get('/dsh-qq-bridge/stickers/relabel')(造请求({ ids: [自存索引.id], limit: 1 }), fakeRes)
 const 重看果 = 存储.at(-1)
 const 重看后贴 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.find((x) => x.id === 自存索引.id)
@@ -3274,7 +3332,42 @@ const 重看后贴 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf
   重看果 && 重看果.ok === true && 重看果.改.some((x) => x.id === 自存索引.id && x.新 === '青蛙举牌') &&
     重看后贴 && 重看后贴.label === '青蛙举牌' && QQ收藏.get(自存项.emojiId)?.desc === '青蛙举牌',
   JSON.stringify({ 果: 重看果, 贴: 重看后贴 && 重看后贴.label, desc: QQ收藏.get(自存项.emojiId)?.desc }))
-起名输出 = '猫猫贴贴'
+// 表情普查：逐张重读旧收藏；模型判了可以也要过本地脏话，慎用的不再进清单。
+const 查前索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.find((x) => x.emojiId === 手动表情号)
+起名输出 = '样子：水獭举牌\n文字：妈的别烦\n可存：可以'
+await 路由.get('/dsh-qq-bridge/stickers/audit')(造请求({ ids: [查前索引.id] }), fakeRes)
+const 普查启动 = 存储.at(-1)
+const 查完 = await 等到(async () => !((await 宿主.概况()).表情包.普查.进行中), 3000)
+const 查后态 = await 宿主.概况()
+const 查后索引 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')).items.find((x) => x.id === 查前索引.id)
+const 慎用项 = 查后态.表情包.慎用.find((x) => x.id === 查前索引.id)
+报('表情普查：指定编号逐张重读；模型心软说可以，本地兜底也标慎用',
+  普查启动?.ok === true && 普查启动.普查.总数 === 1 && 查完 && 慎用项 && 慎用项.因 === '脏话',
+  JSON.stringify({ 启动: 普查启动, 慎用: 慎用项 }))
+报('表情普查：图上的字补进备注并同步 QQ',
+  查后索引.label === '水獭举牌「妈的别烦」' && QQ收藏.get(手动表情号)?.desc === '水獭举牌「妈的别烦」',
+  JSON.stringify({ label: 查后索引.label, desc: QQ收藏.get(手动表情号)?.desc }))
+报('表情普查：查过的记下时间，不再重复查',
+  Number(查后索引.查过At) > 0 && 查后态.表情包.普查.查了 === 1, JSON.stringify({ 查过At: 查后索引.查过At, 普查: 查后态.表情包.普查 }))
+报('慎用的表情不进可发清单',
+  查后态.表情包.可发 === 查后态.表情包.数量 - 查后态.表情包.慎用.length &&
+    !查后态.表情包.最近.some((x) => x.id === 查前索引.id),
+  JSON.stringify({ 可发: 查后态.表情包.可发, 数量: 查后态.表情包.数量, 慎用: 查后态.表情包.慎用 }))
+写配置({ 群: ['2001'], 关注上限: 30, 判断冷却秒: 0, 冷却秒: 0 })
+群消息表.set(2001, [一条群消息('来张表情', { id: 980001 })])
+设判断(['980001'], true, 0.9, '接一句')
+await 轮询社交()
+await 等()
+const 慎用提示 = String(回合.filter((r) => r.sid === 'session-qq-social-group-2001').at(-1)?.message?.content?.[0]?.text || '')
+报('慎用表情不写进她的表情清单', 慎用提示 !== '' && !慎用提示.includes(`#${查前索引.id} `), 慎用提示.slice(0, 700))
+await 路由.get('/dsh-qq-bridge/stickers/use')(造请求({ id: 查前索引.id }), fakeRes)
+const 恢复果 = 存储.at(-1)
+const 恢复态 = await 宿主.概况()
+报('主人可以让慎用的表情恢复使用',
+  恢复果?.ok === true && 恢复态.表情包.可发 === 查后态.表情包.可发 + 1 &&
+    !恢复态.表情包.慎用.some((x) => x.id === 查前索引.id),
+  JSON.stringify({ 果: 恢复果, 可发: 恢复态.表情包.可发, 慎用: 恢复态.表情包.慎用 }))
+起名输出 = '样子：猫猫贴贴\n文字：无\n可存：可以'
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
@@ -4117,6 +4210,32 @@ const 序发 = 发的.slice(序前发).filter((x) => x.url.endsWith('/send_group
     模.净看图名('无') === '' &&
     模.净看图名('看不清') === '',
   [模.净看图名('可爱'), 模.净看图名('猫猫贴贴，两只猫抱在一起'), 模.净看图名('蓝发女仆低头看手机'), 模.净看图名('无'), 模.净看图名('看不清')].join('/'))
+const 看图样例 = 模.解看图内容('样子：粉发紫眼坏笑\n文字：我一鸡巴插死你\n可存：色情')
+报('看图登记：三行拆成画面、图上的字和类别',
+  看图样例.样子 === '粉发紫眼坏笑' && 看图样例.文字 === '我一鸡巴插死你' && 看图样例.类别 === '色情' && 看图样例.完整 === true,
+  JSON.stringify(看图样例))
+const 看图无字 = 模.解看图内容('样子：猫猫贴贴\n文字：无\n可存：可以')
+报('看图登记：没字写无，安全判可以',
+  看图无字.文字 === '' && 看图无字.类别 === '可以' && 看图无字.完整 === true, JSON.stringify(看图无字))
+const 看图单行 = 模.解看图内容('青蛙举牌')
+报('看图登记：模型没按三行答时只当画面名，不能拿来挡自动收藏',
+  看图单行.样子 === '青蛙举牌' && 看图单行.完整 === false, JSON.stringify(看图单行))
+报('拼表情名：图上的字必须进备注',
+  模.拼表情名('猫猫贴贴', '我裂开了') === '猫猫贴贴「我裂开了」' &&
+    模.拼表情名('猫猫贴贴', '') === '猫猫贴贴' &&
+    模.拼表情名('', '我裂开了') === '我裂开了',
+  [模.拼表情名('猫猫贴贴', '我裂开了'), 模.拼表情名('猫猫贴贴', ''), 模.拼表情名('', '我裂开了')].join('/'))
+const 长名 = 模.拼表情名('白发女孩举牌', '这群用户到底有什么用呢这句话真的很长很长')
+报('拼表情名：字太长截断，总长不超过备注上限',
+  长名.length <= 24 && 长名.includes('「') && 长名.endsWith('」'), 长名)
+报('图上的字本地兜底：明确性词和强脏话拦下',
+  模.图字不雅('我一鸡巴插死你') === '色情' && 模.图字不雅('傻逼猫猫') === '脏话' && 模.图字不雅('猫猫贴贴') === '',
+  [模.图字不雅('我一鸡巴插死你'), 模.图字不雅('傻逼猫猫'), 模.图字不雅('猫猫贴贴')].join('/'))
+报('内容判定：模型说可以也要再过本地脏话；没完整判定不放行',
+  模.表情内容判定({ 类别: '可以', 文字: '我一鸡巴插死你', 完整: true }) === '色情' &&
+    模.表情内容判定({ 类别: '可以', 文字: '猫猫贴贴', 完整: true }) === '' &&
+    模.表情内容判定({ 类别: '可以', 文字: '猫猫贴贴', 完整: false }) === '',
+  JSON.stringify([模.表情内容判定({ 类别: '可以', 文字: '我一鸡巴插死你', 完整: true }), 模.表情内容判定({ 类别: '可以', 文字: '猫猫贴贴', 完整: true })]))
 报('空应声：纯笑、附和和感叹算空应声',
   模.只是空应声('哈哈') && 模.只是空应声('哈哈哈，好家伙') && 模.只是空应声('确实有点道理') &&
     模.只是空应声('这什么') && 模.只是空应声('666') && 模.只是空应声('嗯嗯'),
