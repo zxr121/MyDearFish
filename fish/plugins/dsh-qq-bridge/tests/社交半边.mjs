@@ -827,6 +827,11 @@ globalThis.fetch = async (url, 选项) => {
     发的.push({ url: u, 体 })
     return { json: async () => ({ status: 'ok', retcode: 0, data: null }) }
   }
+  if (u.endsWith('/delete_custom_face')) {
+    QQ收藏.delete(String(体.emoji_id))
+    发的.push({ url: u, 体 })
+    return { json: async () => ({ status: 'ok', retcode: 0, data: null }) }
+  }
   if (u.endsWith('/send_custom_face')) {
     const 回id = ++发送序号
     发的.push({ url: u, 体, 回id })
@@ -3367,6 +3372,16 @@ const 恢复态 = await 宿主.概况()
   恢复果?.ok === true && 恢复态.表情包.可发 === 查后态.表情包.可发 + 1 &&
     !恢复态.表情包.慎用.some((x) => x.id === 查前索引.id),
   JSON.stringify({ 果: 恢复果, 可发: 恢复态.表情包.可发, 慎用: 恢复态.表情包.慎用 }))
+await 路由.get('/dsh-qq-bridge/stickers/delete')(造请求({ id: 查前索引.id }), fakeRes)
+const 删果 = 存储.at(-1)
+const 删后态 = await 宿主.概况()
+const 删后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
+报('删除收藏：QQ 里删掉、本机清单也删掉，并记下不再自动收回',
+  删果?.ok === true && !QQ收藏.has(手动表情号) &&
+    !删后档.items.some((x) => x.id === 查前索引.id) &&
+    删后态.表情包.数量 === 恢复态.表情包.数量 - 1 &&
+    删后档.deleted.includes(String(查前索引.md5).toLowerCase()),
+  JSON.stringify({ 果: 删果, 数量: 删后态.表情包.数量, deleted: 删后档.deleted }))
 起名输出 = '样子：猫猫贴贴\n文字：无\n可存：可以'
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))

@@ -362,6 +362,13 @@ window.__ModuleLoader__.load({
         设表情查说(((r && r.说) || '') + '（#' + id + '）')
         await 拉表情包()
       }
+      const 删表情 = async (id, label) => {
+        if (typeof window === 'undefined' || typeof window.confirm !== 'function') return
+        if (!window.confirm('从 QQ 收藏里删掉 #' + id + '「' + label + '」？\n删了就找不回来；同一张以后也不会被自动收回。')) return
+        const r = await post('/stickers/delete', { id })
+        设表情查说(((r && r.说) || '') + '（#' + id + '）')
+        await 拉表情包()
+      }
       const 拉模型 = async () => {
         const m = await get('/models')
         if (m && m.ok) 设模型们(Array.isArray(m.providers) ? m.providers : [])
@@ -1803,6 +1810,7 @@ window.__ModuleLoader__.load({
                       h('span', { style: { ...S.dim, whiteSpace: 'normal', flex: '1 1 220px', minWidth: 0 } },
                         '#' + x.id + ' ' + x.label + (x.因 ? ' · ' + x.因 : '')),
                       按钮('恢复', () => 恢复表情(x.id), false),
+                      按钮('删除', () => 删表情(x.id, x.label), false),
                     )))
                 : null,
               表情查说 ? h('div', { style: S.dim }, 表情查说) : null,

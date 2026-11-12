@@ -4484,6 +4484,7 @@ export function apply(ctx) {
   const 社交画像 = new Map() // 'group:123' → 从她看过的消息里学到的兴趣词元、样本数、快判账
   let 画像存At = 0
   const 表情们 = [] // 她自己看中、已经写进 QQ 账号收藏的表情（本机只留编号、备注和临时图址）
+  const 删过表情 = new Set() // md5 → 主人明确删掉的表情：自动收藏不再把它收回来
   const 系列目录缓存 = new Map() // 包号 → { at, 包 }：商城表情的公开目录，缓存七天
   const 系列发送key = new Map() // 包号 → 整包共用的 key：见过任意一张就能发这一套
   const 表情图缓存 = new Map() // 表情编号 → { ref, at, 失败 }：别人问起她刚发的表情时，按需取原图
@@ -4537,6 +4538,9 @@ export function apply(ctx) {
     }
     表情们.sort((a, b) => a.id - b.id)
     if (表情们.length > 表情上限) 表情们.splice(0, 表情们.length - 表情上限)
+    for (const md5 of Array.isArray(存 && 存.deleted) ? 存.deleted : []) {
+      if (/^[a-f0-9]{32}$/i.test(String(md5))) 删过表情.add(String(md5).toLowerCase())
+    }
     表情下一个id = Math.max(Number(存 && 存.nextId) || 1, ...表情们.map((x) => x.id + 1), 1)
   } catch (error) {}
   // 兴趣是长期长出来的：画像落在本机，重启接着学，不重新当白纸。
@@ -8949,6 +8953,36 @@ export function apply(ctx) {
   }
 
   /**
+   * 主人要删掉一张收藏：先删 QQ 账号里的收藏表情，成功后再删本机条目。
+   * 记下 md5，自动收藏以后不再把同一张收回来；没写进 QQ 就什么都不动。
+   * @param {object} 配置 - 归一化配置。
+   * @param {number} 号 - 收藏编号。
+   * @returns {Promise<{ok: boolean, 说: string, id?: number}>} 结果。
+   */
+  async function 删收藏表情(配置, 号) {
+    const id = Number(号)
+    const 贴 = 表情们.find((x) => x.id === id)
+    if (!贴) return { ok: false, 说: `收藏里没有 #${id}` }
+    if (贴.emojiId) {
+      const r = await 发一个(配置.NapCat, 'delete_custom_face', { emoji_id: 贴.emojiId })
+      if (!r.ok) {
+        const 因 = String((r.数据 && (r.数据.wording || r.数据.message)) || '')
+        return { ok: false, 说: `QQ 收藏没删掉${因 ? '：' + 因 : ''}` }
+      }
+    }
+    if (贴.file) {
+      try { unlinkSync(join(表情目录, 贴.file)) } catch (error) {}
+    }
+    if (贴.md5) 删过表情.add(String(贴.md5).toLowerCase())
+    const 位 = 表情们.findIndex((x) => x.id === id)
+    if (位 >= 0) 表情们.splice(位, 1)
+    表情图缓存.delete(id)
+    存表情索引()
+    记账(`删掉了一张收藏表情：#${id}「${表情展示名(贴)}」（主人要求）`)
+    return { ok: true, id, 说: '删掉了' }
+  }
+
+  /**
    * 主人看过慎用清单后决定这张还能用：清掉慎用标记，重新进她的清单。
    * @param {number} 号 - 收藏编号。
    * @returns {{ok: boolean, 说: string}} 结果。
@@ -9292,7 +9326,12 @@ export function apply(ctx) {
 
   function 存表情索引() {
     try {
-      writeFileSync(表情索引文件, JSON.stringify({ version: 3, nextId: 表情下一个id, items: 表情们 }, null, 2), 'utf8')
+      writeFileSync(表情索引文件, JSON.stringify({
+        version: 3,
+        nextId: 表情下一个id,
+        items: 表情们,
+        deleted: [...删过表情].slice(-500),
+      }, null, 2), 'utf8')
     } catch (error) {
       记账(`存表情索引失败：${String((error && error.message) || error)}`)
     }
@@ -9378,6 +9417,10 @@ export function apply(ctx) {
       return null
     }
     const 哈希 = createHash('md5').update(bytes).digest('hex')
+    if (选项.自动 && 删过表情.has(哈希)) {
+      记账('这张表情是主人删掉的，自动收藏不再收回来')
+      return null
+    }
     const 已有 = 表情们.find((x) => x.md5 === 哈希)
     const 官方名 = 净商城名(图.官方名)
     if (已有) {
@@ -9460,6 +9503,7 @@ export function apply(ctx) {
       ...(不雅 !== '' ? { 慎用: 不雅 } : {}),
     }
     表情们.push(条目)
+    if (!选项.自动) 删过表情.delete(哈希)
     if (!落名) await 按图登记(配置, 条目, 图.ref, '新收藏')
     图.收藏号 = 条目.id
     图.收藏名 = 表情展示名(条目)
@@ -9772,6 +9816,7 @@ export function apply(ctx) {
     const 场景热 = 场景 !== '' && Number((语感.场景[场景] || {}).重) >= 表情自存场景次
     const 候选 = (Array.isArray(图片) ? 图片 : [])
       .filter((图) => 图 && 图.ref && 图.表情 && !图.收藏号 && !图.主人 && String(图.md5 || '') !== '')
+      .filter((图) => !删过表情.has(String(图.md5 || '').toLowerCase()))
     let 存了 = 0
     let 不够可爱 = 0
     let 最后 = null
@@ -14220,6 +14265,13 @@ export function apply(ctx) {
     if (!要方法(req, 'POST', res)) return
     const 来 = await 读体(req)
     回(res, 恢复表情使用(来 && 来.id))
+  })
+
+  // 主人要删掉一张：先删 QQ 收藏，再删本机；删过的 md5 自动收藏不再收回。
+  路线(`${路由前缀}/stickers/delete`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    回(res, await 删收藏表情(读配置(), 来 && 来.id))
   })
 
   // 设置页的「装 ffmpeg」：立刻开下载，进度靠 /state 里的 视频.安装 轮询，不在这里等。
