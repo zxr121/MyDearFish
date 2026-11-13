@@ -5900,6 +5900,44 @@ const 持久日志 = 持久概.日志.slice(-10).map((x) => x.文本).join(' | '
   && 回合.some((r) => r.sid === 'session-qq-social-group-1717'),
   `判断=${判断调用.length - 持久判前} 轮询=${typeof 持久轮询}`)
 
+// 主人在群里跟别人说话，也要进视线并马上判；不因为没攒够 20 条被挡
+写配置({
+  群: ['1718'], 增强: true, 增强条数: 20, 增强等待分钟: 0, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  聚拢秒: 0, 判断冷却秒: 0, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+鱼脑.availableCny = 100
+群消息表.set(1718, [
+  一条群消息('今天吃什么', { uid: 888, id: 171801, time: Math.floor(Date.now() / 1000) + 100 }),
+  一条群消息('会话切换就行', { 是主人: true, replyId: 171801, id: 171802, time: Math.floor(Date.now() / 1000) + 101 }),
+])
+设判断(['171802'], true, 0.9, '主人说话，去看一眼')
+const 主人判前 = 判断调用.length
+await 轮询社交()
+await 等到(async () => 回合.some((r) => r.sid === 'session-qq-social-group-1718'), 3000)
+const 主人判文 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('增强模式：主人在群里跟别人说话，不等条数也马上判', 判断调用.length === 主人判前 + 1
+  && 回合.some((r) => r.sid === 'session-qq-social-group-1718'), `判断=${判断调用.length - 主人判前}`)
+报('增强模式：判断提示带主人这条，并说明主人可以和别人一起看',
+  主人判文.includes('[主人]') && 主人判文.includes('会话切换就行')
+  && String(判断调用.at(-1)?.system || '').includes('主人也是这间屋的主人'),
+  主人判文.slice(0, 300))
+
+// 有人提到她的称呼，也不等条数
+写配置({
+  群: ['1719'], 增强: true, 增强条数: 20, 增强等待分钟: 0, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  聚拢秒: 0, 判断冷却秒: 0, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+鱼脑.availableCny = 100
+群消息表.set(1719, [一条群消息('大肥鱼在哪切模型', { uid: 888, id: 171901, time: Math.floor(Date.now() / 1000) + 100 })])
+设判断(['171901'], true, 0.9, '有人提她')
+const 提到判前 = 判断调用.length
+await 轮询社交()
+await 等到(async () => 回合.some((r) => r.sid === 'session-qq-social-group-1719'), 3000)
+const 提到判文 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('增强模式：有人提到她的称呼，也不等条数', 判断调用.length === 提到判前 + 1
+  && 回合.some((r) => r.sid === 'session-qq-social-group-1719'), `判断=${判断调用.length - 提到判前}`)
+报('增强模式：提到她的消息标成 [提到你]', 提到判文.includes('[提到你]') && 提到判文.includes('大肥鱼在哪切模型'), 提到判文.slice(0, 300))
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
