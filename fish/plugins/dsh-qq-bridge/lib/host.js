@@ -186,11 +186,67 @@ const 表情图失败缓存毫秒 = 5 * 60_000
 const 深想有效毫秒 = 5 * 60_000
 // 这些名字等于“没起过名”：只有编号，看不出画面。
 const 空标签名 = new Set(['', '表情', '商城表情', '未命名', '图片', '图', '动画表情', '贴图', '贴纸'])
+// 备注是谁起的：主人 / 受信的人 / 系统按图自动起 / 从 QQ 收藏同步。老索引没有这个字段。
+const 表情名源表 = new Set(['owner', 'friend', 'auto', 'sync'])
+// 只有这些（和空名）不算起过名，可以系统替它改名；场合名也是名字，不在这里。
+const 表情占位名 = new Set([
+  '表情', '商城表情', '未命名', '图片', '图', '动画表情', '贴图', '贴纸',
+  '主人让收藏', '主人让存', '主人存的', '主人要的', '这一批的',
+  '受信让收藏', '受信让存', '受信存的', '受信要的',
+])
+
+/**
+ * 这个备注是不是只有编号、看不出画面的系统兜底名。
+ * @param {unknown} 名 - 备注。
+ * @returns {boolean} 空名和「表情」「未命名」这类兜底名返回 true。
+ */
+export function 是占位表情名(名) {
+  const s = String(名 === undefined || 名 === null ? '' : 名).trim()
+  return s === '' || 表情占位名.has(s) || /^(?:主人|受信)让存\d*$/u.test(s)
+}
+
+/**
+ * 备注是谁起的；老索引没有 `labelBy` 时按名字推断：兜底名算系统起的，其余当人写的。
+ * @param {{label?: string, labelBy?: string}} [贴] - 收藏条目。
+ * @returns {'owner'|'friend'|'auto'|'sync'|'legacy'} 起名来源；`legacy` 表示老条目且看不出是系统起的。
+ */
+export function 表情名源(贴) {
+  const 记 = String((贴 && 贴.labelBy) || '')
+  if (表情名源表.has(记)) return 记
+  return 是占位表情名(贴 && 贴.label) ? 'auto' : 'legacy'
+}
+
+/**
+ * 系统能不能替这张表情自动改名：只有系统起的名字可以，主人 / 受信的人写的不动。
+ * @param {{label?: string, labelBy?: string}} [贴] - 收藏条目。
+ * @returns {boolean} 可以自动改名时为 true。
+ */
+export function 可自动改表情名(贴) {
+  const 源 = 表情名源(贴)
+  return 源 === 'auto' || 源 === 'sync'
+}
+
+/**
+ * 系统要不要替这张表情按原图重新起名：名字是占位名，而且不是人写的。
+ * @param {{label?: string, labelBy?: string}} [贴] - 收藏条目。
+ * @returns {boolean} 该重看并改名时为 true。
+ */
+export function 该重看表情备注(贴) {
+  return 可自动改表情名(贴) && 是占位表情名(贴 && 贴.label)
+}
 
 /** 旧收藏只存了“群 123·某人”这样的来源说明；能认出来的补成房间键，认不出就留空。 */
 function 来源房(源) {
   const m = /^群\s*(\d{5,20})/u.exec(String(源 || ''))
   return m ? `group:${m[1]}` : ''
+}
+
+/** 人给名字时按来源标起名人：主人桥 / 主人要求算 owner，群友 / 好友 / 受信算 friend，其余按系统起名。 */
+function 来源名源(来源) {
+  const s = String(来源 || '')
+  if (/^主人/u.test(s)) return 'owner'
+  if (/^受信|^好友|^群/u.test(s)) return 'friend'
+  return 'auto'
 }
 
 /**
@@ -4522,6 +4578,7 @@ export function apply(ctx) {
       表情们.push({
         id,
         label: String(项.label || '表情').slice(0, 24),
+        ...(表情名源表.has(String(项.labelBy || '')) ? { labelBy: String(项.labelBy) } : {}),
         ...(emojiId !== '' ? { emojiId } : { file: 文件 }),
         md5: String(项.md5 || '').slice(0, 32),
         url: String(项.url || '').trim(),
@@ -8852,20 +8909,16 @@ export function apply(ctx) {
     else delete 贴.慎用
     const 新名 = 拼表情名(看.样子, 看.文字)
     const 名里缺字 = 看.文字 !== '' && !String(贴.label || '').includes(看.文字.slice(0, 6))
-    const 该改名 = 新名 !== '' && 新名 !== 贴.label && (强制改名 || 该重看备注(贴) || 名里缺字)
+    const 可替名 = 强制改名 || 可自动改表情名(贴)
+    const 该改名 = 新名 !== '' && 新名 !== 贴.label && 可替名 && (强制改名 || 该重看表情备注(贴) || 名里缺字)
     let 改名 = ''
     if (该改名) {
-      const 果 = await 改收藏表情备注(配置, 贴.id, 新名, `${来源 || '按图重看'}·读字`, { 原文: true })
+      const 果 = await 改收藏表情备注(配置, 贴.id, 新名, `${来源 || '按图重看'}·读字`, { 原文: true, 名源: 'auto' })
       if (果.ok) 改名 = 新名
       else 记账(`按图重看的名字没落地：#${贴.id} ${果.因}`)
     }
     存表情索引()
     return { ok: true, 样子: 看.样子, 文字: 看.文字, 类别, 改名 }
-  }
-
-  /** 这一张的备注是不是场合 / 来源 / 占位这类“不是画面”的名字，值得按图重看。 */
-  function 该重看备注(贴) {
-    return 看不出内容的标签(贴.label) || 泛标签(贴.label)
   }
 
   let 重看备注中 = false
@@ -8883,7 +8936,7 @@ export function apply(ctx) {
     const 指定 = Array.isArray(选项.ids) ? 选项.ids.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0) : []
     const 全 = 指定.length > 0
       ? 指定.map((id) => 表情们.find((x) => x.id === id)).filter(Boolean)
-      : 表情们.filter(该重看备注)
+      : 表情们.filter(该重看表情备注)
     const 候选 = 全.slice(0, 限)
     if (候选.length === 0) return { ok: true, 改: [], 没成: [], 剩下: 0 }
     重看备注中 = true
@@ -8899,7 +8952,7 @@ export function apply(ctx) {
     } finally {
       重看备注中 = false
     }
-    const 剩下 = 表情们.filter(该重看备注).length
+    const 剩下 = 表情们.filter(该重看表情备注).length
     if (改.length > 0) 记账(`按图重看表情备注：改了 ${改.length} 张，还剩 ${剩下} 张没重看`)
     return { ok: true, 改, 没成, 剩下 }
   }
@@ -9046,12 +9099,12 @@ export function apply(ctx) {
     收藏拒绝.delete(key)
   }
 
-  function 记收藏受信(key, 改备注) {
+  function 记收藏受信(key, 改备注, 名源 = 'friend') {
     if (!key) return
     const 旧 = 收藏受信.get(key)
     const 到 = Date.now() + 收藏受信毫秒
-    if (改备注) 收藏受信.set(key, { at: Date.now(), 到, 改: true })
-    else if (!旧 || Date.now() > Number(旧.到)) 收藏受信.set(key, { at: Date.now(), 到, 改: false })
+    if (改备注) 收藏受信.set(key, { at: Date.now(), 到, 改: true, 名源 })
+    else if (!旧 || Date.now() > Number(旧.到)) 收藏受信.set(key, { at: Date.now(), 到, 改: false, 名源 })
   }
 
   function 取收藏受信(key) {
@@ -9118,14 +9171,9 @@ export function apply(ctx) {
     return { 号: 0, 因: '不知道你说的是哪张' }
   }
 
-  /** 自动收藏用的通用名，后面她真给了短名字时可以覆盖；场景名也算通用名。 */
+  /** 自动收藏用的通用名，后面人真给了短名字时可以覆盖；场合名是人写过的名字，不算通用名。 */
   function 泛标签(名) {
-    const s = String(名 || '')
-    if (s.trim() === '') return true
-    return ['表情', '商城表情', '未命名', '主人让收藏', '主人让存', '主人存的', '主人要的', '这一批的',
-      '受信让收藏', '受信让存', '受信存的', '受信要的'].includes(s)
-      || /^(?:主人|受信)让存\d*$/u.test(s)
-      || 表情场景名.includes(s)
+    return 是占位表情名(名)
   }
 
   /** 她上一轮写了收藏里没有的编号：记一句，下一轮提示里告诉她是没发出去。 */
@@ -9184,7 +9232,7 @@ export function apply(ctx) {
         失败.push(`#${改.号} 没有收藏权限`)
         continue
       }
-      const 果 = await 改收藏表情备注(配置, 改.号, 改.备注, 来源)
+      const 果 = await 改收藏表情备注(配置, 改.号, 改.备注, 来源, { 名源: 选项.名源 })
       if (果.ok) 改了.push(果)
       else 失败.push(`#${改.号} ${果.因}`)
     }
@@ -9221,7 +9269,7 @@ export function apply(ctx) {
         continue
       }
       const 源 = `${来源}${图.说话人 ? '·' + 图.说话人 : ''}`
-      const 条目 = await 存表情包(配置, 图, 存.标签, 源, { 允许普通图: !!(图.受信让存 || 图.主人让存), 严格: true, 房: 选项.房 })
+      const 条目 = await 存表情包(配置, 图, 存.标签, 源, { 允许普通图: !!(图.受信让存 || 图.主人让存), 严格: true, 房: 选项.房, 名源: 选项.名源 })
       if (条目) 存了.push(条目)
       else {
         失败.push(`图 ${存.图} 没存成`)
@@ -9356,7 +9404,8 @@ export function apply(ctx) {
    * @param {number} 号 - 本机收藏编号。
    * @param {string} 新备注 - 新名字。
    * @param {string} [来源] - 写日志用的人。
-   * @param {{原文?: boolean}} [选项] - 看图拼出来的名字原样保留「」；人给的名字仍按聊天备注清洗。
+   * @param {{原文?: boolean, 名源?: 'owner'|'friend'|'auto'|'sync'}} [选项] - 看图拼出来的名字原样保留「」；人给的名字仍按聊天备注清洗。
+   * `名源` 记下这次是谁起的名，系统以后只自动改 `auto` / `sync` 的名字。
    * @returns {Promise<{ok: boolean, id?: number, 旧?: string, 新?: string, 因?: string}>} 结果。
    */
   async function 改收藏表情备注(配置, 号, 新备注, 来源 = '', 选项 = {}) {
@@ -9367,11 +9416,22 @@ export function apply(ctx) {
       ? String(新备注 || '').replace(/[\[\]\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24)
       : 净收藏备注(新备注)
     if (新 === '') return { ok: false, 因: '新备注是空的' }
+    const 名源 = 表情名源表.has(String(选项.名源 || '')) ? String(选项.名源) : ''
     const 旧 = String(贴.label || '')
-    if (旧 === 新) return { ok: true, id, 旧, 新 }
+    const 旧源 = String(贴.labelBy || '')
+    if (旧 === 新) {
+      if (名源 !== '' && 名源 !== 旧源) {
+        贴.labelBy = 名源
+        存表情索引()
+      }
+      return { ok: true, id, 旧, 新 }
+    }
     贴.label = 新
+    if (名源 !== '') 贴.labelBy = 名源
     if (贴.emojiId && !(await 改QQ表情备注(配置, 贴.emojiId, 新))) {
       贴.label = 旧
+      if (旧源 !== '') 贴.labelBy = 旧源
+      else delete 贴.labelBy
       return { ok: false, 因: 'QQ 收藏备注没写进去' }
     }
     存表情索引()
@@ -9387,7 +9447,7 @@ export function apply(ctx) {
    * @param {object} 图 - 带 ref 的图片。
    * @param {string} 标签 - 收藏备注。
    * @param {string} 来源 - 记在索引里的来源。
-   * @param {{允许普通图?: boolean, 自动?: boolean, 严格?: boolean, 强制改名?: boolean}} 选项 - 明确让存时放行普通图；`严格` 拦下不雅内容；`强制改名` 让新备注覆盖旧名字。
+   * @param {{允许普通图?: boolean, 自动?: boolean, 严格?: boolean, 强制改名?: boolean, 名源?: 'owner'|'friend'|'auto'|'sync'}} 选项 - 明确让存时放行普通图；`严格` 拦下不雅内容；`强制改名` 让新备注覆盖旧名字；`名源` 记下名字是谁起的。
    * @returns {Promise<object|null>} 收藏条目；没存成返回 null。
    */
   async function 存表情包(配置, 图, 标签, 来源, 选项 = {}) {
@@ -9424,12 +9484,13 @@ export function apply(ctx) {
     const 已有 = 表情们.find((x) => x.md5 === 哈希)
     const 官方名 = 净商城名(图.官方名)
     if (已有) {
-      // 自动收藏不拿场合起名；官方名优先于看图起名，受信人明确给的短名字照旧可以覆盖。
-      if (!选项.自动 && 干净标签 && !泛标签(干净标签) && (选项.强制改名 || 泛标签(已有.label)) && 干净标签 !== 已有.label) {
-        const 改 = await 改收藏表情备注(配置, 已有.id, 干净标签, 来源)
+      // 自动收藏不拿场合起名；官方名优先于看图起名，人明确给的短名字照旧可以覆盖。
+      const 可替名 = 选项.强制改名 || (可自动改表情名(已有) && 泛标签(已有.label))
+      if (!选项.自动 && 干净标签 && !泛标签(干净标签) && 可替名 && 干净标签 !== 已有.label) {
+        const 改 = await 改收藏表情备注(配置, 已有.id, 干净标签, 来源, { 名源: 选项.名源 || 来源名源(来源) })
         if (!改.ok) 记账(`表情 #${已有.id} 改名没成：${改.因}`)
-      } else if (官方名 !== '' && 看不出内容的标签(已有.label) && 官方名 !== 已有.label) {
-        const 改 = await 改收藏表情备注(配置, 已有.id, 官方名, 来源)
+      } else if (官方名 !== '' && 可自动改表情名(已有) && 看不出内容的标签(已有.label) && 官方名 !== 已有.label) {
+        const 改 = await 改收藏表情备注(配置, 已有.id, 官方名, 来源, { 名源: 'auto' })
         if (!改.ok) 记账(`表情 #${已有.id} 改成官方名没成：${改.因}`)
       } else if ((看不出内容的标签(已有.label) || !已有.查过At) && 图.ref) {
         await 按图登记(配置, 已有, 图.ref, '又见到')
@@ -9485,11 +9546,14 @@ export function apply(ctx) {
       return null
     }
     const 看图名 = 看明白 ? 拼表情名(看.样子, 看.文字) : ''
-    const 落名 = 干净标签 && !泛标签(干净标签) ? 干净标签 : (官方名 || 看图名)
+    const 人给名 = 干净标签 !== '' && !泛标签(干净标签)
+    const 落名 = 人给名 ? 干净标签 : (官方名 || 看图名)
+    const 条目名源 = 人给名 ? (选项.名源 || 来源名源(来源)) : 'auto'
     if (落名) await 改QQ表情备注(配置, 上传.emojiId, 落名)
     const 条目 = {
       id: 表情下一个id++,
       label: 落名,
+      labelBy: 条目名源,
       emojiId: 上传.emojiId,
       md5: 哈希,
       url: String(图.url || '').trim(),
@@ -9657,7 +9721,13 @@ export function apply(ctx) {
         已处理.add(图)
         图.受信让存 = true
         const 名 = 图们.length > 1 && 标签 ? `${标签}${i + 1}` : 标签
-        const 条目 = await 存表情包(配置, 图, 名, 来源, { 允许普通图: true, 强制改名: !!备注, 严格: !主人, 房: 目标 && 目标.key ? 目标.key : '' })
+        const 条目 = await 存表情包(配置, 图, 名, 来源, {
+          允许普通图: true,
+          强制改名: !!备注,
+          严格: !主人,
+          房: 目标 && 目标.key ? 目标.key : '',
+          名源: 主人 ? 'owner' : 'friend',
+        })
         if (条目) {
           成 += 1
           说明.push(条目.慎用
@@ -9720,7 +9790,7 @@ export function apply(ctx) {
       if (!直接) continue
       m.受信请求 = true
       有受信 = true
-      记收藏受信(目标.key, !!改要 || 模糊改)
+      记收藏受信(目标.key, !!改要 || 模糊改, 信.级别 === '主人' ? 'owner' : 'friend')
       if (模糊改) m.待改备注 = true
       if (改要) {
         const 目标解 = 解改备注目标(改要, 全部)
@@ -9729,7 +9799,7 @@ export function apply(ctx) {
           改败 += 1
           说明.push(`改备注没成：${目标解.因}`)
         } else {
-          const 果 = await 改收藏表情备注(配置, 目标解.号, 改要.新备注, `受信要求·${目标.叫}·${m.说话人 || m.uid}`)
+          const 果 = await 改收藏表情备注(配置, 目标解.号, 改要.新备注, `受信要求·${目标.叫}·${m.说话人 || m.uid}`, { 名源: 信.级别 === '主人' ? 'owner' : 'friend' })
           m.改备注结果 = 果
           if (果.ok) {
             改了 += 1
@@ -9834,7 +9904,7 @@ export function apply(ctx) {
       if (次 < 策略.见过 && !场景热) continue
       const 拒 = 表情拒存.get(哈希)
       if (拒 && Date.now() - 拒.at < 拒存毫秒) continue
-      const 条目 = await 存表情包(配置, 图, 图.官方名 && !泛标签(图.官方名) ? 图.官方名 : '', `${目标.叫}·自动`, { 自动: true, 严格: true, 允许普通图: false, 房: 目标.key })
+      const 条目 = await 存表情包(配置, 图, 图.官方名 && !泛标签(图.官方名) ? 图.官方名 : '', `${目标.叫}·自动`, { 自动: true, 严格: true, 允许普通图: false, 房: 目标.key, 名源: 'auto' })
       if (条目) {
         表情自存日.存 += 1
         存了 += 1
@@ -9935,8 +10005,10 @@ export function apply(ctx) {
           补图 += 1
         }
         // 备注以 QQ 收藏为准：在 QQ 里改过、清成占位名，都跟着带回来，本机不再留旧名字。
+        // 在 QQ 里写过的真名字算人起的名，以后系统不再自动改；占位名仍可换代。
         if (远.label && 远.label !== 项.label) {
           项.label = 远.label
+          项.labelBy = 是占位表情名(远.label) ? 'sync' : 'owner'
           改名 += 1
         }
         if (项.file && 项.emojiId) {
@@ -9957,6 +10029,7 @@ export function apply(ctx) {
       const 条目 = {
         id: 表情下一个id++,
         label: 远.label || '未命名',
+        labelBy: 是占位表情名(远.label) ? 'sync' : 'owner',
         emojiId: 远.emojiId,
         md5: 远.md5 || '',
         url: 远.url || '',
@@ -12807,9 +12880,10 @@ export function apply(ctx) {
     const 禁止收藏 = !!拒绝
     const 受信过 = 取收藏受信(目标.key)
     const 允许改 = !!(受信过 && 受信过.改)
-    const 存果 = await 落地存表情(配置, 原文, 批次图们, 目标.叫, { 试运行: 配置.社交.试运行, 禁止存: 禁止收藏, 房: 目标.key })
+    const 名源 = (受信过 && 受信过.名源) || 'friend'
+    const 存果 = await 落地存表情(配置, 原文, 批次图们, 目标.叫, { 试运行: 配置.社交.试运行, 禁止存: 禁止收藏, 房: 目标.key, 名源 })
     if (存果.失败.length > 0) 记账(`存表情没成：${存果.失败.join('；')}`)
-    const 改果 = await 落地改备注(配置, 存果.文本, 目标.叫, { 禁止改: !允许改 })
+    const 改果 = await 落地改备注(配置, 存果.文本, 目标.叫, { 禁止改: !允许改, 名源 })
     if (改果.失败.length > 0) 记账(`改备注没成：${改果.失败.join('；')}`)
     // 要发这一批里刚附来的某张，按图号存好再换成收藏编号；不让她猜新编号。
     const 展果 = await 展开发表情图号(配置, 改果.文本, 批次图们, 目标.叫, 目标.key)
@@ -13446,9 +13520,9 @@ export function apply(ctx) {
     入站图批.delete(String(目标))
     const 图们 = 批 && Date.now() - 批.at < 10 * 60_000 ? 批.图们 : []
     const 来源 = 是主人QQ会话(目标) ? '主人私聊' : '主人桥'
-    const 存果 = await 落地存表情(配置, 文字, 图们, 来源, { 房: '主人桥' })
+    const 存果 = await 落地存表情(配置, 文字, 图们, 来源, { 房: '主人桥', 名源: 'owner' })
     if (存果.失败.length > 0) 记账(`存表情没成：${存果.失败.join('；')}`)
-    const 改果 = await 落地改备注(配置, 存果.文本, 来源)
+    const 改果 = await 落地改备注(配置, 存果.文本, 来源, { 名源: 'owner' })
     if (改果.失败.length > 0) 记账(`改备注没成：${改果.失败.join('；')}`)
     const 展果 = await 展开发表情图号(配置, 改果.文本, 图们, 来源, '主人桥')
     if (展果.失败.length > 0) 记账(`按图号发表情没成：${展果.失败.join('；')}`)

@@ -187,6 +187,23 @@ const 模 = await import(new URL('../lib/host.js', import.meta.url).href + '?v='
 // ---------- 纯函数 ----------
 报('名字导出', 模.name === 'qq-bridge', 模.name)
 报('inject = agents + sessions + sessionTitle + webServer + timer + workspaceRegistry + llm + agentDefaultModel', Array.isArray(模.inject) && 模.inject.join() === 'agents,sessions,sessionTitle,webServer,timer,workspaceRegistry,llm,agentDefaultModel')
+报('是占位表情名：场合名也是名字，不算占位', 模.是占位表情名('笑') === false && 模.是占位表情名('小猫哈气') === false
+  && 模.是占位表情名('表情') === true && 模.是占位表情名('未命名') === true
+  && 模.是占位表情名('主人让存') === true && 模.是占位表情名('受信让存2') === true && 模.是占位表情名('  ') === true)
+报('表情名源：老条目没写 labelBy，兜底名算系统起的，真名字当人写的', 模.表情名源({ label: '表情' }) === 'auto'
+  && 模.表情名源({ label: '未命名' }) === 'auto' && 模.表情名源({ label: '' }) === 'auto'
+  && 模.表情名源({ label: '笑' }) === 'legacy' && 模.表情名源({ label: '小兔' }) === 'legacy')
+报('可自动改表情名：只有系统起的名字能自动改，主人 / 好友写的（哪怕叫“笑”）不动',
+  模.可自动改表情名({ label: '笑', labelBy: 'owner' }) === false
+  && 模.可自动改表情名({ label: '小猫哈气', labelBy: 'friend' }) === false
+  && 模.可自动改表情名({ label: '笑' }) === false
+  && 模.可自动改表情名({ label: '笑', labelBy: 'auto' }) === true
+  && 模.可自动改表情名({ label: '未命名', labelBy: 'sync' }) === true)
+报('该重看表情备注：主人 / 老收藏写的“笑”不再被自动改名，占位名照常重看',
+  模.该重看表情备注({ label: '笑', labelBy: 'owner' }) === false
+  && 模.该重看表情备注({ label: '笑' }) === false
+  && 模.该重看表情备注({ label: '表情' }) === true
+  && 模.该重看表情备注({ label: '未命名', labelBy: 'sync' }) === true)
 
 const 块 = (type, text) => ({ type, text })
 const 正文 = 模.提取正文({ content: [块('reasoning', '想一下'), 块('text', '第一条\n第二条'), 块('image', ''), 块('text', '第三条')] })
@@ -1107,7 +1124,7 @@ const 蓝 = 存后2.items.find((x) => !存后1.items.some((y) => y.id === x.id))
   && 图发消息.length === 2
   && 图发消息[0].url.endsWith('/send_custom_face') && 图发消息[0].体.emoji_id === 蓝?.emojiId
   && 图发消息[1].url.endsWith('/send_private_msg') && 图发消息[1].体.message[0].data.text === '给你'
-  && !!蓝 && 蓝.label === '' && 存后2.items.length === 存后1.items.length + 1,
+  && !!蓝 && 蓝.label === '' && 蓝.labelBy === 'auto' && 存后2.items.length === 存后1.items.length + 1,
   JSON.stringify({ 发: 图发.map((x) => x.url), 蓝 }))
 
 // ⑯h 同一张表情再发一次（纯图，不带字）→ 按内容认出收藏号，不把两张说成一张
@@ -1145,7 +1162,7 @@ await 等稳()
 const 存后4 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 橙改 = 存后4.items.find((x) => x.id === 橙?.id)
 const 改发 = 发了.slice(之前改)
-报('私聊：[存表情:图1:短名字] 把自动收藏的通用名换成她起的名字', !!橙 && 橙.label === '' && 橙改?.label === '橘猫趴床', JSON.stringify({ 橙, 橙改 }))
+报('私聊：[存表情:图1:短名字] 把自动收藏的通用名换成她起的名字', !!橙 && 橙.label === '' && 橙改?.label === '橘猫趴床' && 橙改?.labelBy === 'owner', JSON.stringify({ 橙, 橙改 }))
 报('私聊：改名同步回 QQ 收藏备注', 改发.some((x) => x.url.endsWith('/modify_custom_face') && x.体.emoji_id === 橙?.emojiId && x.体.desc === '橘猫趴床'), JSON.stringify(改发.map((x) => x.url)))
 报('私聊：[存表情] 不占发送位，话照发', 改发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '记好了'))
 私聊消息段 = null
@@ -1163,7 +1180,7 @@ await 轮询回调()
 await new Promise((r) => setTimeout(r, 30))
 const 存后注 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 注图 = 存后注.items.find((x) => !存后4.items.some((y) => y.id === x.id))
-报('私聊：主人让存并给备注 → 表情和备注一起落地', !!注图 && 注图.label === '绿毛' && String(注图.source).includes('主人要求'), JSON.stringify(注图))
+报('私聊：主人让存并给备注 → 表情和备注一起落地', !!注图 && 注图.label === '绿毛' && 注图.labelBy === 'owner' && String(注图.source).includes('主人要求'), JSON.stringify(注图))
 私聊消息段 = null
 
 // ⑯i2b 商城表情：包目录里的官方名和系列名一起带回来
@@ -1190,7 +1207,7 @@ await new Promise((r) => setTimeout(r, 30))
 const 存后商 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 商 = 存后商.items.find((x) => x.packId === 246925)
 const 商文 = 转进的.at(-1)?.content?.[0]?.text || ''
-报('私聊：商城表情按官方名和系列名落地', !!商 && 商.label === '捏捏' && 商.packName === '小喵包', JSON.stringify(商))
+报('私聊：商城表情按官方名和系列名落地', !!商 && 商.label === '捏捏' && 商.labelBy === 'auto' && 商.packName === '小喵包', JSON.stringify(商))
 报('私聊：商城表情的图注带系列名', 商文.includes('来自《小喵包》'), JSON.stringify(商文.slice(-300)))
 私聊消息段 = null
 
@@ -1204,7 +1221,7 @@ await new Promise((r) => setTimeout(r, 30))
 const 存后改2 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 注改 = 存后改2.items.find((x) => x.id === 注图?.id)
 const 改2 = 发了.slice(之前改2)
-报('私聊：主人说改 #N 备注 → 本机备注改成新名字', !!注改 && 注改.label === '大绿毛', JSON.stringify(注改))
+报('私聊：主人说改 #N 备注 → 本机备注改成新名字', !!注改 && 注改.label === '大绿毛' && 注改.labelBy === 'owner', JSON.stringify(注改))
 报('私聊：改 #N 备注同步回 QQ 收藏', 改2.some((x) => x.url.endsWith('/modify_custom_face') && x.体.emoji_id === 注图?.emojiId && x.体.desc === '大绿毛'), JSON.stringify(改2.map((x) => x.url)))
 
 // ⑯i4 她写 [改备注:#N:名字] → 按标记改已有收藏，标记本身不发出去
@@ -1221,7 +1238,7 @@ await 等稳()
 const 存后标记 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8'))
 const 标记改 = 存后标记.items.find((x) => x.id === 注图?.id)
 const 标记发 = 发了.slice(之前标记改)
-报('私聊：[改备注:#N:名字] 改本机备注，标记不进正文', !!标记改 && 标记改.label === '小绿' &&
+报('私聊：[改备注:#N:名字] 改本机备注，标记不进正文', !!标记改 && 标记改.label === '小绿' && 标记改.labelBy === 'owner' &&
   标记发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text === '好') &&
   !标记发.some((x) => x.url.endsWith('/send_private_msg') && x.体.message[0].data.text.includes('改备注')),
   JSON.stringify({ 标记改, 发: 标记发.map((x) => ({ url: x.url, 体: x.体 })) }))
