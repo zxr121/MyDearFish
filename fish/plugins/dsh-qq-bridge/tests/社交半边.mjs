@@ -5690,6 +5690,140 @@ const 发前恢复 = 发的.length
 await 收到回复('session-qq-social-group-9011', `[发表情:#${表情甲.id}]`)
 报('被嫌表情：一天之后恢复发表情', 发的.slice(发前恢复).some((x) => x.url.endsWith('/send_custom_face') && x.体.group_id === 9011), JSON.stringify(发的.slice(发前恢复).map((x) => x.url)))
 
+// ---------- 35 增强模式：按条数判断、判断用回复模型拉满推理、整批都看、不走短应 ----------
+写配置({
+  群: ['1711'], 增强: true, 增强条数: 4, 判断模型: 'fake/cheap', 回复模型: 'deepseek-official/deepseek-flash',
+  关注上限: 2, 快判: true, 聚拢秒: 0, 探索间隔秒: 0, 判断冷却秒: 60,
+  冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+鱼脑.availableCny = 100
+const 增强四条 = [
+  一条群消息('周末有人去看展吗', { id: 171101 }),
+  一条群消息('我想去那个摄影展', { id: 171102 }),
+  一条群消息('但是周六要加班', { id: 171103 }),
+]
+群消息表.set(1711, [...增强四条])
+设判断([], false, 0.1, '还没攒够')
+const 增强判前 = 判断调用.length
+const 增强回前 = 回合.length
+await 轮询社交()
+await 等()
+报('增强模式：没攒够条数不判、不回', 判断调用.length === 增强判前 && 回合.length === 增强回前,
+  `判断=${判断调用.length - 增强判前} 回合=${回合.length - 增强回前}`)
+群消息表.set(1711, [...增强四条, 一条群消息('那周日下午呢', { id: 171104 })])
+设判断(['171104'], true, 0.9, '接一下大家的时间')
+await 轮询社交()
+await 等到(async () => 回合.some((r) => r.sid === 'session-qq-social-group-1711'), 3000)
+const 增强判 = 判断调用.at(-1)
+const 增强判文 = String(增强判?.messages?.[0]?.content?.[0]?.text || '')
+const 增强系文 = String(增强判?.system || '')
+报('增强模式：攒够后判一次就接', 判断调用.length === 增强判前 + 1 && 回合.some((r) => r.sid === 'session-qq-social-group-1711'),
+  `判断=${判断调用.length - 增强判前} 回合=${回合.filter((r) => r.sid === 'session-qq-social-group-1711').length}`)
+报('增强模式：判断改用回复模型并拉满推理档', 增强判?.provider === 'deepseek-official' && 增强判?.model === 'deepseek-flash'
+  && 增强判?.reasoningEffort === 'max' && 增强判?.maxTokens === undefined,
+  JSON.stringify({ provider: 增强判?.provider, model: 增强判?.model, reasoningEffort: 增强判?.reasoningEffort, maxTokens: 增强判?.maxTokens }))
+报('增强模式：判断提示带完整一批，不被关注上限卡住',
+  ['171101', '171102', '171103', '171104'].every((id) => 增强判文.includes(`[#${id}]`)) && 增强系文.includes('增强模式'),
+  增强判文.slice(0, 500))
+const 建1711 = 建会话选项.filter((x) => x.sessionId === 'session-qq-social-group-1711').at(-1)
+报('增强模式：新建社交会话也用 max 推理档', 建1711?.agentOptions?.reasoningEffort === 'max', JSON.stringify(建1711?.agentOptions))
+const 增强监听 = 请求监听.filter((x) => x.sid === 'session-qq-social-group-1711').at(-1)
+const 增强抬 = 增强监听 ? await 增强监听.cb({}, async () => ({ provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' })) : null
+报('增强模式：每轮回复请求都拉到 max，不用等深想标记', 增强抬?.reasoningEffort === 'max', JSON.stringify(增强抬))
+const 增强回 = 回合.filter((r) => r.sid === 'session-qq-social-group-1711').at(-1)
+报('增强模式：回复带增强提示，不走走短应', 增强回 && String(增强回.message.content[0].text).includes('【增强模式】'),
+  String(增强回?.message?.content?.[0]?.text || '').slice(-500))
+报('增强模式：回复轮也带上同批没挑中的消息，不是只看挑中的一句',
+  增强回 && String(增强回.message.content[0].text).includes('周末有人去看展吗')
+  && String(增强回.message.content[0].text).includes('我想去那个摄影展'),
+  String(增强回?.message?.content?.[0]?.text || '').slice(0, 600))
+await 收到回复('session-qq-social-group-1711', '那周日下午我去看看')
+
+// 被叫 / 私聊不攒条数：一条 @ 也马上判
+写配置({
+  群: ['1712'], 增强: true, 增强条数: 20, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  聚拢秒: 0, 判断冷却秒: 60, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+群消息表.set(1712, [一条群消息('大肥鱼 在吗', { atSelf: true, id: 171201 })])
+设判断(['171201'], true, 0.9, '叫到她了')
+const 直呼判前 = 判断调用.length
+const 直呼回前 = 回合.length
+await 轮询社交()
+await 等到(async () => 回合.length > 直呼回前, 3000)
+报('增强模式：被 @ 不等条数，马上判、马上回', 判断调用.length === 直呼判前 + 1 && 回合.length === 直呼回前 + 1,
+  `判断=${判断调用.length - 直呼判前} 回合=${回合.length - 直呼回前}`)
+await 收到回复('session-qq-social-group-1712', '在呢')
+
+// 同一个人连发先并成一条，但增强模式按原始条数算：两句话 + 第三句就够 3 条
+写配置({
+  群: ['1713'], 增强: true, 增强条数: 3, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  聚拢秒: 15, 判断冷却秒: 60, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+鱼脑.availableCny = 100
+const 合流时 = Math.floor(Date.now() / 1000) + 100
+群消息表.set(1713, [
+  一条群消息('我先说一句', { uid: 888, id: 171301, time: 合流时 }),
+  一条群消息('再补一句', { uid: 888, id: 171302, time: 合流时 + 1 }),
+  一条群消息('我也在', { uid: 777, id: 171303, time: 合流时 + 2 }),
+])
+设判断([], false, 0.1, '先看看')
+const 合流判前 = 判断调用.length
+await 轮询社交()
+await 等()
+报('增强模式：同人连发还没到聚拢时间，先不判', 判断调用.length === 合流判前)
+时间偏移 += 120_000
+设判断(['171303'], true, 0.9, '接一句')
+await 轮询社交()
+await 等到(async () => 回合.some((r) => r.sid === 'session-qq-social-group-1713'), 3000)
+报('增强模式：按原始条数算，同人连发不能被并成一条漏掉',
+  判断调用.length === 合流判前 + 1 && 回合.some((r) => r.sid === 'session-qq-social-group-1713'),
+  `判断=${判断调用.length - 合流判前}`)
+await 收到回复('session-qq-social-group-1713', '下午我也去')
+
+// 一整批超过 30 条也全部交给判断，不再只留最后 30 条
+写配置({
+  群: ['1714'], 增强: true, 增强条数: 35, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  关注上限: 2, 快判: true, 聚拢秒: 0, 探索间隔秒: 0, 判断冷却秒: 60,
+  冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+鱼脑.availableCny = 100
+const 大堆 = []
+for (let i = 0; i < 35; i += 1) 大堆.push(一条群消息(`第 ${i + 1} 条测试消息，大家在聊周末安排`, { id: 171400 + i }))
+群消息表.set(1714, 大堆)
+设判断([], false, 0.1, '这批先不接')
+const 大批判前 = 判断调用.length
+await 轮询社交()
+await 等()
+const 大批判文 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.text || '')
+报('增强模式：超过 30 条也整批交判，不只看最后几句',
+  判断调用.length === 大批判前 + 1 && 大批判文.includes('[#171400]') && 大批判文.includes('[#171434]'),
+  大批判文.slice(0, 240))
+
+// 增强模式跳过判断模型的短应，开完整回复轮
+写配置({
+  群: ['1715'], 增强: true, 增强条数: 1, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  聚拢秒: 0, 判断冷却秒: 0, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+  短应: true, 深想: true,
+})
+鱼脑.availableCny = 100
+群消息表.set(1715, [一条群消息('面试完等结果好紧张', { id: 171501 })])
+设短应(['171501'], '面试最磨人', 0.9, '接住紧张', '171501', '在等面试结果')
+const 短应判前 = 判断调用.length
+const 短应回前 = 回合.filter((r) => r.sid === 'session-qq-social-group-1715').length
+const 短应发前 = 发的.length
+await 轮询社交()
+await 等到(async () => 回合.filter((r) => r.sid === 'session-qq-social-group-1715').length > 短应回前, 3000)
+await 等(100)
+const 短应回 = 回合.filter((r) => r.sid === 'session-qq-social-group-1715').at(-1)
+报('增强模式：判断模型给了短应也不直接发，改走完整回复轮',
+  判断调用.length === 短应判前 + 1
+  && 回合.filter((r) => r.sid === 'session-qq-social-group-1715').length === 短应回前 + 1
+  && !发的.slice(短应发前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1715),
+  JSON.stringify(发的.slice(短应发前).map((x) => x.url)))
+报('增强模式：完整回复轮带增强提示', 短应回 && String(短应回.message.content[0].text).includes('【增强模式】'),
+  String(短应回?.message?.content?.[0]?.text || '').slice(-400))
+await 收到回复('session-qq-social-group-1715', '等结果最熬人了，先别自己吓自己')
+
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
