@@ -5738,6 +5738,10 @@ const 增强回 = 回合.filter((r) => r.sid === 'session-qq-social-group-1711')
   && String(增强回.message.content[0].text).includes('我想去那个摄影展'),
   String(增强回?.message?.content?.[0]?.text || '').slice(0, 600))
 await 收到回复('session-qq-social-group-1711', '那周日下午我去看看')
+await 等(100)
+const 态1711 = await 目标状态('group:1711')
+报('增强模式：她真的开口后，距上次说话计数清零', 态1711?.距上次说 === 0 && 态1711?.距说判到 === 0,
+  JSON.stringify({ 距上次说: 态1711?.距上次说, 判到: 态1711?.距说判到 }))
 
 // 被叫 / 私聊不攒条数：一条 @ 也马上判
 写配置({
@@ -5852,6 +5856,49 @@ const 等待思绪 = 思绪文本()
   && 等待思绪.includes('先判这一次'),
   `判断=${判断调用.length - 等待判前} 思绪=${等待思绪.includes('先判这一次')}`)
 await 收到回复('session-qq-social-group-1716', '我在听，慢慢聊')
+
+// 重启后不清零：状态文件里已经记着 19 条，新来 1 条就到 20，直接判
+写配置({
+  群: ['1717'], 增强: true, 增强条数: 20, 增强等待分钟: 0, 判断模型: 'fake/cheap', 回复模型: 'fake/chat',
+  聚拢秒: 0, 判断冷却秒: 0, 冷却秒: 0, 冷却最短秒: 0, 冷却最长倍率: 1, 静音: '', 判断阈值: 0.1,
+})
+鱼脑.availableCny = 100
+const 持久现在 = Math.floor(Date.now() / 1000)
+writeFileSync(join(家, 'qq-bridge-social-state.json'), JSON.stringify({
+  version: 2,
+  selfIds: [],
+  rooms: {
+    'group:1717': {
+      cursor: 持久现在 - 10,
+      距说: { 条数: 19, 判到: 0, 上次说At: 0, 已初始化: true },
+    },
+  },
+  feedback: [],
+}, null, 2), 'utf8')
+群消息表.set(1717, [一条群消息('重启以后新来的一条', { id: 171701, time: 持久现在 + 100 })])
+const 持久轮询们 = []
+const 持久ctx = {
+  ...ctx,
+  on: (名字, cb) => { if (名字 === 'session/event') 监听.push(cb); return () => {} },
+  interval: (cb) => { 持久轮询们.push(cb); return () => {} },
+  webServer: { register: () => {} },
+}
+const 模持久 = await import(new URL('../lib/host.js', import.meta.url).href + '?v=persist-' + Date.now())
+const 宿主持久 = 模持久.apply(持久ctx)
+const 持久轮询 = 持久轮询们[1]
+设判断(['171701'], true, 0.9, '重启后接着判')
+const 持久判前 = 判断调用.length
+if (持久轮询) await 持久轮询()
+await 等到(async () => 回合.some((r) => r.sid === 'session-qq-social-group-1717'), 3000)
+const 持久概 = await 宿主持久.概况()
+const 持久态 = 持久概.社交.目标.find((t) => t.key === 'group:1717')
+const 持久日志 = 持久概.日志.slice(-10).map((x) => x.文本).join(' | ')
+报('增强模式：距上次说话的计数跨重启保留', 持久态?.距上次说 === 20 && 持久态?.距说判到 === 20,
+  JSON.stringify({ 态: 持久态 && { 距上次说: 持久态.距上次说, 判到: 持久态.距说判到, 待看: 持久态.待看 }, 日志: 持久日志 }))
+报('增强模式：重启后拿保留的计数直接判，不用再攒 20 条',
+  持久轮询 !== undefined && 判断调用.length === 持久判前 + 1
+  && 回合.some((r) => r.sid === 'session-qq-social-group-1717'),
+  `判断=${判断调用.length - 持久判前} 轮询=${typeof 持久轮询}`)
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })

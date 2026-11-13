@@ -4553,6 +4553,8 @@ export function apply(ctx) {
   // ---------- 社交桥状态（群 / 好友各一间独立会话） ----------
   const 社交上次 = new Map() // 'group:123' → 秒级游标
   const 社交已转 = new Set() // 社交桥自己见过的消息 id（和主人桥分开，免得互相吞消息）
+  const 距说 = new Map() // 'group:123' → { 条数, 判到, 上次说At, 已初始化 }：距她上次真的发出消息后，别人又说了多少条
+  const 距说已计 = new Set() // 已经从历史里补过数的消息 id，避免同一条算两次
   const 启动At = Date.now()
   let 社交状态存At = 0
   const 收件人记录 = new Map() // 'group:123' → Map(uid → { 收件人, at })：同一人上一句在对谁说
@@ -6832,6 +6834,17 @@ export function apply(ctx) {
         if (!/^(group|friend):\d{3,20}$/.test(String(key)) || !房 || typeof 房 !== 'object') continue
         const cursor = Number(房.cursor) || 0
         if (cursor > 0) 社交上次.set(String(key), cursor)
+        const 距 = 房.距说 && typeof 房.距说 === 'object' ? 房.距说 : null
+        if (距) {
+          const 条数 = Math.max(0, Math.min(500, Math.round(Number(距.条数) || 0)))
+          const 判到 = Math.max(0, Math.min(条数, Math.round(Number(距.判到) || 0)))
+          距说.set(String(key), {
+            条数,
+            判到,
+            上次说At: Number(距.上次说At) || 0,
+            已初始化: 距.已初始化 === true,
+          })
+        }
       }
       // 被嫌的收敛期也要跨重启：同一天里别再拿同一类东西刷屏。
       for (const 项 of Array.isArray(存 && 存.feedback) ? 存.feedback : []) {
@@ -6875,6 +6888,17 @@ export function apply(ctx) {
     for (const [key, cursor] of 社交上次) {
       const 数 = Number(cursor)
       if (数 > 0) rooms[key] = { cursor: 数 }
+    }
+    for (const [key, 项] of 距说) {
+      if (!项) continue
+      const 距 = {
+        条数: Math.max(0, Math.min(500, Math.round(Number(项.条数) || 0))),
+        判到: Math.max(0, Math.min(500, Math.round(Number(项.判到) || 0))),
+        上次说At: Number(项.上次说At) || 0,
+        已初始化: 项.已初始化 === true,
+      }
+      if (距.条数 <= 0 && 距.判到 <= 0 && 距.上次说At <= 0 && !距.已初始化) continue
+      rooms[key] = { ...(rooms[key] || {}), 距说: 距 }
     }
     const feedback = []
     for (const [key, 项] of 吐槽态) {
@@ -7055,6 +7079,50 @@ export function apply(ctx) {
       出.push({ key, 类型: 'friend', 号, 允许: !关掉.has(key), 能说: !只听.has(key), 歇到: 歇到of(key), 会话id: 会话idof(key, 社交会话id('friend', 号)), 叫: `好友 ${号}`, 名: 房间名缓存.get(key) || (人 && 人.名 ? 夹文(人.名, 40) : '') })
     }
     return 出
+  }
+
+  /** 距她上次真的发出消息后，这间屋别人又说了多少条；和待看不同，它跨重启保留。 */
+  function 距说of(key) {
+    const k = String(key)
+    let 项 = 距说.get(k)
+    if (!项) {
+      项 = { 条数: 0, 判到: 0, 上次说At: 0, 已初始化: false }
+      距说.set(k, 项)
+    }
+    return 项
+  }
+
+  /** 别人又说了一条：按原始条数累计；同一条消息只算一次。 */
+  function 记距说一条(key, id = '') {
+    const 净 = String(id || '')
+    if (净 !== '' && 距说已计.has(净)) return false
+    if (净 !== '') {
+      距说已计.add(净)
+      if (距说已计.size > 2000) 距说已计.clear()
+    }
+    const 项 = 距说of(key)
+    项.条数 = Math.min(500, Math.max(0, Math.round(Number(项.条数) || 0)) + 1)
+    写社交状态()
+    return true
+  }
+
+  /** 她真的发出消息了：这间屋从她上次说话起重新计数。 */
+  function 记她说过(key) {
+    const 项 = 距说of(key)
+    项.条数 = 0
+    项.判到 = 0
+    项.上次说At = Date.now()
+    项.已初始化 = true
+    // 她开口是计数归零的关键点，立即落盘，别等 5 秒节流。
+    写社交状态(true)
+  }
+
+  /** 刚判过一次：记下判到第几条；她没开口时，下一条要再攒够一轮才会再判。 */
+  function 记距说判过(key) {
+    const 项 = 距说of(key)
+    项.判到 = Math.max(0, Math.round(Number(项.条数) || 0))
+    项.已初始化 = true
+    写社交状态(true)
   }
 
   /**
@@ -11972,6 +12040,8 @@ export function apply(ctx) {
         放下 += 1
         continue
       }
+      // 距她上次说话多少条：按原始消息累计，和待看是否合并、是否已判过都无关。
+      记距说一条(目标.key, m.id)
       const 前 = 合[合.length - 1]
       // 名片可能重名；同一个人要按 QQ 号认，不能只看名字。
       const 同人 = !!前 && String(前.uid || '') === String(m.uid || '') && 前.说话人 === m.说话人
@@ -12183,6 +12253,8 @@ export function apply(ctx) {
       记账(`${目标.叫}：回头补话的判断没做出来（${判.说}${判.详情 ? '：' + 判.详情 : ''}），这条话头放下`)
       return
     }
+    // 回头补话也花了一次判断：记下来，别让主待看紧接着再判一遍。
+    记距说判过(目标.key)
     悬着回头At.set(目标.key, Date.now())
     const 直呼 = 直接找她(目标, 悬.消息)
     const 关切 = 配置.社交.记人 && 要查好感度(本人的话(悬.消息))
@@ -12325,14 +12397,18 @@ export function apply(ctx) {
     }
     // 有人在对她说“？”、“没听清”：这是要她重说上一句，不能等攒够一批再理。
     const 修 = !不开口 && 配置.社交.重说 !== false ? 修话对象(目标, 全部) : null
-    // 增强模式按条数判断：同一间屋攒够主人设的条数才花一次完整判断；
+    // 增强模式按“距她上次真的发出消息后，别人又说了多少条”判断；这个计数跨重启保留。
     // 被 @、回复她、私聊、查好感度、问她本人和让她重说都不等，马上判。
     if (增强 && 修 === null) {
       const 马上判 = 全部.some((m) => 直接找她(目标, m)) || 全部.some((m) => 在问她(目标, m))
-      const 攒够 = 增强积攒条数(全部)
       const 判断线 = 增强判断条数(配置)
-      if (!马上判 && 攒够 < 判断线) {
-        // 安静群可能永远攒不够 20 条：等够时间、并且至少攒到判断线的一半（最少 3 条）时，也先判一次。
+      const 距 = 距说of(目标.key)
+      const 距条 = Math.max(0, Math.round(Number(距.条数) || 0))
+      const 判到 = Math.max(0, Math.min(距条, Math.round(Number(距.判到) || 0)))
+      const 本轮新 = Math.max(0, 距条 - 判到)
+      const 该看 = 距条 >= 判断线 && 本轮新 >= 判断线
+      if (!马上判 && !该看) {
+        // 安静群可能永远到不了判断线：等够时间、并且距上次说话至少攒到一半（最少 3 条）时，也先判一次。
         const 等分钟 = Math.max(0, Math.min(120, Math.round(Number(配置.社交.增强等待分钟) || 0)))
         const 最少条 = Math.max(3, Math.ceil(判断线 / 2))
         const 首们 = 全部
@@ -12340,13 +12416,13 @@ export function apply(ctx) {
           .filter((秒) => 秒 > 0)
         const 最早 = 首们.length > 0 ? Math.min(...首们) : 0
         const 等了分钟 = 最早 > 0 ? Math.max(0, Math.floor((Date.now() / 1000 - 最早) / 60)) : 0
-        const 等够 = 等分钟 > 0 && 攒够 >= 最少条 && 等了分钟 >= 等分钟
+        const 等够 = 等分钟 > 0 && 距条 >= 最少条 && 本轮新 >= 最少条 && 等了分钟 >= 等分钟
         if (!等够) {
           社交待看.set(目标.key, 全部)
-          记思绪早退(目标, `增强模式：攒了 ${攒够}/${判断线} 条${等分钟 > 0 ? `，等了 ${Math.floor(等了分钟)}/${等分钟} 分钟` : ''}，没到判断线先不判`)
+          记思绪早退(目标, `增强模式：距上次说话 ${距条}/${判断线} 条${本轮新 !== 距条 ? `（上次判到 ${判到}）` : ''}${等分钟 > 0 ? `，等了 ${Math.floor(等了分钟)}/${等分钟} 分钟` : ''}，没到判断线先不判`)
           return
         }
-        记思绪('判断', `增强模式：等了 ${Math.floor(等了分钟)} 分钟，攒了 ${攒够}/${判断线} 条（至少一半），先判这一次`, {
+        记思绪('判断', `增强模式：等了 ${Math.floor(等了分钟)} 分钟，距上次说话 ${距条}/${判断线} 条（至少一半），先判这一次`, {
           看到: 批样(全部),
         }, 目标.叫)
       }
@@ -12454,6 +12530,8 @@ export function apply(ctx) {
       return
     }
     社交判断退避.delete(目标.key)
+    // 这次判断已经做到这里：她没开口时，下一条要再攒够一轮才会再判，不能每来一条就重判。
+    记距说判过(目标.key)
     const 看id = new Set(判.看)
     let 选出 = 有效.filter((m) => 看id.has(String(m.id)))
     // 记人关掉时没有关系数值，查询口令不强行开一轮。
@@ -12626,6 +12704,32 @@ export function apply(ctx) {
     }
 
     const 现在秒 = Math.floor(Date.now() / 1000)
+    // 第一次读这间屋：从最近历史补“距她上次说话多少条”，不因为刚装 / 重启就从零算。
+    const 距项 = 距说of(目标.key)
+    if (!距项.已初始化) {
+      const 排 = 列表.slice().sort((a, b) => (Number(a && a.time) || 0) - (Number(b && b.time) || 0))
+      const 是她 = (条) => {
+        const uid = String(条 && 条.user_id !== undefined && 条.user_id !== null ? 条.user_id : '')
+        return 目标.类型 === 'group'
+          ? (自己.号 !== '' && uid === String(自己.号))
+          : (uid !== String(目标.号))
+      }
+      let 末位 = -1
+      for (let i = 0; i < 排.length; i += 1) if (是她(排[i])) 末位 = i
+      let 补数 = 0
+      for (let i = 末位 + 1; i < 排.length; i += 1) {
+        if (是她(排[i])) continue
+        const id = String((排[i] && 排[i].message_id) ?? '')
+        if (id !== '') 距说已计.add(id)
+        补数 += 1
+      }
+      距项.条数 = Math.min(500, 补数)
+      距项.判到 = 0
+      距项.上次说At = 末位 >= 0 ? (Number(排[末位] && 排[末位].time) || 0) * 1000 : 0
+      距项.已初始化 = true
+      写社交状态()
+      记思绪('判断', `增强模式：第一次读这间屋，从最近历史补 ${补数} 条（距她上次说话）`, null, 目标.叫)
+    }
     const 补话开 = 配置.社交.启动补话 !== false
     const 补话秒 = Math.max(1, Math.min(120, Number(配置.社交.补话分钟) || 30)) * 60
     const 上次 = 社交上次.has(目标.key) ? 社交上次.get(目标.key) : 现在秒
@@ -12680,12 +12784,14 @@ export function apply(ctx) {
             她的消息id.add(id)
             if (她的消息id.size > 500) 她的消息id.clear()
           }
+          记她说过(目标.key)
           游标 = Math.max(游标, at)
           continue
         }
       } else if (uid !== String(目标.号)) {
         // 私聊历史里也有她自己发出去的话，只认对方发来的
         if (id !== '') 社交已转.add(id)
+        记她说过(目标.key)
         游标 = Math.max(游标, at)
         continue
       }
@@ -13343,7 +13449,10 @@ export function apply(ctx) {
     const 戳人数 = 项们.filter((x) => x.戳人 !== undefined).length
     const 发出文字 = 发出文字们.filter(Boolean).join(' ')
     if (真发出) 记开场(目标, 发出文字们.find(Boolean) || 发出文字)
-    if (真发出) 写社交状态(true)
+    if (真发出) {
+      记她说过(目标.key)
+      写社交状态(true)
+    }
     if (项们.length > 0) {
       记账(`${全过 ? '✅ 已在' : '⚠ 在'} ${目标.叫} ${全过 ? (要复读 ? '跟着群友复读了一句' : `开口（连发 ${文字条数} 条${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}${戳人数 > 0 ? ` + 戳了 ${戳人数} 下` : ''}）`) : '开口有问题'}：「${发出文字.slice(0, 50)}${发出文字.length > 50 ? '…' : ''}」`)
       记思绪('开口', `${全过 ? '在' : '在（有问题）'} ${目标.叫} ${要复读 ? '复读了一句' : `说了 ${文字条数} 条`}${发出的表情.length ? ` + ${发出的表情.length} 张表情包` : ''}${戳人数 > 0 ? ` + 戳了 ${戳人数} 下` : ''}`, {
@@ -14272,6 +14381,9 @@ export function apply(ctx) {
               .map(([号, 次]) => ({ 号, 名: (人物.get(解号(号)) || {}).名 || '', 次 }))
             : [],
           待看: (社交待看.get(目标.key) || []).length,
+          距上次说: Math.max(0, Math.round(Number(距说of(目标.key).条数) || 0)),
+          距说判到: Math.max(0, Math.round(Number(距说of(目标.key).判到) || 0)),
+          距说上次At: Number(距说of(目标.key).上次说At) || 0,
           悬着: (悬着的话.get(目标.key) || []).length,
           迟到回头At: 悬着回头At.get(目标.key) || 0,
           待发: 在答,
