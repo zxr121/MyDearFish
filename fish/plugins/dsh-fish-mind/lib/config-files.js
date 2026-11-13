@@ -24,6 +24,7 @@ export const QQ_SOCIAL_DEFAULTS = Object.freeze({
   关注上限: 12,
   增强: false,
   增强条数: 20,
+  增强等待分钟: 10,
   判断阈值: 0.4,
   学表情: true,
   表情偏好: '',
