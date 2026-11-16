@@ -92,6 +92,20 @@ const 吃紧倍率 = 模.余额冷却倍率(2, 1, 5, 1.5)
 报('识别主人私聊会话，且不跟社交会话混', 模.是主人QQ会话('session-qq-private-123') && 模.是主人QQ会话('qq-private-123') && !模.是主人QQ会话('session-qq-social-group-555') && !模.是社交会话('session-qq-private-123'))
 报('静音跨午夜：23:00-08:00 在 07:30 生效', 模.在静音时段('23:00-08:00', new Date(2026, 0, 1, 7, 30)))
 报('静音：12:00 不生效', !模.在静音时段('23:00-08:00', new Date(2026, 0, 1, 12, 0)))
+报('静音写法：全角数字 / 冒号 / 波浪线也能存成半角',
+  模.校验静音('２３：００～０８：００').ok && 模.校验静音('２３：００～０８：００').值 === '23:00-08:00'
+  && 模.校验静音(' 9:00 — 8:00 ').ok && 模.校验静音(' 9:00 — 8:00 ').值 === '09:00-08:00',
+  JSON.stringify([模.校验静音('２３：００～０８：００'), 模.校验静音(' 9:00 — 8:00 ')]))
+报('静音写法：写错和越界拒收，留空 = 不静音',
+  !模.校验静音('晚上十点到早上八点').ok && String(模.校验静音('25:00-08:00').说).includes('0–23')
+  && 模.校验静音('').ok && 模.校验静音('').值 === '',
+  JSON.stringify([模.校验静音('晚上十点到早上八点'), 模.校验静音('25:00-08:00'), 模.校验静音('')]))
+const 正午 = new Date(2026, 0, 1, 12, 0)
+报('该守静音：只拦群聊，好友私聊和主人私聊不受影响',
+  模.该守静音({ 社交: { 静音: '00:00-23:59' } }, { 类型: 'group' }, 正午)
+  && !模.该守静音({ 社交: { 静音: '00:00-23:59' } }, { 类型: 'friend' }, 正午)
+  && !模.该守静音({ 社交: { 静音: '00:00-23:59' } }, { 类型: 'owner' }, 正午)
+  && !模.该守静音({ 社交: { 静音: '00:00-23:59' } }, null, 正午))
 const 段 = 模.解析消息段({
   message: [
     { type: 'at', data: { qq: '999' } },
@@ -1702,6 +1716,24 @@ await 轮询社交()
 await 等()
 报('静音时段 → 不判、不开轮', 回合.length === 之前8 && 判断调用.length === 判断之前8 && String(await 日志文本()).includes('静音时段'), 静音)
 报('静音丢掉待看', (await 目标状态('group:1007')).待看 === 0)
+
+// ---------- 8b 静音只压群聊：好友私聊照常判、照常回 ----------
+写配置({ 群: [], 好友: ['777'], 静音, 快判: false, 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0 })
+好友消息表.set(777, [一条好友消息('夜里也在吗', { id: 180201, time: Math.floor(Date.now() / 1000) + 3600 })])
+设判断(['180201'], true, 0.9, '夜里也回')
+// 前面把模拟时钟拨过再归零，旧房的「上次判断」可能落在归零后的将来；往前拨 11 秒再判。
+时间偏移 += 11_000
+const 之前8b = 回合.length
+await 轮询社交()
+await 等()
+报('静音时段里好友私聊照常判、照常开轮',
+  回合.length === 之前8b + 1 && 回合.at(-1).sid === 'session-qq-social-friend-777',
+  '回合=' + (回合.length - 之前8b))
+await 收到回复('session-qq-social-friend-777', '在的')
+报('静音时段里好友私聊真发出去',
+  发的.some((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 777 && x.体.message[0].data.text === '在的'),
+  JSON.stringify(发的.at(-1)))
+时间偏移 = 0
 
 // ---------- 9 试运行 ----------
 写配置({ 群: ['1008'], 试运行: true })
@@ -3418,6 +3450,18 @@ const 听开关状态 = (await 宿主.概况()).社交.目标
     听开关状态.find((t) => t.key === 'group:2002')?.允许 === true && 听开关状态.find((t) => t.key === 'group:2002')?.能说 === false &&
     听开关状态.find((t) => t.key === 'friend:3003')?.能说 === false,
   JSON.stringify(听开关状态.map((t) => [t.key, t.允许, t.能说])))
+
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 静音: '２３：００～０８：００' } }), fakeRes)
+const 全角静音存 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+报('/save：全角静音归一化成半角再写盘', 存储.at(-1)?.ok === true && 全角静音存.社交.静音 === '23:00-08:00', JSON.stringify({ 回: 存储.at(-1), 静音: 全角静音存.社交.静音 }))
+const 坏静音前 = readFileSync(join(家, 'qq-bridge-config.json'), 'utf8')
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 静音: '晚上十点到早上八点' } }), fakeRes)
+const 坏静音后 = readFileSync(join(家, 'qq-bridge-config.json'), 'utf8')
+报('/save：静音写错当场报错、不落盘',
+  存储.at(-1)?.ok === false && String(存储.at(-1)?.说).includes('23:00-08:00') && 坏静音后 === 坏静音前,
+  JSON.stringify(存储.at(-1)))
 
 存储.length = 0
 await 路由.get('/dsh-qq-bridge/people')(造请求(undefined, { method: 'GET' }), fakeRes)
@@ -5301,13 +5345,20 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   报('主动搭话：额度拦住时不真发、账本写原因',
     群聊发(额超前).length === 0 && (await 日志文本()).includes('主动话量用完了'), JSON.stringify(群聊发(额超前)))
 
-  写配置({ 群: ['1501'], 静音: '00:00-23:59' })
+  写配置({ 群: ['1501'], 好友: ['1502'], 静音: '00:00-23:59' })
+  const 静房们 = 服务.房间们()
   报('qqSocial 房间们：静音时段里说她不能开口',
-    服务.房间们()[0].能开口 === false && 服务.房间们()[0].不能因.includes('静音'), JSON.stringify(服务.房间们()[0]))
+    静房们.find((x) => x.key === 'group:1501').能开口 === false && 静房们.find((x) => x.key === 'group:1501').不能因.includes('静音'), JSON.stringify(静房们.find((x) => x.key === 'group:1501')))
+  报('qqSocial 房间们：静音时段里好友私聊也不能主动冒泡（回复仍不受影响）',
+    静房们.find((x) => x.key === 'friend:1502').能开口 === false && 静房们.find((x) => x.key === 'friend:1502').不能因.includes('静音'), JSON.stringify(静房们.find((x) => x.key === 'friend:1502')))
+  报('qqSocial 外发静音中：给主动搭话一个总闸',
+    服务.外发静音中() === true, String(服务.外发静音中()))
   const 静前 = 发的.length
   送主动轮('session-qq-social-group-1501', 73, '静音不该发')
   await 等(150)
   报('主动搭话：静音时段不真发', 群聊发(静前).length === 0 && (await 日志文本()).includes('静音'), JSON.stringify(群聊发(静前)))
+  写配置({ 群: ['1501'], 好友: ['1502'], 静音: '' })
+  报('qqSocial 外发静音中：不在静音时段就放行', 服务.外发静音中() === false)
 
   写配置({ 群: ['1501'] })
   报('qqSocial 开房：不在配置里的 id 返回 null', (await 服务.开房('session-qq-social-group-9999')) === null)

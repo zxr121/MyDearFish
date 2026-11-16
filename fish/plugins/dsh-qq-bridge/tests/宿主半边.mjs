@@ -658,6 +658,39 @@ await 等到(() => 发了.length > 之前5b5)
 await new Promise((r) => setTimeout(r, 20))
 报('目标会话里的定时提醒只发一次', 发了.length === 之前5b5 + 1, JSON.stringify(发了.slice(之前5b5).map((x) => x.体.message?.[0]?.data?.text)))
 
+// ⑤c 群聊静音只压群那份：私聊照发，群不发
+const 此刻 = new Date()
+const 补时 = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0')
+const 静音窗 = `${补时((此刻.getHours() * 60 + 此刻.getMinutes() - 30 + 1440) % 1440)}-${补时((此刻.getHours() * 60 + 此刻.getMinutes() + 30) % 1440)}`
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '2001',
+  转私聊: true, 转群: true, 定时转QQ: true, NapCat: 'http://127.0.0.1:3000',
+  社交: { 静音: 静音窗, 群: ['2001'] },
+}, null, 2), 'utf8')
+const 之前5c = 发了.length
+监听[0](会话, 助手消息(16, 1, [块('text', '夜里私聊照常')], false))
+监听[0](会话, 转完(16))
+await 等到(() => 发了.length > 之前5c)
+await 等稳()
+const 静音窗发 = 发了.slice(之前5c)
+报('群聊静音：私聊照发，转发到群的那份不发',
+  静音窗发.length === 1 && 静音窗发[0].url.endsWith('/send_private_msg') && 静音窗发[0].体.user_id === 123,
+  JSON.stringify(静音窗发.map((x) => x.url + ' :: ' + (x.体.message?.[0]?.data?.text || ''))))
+writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '2001',
+  转私聊: true, 转群: true, 定时转QQ: true, NapCat: 'http://127.0.0.1:3000',
+  社交: { 静音: '', 群: ['2001'] },
+}, null, 2), 'utf8')
+const 之前5c2 = 发了.length
+监听[0](会话, 助手消息(17, 1, [块('text', '白天两边都发')], false))
+监听[0](会话, 转完(17))
+await 等到(() => 发了.length >= 之前5c2 + 2)
+await 等稳()
+const 非静音发 = 发了.slice(之前5c2)
+报('不在群聊静音：私聊和群都发',
+  非静音发.length === 2 && 非静音发.some((x) => x.url.endsWith('/send_private_msg')) && 非静音发.some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 2001),
+  JSON.stringify(非静音发.map((x) => x.url)))
+
 // ⑥ 试运行开 → fetch 不被打
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
   总开关: true, 试运行: true, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',

@@ -639,18 +639,41 @@ const 洗模型 = (值) => {
   return /^[^\s/]+\/\S+$/.test(s) ? s.slice(0, 200) : ''
 }
 
-/** "23:00-08:00" → { 起, 止 }（分钟）；空串 = 不静音；写错退回默认。 */
-const 洗静音 = (值) => {
-  const s = typeof 值 === 'string' ? 值.trim() : ''
-  if (s === '') return ''
-  const m = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(s)
-  if (m === null) return 默认配置.社交.静音
-  const 起 = Number(m[1]) * 60 + Number(m[2])
-  const 止 = Number(m[3]) * 60 + Number(m[4])
-  if (Number(m[2]) > 59 || Number(m[4]) > 59) return 默认配置.社交.静音
-  if (起 > 23 * 60 + 59 || 止 > 23 * 60 + 59) return 默认配置.社交.静音
+// 中文输入法很容易打出全角数字、全角冒号和长横；先统一成半角再解析。
+const 洗时间写法 = (值) => String(值)
+  .replace(/[\uFF10-\uFF19]/gu, (字) => String.fromCharCode(字.charCodeAt(0) - 0xFEE0))
+  .replace(/[：]/gu, ':')
+  .replace(/[～〜~]/gu, '-')
+  .replace(/[—–－至到]/gu, '-')
+  .replace(/\s+/gu, '')
+
+/**
+ * 校验并规范化静音时段。空串 = 不静音；只认一天里的起止时间，支持跨午夜。
+ * @param {unknown} 值 - 主人填的文本。
+ * @returns {{ok: true, 值: string, 说?: undefined}|{ok: false, 值: '', 说: string}} 规范化后的值，或拒收原因。
+ */
+export function 校验静音(值) {
+  if (typeof 值 !== 'string') return { ok: false, 值: '', 说: '静音时段要写成 23:00-08:00 这样的起止时间；留空 = 不静音' }
+  const s = 洗时间写法(值).trim()
+  if (s === '') return { ok: true, 值: '' }
+  const m = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/u.exec(s)
+  if (m === null) return { ok: false, 值: '', 说: '静音时段要写成 23:00-08:00 这样的起止时间；留空 = 不静音' }
+  const 时1 = Number(m[1])
+  const 分1 = Number(m[2])
+  const 时2 = Number(m[3])
+  const 分2 = Number(m[4])
+  if (时1 > 23 || 时2 > 23 || 分1 > 59 || 分2 > 59) {
+    return { ok: false, 值: '', 说: '静音时段的小时要在 0–23、分钟要在 00–59 之间' }
+  }
   const 补 = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0')
-  return `${补(起)}-${补(止)}`
+  return { ok: true, 值: `${补(时1 * 60 + 分1)}-${补(时2 * 60 + 分2)}` }
+}
+
+/** 读配置时用：空 / 没填 = 不静音；写错的旧值退回默认，别让整份社交配置失效。 */
+const 洗静音 = (值) => {
+  if (typeof 值 !== 'string') return ''
+  const 查 = 校验静音(值)
+  return 查.ok ? 查.值 : 默认配置.社交.静音
 }
 
 function 归一化戳一戳(原始) {
@@ -1106,7 +1129,7 @@ export function 聊天热度(条数) {
   return 'normal'
 }
 
-/** "23:00-08:00" 在当刻是否生效；空串 = 不静音。支持跨午夜。 */
+/** "23:00-08:00" 在当刻是否生效；空串 = 不静音。支持跨午夜，含起不含止。 */
 export function 在静音时段(静音, 当刻 = new Date()) {
   if (typeof 静音 !== 'string' || 静音.trim() === '') return false
   const m = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/.exec(静音.trim())
@@ -1116,6 +1139,20 @@ export function 在静音时段(静音, 当刻 = new Date()) {
   if (起 === 止) return false
   const 现在 = 当刻.getHours() * 60 + 当刻.getMinutes()
   return 起 < 止 ? 现在 >= 起 && 现在 < 止 : 现在 >= 起 || 现在 < 止
+}
+
+/**
+ * 这间屋要不要守 QQ 静音：只拦群聊。好友私聊和主人私聊照常说话，
+ * 群聊的接话、短应、回头补话和主动搭话都受它约束。
+ * @param {object} 配置 - 归一化后的配置。
+ * @param {{类型?: string}|null} 目标 - 社交目标；没有目标时不拦。
+ * @param {Date} [当刻] - 要判断的时刻，默认现在。
+ * @returns {boolean} true = 这间群聊现在不该出声。
+ */
+export function 该守静音(配置, 目标, 当刻 = new Date()) {
+  if (!目标 || 目标.类型 !== 'group') return false
+  const 静音 = 配置 && 配置.社交 ? 配置.社交.静音 : ''
+  return 在静音时段(静音, 当刻)
 }
 
 // SnowLuma 实测会把乱码塞进 sender.card（\b、\u0007、bidi 标记等）。
@@ -11911,7 +11948,7 @@ export function apply(ctx) {
     const 歇到 = Number((配置.社交.歇着 || {})[目标.key]) || 0
     if (歇到 > Date.now()) return false
     if (配置.社交.试运行) return false
-    if (在静音时段(配置.社交.静音)) return false
+    if (该守静音(配置, 目标)) return false
     const 上次 = 短应记录.get(目标.key)
     const 贴纸 = 表情号 > 0 ? 表情们.find((x) => x.id === 表情号) : null
     if (表情号 > 0 && (!贴纸 || !可认表情(贴纸))) return false
@@ -12220,6 +12257,7 @@ export function apply(ctx) {
     if (已答 > 0) 记账(`${目标.叫}：挂着的 ${已答} 条话头，别人已经接过，不再补`)
     if (放下 > 0) 记账(`${目标.叫}：挂着的 ${放下} 条话头按你的设置先放下（不理 / 不主动 / 少理 / 少掺和）`)
     if (留.length === 0) return
+    // 回头补话是她自己先开口，不是回新消息：静音时段所有房间都先停。
     if (在静音时段(配置.社交.静音)) return
     if (配置.社交.试运行) return
     if (在故障暂停(目标)) return
@@ -12372,8 +12410,8 @@ export function apply(ctx) {
     const 学习进度 = Math.max(0, Math.min(1, 学习词数 / 画像成熟词))
     // mention 模式只处理被叫到的消息；auto 模式全都交给她挑。文字和图片同一套规则。
     if (配置.社交.模式 === 'mention' && !被叫) return
-    // 静音只管“出声”；只听不说 / 歇着的屋子本来就不发，夜里照常学。
-    if (!不开口 && 在静音时段(配置.社交.静音)) {
+    // 静音只管群聊的“出声”；好友私聊和主人私聊不受影响，只听不说 / 歇着的屋子夜里照常学。
+    if (!不开口 && 该守静音(配置, 目标)) {
       // 静音里想接的话先挂住：如果离静音结束还来得及，就在能开口时补一句；
       // 过夜的话头会在回头处理时按“跨天/过期”丢掉。
       const 主动静音 = !全部.some((m) => 直接找她(目标, m)) && !全部.some((m) => m.主人)
@@ -13305,9 +13343,9 @@ export function apply(ctx) {
         return 记账(`${目标.叫}：自己开的话题先不发 —— ${用完}`)
       }
     }
-    if (在静音时段(配置.社交.静音)) {
+    if (该守静音(配置, 目标)) {
       if (开头记录) 记开头状态(目标, 开头记录, '被拦')
-      return 记账('已经进入静音时段，这轮不发')
+      return 记账('群聊已经进入静音时段，这轮不发')
     }
     // 同一轮只从一个出口出去（语音桥不听社交会话，这里的领取代号也留个凭据）
     try {
@@ -13687,7 +13725,11 @@ export function apply(ctx) {
       .filter((项) => 项.文字 === undefined || 项.文字 !== '')
     const 目标们 = []
     if (配置.转私聊 && 配置.私聊QQ) 目标们.push({ 类型: 'private', 号: Number(配置.私聊QQ) })
-    if (配置.转群 && 配置.群号) 目标们.push({ 类型: 'group', 号: Number(配置.群号) })
+    if (配置.转群 && 配置.群号) {
+      // 静音只拦群聊：私聊照常发，群里这一份先压住。
+      if (在静音时段(配置.社交 ? 配置.社交.静音 : '')) 记账('群聊在静音时段：这次不发到群（私聊照常）')
+      else 目标们.push({ 类型: 'group', 号: Number(配置.群号) })
+    }
     let 已带引用 = false
 
     for (let i = 0; i < 项们.length; i++) {
@@ -14806,6 +14848,12 @@ export function apply(ctx) {
     const 新 = { ...现在, ...改 }
     // 社交配置是嵌套的：浅合并会把没提交的字段冲掉
     if (改.社交 && typeof 改.社交 === 'object') 新.社交 = { ...现在.社交, ...改.社交 }
+    // 静音写错就当场说清楚；不要归一化时悄悄改成默认值，主人会以为改过了。
+    if (改.社交 && typeof 改.社交 === 'object' && Object.hasOwn(改.社交, '静音')) {
+      const 查 = 校验静音(改.社交.静音)
+      if (!查.ok) return 回(res, { ok: false, 说: 查.说 })
+      新.社交.静音 = 查.值
+    }
     if (改.戳一戳 && typeof 改.戳一戳 === 'object') 新.戳一戳 = { ...现在.戳一戳, ...改.戳一戳 }
     if (改.SnowLuma && typeof 改.SnowLuma === 'object') 新.SnowLuma = { ...现在.SnowLuma, ...改.SnowLuma }
     if (改.视频 && typeof 改.视频 === 'object') 新.视频 = { ...现在.视频, ...改.视频 }
@@ -15498,7 +15546,13 @@ export function apply(ctx) {
     if (!脱敏.ok) return 回(res, { ok: false, 说: '脱敏服务不可用，测试句没有发出去', 记录: 日志 })
     const 文字 = 脱敏.text
     // 测试就是看“这条线通不通”：转私聊 / 转群关着也照样往填了号的口发一条，只影响这一发。
-    const 试 = { ...配置, 转私聊: String(配置.私聊QQ || '').trim() !== '', 转群: String(配置.群号 || '').trim() !== '' }
+    // 手动测试是主人当场按的，不受群聊静音影响。
+    const 试 = {
+      ...配置,
+      转私聊: String(配置.私聊QQ || '').trim() !== '',
+      转群: String(配置.群号 || '').trim() !== '',
+      社交: { ...配置.社交, 静音: '' },
+    }
     const 结果 = await 发到QQ(试, 文字)
     const 全过 = 结果.length > 0 && 结果.every((r) => r.ok)
     记账(`手动测试：${全过 ? '✅ 已发' : '⚠ 有问题'}「${文字}」`)
@@ -15668,6 +15722,8 @@ export function apply(ctx) {
     if (!目标.能说) return `${目标.叫} 只听不说`
     if (目标.歇到 > Date.now()) return `${目标.叫} 这会儿歇着（${几点(目标.歇到)} 自动恢复）`
     if (配置.社交.试运行) return 'QQ 社交在试运行（只记账、不真发）'
+    // 主动搭话是“她自己先开口”：静音时段群里、好友私聊里、主人私聊里都不冒泡；
+    // 主人或好友来找她时的回复不受这条影响（那条走社交落地 / 主人桥）。
     if (在静音时段(配置.社交.静音)) return '现在在 QQ 静音时段'
     return 主动额度用完(配置, 目标.key)
   }
@@ -15693,6 +15749,10 @@ export function apply(ctx) {
           开头不能因: t.类型 === 'group' ? 开头因 : '',
         }
       })
+    },
+    /** 主动搭话专用：QQ 静音时段里她一律不自己开口；私聊里回主人 / 好友不受影响。 */
+    外发静音中() {
+      return 在静音时段(读配置().社交.静音)
     },
     /** 这间 QQ 房间现在她能不能自己先开口；空串 = 能。 */
     能不能说(会话id) {
