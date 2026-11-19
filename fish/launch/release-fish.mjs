@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// 打版：本地先打 unsigned 安装包 → 推 fish-release 标签 → 等 CI 发布 → 下载安装包 → 对照 nightly.yml 校验 → 打成交付 zip（exe + 安装说明 + nightly.yml）。
-// 常用：node fish/launch/release-fish.mjs [--tag <已有标签>] [--again] [--dry-run] [--out <目录>] [--timeout <分钟>]
+// 打版：本地先打 unsigned 安装包 → 推 fish-release 标签 → 等 CI 发布 → 下载安装包 → 对照 nightly.yml 校验 → 打成交付 zip（exe + SnowLuma 安装包 + 安装说明 + nightly.yml）。
+// 常用：node fish/launch/release-fish.mjs [--tag <已有标签>] [--again] [--dry-run] [--out <目录>] [--timeout <分钟>] [--snowluma <zip>]
 import { execFileSync } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { 打交付zip, SHA512 } from './delivery-zip.mjs'
+import { 打交付zip, 校验雪包, SHA256, SHA512 } from './delivery-zip.mjs'
+import { 最后已知发行包, 发行镜像仓库, 发行包下载地址 } from '../plugins/dsh-qq-bridge/lib/snowluma-release.js'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const REMOTE = 'ssh'
@@ -18,7 +19,7 @@ const DOWNLOADS = join(process.env.USERPROFILE || 'C:\\Users\\83726', 'Downloads
 const 桌面配置 = join(REPO, 'apps', 'desktop', '.env.windows')
 const 本地产物目录 = join(REPO, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64', 'unsigned-artifacts')
 
-const 参数 = { tag: '', again: false, dryRun: false, skipLocal: false, out: DOWNLOADS, timeoutMin: 60 }
+const 参数 = { tag: '', again: false, dryRun: false, skipLocal: false, out: DOWNLOADS, timeoutMin: 60, snowluma: '' }
 const argv = process.argv.slice(2)
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
@@ -28,6 +29,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--skip-local') 参数.skipLocal = true
   else if (a === '--out') 参数.out = resolve(argv[++i] || DOWNLOADS)
   else if (a === '--timeout') 参数.timeoutMin = Math.max(5, Number(argv[++i]) || 60)
+  else if (a === '--snowluma') 参数.snowluma = resolve(argv[++i] || '')
   else if (a === '-h' || a === '--help') {
     console.log(`用法：node fish/launch/release-fish.mjs [选项]
 
@@ -37,7 +39,8 @@ for (let i = 0; i < argv.length; i++) {
   --dry-run        只预检并打印计划，不本地打包、不推标签
   --skip-local     跳过本地打包，直接推标签等 CI（本机没装 VS C++ Build Tools 时用）
   --out <目录>     安装包和交付 zip 的输出目录（默认 ${DOWNLOADS}）
-  --timeout <分>   等 CI 的上限分钟数（默认 60）`)
+  --timeout <分>   等 CI 的上限分钟数（默认 60）
+  --snowluma <zip> 指定随包分发的 SnowLuma 安装包（默认找已核对的 v2.4.2，找不到就从镜像下载）`)
     process.exit(0)
   } else {
     console.error(`不认识的参数：${a}`)
@@ -224,12 +227,14 @@ async function CI状态(tag) {
   }
 }
 
-async function 下载安装包({ url, 文件, 大小, sha }) {
+async function 下载安装包({ url, 文件, 大小, sha, 算法 = 'sha512', 出错 = 失败 }) {
   mkdirSync(参数.out, { recursive: true })
+  const 摘要函数 = 算法 === 'sha256' ? SHA256 : SHA512
+  const 摘要名 = 算法 === 'sha256' ? 'SHA-256' : 'SHA-512'
   const 目标 = join(参数.out, 文件)
   if (existsSync(目标)) {
     const 现有 = statSync(目标).size
-    if (大小 && 现有 === 大小 && (await SHA512(目标)) === sha) {
+    if (大小 && 现有 === 大小 && (await 摘要函数(目标)).toLowerCase() === String(sha).toLowerCase()) {
       说(`  已有安装包且校验一致：${目标}`)
       return 目标
     }
@@ -334,17 +339,64 @@ async function 下载安装包({ url, 文件, 大小, sha }) {
   }
 
   const 大小实际 = statSync(目标).size
-  if (大小 && 大小实际 !== 大小) 失败(`安装包大小不符：${大小实际} 字节，期望 ${大小} 字节`)
+  if (大小 && 大小实际 !== 大小) 出错(`安装包大小不符：${大小实际} 字节，期望 ${大小} 字节`)
   说(`  下载完成：${MB(大小实际)}`)
-  进度('  校验 SHA-512 …')
+  进度(`  校验 ${摘要名} …`)
   收尾()
-  const 实际 = await SHA512(目标)
-  if (sha && 实际 !== sha) {
+  const 实际 = await 摘要函数(目标)
+  if (sha && 实际.toLowerCase() !== String(sha).toLowerCase()) {
     unlinkSync(目标)
-    失败(`SHA-512 不一致：\n  实际 ${实际}\n  期望 ${sha}`)
+    出错(`${摘要名} 不一致：\n  实际 ${实际}\n  期望 ${sha}`)
   }
-  说('  SHA-512 与 nightly.yml 一致')
+  说(`  ${摘要名} 与清单一致`)
   return 目标
+}
+
+async function 准备雪包() {
+  const 资产 = 最后已知发行包.资产
+  const 期望 = { name: 资产.name, size: Number(资产.size), digest: 资产.digest }
+  if (参数.snowluma) {
+    const 雪 = await 校验雪包(参数.snowluma)
+    说(`  SnowLuma 安装包：${参数.snowluma}（${MB(雪.大小)}）`)
+    return { 路径: 参数.snowluma, ...雪 }
+  }
+  const 候选 = [
+    join(参数.out, 资产.name),
+    join('D:\\SnowLuma', 资产.name),
+    join(DOWNLOADS, 资产.name),
+  ]
+  for (const 文件 of 候选) {
+    if (!existsSync(文件)) continue
+    try {
+      const 雪 = await 校验雪包(文件, 期望)
+      说(`  SnowLuma 安装包：${文件}（${MB(雪.大小)}）`)
+      return { 路径: 文件, ...雪 }
+    } catch (错误) {
+      说(`  ${文件} 不可用：${错误.message}`)
+    }
+  }
+  说(`  本地没有 ${资产.name}，从镜像下载…`)
+  let 最后错误 = null
+  for (const 镜像 of 发行镜像仓库) {
+    try {
+      const 文件 = await 下载安装包({
+        url: 发行包下载地址(镜像.仓库, 最后已知发行包.标签, 资产.name),
+        文件: 资产.name,
+        大小: Number(资产.size),
+        sha: String(资产.digest || '').replace(/^sha256:/i, ''),
+        算法: 'sha256',
+        出错: (文) => {
+          throw new Error(文)
+        },
+      })
+      const 雪 = await 校验雪包(文件, 期望)
+      return { 路径: 文件, ...雪 }
+    } catch (错误) {
+      最后错误 = 错误
+      说(`  ${镜像.仓库} 没下成：${错误.message}`)
+    }
+  }
+  throw new Error(`SnowLuma 安装包没准备好：${最后错误?.message || '未知错误'}；可以用 --snowluma <zip> 指定本地包`)
 }
 
 function 源码插件版本() {
@@ -585,10 +637,16 @@ async function 主流程() {
   说(`  大小 ${实际大小.toLocaleString('en-US')} 字节`)
   说(`  SHA-512 ${实际sha}`)
 
-  阶段(7, 8, '打交付 zip')
+  阶段(7, 8, '打交付 zip（含 SnowLuma 安装包）')
+  let 雪 = null
+  try {
+    雪 = await 准备雪包()
+  } catch (错误) {
+    失败(`SnowLuma 安装包没准备好：${错误.message}`)
+  }
   let 交付 = null
   try {
-    交付 = await 打交付zip({ 输出目录: 参数.out, 版本, 安装包, 大小: 实际大小, sha: 实际sha, nightly })
+    交付 = await 打交付zip({ 输出目录: 参数.out, 版本, 安装包, 大小: 实际大小, sha: 实际sha, nightly, 雪包: 雪.路径 })
   } catch (错误) {
     说(`  安装包已经下载并校验：${安装包}`)
     失败(`交付 zip 没打成：${错误.message}`)
@@ -596,6 +654,7 @@ async function 主流程() {
   说(`  ${交付.文件}`)
   说(`  ${交付.大小.toLocaleString('en-US')} 字节（${MB(交付.大小)}）· SHA-512 ${交付.sha}`)
   说(`  内容：${交付.内容.join(' + ')}`)
+  说(`  SnowLuma ${雪.名} · ${MB(雪.大小)} · SHA-256 ${雪.sha256}`)
 
   阶段(8, 8, '交付')
   说('──────────────────────────────')
@@ -612,7 +671,7 @@ async function 主流程() {
   说(`SHA-512   ${交付.sha}`)
   说(`校验文件  ${交付.文件}.sha512`)
   说(`内容      ${交付.内容.join(' + ')}`)
-  说('交付包里不含 SnowLuma 的二进制；安装说明里给了镜像地址和「从本地 zip 安装」的做法。')
+  说('交付包里含 SnowLuma 安装包；设置页「从本地 zip 安装」选同一个文件夹里的那个 zip。')
   说(`发布页    https://github.com/${SLUG}/releases/tag/v${版本}`)
   说('未签名：先在托盘完全退出旧版再安装；SmartScreen 点「更多信息 → 仍要运行」。')
   说('打版完成')

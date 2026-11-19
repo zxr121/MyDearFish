@@ -1,13 +1,15 @@
-// 打版交付 zip：安装包 exe + 安装说明 + nightly.yml。
+// 打版交付 zip：安装包 exe + SnowLuma 安装包 + 安装说明 + nightly.yml。
 //
-// 不把 SnowLuma 的二进制放进交付包：它的 EULA 禁止单独再分发专有组件。
-// 安装说明里只给镜像地址、文件名和摘要，接收方自己在设置页下载或用「从本地 zip 安装」。
+// 主人 2026-11-19 长期口径：「打包」= 一个 zip 里放大肥鱼安装包和 SnowLuma 安装包，
+// 且 SnowLuma 要能正常安装。EULA 再分发风险已告知，按主人指令随包提供；
+// 入包前校验大小、SHA-256，并确认 zip 根目录有 index.mjs / node.exe。
 
 import { createHash } from 'node:crypto'
 import {
   closeSync,
   copyFileSync,
   createReadStream,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -38,15 +40,35 @@ export async function SHA512(文件) {
 }
 
 /**
- * 交付 zip 里的安装说明；SnowLuma 的二进制不随包分发，只给镜像、文件名和摘要。
- * @param {{版本: string, 安装包名: string, 大小: number, sha: string}} 输入 - 安装包信息。
+ * 分块算文件的 SHA-256（小写十六进制，与镜像 release.json 的 digest 一致）。
+ * @param {string} 文件 - 磁盘文件。
+ * @returns {Promise<string>} 十六进制摘要。
+ */
+export async function SHA256(文件) {
+  const hash = createHash('sha256')
+  for await (const 块 of createReadStream(文件)) hash.update(块)
+  return hash.digest('hex')
+}
+
+function 默认雪资产() {
+  return {
+    名: 最后已知发行包.资产.name,
+    大小: Number(最后已知发行包.资产.size),
+    sha256: String(最后已知发行包.资产.digest || '').replace(/^sha256:/i, ''),
+  }
+}
+
+/**
+ * 交付 zip 里的安装说明：包内已附 SnowLuma 安装包，给出文件名、大小、摘要和本地安装步骤。
+ * @param {{版本: string, 安装包名: string, 大小: number, sha: string, 雪?: {名: string, 大小: number, sha256: string}}} 输入 - 安装包和 SnowLuma 安装包信息。
  * @returns {string} 纯文本说明。
  */
-export function 安装说明文本({ 版本, 安装包名, 大小, sha }) {
-  const 雪 = 最后已知发行包
+export function 安装说明文本({ 版本, 安装包名, 大小, sha, 雪 = 默认雪资产() }) {
+  const 雪名 = 雪.名
+  const 雪大小 = Number(雪.大小)
+  const 雪摘要 = String(雪.sha256 || '').replace(/^sha256:/i, '')
   const 镜像 = 发行镜像仓库[0].仓库
-  const 雪直连 = `https://github.com/${镜像}/releases/download/${雪.标签}/${雪.资产.name}`
-  const 雪摘要 = String(雪.资产.digest || '').replace(/^sha256:/i, '')
+  const 雪直连 = `https://github.com/${镜像}/releases/download/${最后已知发行包.标签}/${encodeURIComponent(雪名)}`
   return [
     `大肥鱼 ${版本} · Windows x64 安装包`,
     '',
@@ -58,20 +80,18 @@ export function 安装说明文本({ 版本, 安装包名, 大小, sha }) {
     '1. 先在托盘完全退出旧版大肥鱼。',
     `2. 双击 ${安装包名}；SmartScreen 提示时点「更多信息 → 仍要运行」。`,
     '3. 打开 DSH → 设置 → 她在外面 → 通到 QQ。',
-    '4. 勾选同意 SnowLuma 的协议，点「一键安装并配置」。',
+    `4. 勾选同意 SnowLuma 的协议，点「从本地 zip 安装」，选同一个文件夹里的 ${雪名}。`,
+    '5. 装好后按页面提示配置；QQ 登录和注入按页面引导完成。',
     '',
-    '如果一键安装下载失败：',
-    '· 先手动下载 SnowLuma（QQ 后端），任选一个镜像：',
+    '包内附的 SnowLuma 安装包（也可从镜像单独下载）：',
+    `  文件：${雪名}`,
+    `  大小：${雪大小.toLocaleString('en-US')} 字节`,
+    `  SHA-256：${雪摘要 || '以文件实际摘要为准'}`,
+    `  镜像页：https://github.com/${镜像}/releases/latest`,
+    '',
+    '如果本地 zip 安装失败，也可以在设置页点一键安装，从镜像重新下载：',
     `  https://gh-proxy.com/${雪直连}`,
     `  https://ghproxy.net/${雪直连}`,
-    `  文件名：${雪.资产.name}`,
-    `  大小：${Number(雪.资产.size).toLocaleString('en-US')} 字节`,
-    `  SHA-256：${雪摘要 || '以镜像 release.json 为准'}`,
-    '· 回到 DSH 设置，点「从本地 zip 安装」，选刚下载的这个文件。',
-    `· 镜像页（有新版本时以这里为准）：https://github.com/${镜像}/releases/latest`,
-    '',
-    '说明：本交付包不分发 SnowLuma 的二进制；SnowLuma 由你从镜像自行下载，',
-    '并在设置页勾选同意它的 EULA / 隐私政策。',
     '',
     'nightly.yml 是这个版本的更新清单，SHA-512 与安装包一致。',
     '',
@@ -79,7 +99,7 @@ export function 安装说明文本({ 版本, 安装包名, 大小, sha }) {
 }
 
 /** 交付 zip 里必须有的文件；少一个就不算打好。 */
-const 交付文件 = (安装包名) => [安装包名, '安装说明.txt', 'nightly.yml']
+const 交付文件 = (安装包名, 雪名) => [安装包名, 雪名, '安装说明.txt', 'nightly.yml']
 
 /**
  * 读出 zip 中央目录里的文件名。只解析本交付包会用到的普通 zip，不依赖 PowerShell / unzip 的输出编码。
@@ -143,6 +163,32 @@ export function 列zip条目(文件) {
     位置 += 46 + 名长 + 额外长 + 注释长
   }
   return 名们
+}
+
+/**
+ * 校验随包分发的 SnowLuma 安装包：文件存在、可选的大小/SHA-256 匹配，且 zip 根目录有
+ * index.mjs 和 node.exe（设置页「从本地 zip 安装」依赖这两个入口）。
+ * @param {string} 文件 - SnowLuma 发行 zip。
+ * @param {{名?: string, name?: string, 大小?: number, size?: number, sha256?: string, digest?: string} | null} [期望] - 期望的文件信息；不传则只做结构与摘要计算。
+ * @returns {Promise<{名: string, 大小: number, sha256: string}>} 入包用的文件名、大小和 SHA-256。
+ */
+export async function 校验雪包(文件, 期望 = null) {
+  if (!existsSync(文件)) throw new Error(`找不到 SnowLuma 安装包：${文件}`)
+  const 大小 = statSync(文件).size
+  const 期望大小 = Number(期望?.大小 ?? 期望?.size ?? 0)
+  if (期望大小 && 大小 !== 期望大小) {
+    throw new Error(`SnowLuma 安装包大小不符：${大小.toLocaleString('en-US')} 字节，期望 ${期望大小.toLocaleString('en-US')} 字节`)
+  }
+  const 实际摘要 = await SHA256(文件)
+  const 期望摘要 = String(期望?.sha256 ?? 期望?.digest ?? '').replace(/^sha256:/i, '').toLowerCase()
+  if (期望摘要 && 实际摘要 !== 期望摘要) {
+    throw new Error(`SnowLuma 安装包 SHA-256 不符：${实际摘要}，期望 ${期望摘要}`)
+  }
+  const 条目 = 列zip条目(文件)
+  for (const 必须 of ['index.mjs', 'node.exe']) {
+    if (!条目.includes(必须)) throw new Error(`SnowLuma 安装包不完整：根目录缺 ${必须}`)
+  }
+  return { 名: 期望?.名 || 期望?.name || basename(文件), 大小, sha256: 实际摘要 }
 }
 
 /**
@@ -242,22 +288,24 @@ function 写zip(输出, 文件们) {
 }
 
 /**
- * 打交付 zip：exe + 安装说明 + nightly.yml。
- * SnowLuma 的二进制不放进去；说明里给镜像地址、文件名和摘要。
- * @param {{输出目录: string, 版本: string, 安装包: string, 大小: number, sha: string, nightly: string}} 输入 - 已校验的安装包和清单。
+ * 打交付 zip：exe + SnowLuma 安装包 + 安装说明 + nightly.yml。
+ * @param {{输出目录: string, 版本: string, 安装包: string, 大小: number, sha: string, nightly: string, 雪包: string, 雪期望?: object | null}} 输入 - 已校验的安装包、清单和 SnowLuma 安装包。
  * @returns {Promise<{文件: string, 大小: number, sha: string, 内容: string[]}>} 交付 zip 的路径、大小、SHA-512 和内容。
  */
-export async function 打交付zip({ 输出目录, 版本, 安装包, 大小, sha, nightly }) {
+export async function 打交付zip({ 输出目录, 版本, 安装包, 大小, sha, nightly, 雪包, 雪期望 = null }) {
+  if (!雪包) throw new Error('缺少 SnowLuma 安装包路径')
+  const 雪 = await 校验雪包(雪包, 雪期望)
   mkdirSync(输出目录, { recursive: true })
   const 文件名 = `大肥鱼-${版本}-win-x64.zip`
   const 输出 = join(输出目录, 文件名)
   const 安装包名 = basename(安装包)
-  const 文件们 = 交付文件(安装包名)
+  const 文件们 = 交付文件(安装包名, 雪.名)
   const 暂存 = mkdtempSync(join(tmpdir(), 'fish-delivery-'))
   try {
     copyFileSync(安装包, join(暂存, 安装包名))
+    copyFileSync(雪包, join(暂存, 雪.名))
     // 加 BOM：老记事本才会按 UTF-8 读中文，不靠系统代码页。
-    writeFileSync(join(暂存, '安装说明.txt'), '\uFEFF' + 安装说明文本({ 版本, 安装包名, 大小, sha }).replace(/\n/g, '\r\n'), 'utf8')
+    writeFileSync(join(暂存, '安装说明.txt'), '\uFEFF' + 安装说明文本({ 版本, 安装包名, 大小, sha, 雪 }).replace(/\n/g, '\r\n'), 'utf8')
     writeFileSync(join(暂存, 'nightly.yml'), nightly, 'utf8')
 
     try {
