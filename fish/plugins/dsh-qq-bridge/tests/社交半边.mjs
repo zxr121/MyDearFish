@@ -101,6 +101,38 @@ const 吃紧倍率 = 模.余额冷却倍率(2, 1, 5, 1.5)
   && 模.校验静音('').ok && 模.校验静音('').值 === '',
   JSON.stringify([模.校验静音('晚上十点到早上八点'), 模.校验静音('25:00-08:00'), 模.校验静音('')]))
 const 正午 = new Date(2026, 0, 1, 12, 0)
+const 凌晨 = new Date(2026, 0, 1, 3, 20)
+const 凌晨行 = 模.在线假设行(凌晨)
+const 正午行 = 模.在线假设行(正午)
+报('在线假设：半夜说清几点，并提醒别默认对方还醒着',
+  凌晨行.includes('凌晨 03:20') && 凌晨行.includes('你怎么还没睡') && 凌晨行.includes('别默认对方还醒着'),
+ 凌晨行)
+报('在线假设：白天也提醒别默认马上回', 正午行.includes('12:00') && 正午行.includes('别默认') && !正午行.includes('你怎么还没睡'), 正午行)
+报('主人命令：静音写法认得出，口语“23点到8点”补成整点',
+  模.认主人命令('静音时间改成 23:00-08:00')?.值 === '23:00-08:00'
+  && 模.认主人命令('静音改成23点到8点')?.值 === '23:00-08:00'
+  && 模.认主人命令('关掉静音')?.值 === '',
+  JSON.stringify([模.认主人命令('静音时间改成 23:00-08:00'), 模.认主人命令('静音改成23点到8点'), 模.认主人命令('关掉静音')]))
+报('主人命令：静音写错给原因，不当普通聊天',
+  (() => { const r = 模.认主人命令('静音改成晚上十点'); return r && r.类型 === '静音' && String(r.错).includes('23:00-08:00') })(),
+  JSON.stringify(模.认主人命令('静音改成晚上十点')))
+const 转告 = 模.认主人命令('你去跟相亲相爱一家人说今晚我不回去吃饭')
+报('主人命令：去跟 xx 说 yy 认得出',
+  转告 && 转告.类型 === '转告' && 转告.目标 === '相亲相爱一家人' && 转告.内容 === '今晚我不回去吃饭',
+  JSON.stringify(转告))
+报('主人命令：日常的“跟你说/我跟你说”不算命令',
+  模.认主人命令('跟你说个事') === null && 模.认主人命令('我跟你说，今天好累') === null
+  && 模.认主人命令('你好呀') === null,
+  JSON.stringify([模.认主人命令('跟你说个事'), 模.认主人命令('我跟你说，今天好累'), 模.认主人命令('你好呀')]))
+const 名单样例 = { 群们: [{ 号: '100111', 名: '摸鱼群' }, { 号: '100222', 名: '摸鱼二群' }], 友们: [{ 号: '100333', 名: '洛樱' }] }
+报('转告目标：号码、全名、唯一包含都能认；重名让给号码',
+  模.解析转告目标('100111', 名单样例).ok
+  && 模.解析转告目标('洛樱', 名单样例).类型 === 'private'
+  && 模.解析转告目标('「洛樱」', 名单样例).号 === '100333'
+  && 模.解析转告目标('摸鱼', 名单样例).ok === false
+  && String(模.解析转告目标('摸鱼', 名单样例).说).includes('说全名或给号码')
+  && 模.解析转告目标('没这个群', 名单样例).ok === false,
+  JSON.stringify([模.解析转告目标('100111', 名单样例), 模.解析转告目标('摸鱼', 名单样例), 模.解析转告目标('没这个群', 名单样例)]))
 报('该守静音：只拦群聊，好友私聊和主人私聊不受影响',
   模.该守静音({ 社交: { 静音: '00:00-23:59' } }, { 类型: 'group' }, 正午)
   && !模.该守静音({ 社交: { 静音: '00:00-23:59' } }, { 类型: 'friend' }, 正午)
@@ -792,10 +824,17 @@ const 引用消息表 = new Map()
 const 固定图 = new Map() // URL → 固定字节：验证同一张表情再发一次时按 md5 认出来
 let 收藏上传失败 = false // 模拟 QQ 收藏写不进去（验证她说“存好了”会被改成实情）
 let 封住的OneBot端口 = 0 // 模拟这个端口没人应答（验证配置地址漂了会自己换）
+let 名单可用 = false // 只有“主人私聊命令”那节打开：验证按名字找群 / 好友
 globalThis.fetch = async (url, 选项) => {
   const u = String(url)
   if (封住的OneBot端口 !== 0 && u.startsWith(`http://127.0.0.1:${封住的OneBot端口}`)) throw new Error('ECONNREFUSED')
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
+  if (名单可用 && u.includes('get_group_list')) {
+    return { json: async () => ({ status: 'ok', retcode: 0, data: [{ group_id: 1001, group_name: '摸鱼群' }] }) }
+  }
+  if (名单可用 && u.includes('get_friend_list')) {
+    return { json: async () => ({ status: 'ok', retcode: 0, data: [{ user_id: 777, nickname: '洛樱' }] }) }
+  }
   if (u.includes('get_login_info')) {
     return { json: async () => ({ status: 'ok', retcode: 0, data: { user_id: 19999, nickname: '大肥鱼' } }) }
   }
@@ -1743,7 +1782,13 @@ const 判断之前8 = 判断调用.length
 await 轮询社交()
 await 等()
 报('静音时段 → 不判、不开轮', 回合.length === 之前8 && 判断调用.length === 判断之前8 && String(await 日志文本()).includes('静音时段'), 静音)
-报('静音丢掉待看', (await 目标状态('group:1007')).待看 === 0)
+// 直接叫她的（这里是大肥鱼 在吗）不丢：留在待看，静音一结束就回，上线时能补上错过的消息。
+报('静音里直接叫她的先留着，静音结束再回', (await 目标状态('group:1007')).待看 >= 1, '待看=' + (await 目标状态('group:1007')).待看)
+// 普通群聊不翻旧账：过夜的闲聊只挂成话头，不进待看。
+群消息表.set(1007, [一条群消息('今天好热', { id: 1802 })])
+await 轮询社交()
+await 等()
+报('静音里普通群聊不攒进待看', (await 目标状态('group:1007')).待看 === 1, '待看=' + (await 目标状态('group:1007')).待看)
 
 // ---------- 8b 静音只压群聊：好友私聊照常判、照常回 ----------
 写配置({ 群: [], 好友: ['777'], 静音, 快判: false, 判断冷却秒: 0, 冷却秒: 0, 聚拢秒: 0 })
@@ -6041,6 +6086,41 @@ const 提到判文 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.te
 报('增强模式：有人提到她的称呼，也不等条数', 判断调用.length === 提到判前 + 1
   && 回合.some((r) => r.sid === 'session-qq-social-group-1719'), `判断=${判断调用.length - 提到判前}`)
 报('增强模式：提到她的消息标成 [提到你]', 提到判文.includes('[提到你]') && 提到判文.includes('大肥鱼在哪切模型'), 提到判文.slice(0, 300))
+
+{
+  // ---------- 25b 主人私聊下命令：改静音 / 去跟某个好友说一句 ----------
+  写配置({ 群: [] })
+  const 桥文 = join(家, 'qq-bridge-config.json')
+  writeFileSync(桥文, JSON.stringify({
+    ...JSON.parse(readFileSync(桥文, 'utf8')),
+    转私聊: true,
+    私聊QQ: '123',
+  }, null, 2), 'utf8')
+  const 命令时刻 = Math.floor(Date.now() / 1000) + 600
+  const 收消息 = 轮询回调们[0]
+  const 命令基 = 发的.length
+  const 命令回前 = 回合.length
+  好友消息表.set(123, [一条好友消息('静音改成23点到8点', { uid: 123, id: 960001, time: 命令时刻 })])
+  await 收消息()
+  await 等()
+  const 静音存 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
+  const 静音回 = 发的.slice(命令基).filter((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 123)
+  报('主人私聊命令：静音时段真的落到配置', String(静音存.社交.静音) === '23:00-08:00', JSON.stringify(静音存.社交.静音))
+  报('主人私聊命令：回执说清改成了什么', 静音回.length === 1 && String(静音回[0].体.message?.[0]?.data?.text).includes('23:00-08:00'), JSON.stringify(静音回.map((x) => x.体.message?.[0]?.data?.text)))
+  报('主人私聊命令：不叫回复模型', 回合.length === 命令回前, `回合 +${回合.length - 命令回前}`)
+
+  名单可用 = true
+  const 转告基 = 发的.length
+  好友消息表.set(123, [一条好友消息('你去跟洛樱说早点睡', { uid: 123, id: 960002, time: 命令时刻 + 1 })])
+  await 收消息()
+  await 等()
+  const 转告发 = 发的.slice(转告基).filter((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 777)
+  const 转告回 = 发的.slice(转告基).filter((x) => x.url.endsWith('/send_private_msg') && x.体.user_id === 123)
+  报('主人私聊命令：按名字找到好友并真发出去', 转告发.length === 1 && String(转告发[0].体.message?.[0]?.data?.text) === '早点睡', JSON.stringify(转告发.map((x) => x.体.message?.[0]?.data?.text)))
+  报('主人私聊命令：转告完回一句回执', 转告回.length === 1 && String(转告回[0].体.message?.[0]?.data?.text).includes('早点睡'), JSON.stringify(转告回.map((x) => x.体.message?.[0]?.data?.text)))
+  名单可用 = false
+  写配置({ 群: [] })
+}
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
