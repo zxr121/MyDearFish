@@ -23,6 +23,7 @@ process.env.DSH_QQ_BRIDGE_NO_SNOWLUMA_ADOPT = '1'
 writeFileSync(
   join(家, 'qq-bridge-config.json'),
   JSON.stringify({
+    SnowLuma: { 账号: '10001' },
     总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '',
     转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
   }, null, 2),
@@ -633,6 +634,7 @@ await new Promise((r) => setTimeout(r, 20))
 
 // ⑤b4 定时转发关 → 不转；打开后恢复
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '',
   转私聊: true, 转群: false, 定时转QQ: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
@@ -644,6 +646,7 @@ const 之前5b4 = 发了.length
 await new Promise((r) => setTimeout(r, 20))
 报('定时转 QQ 关着 → 不转', 发了.length === 之前5b4)
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '',
   转私聊: true, 转群: false, 定时转QQ: true, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
@@ -663,6 +666,7 @@ const 此刻 = new Date()
 const 补时 = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0')
 const 静音窗 = `${补时((此刻.getHours() * 60 + 此刻.getMinutes() - 30 + 1440) % 1440)}-${补时((此刻.getHours() * 60 + 此刻.getMinutes() + 30) % 1440)}`
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '2001',
   转私聊: true, 转群: true, 定时转QQ: true, NapCat: 'http://127.0.0.1:3000',
   社交: { 静音: 静音窗, 群: ['2001'] },
@@ -677,6 +681,7 @@ const 静音窗发 = 发了.slice(之前5c)
   静音窗发.length === 1 && 静音窗发[0].url.endsWith('/send_private_msg') && 静音窗发[0].体.user_id === 123,
   JSON.stringify(静音窗发.map((x) => x.url + ' :: ' + (x.体.message?.[0]?.data?.text || ''))))
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '2001',
   转私聊: true, 转群: true, 定时转QQ: true, NapCat: 'http://127.0.0.1:3000',
   社交: { 静音: '', 群: ['2001'] },
@@ -693,6 +698,7 @@ const 非静音发 = 发了.slice(之前5c2)
 
 // ⑥ 试运行开 → fetch 不被打
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: true, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 之前6 = 发了.length
@@ -703,6 +709,7 @@ await new Promise((r) => setTimeout(r, 20))
 
 // ⑦ 总开关关 → fetch 不被打
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: false, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 之前7 = 发了.length
@@ -713,6 +720,7 @@ await new Promise((r) => setTimeout(r, 20))
 
 // ⑦b 鱼脑脱敏不可用 → 失败关闭，绝不按原文发
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 鱼脑状态.可用 = false
@@ -734,6 +742,7 @@ await new Promise((r) => setTimeout(r, 20))
 
 // ⑧ /state 路由能回配置 + NapCat 探活
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: false, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
   社交: { 群: ['2001'], 好友: ['3004'] },
 }, null, 2), 'utf8')
@@ -775,6 +784,7 @@ await 路由.get('/dsh-qq-bridge/save')(造请求({ 总开关: true }, { method:
 
 // ⑧a2 /poke：私聊 / 群聊各走 OneBot 的 friend_poke / group_poke，号码不对不发
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 戳前 = 发了.length
@@ -806,6 +816,7 @@ await 路由.get('/dsh-qq-bridge/test-send')(造请求({}, { method: 'POST' }), 
 
 // ⑧c 只填一个号：群 / QQ 自动认，写进对应名单，收发都打开
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: '', 私聊QQ: '', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 存储.length = 0
@@ -857,6 +868,7 @@ const 收 = (body, 选项 = {}) => {
   })
 }
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 
@@ -870,6 +882,7 @@ if (转进的[0]) {
 
 // ⑩ 总开关关 → receive 拒绝
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: false, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 之前收 = 转进的.length
@@ -878,6 +891,7 @@ const 之前收 = 转进的.length
 
 // ⑪ 空 text → 拒绝
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 收到 = await 收({ text: '   ' })
@@ -885,6 +899,7 @@ writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
 
 // ⑫ 目标会话没活着 → 拒绝（session-Z 拿不到 agent）
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-Z', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 收到 = await 收({ text: '在吗' })
@@ -892,6 +907,7 @@ writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
 
 // ⑫b 没填目标会话 → 自动开一间 QQ 私聊专用屋；没有工作区就建一个
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: '', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 自动房 = 'session-qq-private-123'
@@ -917,6 +933,7 @@ await 路由.get('/dsh-qq-bridge/state')(造请求(undefined, { method: 'GET' })
 
 // ⑬ 轮询收消息（QQ → DSH 这半的正式入口，不赖 BOT）
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 之前转 = 转进的.length
@@ -963,6 +980,7 @@ const 主人后 = 读主人档()['123']
 
 // ⑭ 轮询：总开关关 → 不转
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: false, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 关之前 = 转进的.length
@@ -975,6 +993,7 @@ await new Promise((r) => setTimeout(r, 20))
 
 // ⑮ /receive 也挡跨站；超长正文截断，别把整段粘贴灌进上下文
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 const 之前跨 = 转进的.length
@@ -1100,6 +1119,7 @@ const 风格摘录 = 转进的.at(-1)?.source?.excerpt || ''
 
 // ⑯e 私聊：主人说“存下来” → 当场写进 QQ 收藏，提示里带收藏号
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false, NapCat: 'http://127.0.0.1:3000',
 }, null, 2), 'utf8')
 私聊附加 = []
@@ -1461,6 +1481,7 @@ const 导 = (路径, 方法 = 'POST') => {
   return 路由.get(`/dsh-qq-bridge/${路径}`)(造请求(undefined, { method: 方法 }), fakeRes).then(() => 存储[0])
 }
 const 写导入配置 = (改动) => writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
+  SnowLuma: { 账号: '10001' },
   总开关: true, 试运行: false, 目标会话: 'session-X', 私聊QQ: '123', 群号: '', 转私聊: true, 转群: false,
   NapCat: 'http://127.0.0.1:3000', 导入: 改动,
 }, null, 2), 'utf8')

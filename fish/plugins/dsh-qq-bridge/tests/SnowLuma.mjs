@@ -139,11 +139,14 @@ try {
   const 写了 = 写SnowLuma配置(安装目录, 事件地址, 3002)
   const 运行 = JSON.parse(readFileSync(join(安装目录, 'config', 'runtime.json'), 'utf8'))
   const 账号 = JSON.parse(readFileSync(join(安装目录, 'config', 'onebot_2514029319.json'), 'utf8'))
+  const 没选号全局 = JSON.parse(readFileSync(单文件, 'utf8'))
   报('后台端口和监听固定回环', 运行.webuiPort === 后台端口 && 运行.webuiHost === '127.0.0.1' && 运行.hookAutoLoad === false, JSON.stringify(运行))
-  报('per-UIN 快照也写同一端口并加事件上报',
-    账号.mode === 'snapshot' && 账号.networks.httpServers.some((x) => x.name === 'http-default' && x.port === 3002) &&
-      (账号.networks.httpClients || []).some((x) => x.name === 'dsh-event' && x.url === 事件地址))
-  报('per-UIN 快照里的 #sl 状态指令也关掉', 账号.statusCommand && 账号.statusCommand.enabled === false && 账号.statusCommand.trigger === '#sl',
+  报('没选号时谁都别接 DSH：per-UIN 和全局都不挂事件上报',
+    !(账号.networks.httpClients || []).some((x) => x.name === 'dsh-event') &&
+      !(没选号全局.networks.httpClients || []).some((x) => x.name === 'dsh-event'),
+    JSON.stringify({ perUIN: (账号.networks.httpClients || []).map((x) => x.name), 全局: (没选号全局.networks.httpClients || []).map((x) => x.name) }))
+  报('没选号时不动 per-UIN 里的其他键（#sl 原样留着）',
+    账号.statusCommand && 账号.statusCommand.enabled === true && 账号.statusCommand.trigger === '#sl',
     JSON.stringify(账号.statusCommand))
   报('配置写到了这些文件', 写了.length >= 3 && 写了.every((x) => existsSync(x)), JSON.stringify(写了.map((x) => x.split(/[\\/]/).pop())))
 
@@ -167,6 +170,9 @@ try {
   报('选了她的号：她那份额到 DSH 端口并挂事件上报',
     她的服务.port === 3002 && 她的.networks.httpClients.some((x) => x.name === 'dsh-event' && x.url === 事件地址),
     JSON.stringify({ port: 她的服务.port }))
+  报('选了她的号：她那份额里的 #sl 状态指令关掉',
+    她的.statusCommand && 她的.statusCommand.enabled === false && 她的.statusCommand.trigger === '#sl',
+    JSON.stringify(她的.statusCommand))
   报('别的号摘掉事件上报、让出同一个端口，别的客户端留着',
     主人服务.port === 3004 && !主人号.networks.httpClients.some((x) => x.name === 'dsh-event') &&
       主人号.networks.httpClients.some((x) => x.name === '别的客户端'),

@@ -7075,9 +7075,12 @@ export function apply(ctx) {
     const 配置 = 读配置()
     const 现在 = Date.now()
     if (OneBot对账.地址 === 配置.NapCat && 现在 - OneBot对账.at < 30_000) return 配置.NapCat
+    const 选定 = String((配置.SnowLuma && 配置.SnowLuma.账号) || '').trim()
     const 本机 = await 探OneBot登录(配置.NapCat)
-    if (本机.ok) {
+    // 地址通着、登的也是她选定的号才继续用；号换了不许悄悄接着用那个地址。
+    if (本机.ok && (选定 === '' || 本机.号 === 选定)) {
       OneBot对账 = { ...OneBot对账, at: 现在, 地址: 配置.NapCat }
+      if (选定 === '' && 本机.号 !== '' && 自己号缓存.号 === '') 自己号缓存 = { at: 现在, 号: 本机.号, 昵称: 本机.昵称 }
       return 配置.NapCat
     }
     for (const 端口 of 认得的OneBot端口) {
@@ -7085,12 +7088,12 @@ export function apply(ctx) {
       if (地址 === 配置.NapCat) continue
       const 试 = await 探OneBot登录(地址)
       if (!试.ok) continue
-      // 已经见过自己的号，就只认同一张脸，别接上另一台 SnowLuma。
-      if (自己号缓存.号 !== '' && 试.号 !== 自己号缓存.号) continue
+      // 只认她选定的号；没选号时只认同一个号，别接上另一台 SnowLuma。
+      if (选定 !== '' ? 试.号 !== 选定 : (自己号缓存.号 !== '' && 试.号 !== 自己号缓存.号)) continue
       写配置({ ...配置, NapCat: 地址 })
-      自己号缓存 = { at: 现在, 号: 试.号, 昵称: 试.昵称 }
-      记账(`OneBot 地址从 ${配置.NapCat} 换到 ${地址}：原来的没回应（SnowLuma 重启后换了端口）`)
+      if (选定 === '') 自己号缓存 = { at: 现在, 号: 试.号, 昵称: 试.昵称 }
       OneBot对账 = { at: 现在, 地址, 报过: 0 }
+      记账(`OneBot 地址从 ${配置.NapCat} 换到 ${地址}：${选定 === '' ? '原来的没回应（SnowLuma 重启后换了端口）' : `原来的没回应或换成了别的号，这里还是 ${选定} 的号`}`)
       return 地址
     }
     if (现在 - OneBot对账.报过 > 10 * 60_000) {
@@ -7100,12 +7103,68 @@ export function apply(ctx) {
     return 配置.NapCat
   }
 
-  /** 登录的是哪个 QQ；缓存 10 分钟，群消息靠它排除她自己的发言。 */
+  /** 登录的是哪个 QQ；缓存 10 分钟，群消息靠它排除她自己的发言。选定号以后只认选定号。 */
   async function 取自己() {
+    const 读 = 读配置()
+    const 选定 = String((读.SnowLuma && 读.SnowLuma.账号) || '').trim()
+    if (选定 !== '') {
+      if (自己号缓存.号 !== 选定) 自己号缓存 = { at: 0, 号: 选定, 昵称: '', 已记: false }
+      if (自己号缓存.昵称 !== '' && Date.now() - 自己号缓存.at < 10 * 60_000) return 自己号缓存
+      const 登录 = await 探OneBot登录(读.NapCat)
+      if (登录.ok && 登录.号 === 选定) 自己号缓存 = { at: Date.now(), 号: 选定, 昵称: 登录.昵称, 已记: 自己号缓存.已记 }
+      else 自己号缓存 = { ...自己号缓存, at: Date.now(), 号: 选定 }
+      return 自己号缓存
+    }
     if (自己号缓存.号 !== '' && Date.now() - 自己号缓存.at < 10 * 60_000) return 自己号缓存
-    const 登录 = await 探OneBot登录(读配置().NapCat)
+    const 登录 = await 探OneBot登录(读.NapCat)
     if (登录.ok) 自己号缓存 = { at: Date.now(), 号: 登录.号, 昵称: 登录.昵称 }
     return 自己号缓存
+  }
+
+  let 发言号核对 = { at: 0, 地址: '', 选定: '', ok: false, 号: '', 说: '' }
+  let 发言号记账 = { at: 0, 说: '' }
+
+  /** 同一个问题最多十分钟记一次，别每条消息都刷一行。 */
+  function 记发言号(说) {
+    const 现在 = Date.now()
+    if (发言号记账.说 === 说 && 现在 - 发言号记账.at < 10 * 60_000) return
+    发言号记账 = { at: 现在, 说 }
+    记账(说)
+  }
+
+  /**
+   * 发消息之前核对：OneBot 上登的必须是她选定的号。
+   * 没选号、号没登录、登的是别的号，都不让发；别的号不能替她说话。
+   * 结果缓存 30 秒，别每条消息都问一次。
+   * @param {object} 配置 - 当前配置。
+   * @returns {Promise<{ok: boolean, 号: string, 说: string}>} 能发就是 ok，否则 说 里是原因。
+   */
+  async function 核对发言号(配置) {
+    const 选定 = String((配置.SnowLuma && 配置.SnowLuma.账号) || '').trim()
+    const 地址 = String(配置.NapCat || '')
+    const 现在 = Date.now()
+    if (选定 === '') {
+      const 说 = '还没选她要用哪个 QQ：在「通到 QQ → 她说话用哪个 QQ」里选一个；选之前她一句都不发'
+      发言号核对 = { at: 现在, 地址, 选定, ok: false, 号: '', 说 }
+      记发言号(说)
+      return 发言号核对
+    }
+    if (发言号核对.地址 === 地址 && 发言号核对.选定 === 选定 && 现在 - 发言号核对.at < 30_000) return 发言号核对
+    const 登录 = await 探OneBot登录(地址)
+    if (!登录.ok) {
+      发言号核对 = { at: 现在, 地址, 选定, ok: false, 号: '', 说: `鱼 QQ ${选定} 现在没接上（${地址} 没回应）：先不发，免得用错号` }
+    } else if (登录.号 !== 选定) {
+      发言号核对 = { at: 现在, 地址, 选定, ok: false, 号: 登录.号, 说: `OneBot 上登着的是 ${登录.号}，不是她选定的 ${选定}：已拦住，不让别的号替她说话` }
+    } else {
+      发言号核对 = { at: 现在, 地址, 选定, ok: true, 号: 登录.号, 说: '' }
+      if (发言号记账.说 !== '') {
+        记账(`鱼 QQ ${选定} 又接上了，恢复收发`)
+        发言号记账 = { at: 现在, 说: '' }
+      }
+      return 发言号核对
+    }
+    记发言号(发言号核对.说)
+    return 发言号核对
   }
 
   // 设置页把群号 / QQ 号翻成名字：只读 OneBot 的名单，10 分钟内复用；取不到就留空、照旧显示号。
@@ -13181,6 +13240,8 @@ export function apply(ctx) {
     if (!配置.总开关 || !配置.社交.启用) return
     const 目标们 = 社交目标们(配置)
     if (目标们.length === 0) return
+    // 地址上登的不是她的号时，连历史都不读：那是别人的聊天，也发不出去。
+    if (!(await 核对发言号(配置)).ok) return
     await 同步QQ收藏表情(配置)
     // 配置里删掉的房间，挂着的对话头也跟着清掉，别留在内存和本机文件里。
     const 还在 = new Set(目标们.map((t) => t.key))
@@ -13751,7 +13812,10 @@ export function apply(ctx) {
     }
   }
 
+  /** 所有对 QQ 的动作都从这里出去：先核对一眼现在登的是不是她的号，不让别的号替她说话或动收藏。 */
   async function 发一个(base, action, 体, 超时毫秒 = 0) {
+    const 核对 = await 核对发言号(读配置())
+    if (!核对.ok) return { action, ok: false, 数据: { 错: 核对.说, 没发: true } }
     try {
       const r = await fetch(`${base}/${action}`, {
         method: 'POST',
@@ -14854,6 +14918,7 @@ export function apply(ctx) {
       const 号 = String((出.账号 && 出.账号.号) || '')
       自己号缓存 = { at: Date.now(), 号, 昵称: String((出.账号 && 出.账号.昵称) || ''), 已记: false }
       OneBot对账 = { at: Date.now(), 地址: 读配置().NapCat, 报过: 0 }
+      发言号核对 = { at: 0, 地址: '', 选定: '', ok: false, 号: '', 说: '' }
       房间名缓存.clear()
       记账(`鱼 QQ 换成 ${String((出.账号 && 出.账号.昵称) || '')}（${号}）：${String(出.说 || '')}`)
     }
@@ -14953,6 +15018,7 @@ export function apply(ctx) {
     }
     const 洗好 = 归一化(新)
     if (!写配置(洗好)) return 回(res, { ok: false, 说: `写不进配置文件：${配置文件}` })
+    发言号核对 = { at: 0, 地址: '', 选定: '', ok: false, 号: '', 说: '' }
     try {
       if (typeof 戳服务重开 === 'function') 戳服务重开()
     } catch (error) {

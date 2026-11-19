@@ -108,11 +108,11 @@ const 正午 = new Date(2026, 0, 1, 12, 0)
   && !模.该守静音({ 社交: { 静音: '00:00-23:59' } }, null, 正午))
 const 段 = 模.解析消息段({
   message: [
-    { type: 'at', data: { qq: '999' } },
+    { type: 'at', data: { qq: '19999' } },
     { type: 'text', data: { text: ' 在吗' } },
     { type: 'reply', data: { id: '42' } },
   ],
-}, '999')
+}, '19999')
 报('消息段：@ 我 + 正文 + 回复 id', 段.at我 && 段.文字.includes('在吗') && 段.回复id === '42', JSON.stringify(段))
 报('消息段：正文一开始就是发送者自己写的内容', 段.正文 === 段.文字 && 段.正文.includes('在吗'), JSON.stringify(段))
 const 段别人 = 模.解析消息段({
@@ -120,14 +120,14 @@ const 段别人 = 模.解析消息段({
     { type: 'at', data: { qq: '777', name: '群友777' } },
     { type: 'text', data: { text: '你看这个' } },
   ],
-}, '999')
+}, '19999')
 报('消息段：@ 别人不算叫她，但要能认出来', !段别人.at我 && 段别人.at别人 && 段别人.文字.includes('@群友777'), JSON.stringify(段别人))
 const 段全体 = 模.解析消息段({
   message: [
     { type: 'at', data: { qq: 'all' } },
     { type: 'text', data: { text: '开会' } },
   ],
-}, '999')
+}, '19999')
 报('消息段：@ 全体不算单独对某个人说', !段全体.at我 && !段全体.at别人 && 段全体.文字.includes('@全体成员'), JSON.stringify(段全体))
 报('开头像总结：总结最近聊天会被拦', 模.开头像总结('刚刚大家聊的那个挺有意思', ['刚刚大家聊的那个挺有意思'])
   && 模.开头像总结('你们在聊什么', [])
@@ -190,7 +190,7 @@ const 叫邮箱 = 模.拆呼叫段('a@群友888.com 是邮箱', 叫人名表)
 报('不聊话题：中文包含、拉丁整词', 模.命中不聊话题('今天踢足球', ['足球']).join() === '足球' && 模.命中不聊话题('我在说 AI 的事', ['AI']).join() === 'AI' && 模.命中不聊话题('email 里说的', ['AI']).length === 0)
 const 图片段 = 模.解析消息段({
   message: [{ type: 'image', data: { url: 'https://multimedia.nt.qq.com.cn/download?x=1', file: 'a.jpg', summary: '[图片]' } }],
-}, '999')
+}, '19999')
 报('消息段：图片带 url/file/summary', 图片段.文字 === '[图片]' && 图片段.图片们.length === 1 && 图片段.图片们[0].url.includes('qq.com.cn') && 图片段.图片们[0].file === 'a.jpg', JSON.stringify(图片段))
 const 收藏标注 = 模.标收藏表情('[图片]', [{ 收藏号: 16, 收藏名: '天青色瞪眼鱼' }])
 报('收藏表情：正文后面带编号', 收藏标注 === '[图片]（你收藏的 #16 天青色瞪眼鱼）', 收藏标注)
@@ -210,7 +210,7 @@ const 收藏解析 = 模.归QQ收藏表情([
   JSON.stringify(收藏解析))
 const 转发段 = 模.解析消息段({
   message: [{ type: 'forward', data: { id: 'res-1' } }],
-}, '999')
+}, '19999')
 报('消息段：合并转发留下 id', 转发段.文字 === '' && 转发段.转发们.length === 1 && 转发段.转发们[0].id === 'res-1', JSON.stringify(转发段))
 const 转发节点 = (名, 文本, uid = 700) => ({
   user_id: uid,
@@ -557,10 +557,12 @@ const 纯语感 = 模.纯表情语感(语感)
 报('表情语感落盘：只有统计量，没有原话和说话人集合', !JSON.stringify(纯语感).includes('人集') && typeof 纯语感.样本 === 'number' && !('原话' in 纯语感), JSON.stringify(纯语感).slice(0, 200))
 
 // ---------- 假配置 / 假 ctx ----------
-const 写配置 = (社交 = {}) => {
+const 写配置 = (社交 = {}, 顶层 = {}) => {
   writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
     总开关: true, 试运行: false, 目标会话: '', 私聊QQ: '123', 群号: '',
     转私聊: false, 转群: false, NapCat: 'http://127.0.0.1:3000',
+    SnowLuma: { 账号: '19999' },
+    ...顶层,
     社交: {
       启用: true, 试运行: false, 群: [], 好友: [], 模式: 'auto', 旁听: true,
       学表情: false, // 大多数用例只验接话；学表情和自动收藏在 6f / 6g 单独开
@@ -795,7 +797,7 @@ globalThis.fetch = async (url, 选项) => {
   if (封住的OneBot端口 !== 0 && u.startsWith(`http://127.0.0.1:${封住的OneBot端口}`)) throw new Error('ECONNREFUSED')
   const 体 = JSON.parse((选项 && 选项.body) || '{}')
   if (u.includes('get_login_info')) {
-    return { json: async () => ({ status: 'ok', retcode: 0, data: { user_id: 999, nickname: '大肥鱼' } }) }
+    return { json: async () => ({ status: 'ok', retcode: 0, data: { user_id: 19999, nickname: '大肥鱼' } }) }
   }
   if (u.includes('get_group_msg_history')) {
     const list = 群消息表.get(Number(体.group_id)) || []
@@ -898,7 +900,7 @@ const 一条群消息 = (文本, { uid = 888, id, time, atSelf = false, atOther 
   message_id: id === undefined ? 消息id++ : id,
   sender: { card: 是主人 ? '主人' : `群友${uid}`, nickname: 'x' },
   message: [
-    ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
+    ...(atSelf ? [{ type: 'at', data: { qq: '19999' } }] : []),
     ...(atOther ? [{ type: 'at', data: { qq: '777', name: '群友777' } }] : []),
     ...(replyId === '' ? [] : [{ type: 'reply', data: { id: String(replyId) } }]),
     { type: 'text', data: { text: 文本 } },
@@ -910,7 +912,7 @@ const 一条空叫 = (id, time) => ({
   time,
   message_id: id,
   sender: { card: '群友888', nickname: 'x' },
-  message: [{ type: 'at', data: { qq: '999' } }],
+  message: [{ type: 'at', data: { qq: '19999' } }],
 })
 
 const 一条带图群消息 = (id, { 是主人 = false, atSelf = false, 表情 = true, 文本 = '', url = 'https://multimedia.nt.qq.com.cn/download?x=1' } = {}) => ({
@@ -919,7 +921,7 @@ const 一条带图群消息 = (id, { 是主人 = false, atSelf = false, 表情 =
   message_id: id,
   sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
   message: [
-    ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
+    ...(atSelf ? [{ type: 'at', data: { qq: '19999' } }] : []),
     { type: 'image', data: { url, file: 'a.jpg', summary: 表情 ? '[动画表情]' : '[图片]', sub_type: 表情 ? 1 : 0 } },
     ...(文本 === '' ? [] : [{ type: 'text', data: { text: 文本 } }]),
   ],
@@ -1406,7 +1408,7 @@ const 带图带字 = (id, 文本, { 是主人 = false, atSelf = false, url }) =>
   message_id: id,
   sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
   message: [
-    ...(atSelf ? [{ type: 'at', data: { qq: '999' } }] : []),
+    ...(atSelf ? [{ type: 'at', data: { qq: '19999' } }] : []),
     { type: 'image', data: { url, file: 'x.jpg', summary: '[图片]' } },
     { type: 'text', data: { text: 文本 } },
   ],
@@ -1722,7 +1724,7 @@ await 等()
 
 // ---------- 7 她自己的发言不接 ----------
 写配置({ 群: ['1006'] })
-群消息表.set(1006, [一条群消息('我刚说的', { uid: 999, id: 1701 })])
+群消息表.set(1006, [一条群消息('我刚说的', { uid: 19999, id: 1701 })])
 const 之前7 = 回合.length
 const 判断之前7 = 判断调用.length
 await 轮询社交()
@@ -1860,7 +1862,7 @@ await 收到回复('session-qq-social-group-1012', '吱')
   一条群消息('群里别人在聊别的', { id: 2303 }),
 ])
 引用消息表.set('4242', {
-  user_id: 999,
+  user_id: 19999,
   message_id: 4242,
   sender: { card: '大肥鱼', nickname: '大肥鱼' },
   message: [{ type: 'text', data: { text: '吱' } }],
@@ -5414,6 +5416,30 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   }, 3000)
   报('OneBot 没回应时自动换到在听的端口并写回配置', 读NapCat() === 'http://127.0.0.1:3003', 读NapCat())
   封住的OneBot端口 = 0
+}
+
+{
+  // ---------- 她说话用哪个 QQ：选定号以外的号不许替她说话 ----------
+  // 假 OneBot 上登的是 19999；把选定号改成 18888，就该一条都不发、历史也不读。
+  写配置({ 群: ['1701'] }, { SnowLuma: { 账号: '18888' } })
+  const 前 = 发的.length
+  await 轮询社交()
+  await 等到(async () => String(await 日志文本()).includes('不是她选定的 18888'), 2000)
+  报('OneBot 上不是她选定的号 → 不发，日志说清拦在哪',
+    发的.length === 前 && String(await 日志文本()).includes('不是她选定的 18888'),
+    String(await 日志文本()).slice(-300))
+  写配置({ 群: ['1701'] }, { SnowLuma: { 账号: '' } })
+  await 轮询社交()
+  await 等到(async () => String(await 日志文本()).includes('还没选她要用哪个 QQ'), 2000)
+  报('还没选她要用哪个 QQ → 一条都不发',
+    发的.length === 前 && String(await 日志文本()).includes('还没选她要用哪个 QQ'),
+    String(await 日志文本()).slice(-300))
+  写配置({ 群: ['1701'] })
+  await 轮询社交()
+  await 等到(async () => String(await 日志文本()).includes('鱼 QQ 19999 又接上了，恢复收发'), 2000)
+  报('选定的号对上了 → 不再拦（后续用例照常收发）',
+    发的.length === 前 && String(await 日志文本()).includes('鱼 QQ 19999 又接上了，恢复收发'),
+    String(await 日志文本()).slice(-300))
 }
 
 {

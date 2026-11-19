@@ -364,10 +364,12 @@ function 挑空闲端口(占着端口, 已用端口) {
  * 写运行端口、全局 OneBot，以及所有已经在用的 per-UIN 快照。
  * 选了「她的号」时只有她那份拿到 DSH 的端口和事件上报；别的号摘掉事件上报、
  * 占着她端口的挪开，免得两台号抢同一个口、或者别的号的消息也流进来。
+ * 还没选号时谁都不接：同一台机器上可能还登着主人自己的 QQ，这里不替主人猜，
+ * 等主人选定之后再由 选账号 写进去。
  * @param {string} 目录 - SnowLuma 安装目录。
  * @param {string} 事件地址 - DSH 的本机收报地址。
  * @param {number} 端口 - 她的号用的 OneBot 端口。
- * @param {{账号?: string}} [选项] - 她的 QQ 号；空 = 没挑过，沿用旧行为。
+ * @param {{账号?: string}} [选项] - 她的 QQ 号；空 = 还没选号。
  * @returns {string[]} 写过的配置文件。
  */
 export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端口, 选项 = {}) {
@@ -389,11 +391,10 @@ export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端
   } catch (error) {}
 
   const 账号 = String(选项.账号 || '').trim()
-  // 没挑过号（老配置）沿用旧行为：每份都接 DSH，哪个号先抢到端口就哪个连上。
-  // 挑过号以后只有她那份额到端口和事件上报。
+  // 没选号时谁都别接 DSH：否则哪个号先抢到端口，她就用哪个号说话。
   const 她的文件 = 账号 === '' ? '' : `onebot_${账号}.json`
   // 她有自己的 per-UIN 文件时，全局那份是「别的号」的后备；没有时全局就是她的。
-  const 全局归她 = 账号 === '' || !账号文件.includes(她的文件)
+  const 全局归她 = 账号 !== '' && !账号文件.includes(她的文件)
 
   const 读到的 = new Map()
   for (const 名 of ['onebot.json', ...账号文件]) {
@@ -410,6 +411,8 @@ export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端
 
   const 写一个 = (名, 归她) => {
     const 文件 = join(配置目录, 名)
+    // 不归她又不存在的文件不新建：凭空造一份空配置会盖掉 SnowLuma 的默认值。
+    if (!归她 && !existsSync(文件)) return
     if (归她) {
       写OneBot配置(文件, 事件地址, 端口)
     } else {
@@ -427,7 +430,7 @@ export function 写SnowLuma配置(目录, 事件地址, 端口 = 默认OneBot端
   写一个('onebot.json', 全局归她)
   for (const 名 of 账号文件) {
     try {
-      写一个(名, 账号 === '' || 名 === 她的文件)
+      写一个(名, 账号 !== '' && 名 === 她的文件)
     } catch (error) {}
   }
   return 写了
@@ -948,6 +951,7 @@ export function 创建SnowLuma({ 家目录, 读配置, 存配置, 记账, 事件
       错: 探.ok ? '' : String(探.错 || ''),
       账号们: {
         当前: 探.ok ? String(探.用户 || '') : '',
+        选定: String((配置.SnowLuma && 配置.SnowLuma.账号) || ''),
         列表: 账号们.列表,
         错: 账号们.ok ? '' : String(账号们.错 || ''),
       },
