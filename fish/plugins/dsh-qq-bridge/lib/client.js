@@ -750,7 +750,15 @@ window.__ModuleLoader__.load({
           : a.状态 === 'loaded' ? '接上了但没登录'
             : a.状态 === 'disconnected' ? '掉线了'
               : a.状态 === 'loading' ? '正在接'
-                : a.状态 === 'error' ? '出错了' : ''
+                : a.状态 === 'error' ? '出错了'
+                  : a.状态 === 'saved' ? '这次没在登录' : ''
+      // 打开设置页时默认回到上次选定的号：它排第一个；这次没在 SnowLuma 里登着也留着这一行。
+      const 雪号们 = (() => {
+        if (雪选定号 === '') return 雪账号们
+        const 位 = 雪账号们.findIndex((a) => String(a.号) === 雪选定号)
+        if (位 >= 0) return [雪账号们[位], ...雪账号们.slice(0, 位), ...雪账号们.slice(位 + 1)]
+        return [{ 号: 雪选定号, 昵称: '上次设的号', 状态: 'saved', 在线: false, 已接入: false }, ...雪账号们]
+      })()
       const 日志 = Array.isArray(态.日志) ? 态.日志 : []
       const 社交 = 配置.社交 || {}
       const 开头类型们 = ['带进来', '问大家', '接旧话', '自己的事', '点名']
@@ -1376,15 +1384,17 @@ window.__ModuleLoader__.load({
              : (雪号问题 || '还没选')),
           雪装好
             ? h('div', { style: { marginTop: 8 } },
-                雪账号们.length > 0
+                雪号们.length > 0
                   ? h('div', { style: S.card },
-                      ...雪账号们.map((a) => h('div', {
+                      ...雪号们.map((a) => h('div', {
                         key: String(a.号),
                         style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 },
                       },
                         h('div', { style: { ...S.dim, flex: '1 1 260px', minWidth: 0 } },
                           String(a.昵称 || '') + '（' + String(a.号) + '）' +
-                            (a.号 === 雪选定号 ? '　✓ 她说话用的号' : (号状态字(a) ? '　' + 号状态字(a) : ''))),
+                            (a.号 === 雪选定号
+                              ? '　✓ 她说话用的号' + (号状态字(a) ? '（' + 号状态字(a) + '）' : '')
+                              : (号状态字(a) ? '　' + 号状态字(a) : ''))),
                         按钮(a.号 === 雪选定号 ? '正在用' : '用这个号', () => 选号(String(a.号)), a.号 !== 雪选定号, 雪忙 || a.号 === 雪选定号),
                       )),
                       h('div', { style: { ...S.dim, marginTop: 4 } },
@@ -1543,17 +1553,22 @@ window.__ModuleLoader__.load({
               雪装好
                 ? h('div', { style: { marginTop: 8 } },
                     h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 } }, '她要用哪个 QQ'),
-                    雪账号们.length > 0
+                    雪号们.length > 0
                       ? h('div', { style: S.card },
-                          ...雪账号们.map((a) => h('div', {
-                            key: String(a.号),
-                            style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 },
-                          },
-                            h('div', { style: { ...S.dim, flex: '1 1 260px', minWidth: 0 } },
-                              String(a.昵称 || '') + '（' + String(a.号) + '）' +
-                                (a.号 === 雪当前号 ? '　✓ 正在用' : (号状态字(a) ? '　' + 号状态字(a) : ''))),
-                            按钮(a.号 === 雪当前号 ? '正在用' : '用这个号', () => 选号(String(a.号)), a.号 !== 雪当前号, 雪忙 || a.号 === 雪当前号),
-                          )),
+                          ...雪号们.map((a) => {
+                            const 是选定 = a.号 === 雪选定号
+                            const 状 = 号状态字(a)
+                            const 对上 = 是选定 && 雪号对上 && a.号 === 雪当前号
+                            return h('div', {
+                              key: String(a.号),
+                              style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 },
+                            },
+                              h('div', { style: { ...S.dim, flex: '1 1 260px', minWidth: 0 } },
+                                String(a.昵称 || '') + '（' + String(a.号) + '）' +
+                                  (对上 ? '　✓ 正在用' : (是选定 ? '　✓ 她说话用的号' + (状 ? '（' + 状 + '）' : '') : (状 ? '　' + 状 : '')))),
+                              按钮(是选定 ? (对上 ? '正在用' : '已选定') : '用这个号', () => 选号(String(a.号)), !是选定, 雪忙 || 是选定),
+                            )
+                          }),
                           h('div', { style: { ...S.dim, marginTop: 4 } },
                             '她只在选中的这个号上收发消息；换号会把那个号的 OneBot 接到本机，原来占着端口的号自动让开。'),
                         )

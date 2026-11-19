@@ -97,6 +97,7 @@ const 初始态 = {
     安装: { 进行中: false, 阶段: '完成', 错: '', 已下载: 0, 总: 0 },
     账号们: {
       当前: '10001',
+      选定: '10001',
       列表: [
         { 号: '10001', 昵称: '大肥鱼', 状态: 'online', 在线: true, 已接入: true, pid: 111 },
         { 号: '20002', 昵称: '小号鱼', 状态: 'available', 在线: false, 已接入: false, pid: 222 },
@@ -349,6 +350,18 @@ const 文件框 = 收标签(树3, 'input').filter((n) => n.p && n.p.type === 'fi
 报('本地 zip 入口是隐藏文件框，只收 .zip',
   文件框.length === 1 && 文件框[0].p.style.display === 'none' && String(文件框[0].p.accept).includes('.zip'),
   JSON.stringify(文件框.map((n) => n.p)))
+
+// 打开设置页时默认回到上次设定的号；这次没在 SnowLuma 里登着也留着这一行。
+const 换号态 = JSON.parse(JSON.stringify(初始态))
+换号态.SnowLuma.账号们.选定 = '30003'
+下标3 = 0
+槽3 = [换号态]
+const 文4 = JSON.stringify(组件3())
+报('打开时默认是上次设的号，这次没登着也标出来',
+  文4.includes('上次设的号（30003）　✓ 她说话用的号（这次没在登录）') &&
+    文4.includes('她选定的 30003 没在登录') &&
+    !文4.includes('大肥鱼（10001）　✓ 正在用'),
+  文4.includes('上次设的号（30003）') ? '' : 文4.slice(0, 300))
 
 console.log(`\n${挂了 === 0 ? '全部通过 ✅' : `有 ${挂了} 条没过 ❌`}`)
 process.exitCode = 挂了 === 0 ? 0 : 1
