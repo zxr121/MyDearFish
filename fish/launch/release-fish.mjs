@@ -13,7 +13,7 @@ import { 最后已知发行包, 发行镜像仓库, 发行包下载地址 } from
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const REMOTE = 'ssh'
 const SLUG = 'zxr121/MyDearFish'
-const PROXY = 'https://gh-proxy.com/'
+const PROXY = (process.env.FISH_RELEASE_PROXY || 'https://gh-proxy.com/').replace(/\/+$/u, '') + '/'
 const WORKFLOW = `https://github.com/${SLUG}/actions/workflows/build-fish-exe.yml`
 const DOWNLOADS = join(process.env.USERPROFILE || 'C:\\Users\\83726', 'Downloads')
 const 桌面配置 = join(REPO, 'apps', 'desktop', '.env.windows')
