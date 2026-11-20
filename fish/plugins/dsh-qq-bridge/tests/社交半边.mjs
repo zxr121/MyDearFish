@@ -12,6 +12,7 @@
 //      被叫和主人（没叫她时）永远进慢判；主人点名叫她时不走慢判，直接开一轮
 //  10) 群里在回别人 / @ 别人 / 聊游戏或自定义不聊话题时，没被叫到就不进待看、不花判断；
 //      刚聊过的游戏话题会按参与的几个人往下延续几分钟，没关键词的后续也不接；被叫到仍回，问游戏只照实说不玩
+//  11) 看不到的图/表情不硬接：只有占位、没有画面时不开回复轮、不说“这什么”，只剩空应声也不发
 // 跑法： node tests/社交半边.mjs
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
@@ -604,7 +605,7 @@ const 写配置 = (社交 = {}, 顶层 = {}) => {
       学表情: false, // 大多数用例只验接话；学表情和自动收藏在 6f / 6g 单独开
       冷却秒: 10, 冷却最短秒: 5, 冷却最长倍率: 1.5, 余额吃紧线: 5, 余额吃紧倍率: 1.5, 最低余额: 1, 静音: '',
       称呼: ['大肥鱼'], 兴趣词: [], 关注上限: 12, 增强: false, 增强条数: 20, 增强等待分钟: 10, 聚拢秒: 0, 探索间隔秒: 0,
-      判断模型: 'fake/cheap', 判断阈值: 0.55, 判断冷却秒: 60, 回复模型: 'fake/chat',
+      判断模型: 'fake/cheap', 判断阈值: 0.55, 判断冷却秒: 60, 回复模型: 'fake/cheap', // 默认回复模型能看图；纯文本模型在各自用例里单独换
       ...社交,
     },
   }, null, 2), 'utf8')
@@ -1058,7 +1059,7 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
   社交文字.includes('我是不是人') && 社交文字.includes('逻辑不对'))
 报('场景提示禁止提规则和系统词', 社交文字.includes('规则不让我') && 社交文字.includes('系统提示'))
 报('场景提示教她认图先答像不像', 社交文字.includes('先直接说像或不像') && 社交文字.includes('别把图里的颜色、衣服、配饰、眼睛一项项数出来'))
-报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('这轮给了图就照图重答') && 社交文字.includes('没给图就照实说看不到'))
+报('场景提示教她认错图就照指的那张重答', 社交文字.includes('我看岔了') && 社交文字.includes('这轮给了图就照图重答') && 社交文字.includes('没给图就认这一句、别再追问是哪张'))
 报('场景提示教她引用哪句用标记、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('[引用:那句原话]') && 社交文字.includes('别写 [#编号] 当引用'))
 报('场景提示把引用错和识图错分开认', 社交文字.includes('引用和识图是两件事') && 社交文字.includes('别拿看不清图当引用错的借口') && 社交文字.includes('别反过来拿“引用错了”顶认图的错'))
 报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
@@ -1354,7 +1355,7 @@ const 图判文 = String(图判?.messages?.[0]?.content?.[0]?.text || '')
 报('判断提示里的图号跟着消息行', 图判文.split('\n').some((line) => line.includes('主人：[图片]') && line.includes('[图 1]')), 图判文.slice(0, 400))
 报('判断提示里带图片图注', 图判文.includes('【本批附来的图片】') && 图判文.includes('图 1·主人'), 图判文.slice(0, 400))
 // 判断模型是纯文本时，不把图片塞进判断请求，免得整轮调用被模型拒掉
-写配置({ 群: ['1031'], 判断模型: 'fake/chat' })
+写配置({ 群: ['1031'], 判断模型: 'fake/chat', 回复模型: 'fake/chat' })
 群消息表.set(1031, [一条带图群消息(1810, { 是主人: true, 文本: '这张像不像你？' })])
 设判断(['1810'], true, 0.9, '看图')
 const 纯文判前 = 判断调用.length
@@ -1365,7 +1366,7 @@ const 纯文判 = 判断调用.at(-1)
 报('纯文本回复模型收到图会提醒', String(await 日志文本()).includes('纯文本模型'))
 
 // 看中的表情才收藏；收藏后聊天时能发出去（上面临时换过纯文本模型，这里换回能看图的）
-写配置({ 群: ['1031'], 判断模型: 'fake/cheap' })
+写配置({ 群: ['1031'], 判断模型: 'fake/cheap', 回复模型: 'fake/cheap' })
 await 收到回复('session-qq-social-group-1016', '[存表情:图1:测试表情] 这张好笑')
 await new Promise((r) => setTimeout(r, 30))
 const 表情索引文本 = readFileSync(join(家, 'qq-stickers.json'), 'utf8')
@@ -3503,7 +3504,7 @@ const 删后档 = JSON.parse(readFileSync(join(家, 'qq-stickers.json'), 'utf8')
 const 状态 = await 宿主.概况()
 报('/state 回出社交状态、待看和会话 id', 状态.社交.目标.some((t) => t.会话id === 'session-qq-social-group-2001' && typeof t.待看 === 'number'), JSON.stringify(状态.社交))
 报('/state 回出关注上限', 状态.配置.社交.关注上限 === 30)
-报('/state 标出回复和判断模型能不能看图', 状态.社交.看图 && 状态.社交.看图.回复 === false && 状态.社交.看图.判断 === true, JSON.stringify(状态.社交.看图))
+报('/state 标出回复和判断模型能不能看图', 状态.社交.看图 && 状态.社交.看图.回复 === true && 状态.社交.看图.判断 === true, JSON.stringify(状态.社交.看图))
 await 路由.get('/dsh-qq-bridge/save')(造请求({ 社交: { 群: ['2001'], 好友: ['3003', '3004'], 关掉: ['group:2001', 'x', 'friend:abc', 'friend:3003', 'group:2001'] } }), fakeRes)
 const 存盘3 = JSON.parse(readFileSync(join(家, 'qq-bridge-config.json'), 'utf8'))
 报('/save 只留合法的房间开关键', JSON.stringify(存盘3.社交.关掉) === JSON.stringify(['group:2001', 'friend:3003']), JSON.stringify(存盘3.社交.关掉))
@@ -6126,6 +6127,100 @@ const 提到判文 = String(判断调用.at(-1)?.messages?.[0]?.content?.[0]?.te
   名单可用 = false
   写配置({ 群: [] })
 }
+
+// ---------- 26 看不到图就不说话：不追着问“这什么”，也不拿空应声凑 ----------
+const 一条瞎表情群消息 = (id, { 是主人 = false, atSelf = false, 文本 = '' } = {}) => ({
+  user_id: 是主人 ? 123 : 888,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: id,
+  sender: { card: 是主人 ? '主人' : '群友888', nickname: 'x' },
+  message: [
+    ...(atSelf ? [{ type: 'at', data: { qq: '19999' } }] : []),
+    { type: 'mface', data: { emoji_id: '', emoji_package_id: 0, url: '' } },
+    ...(文本 === '' ? [] : [{ type: 'text', data: { text: 文本 } }]),
+  ],
+})
+const 一条瞎表情好友消息 = (id, { uid = 778, 文本 = '' } = {}) => ({
+  user_id: uid,
+  time: Math.floor(Date.now() / 1000) + 100,
+  message_id: id,
+  sender: { card: '阿呆', nickname: 'x' },
+  message: [
+    { type: 'mface', data: { emoji_id: '', emoji_package_id: 0, url: '' } },
+    ...(文本 === '' ? [] : [{ type: 'text', data: { text: 文本 } }]),
+  ],
+})
+
+报('看不到的图：只有表情占位、没有画面才算',
+  模.只剩看不见的图({ 看不见图: true, 文字: '@你[表情]' })
+   && !模.只剩看不见的图({ 看不见图: true, 文字: '[表情] 在吗' })
+   && !模.只剩看不见的图({ 看不见图: false, 文字: '[表情]' }),
+  JSON.stringify([模.只剩看不见的图({ 看不见图: true, 文字: '@你[表情]' }), 模.只剩看不见的图({ 看不见图: true, 文字: '[表情] 在吗' })]))
+报('能接的字：@、占位和标点都不算',
+  模.能接的字({ 文字: '@群友888 [图片] ！！！' }) === '' && 模.能接的字({ 文字: '[图片] 看这个' }) === '看这个',
+  JSON.stringify([模.能接的字({ 文字: '@群友888 [图片] ！！！' }), 模.能接的字({ 文字: '[图片] 看这个' })]))
+
+// 26a 群里被 @，但只发了一张她看不到的表情、没有字：当没看见，不开回复轮
+写配置({ 群: ['1820'], 判断冷却秒: 0 })
+群消息表.set(1820, [一条瞎表情群消息(182001, { atSelf: true })])
+设判断(['182001'], true, 0.9, '被叫了')
+const 回合前26a = 回合.length
+const 注入前26a = 注入们.length
+const 发前26a = 发的.length
+await 轮询社交()
+await 等()
+报('被 @ 只发看不到的表情 → 不开回复轮', 回合.length === 回合前26a, `回合 +${回合.length - 回合前26a}`)
+报('被 @ 只发看不到的表情 → 还是要进她的上下文', 注入们.length === 注入前26a + 1, JSON.stringify(注入们.at(-1)?.message?.content?.[0]?.text || '').slice(0, 120))
+报('被 @ 只发看不到的表情 → 一个字都不发', 发的.length === 发前26a, JSON.stringify(发的.slice(发前26a).map((x) => x.url)))
+报('被 @ 只发看不到的表情 → 日志写清为什么不回', String(await 日志文本()).includes('发的只有你看不到的表情/图片'))
+
+// 26b 好友私聊只发一张看不到的表情：也不说话
+写配置({ 好友: ['778'], 判断冷却秒: 0 })
+好友消息表.set(778, [一条瞎表情好友消息(182101)])
+设判断(['182101'], true, 0.9, '好友找她')
+const 回合前26b = 回合.length
+const 发前26b = 发的.length
+await 轮询社交()
+await 等()
+报('私聊只发看不到的表情 → 不开回复轮', 回合.length === 回合前26b, `回合 +${回合.length - 回合前26b}`)
+报('私聊只发看不到的表情 → 不说话', 发的.length === 发前26b, JSON.stringify(发的.slice(发前26b).map((x) => x.url)))
+
+// 26c 看不到的表情配一句字：被叫要回，但只剩“这什么”这种打探就不发
+写配置({ 好友: ['778'], 判断冷却秒: 0 })
+好友消息表.set(778, [一条瞎表情好友消息(182102, { 文本: '不' })])
+设判断(['182102'], true, 0.9, '好友找她')
+const 回合前26c = 回合.length
+const 发前26c = 发的.length
+await 轮询社交()
+await 等()
+报('看不到的表情带一个字 → 照常开轮', 回合.length === 回合前26c + 1, `回合 +${回合.length - 回合前26c}`)
+await 收到回复('session-qq-social-friend-778', '这什么')
+await 等()
+报('只剩一句“这什么” → 看不到就不说，一个不发', 发的.length === 发前26c, JSON.stringify(发的.slice(发前26c).map((x) => x.体?.message)))
+报('拦下的话写清是因为看不到图', String(await 日志文本()).includes('这条只发了看不到的图'))
+
+// 26d 同一张看不到的表情配一个字：真接了这句字就照发
+好友消息表.set(778, [])
+时间偏移 += 11_000
+好友消息表.set(778, [一条瞎表情好友消息(182103, { 文本: '不' })])
+设判断(['182103'], true, 0.9, '好友找她')
+const 发前26d = 发的.length
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-friend-778', '不就不，跟谁赌气呢', 2)
+await 等()
+报('接住了那句字 → 照常发出去', 发的.slice(发前26d).some((x) => x.url.endsWith('/send_private_msg') && String(x.体.message?.[0]?.data?.text || '').includes('跟谁赌气')), JSON.stringify(发的.slice(发前26d).map((x) => x.体?.message)))
+
+// 26e 看不到的表情配着“在吗”：文字看得见就照答，不因为图看不到就连“在”都不回
+时间偏移 += 11_000
+好友消息表.set(778, [一条瞎表情好友消息(182104, { 文本: '在吗' })])
+设判断(['182104'], true, 0.9, '好友找她')
+const 发前26e = 发的.length
+await 轮询社交()
+await 等()
+await 收到回复('session-qq-social-friend-778', '在', 3)
+await 等()
+报('只有图看不到、文字看得见 → “在”照发', 发的.slice(发前26e).some((x) => x.url.endsWith('/send_private_msg') && String(x.体.message?.[0]?.data?.text || '') === '在'), JSON.stringify(发的.slice(发前26e).map((x) => x.体?.message)))
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
