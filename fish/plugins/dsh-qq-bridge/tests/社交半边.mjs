@@ -21,6 +21,8 @@ import { join } from 'node:path'
 
 const 家 = mkdtempSync(join(tmpdir(), 'qq-social-'))
 process.env.DSH_HOME = 家
+// 测试不碰真机器上的 SnowLuma 安装，别把后台拉起来。
+process.env.DSH_QQ_BRIDGE_NO_SNOWLUMA_ADOPT = '1'
 
 let 挂了 = 0
 const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 'PASS' : 'FAIL'}  ${标签}${详情 ? '  :: ' + 详情 : ''}`) }
@@ -192,8 +194,10 @@ const 新鲜已用 = new Map([['海 潮汐 2026年11月', { 房: 'group:1', at: 
 报('新鲜事：词都被别的屋用过，这轮就不带', 模.挑新鲜事查询(新鲜组合.slice(0, 1), 新鲜已用, 'group:2') === '')
 报('新鲜事：过了 24 小时可以再用',
   模.挑新鲜事查询(新鲜组合.slice(0, 1), 新鲜已用, 'group:2', Date.now() + 25 * 3600_000) === '海 潮汐 2026年11月')
-报('连发：数学式里的空格不拆，整句留着',
-  模.拆条目('不过那个测度空间可能完全不 σ-有限，比如不可数指标的 ℓp，想要“具体”到可分').length === 1)
+报('连发：数学式里的空格不拆，长句只在逗号处断开',
+  模.拆条目('不过那个测度空间可能完全不 σ-有限，比如不可数指标的 ℓp，想要“具体”到可分').join('|')
+  === '不过那个测度空间可能完全不 σ-有限|比如不可数指标的 ℓp|想要“具体”到可分',
+  JSON.stringify(模.拆条目('不过那个测度空间可能完全不 σ-有限，比如不可数指标的 ℓp，想要“具体”到可分')))
 const 叫人名表 = [{ 号: '777', 名们: ['我要吃美好时光海苔'] }, { 号: '888', 名们: ['群友888'] }]
 const 叫开头 = 模.拆呼叫段('群友888 我在啊', 叫人名表)
 报('呼叫人：开头直接写的名字换成 at 段', JSON.stringify(叫开头.段们) === '[{"type":"at","data":{"qq":"888"}},{"type":"text","data":{"text":"我在啊"}}]' && 叫开头.显示 === '@群友888 我在啊' && 叫开头.提到.join() === '888', JSON.stringify(叫开头))
@@ -1312,7 +1316,7 @@ await 收到回复('session-qq-social-group-1025', '来啦\n\n我看看\n\n你�
 await 等到(async () => 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).length >= 群1025之前发 + 5, 9000)
 await new Promise((r) => setTimeout(r, 100))
 const 群1025发 = 发的.filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 1025).slice(群1025之前发)
-报('连发：六段只发五条，尾部用换行并进最后一条', 群1025发.length === 5 && 群1025发[4].体.message[0].data.text === '再说点\n还有吗', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
+报('连发：六段只发五条，尾部用逗号并进最后一条', 群1025发.length === 5 && 群1025发[4].体.message[0].data.text === '再说点，还有吗', JSON.stringify(群1025发.map((x) => x.体.message[0].data.text)))
 
 // ---------- 6c 连发：她没分段的整段多句，按句尾自动断成几条 ----------
 // （用没用过的 1030：发完会记一次她开口、带上冷却，别挡了后面复用旧群的场景）
@@ -5631,7 +5635,8 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
 
   const 模糊发前 = 发的.length
   await 收到回复('session-qq-social-group-3103', '收到主人，这就改成「指指点点」，以后不乱认了', 201)
-  await 等到(() => 发的.slice(模糊发前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103))
+  // 改口后的长句会按逗号拆成几小段，段间有间隔；等她说完整。
+  await 等到(() => 发的.slice(模糊发前).some((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103 && JSON.stringify(x.体.message || '').includes('我看看能不能改')), 4000)
   await 等()
   const 模糊发 = 发的.slice(模糊发前).filter((x) => x.url.endsWith('/send_group_msg') && x.体.group_id === 3103)
   const 模糊发文本 = 取发文本(模糊发)

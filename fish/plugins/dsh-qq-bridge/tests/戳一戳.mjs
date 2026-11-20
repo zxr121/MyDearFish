@@ -12,6 +12,8 @@ import { join } from 'node:path'
 
 const 家 = mkdtempSync(join(tmpdir(), 'qq-poke-'))
 process.env.DSH_HOME = 家
+// 测试不碰真机器上的 SnowLuma 安装，别把后台拉起来。
+process.env.DSH_QQ_BRIDGE_NO_SNOWLUMA_ADOPT = '1'
 
 let 挂了 = 0
 const 报 = (标签, 过, 详情) => { if (!过) 挂了++; console.log(`${过 ? 'PASS' : 'FAIL'}  ${标签}${详情 ? '  :: ' + 详情 : ''}`) }
