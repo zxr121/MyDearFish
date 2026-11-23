@@ -3,7 +3,7 @@
 //   1) 小模型自己挑 watch：只有挑中的消息进她的社交会话；没挑中的当她没看见
 //   2) 群友被 @ / 叫名字 / 回复：必须至少回一句；主人点名叫她时不判断、优先接
 //   3) 没点她的消息可以只看不回；被叫和好友私聊在冷却里也照回
-//   4) 好友私聊必须回一句，不感兴趣也回短的
+//   4) 好友私聊的文字消息照回，纯图没有合适的话可以不接
 //   5) 静音、试运行、零花钱下限都在判断之前拦住；接话次数不设上限
 //   6) 脱敏失败 → 不发；回复她发过的消息 → 认得出是在叫她；被引用的消息回查原文后带进判断和回话，查不到只留正文
 //   7) /models 和 /save 的社交深层合并；旧字段「被叫直接回」被忽略
@@ -823,6 +823,7 @@ const 轮询社交 = 轮询回调们[1]
 
 // ---------- 假 fetch / 消息构造 ----------
 const 群消息表 = new Map()
+const 读取群历史 = []
 const 好友消息表 = new Map()
 const 转发表 = new Map()
 const 引用消息表 = new Map()
@@ -844,6 +845,7 @@ globalThis.fetch = async (url, 选项) => {
     return { json: async () => ({ status: 'ok', retcode: 0, data: { user_id: 19999, nickname: '大肥鱼' } }) }
   }
   if (u.includes('get_group_msg_history')) {
+    读取群历史.push(Number(体.group_id))
     const list = 群消息表.get(Number(体.group_id)) || []
     return { json: async () => ({ status: 'ok', retcode: 0, data: { messages: list } }) }
   }
@@ -1063,7 +1065,7 @@ const 社交文字 = 场景提示.map((s) => 提示文本(s)).join('\n')
 报('场景提示教她引用哪句用标记、别写编号', 社交文字.includes('引用一下') && 社交文字.includes('[引用:那句原话]') && 社交文字.includes('别写 [#编号] 当引用'))
 报('场景提示把引用错和识图错分开认', 社交文字.includes('引用和识图是两件事') && 社交文字.includes('别拿看不清图当引用错的借口') && 社交文字.includes('别反过来拿“引用错了”顶认图的错'))
 报('场景提示不把别人随手发的图算成在问她', 社交文字.includes('别人随手发的图不算在问你'))
-报('场景提示要求接图的意思而不是念图', 社交文字.includes('别念画面细节') && 社交文字.includes('发色、配色、耳朵、眼睛') && 社交文字.includes('照问照答'))
+报('场景提示要求表情默认不评价，明确问图才答', 社交文字.includes('默认不评价') && 社交文字.includes('没话可说就直接 [不接话]') && 社交文字.includes('不硬找吐槽') && 社交文字.includes('照问照答'))
 报('场景提示禁止自导自演', 社交文字.includes('别自导自演') && 社交文字.includes('没有前文支撑'))
 报('场景提示教她按戳一戳短应一声', 社交文字.includes('被戳一戳先短应一声') && 社交文字.includes('门铃、敲门'))
 报('场景提示用鱼脑设置里自定义的私事托词', 社交文字.includes('这个我私下再讲') && !社交文字.includes('这个我不方便细说'), 社交文字.slice(0, 200))
@@ -1348,7 +1350,7 @@ const 图轮 = 图轮s.at(-1)
 报('会话消息里带 image 块', 图轮 && Array.isArray(图轮.message.content) && 图轮.message.content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId), JSON.stringify(图轮 && 图轮.message.content.map((b) => b.type)))
 报('图片标注是哪张图', 图轮 && String(图轮.message.content[0].text).includes('【图 1·主人'))
 报('图片编号跟着发送者那一行', 图轮 && String(图轮.message.content[0].text).split('\n').some((line) => line.includes('主人：[图片]') && line.includes('[图 1]')), String(图轮?.message?.content?.[0]?.text).slice(0, 400))
-报('回复提示要求看图别念画面', String(图轮?.message?.content?.[0]?.text).includes('【看图】') && String(图轮?.message?.content?.[0]?.text).includes('别念画面'))
+报('回复提示要求看图别念画面', String(图轮?.message?.content?.[0]?.text).includes('【看图】') && String(图轮?.message?.content?.[0]?.text).includes('别报画面细节'))
 const 图判 = 判断调用.at(-1)
 const 图判文 = String(图判?.messages?.[0]?.content?.[0]?.text || '')
 报('判断模型也拿到图片本身', !!(图判 && 图判.messages[0].content.some((b) => b.type === 'image' && b.attachment && b.attachment.attachmentId === 附件们.at(-1).attachmentId)), JSON.stringify(图判 && 图判.messages[0].content.map((b) => b.type)))
@@ -5473,22 +5475,30 @@ const 回后态 = (await 宿主.概况()).表情包.selfSave
   // 假 OneBot 上登的是 19999；把选定号改成 18888，就该一条都不发、历史也不读。
   写配置({ 群: ['1701'] }, { SnowLuma: { 账号: '18888' } })
   const 前 = 发的.length
-  await 轮询社交()
-  await 等到(async () => String(await 日志文本()).includes('不是她选定的 18888'), 2000)
-  报('OneBot 上不是她选定的号 → 不发，日志说清拦在哪',
-    发的.length === 前 && String(await 日志文本()).includes('不是她选定的 18888'),
+  const 本群没发 = () => !发的.slice(前).some((x) => x.体.group_id === 1701)
+  const 错号拦住 = await 等到(async () => {
+    await 轮询社交()
+    return (await 日志文本()).includes('不是她选定的 18888')
+  })
+  报('OneBot 上不是她选定的号 → 不读历史、不发，日志说清拦在哪',
+    错号拦住 && 本群没发() && !读取群历史.includes(1701),
     String(await 日志文本()).slice(-300))
   写配置({ 群: ['1701'] }, { SnowLuma: { 账号: '' } })
-  await 轮询社交()
-  await 等到(async () => String(await 日志文本()).includes('还没选她要用哪个 QQ'), 2000)
-  报('还没选她要用哪个 QQ → 一条都不发',
-    发的.length === 前 && String(await 日志文本()).includes('还没选她要用哪个 QQ'),
+  const 未选号拦住 = await 等到(async () => {
+    await 轮询社交()
+    return (await 日志文本()).includes('还没选她要用哪个 QQ')
+  })
+  报('还没选她要用哪个 QQ → 不读历史、一条都不发',
+    未选号拦住 && 本群没发() && !读取群历史.includes(1701),
     String(await 日志文本()).slice(-300))
   写配置({ 群: ['1701'] })
-  await 轮询社交()
-  await 等到(async () => String(await 日志文本()).includes('鱼 QQ 19999 又接上了，恢复收发'), 2000)
-  报('选定的号对上了 → 不再拦（后续用例照常收发）',
-    发的.length === 前 && String(await 日志文本()).includes('鱼 QQ 19999 又接上了，恢复收发'),
+  const 正确号恢复 = await 等到(async () => {
+    await 轮询社交()
+    return 读取群历史.includes(1701)
+      && (await 日志文本()).includes('鱼 QQ 19999 又接上了，恢复收发')
+  })
+  报('选定的号对上了 → 恢复读取历史（后续用例照常收发）',
+    正确号恢复 && 本群没发(),
     String(await 日志文本()).slice(-300))
 }
 
@@ -6221,6 +6231,173 @@ await 等()
 await 收到回复('session-qq-social-friend-778', '在', 3)
 await 等()
 报('只有图看不到、文字看得见 → “在”照发', 发的.slice(发前26e).some((x) => x.url.endsWith('/send_private_msg') && String(x.体.message?.[0]?.data?.text || '') === '在'), JSON.stringify(发的.slice(发前26e).map((x) => x.体?.message)))
+
+报('去掉 @ 时保留紧跟着的图中文字问题',
+  模.能接的字({ 正文: '@你[图片]图里写的什么字？' }) === '图里写的什么字'
+  && 模.能接的字({ 正文: '@你图里写的什么字？[图片]' }) === '图里写的什么字'
+  && 模.能接的字({ 正文: '@群友888[图片]图里写的什么字？' }) === '图里写的什么字')
+
+时间偏移 += 11_000
+写配置({ 群: ['1850'], 判断冷却秒: 0 })
+群消息表.set(1850, [一条带图群消息(185001, { atSelf: true })])
+设判断(['185001'], false, 0.1, '只有表情，没话可接')
+const 回合前27a = 回合.length
+const 注入前27a = 注入们.length
+const 发前27a = 发的.length
+await 轮询社交()
+await 等到(async () => (await 日志文本()).includes('只有表情，没话可接'))
+报('被 @ 的可见表情：判断不接时不强行开回复轮', 回合.length === 回合前27a)
+报('被 @ 的可见表情：静默也保留上下文', 注入们.length === 注入前27a + 1)
+报('被 @ 的可见表情：静默不发送任何消息', !发的.slice(发前27a).some((x) => x.体.group_id === 1850), JSON.stringify(发的.slice(发前27a).map((x) => x.体)))
+报('判断提示：只发图不强制回，也不把看懂当成有话说', String(判断调用.at(-1)?.system).includes('只发表情或随手图') && String(判断调用.at(-1)?.system).includes('看懂不等于有话可说'))
+const 表情提示快照 = {
+  判断: String(判断调用.at(-1)?.system).split('\n').find((行) => 行.startsWith('被 @、被叫名字、被回复、好友私聊，')),
+  场景: 社交文字.split('\n').find((行) => 行.startsWith('- 别人随手发图、发表情包，')),
+}
+
+时间偏移 += 11_000
+写配置({ 好友: ['778'], 判断冷却秒: 0 })
+好友消息表.set(778, [好友带图(185101, '', { uid: 778, url: 'https://multimedia.nt.qq.com.cn/download?x=1' })])
+设判断(['185101'], false, 0.1, '只有表情，没话可接')
+const 回合前27b = 回合.length
+const 注入前27b = 注入们.length
+await 轮询社交()
+await 等到(() => 注入们.length > 注入前27b)
+报('好友私聊的可见表情：判断不接时不强行开轮', 回合.length === 回合前27b)
+报('好友私聊的可见表情：仍收进上下文', 注入们.length === 注入前27b + 1)
+
+for (const [i, 空话] of ['哈哈', '好家伙', '行行行', '好萌'].entries()) {
+  const 群号 = 1852 + i
+  时间偏移 += 11_000
+  写配置({ 群: [String(群号)], 判断冷却秒: 0 })
+  群消息表.set(群号, [一条带图群消息(185200 + i, { atSelf: true })])
+  设判断([String(185200 + i)], true, 0.9, '想接这张图')
+  const 回合前 = 回合.length
+  await 轮询社交()
+  await 等到(() => 回合.length > 回合前)
+  const 文 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+  报(`可见表情 ${空话}：回复尾提示允许直接静默`, 文.includes('【只发图】') && 文.endsWith('没有合适的话就直接输出 [不接话]，不要解释，也不必补一张表情。'))
+  if (i === 0) {
+    表情提示快照.看图 = 文.split('\n').find((行) => 行.startsWith('【看图】'))
+    表情提示快照.回合尾 = 文.split('\n').find((行) => 行.startsWith('【只发图】'))
+  }
+  const 发前 = 发的.length
+  await 收到回复(`session-qq-social-group-${群号}`, 空话)
+  const 拦到 = await 等到(async () => (await 日志文本()).includes(`只有空话「${空话}」`))
+  报(`被 @ 的可见表情：${空话} 不发`, 拦到 && !发的.slice(发前).some((x) => x.体.group_id === 群号), JSON.stringify(发的.slice(发前).map((x) => x.体)))
+}
+
+时间偏移 += 11_000
+写配置({ 好友: ['778'], 判断冷却秒: 0 })
+好友消息表.set(778, [好友带图(185102, '', { uid: 778, url: 'https://multimedia.nt.qq.com.cn/download?x=1' })])
+设判断(['185102'], true, 0.9, '想接这张图')
+const 回合前27d = 回合.length
+await 轮询社交()
+const 开了27d = await 等到(() => 回合.length > 回合前27d)
+报('好友私聊可见表情：回复模型收到图片后仍可不接', 开了27d && 回合.at(-1)?.message.content.some((b) => b.type === 'image'))
+const 发前27d = 发的.length
+const 不接前27d = (await 日志文本()).split('这轮决定不接话').length
+await 收到回复('session-qq-social-friend-778', '[不接话]', 4)
+const 不接27d = await 等到(async () => (await 日志文本()).split('这轮决定不接话').length > 不接前27d)
+报('好友私聊可见表情：不接话标记不发进 QQ，也不补空话或表情', 不接27d && !发的.slice(发前27d).some((x) => x.体.user_id === 778), JSON.stringify(发的.slice(发前27d).map((x) => x.体)))
+
+时间偏移 += 11_000
+写配置({ 群: ['1858'], 判断冷却秒: 0 })
+群消息表.set(1858, [一条带图群消息(185800, { atSelf: true, 文本: '图里写的什么字？' })])
+设判断([], false, 0.1, '没兴趣')
+const 回合前27e = 回合.length
+await 轮询社交()
+await 等到(() => 回合.length > 回合前27e)
+报('明确问图中文字：仍然开回复轮', 回合.length === 回合前27e + 1)
+const 发前27e = 发的.length
+await 收到回复('session-qq-social-group-1858', '行行行')
+await 等到(() => 发的.slice(发前27e).some((x) => x.url.endsWith('/send_group_msg')))
+报('明确问图中文字：行行行作为答案可以发送', 发的.slice(发前27e).some((x) => x.体.group_id === 1858 && x.体.message?.some((b) => b.type === 'text' && b.data.text === '行行行')), (await 日志文本()).split('\n').filter((x) => x.includes('1858')).join('\n'))
+
+时间偏移 += 11_000
+写配置({ 群: ['1859'], 判断冷却秒: 0 })
+群消息表.set(1859, [一条带图群消息(185900, { atSelf: true })])
+设判断(['185900'], true, 0.9, '和刚才说的加班接得上')
+const 回合前27f = 回合.length
+await 轮询社交()
+await 等到(() => 回合.length > 回合前27f)
+const 发前27f = 发的.length
+await 收到回复('session-qq-social-group-1859', '这不就是我加班的样子')
+await 等到(() => 发的.slice(发前27f).some((x) => x.url.endsWith('/send_group_msg')))
+报('可见表情：有具体内容的回应仍能发送', 发的.slice(发前27f).some((x) => x.体.message?.some((b) => b.type === 'text' && b.data.text === '这不就是我加班的样子')))
+
+时间偏移 += 11_000
+群消息表.set(1859, [一条群消息('说点有营养的，别老是评价表情包', { id: 185901, atSelf: true })])
+设判断(['185901'], true, 0.9, '指出说话没内容')
+const 回合前27g = 回合.length
+await 轮询社交()
+await 等到(() => 回合.length > 回合前27g)
+const 收敛文 = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('嫌硬评价表情：提示收敛，不把有营养接成食物梗', 收敛文.includes('【收敛一轮】') && 收敛文.includes('别把“有营养”接成吃东西的梗'))
+await 收到回复('session-qq-social-group-1859', '[不接话]', 2)
+
+时间偏移 += 11_000
+群消息表.set(1859, [一条带图群消息(185902, { atSelf: true })])
+设判断(['185902'], true, 0.9, '被叫了')
+const 回合前27h = 回合.length
+const 注入前27h = 注入们.length
+const 发前27h = 发的.length
+await 轮询社交()
+const 收敛27h = await 等到(async () => (await 日志文本()).includes('刚被嫌硬评价表情，只发图这轮不接'))
+报('嫌硬评价表情后再发纯图：被 @ 也只看不回', 收敛27h && 回合.length === 回合前27h && 注入们.length === 注入前27h + 1 && !发的.slice(发前27h).some((x) => x.体.group_id === 1859))
+
+时间偏移 += 11_000
+群消息表.set(1859, [一条带图群消息(185903)])
+设短应(['185903'], '这不就是我加班的样子')
+const 回合前27i = 回合.length
+const 注入前27i = 注入们.length
+const 发前27i = 发的.length
+await 轮询社交()
+await 等到(() => 注入们.length > 注入前27i)
+报('嫌硬评价表情后：判断模型的短应也不能绕过静默', 回合.length === 回合前27i && 注入们.length === 注入前27i + 1 && !发的.slice(发前27i).some((x) => x.体.group_id === 1859))
+
+时间偏移 += 11_000
+群消息表.set(1859, [一条带图群消息(185904, { atSelf: true, 文本: '图里写的什么字？' })])
+设判断([], false, 0.1, '没兴趣')
+const 回合前27j = 回合.length
+await 轮询社交()
+const 开了27j = await 等到(() => 回合.length > 回合前27j)
+const 发前27j = 发的.length
+await 收到回复('session-qq-social-group-1859', '行行行', 3)
+const 发了27j = await 等到(() => 发的.slice(发前27j).some((x) => x.体.group_id === 1859 && x.体.message?.some((b) => b.type === 'text' && b.data.text === '行行行')))
+报('嫌硬评价表情后：明确的图中文字问题照答', 开了27j && 发了27j)
+
+时间偏移 += 11_000
+写配置({ 群: ['1860'], 判断冷却秒: 0 })
+群消息表.set(1860, [一条带图群消息(186000, { 是主人: true, atSelf: true })])
+设判断([], false, 0.1, '只有表情，不必评价')
+const 回合前27k = 回合.length
+const 注入前27k = 注入们.length
+await 轮询社交()
+await 等到(() => 注入们.length > 注入前27k)
+报('主人在群里 @ 加纯图：仍尊重不接决定并保留上下文', 回合.length === 回合前27k && 注入们.length === 注入前27k + 1)
+
+时间偏移 += 11_000
+写配置({ 群: ['1861'], 判断冷却秒: 0 })
+群消息表.set(1861, [
+  一条群消息('图里写的什么字？', { id: 186100, atSelf: true }),
+  一条带图群消息(186101, { atSelf: true }),
+])
+设判断(['186100', '186101'], false, 0.1, '没兴趣')
+const 回合前27l = 回合.length
+await 轮询社交()
+const 开了27l = await 等到(() => 回合.length > 回合前27l)
+const 混合文 = String(回合.at(-1)?.message.content[0]?.text || '')
+const 发前27l = 发的.length
+await 收到回复('session-qq-social-group-1861', '行行行')
+const 发了27l = await 等到(() => 发的.slice(发前27l).some((x) => x.体.group_id === 1861 && x.体.message?.some((b) => b.type === 'text' && b.data.text === '行行行')))
+报('同一批先问字再发图：不是纯图，不拦正常答案', 开了27l && 发了27l && !混合文.includes('【只发图】'))
+
+const 表情快照址 = new URL('./expected/sticker-silence.json', import.meta.url)
+const 表情快照文 = JSON.stringify(表情提示快照, null, 2) + '\n'
+报('表情静默快照包含实际判断、场景、看图和回合尾提示', Object.values(表情提示快照).length === 4 && Object.values(表情提示快照).every((值) => typeof 值 === 'string' && 值.length > 0))
+if (process.env.FISH_UPDATE_EXPECTED === '1') writeFileSync(表情快照址, 表情快照文)
+报('表情静默提示快照', readFileSync(表情快照址, 'utf8') === 表情快照文)
 
 Date.now = 真Now
 rmSync(家, { recursive: true, force: true })
