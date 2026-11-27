@@ -129,10 +129,10 @@ async function 主() {
       ...process.env,
       DSH_HOME: 家,
       DSH_DESKTOP_OPEN_DEVTOOLS: '0',
-      PATH: `${NODE_DIR};${process.env.PATH || ''}`,
+      // pnpm 不一定躺在 Node 目录旁（corepack 坏了就没了），优先用仓库自带的 .bin。
+      PATH: [NODE_DIR, join(REPO, 'node_modules', '.bin'), process.env.PATH || ''].join(';'),
     }
-    // 优先用 Node 目录里能跑通的 pnpm.cmd；仓库 node_modules/pnpm 可能只剩空壳，别再指着它。
-    拉起(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', join(NODE_DIR, 'pnpm.cmd'), '--filter', '@deepseek-ai/dsh-desktop', 'run', 'start'], { cwd: REPO, env: 环境 }, join(家, 'DSH启动.log'))
+    拉起(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'pnpm', '--filter', '@deepseek-ai/dsh-desktop', 'run', 'start'], { cwd: REPO, env: 环境 }, join(家, 'DSH启动.log'))
     if (await 等端口(19388, 180)) 记('DSH + QQ 桥就绪（19388）')
     else 记(`DSH 180 秒内没就绪，检查 ${join(家, 'DSH启动.log')}`)
   }
