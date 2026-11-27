@@ -995,6 +995,26 @@ const 主人后 = 读主人档()['123']
   !!主人后 && 主人后.关系.张力 < 主人前.关系.张力 && 主人后.关系.账[0].修 === '观察',
   JSON.stringify(主人后 && 主人后.关系))
 
+// ⑬c 设置页直接改关系数 / 一键修好
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/people/relation')(造请求({ 号: '123', 改: { 暖: 66, 张力: 4 } }), fakeRes)
+const 改后档 = 读主人档()['123']
+报('改关系：按主人给的数写回总关系',
+  存储[0] && 存储[0].ok === true && 改后档.关系.暖 === 66 && 改后档.关系.张力 === 4,
+  JSON.stringify({ 回: 存储[0], 存: 改后档 && 改后档.关系 }))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/people/relation')(造请求({ 号: '123', 改: { 一键: true } }), fakeRes)
+const 修好档 = 读主人档()['123']
+报('改关系：一键修好把账算清、张力和疤清零',
+  存储[0] && 存储[0].ok === true && 修好档.关系.张力 === 0 && 修好档.关系.疤 === 0 &&
+    !修好档.关系.账.some((x) => ['未修', '再犯', '观察'].includes(x.修)),
+  JSON.stringify({ 回: 存储[0], 存: 修好档 && 修好档.关系 }))
+存储.length = 0
+await 路由.get('/dsh-qq-bridge/people/relation')(造请求({ 号: '123', 改: { 暖: 120 } }), fakeRes)
+报('改关系：越界的数直接拒绝，不悄悄夹',
+  存储[0] && 存储[0].ok === false && String(存储[0].说).includes('0–100'),
+  JSON.stringify(存储[0]))
+
 // ⑭ 轮询：总开关关 → 不转
 writeFileSync(join(家, 'qq-bridge-config.json'), JSON.stringify({
   SnowLuma: { 账号: '10001' },

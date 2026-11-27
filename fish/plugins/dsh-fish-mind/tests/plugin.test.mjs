@@ -695,7 +695,7 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
 
   const recall = harness.tools.get('recall')
   assert.ok(recall)
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_relation', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const value = await recall.execute({ query: '海边' }, {})
   assert.equal(value.enabled, false)
   assert.equal(value.reason, 'shadow-mode')
@@ -716,6 +716,56 @@ test('影子模式不注入记忆协议和工作台，recall 明确说未启用'
   assert.equal(state.memory.recallCalls, 0)
   assert.equal(state.memory.workspaceCalls, 0)
   ctx.dispose()
+})
+
+test('fish_relation：读改她对某人的关系；没装 QQ 桥就说读不到', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-relation-'))
+  const ctx = fakeContext()
+  const calls = []
+  const 关系 = (改) => ({
+    综合: 41, 熟: 35, 暖: 22, 信: 40, 张力: 30, 隔阂: 12, 疤: 8,
+    阶段: '熟人', 状态: '有隔阂', 口气: '淡', ...改,
+  })
+  ctx.set('qqSocial', {
+    看关系(词) {
+      calls.push(['read', 词])
+      return { ok: true, 名: '洛樱喵', 号: '777', 说: '「洛樱喵」现在的总关系：综合好感 41/100', 关系: 关系() }
+    },
+    改关系(词, 改) {
+      calls.push(['write', 词, 改])
+      return {
+        ok: true,
+        名: '洛樱喵',
+        号: '777',
+        说: '和「洛樱喵」的关系修好了：暖 22→50',
+        关系: 关系({ 综合: 60, 暖: 50, 信: 51, 张力: 0, 隔阂: 0, 疤: 0, 状态: '正常', 口气: '自然' }),
+      }
+    },
+  })
+  const harness = memoryHarness(ctx)
+  apply(ctx)
+  const tool = harness.tools.get('fish_relation')
+  assert.ok(tool)
+  const read = await tool.execute({ 谁: '洛樱喵' }, {})
+  assert.equal(read.ok, true)
+  assert.equal(read.关系.张力, 30)
+  const write = await tool.execute({ 谁: '洛樱喵', 一键: true }, {})
+  assert.equal(write.ok, true)
+  assert.equal(write.关系.张力, 0)
+  assert.deepEqual(calls, [['read', '洛樱喵'], ['write', '洛樱喵', { 一键: true }]])
+  assert.ok(tool.output.render({}, write)[0].text.includes('修好了'))
+  ctx.dispose()
+
+  // 没有 qqSocial：明确说读不到，不假装成功。
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'fish-mind-relation-none-'))
+  const ctx2 = fakeContext()
+  const harness2 = memoryHarness(ctx2)
+  apply(ctx2)
+  const tool2 = harness2.tools.get('fish_relation')
+  const none = await tool2.execute({ 谁: '洛樱喵' }, {})
+  assert.equal(none.ok, false)
+  assert.ok(none.说.includes('QQ 桥'))
+  ctx2.dispose()
 })
 
 test('live + inject：工作台从别的会话召回，带来源、置信度和字数上限', async () => {
@@ -1099,7 +1149,7 @@ test('新代理一创建就挂上提示与工具，销毁后立刻摘下', async
   const agent = { session: session('session-new'), ctx }
   agents.push(agent)
   await ctx.emit('agent/created', { agent })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_relation', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   const names = harness.contexts.map((entry) => entry.name)
   for (const name of ['fish-mind-time', 'fish-mind-workspace', 'fish-mind-commitments', 'fish-mind-shortterm', 'fish-mind-rest', 'fish-mind-budget', 'fish-mind-privacy', 'fish-mind-humor', 'fish-mind-memes']) {
     assert.ok(names.includes(name), name)
@@ -1143,11 +1193,11 @@ test('社交会话只挂记忆提示，不注册记忆工具', async () => {
   const owner = { session: session('session-owner'), ctx }
   agents.push(owner)
   await ctx.emit('agent/created', { agent: owner })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_relation', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'])
   assert.ok(harness.sections.some((entry) => entry.name === 'fish-mind-protocol'))
 
   await ctx.emit('agent/disposed', { agent: social })
-  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
+  assert.deepEqual([...harness.tools.keys()].sort(), ['fish_config', 'fish_qq_roster', 'fish_relation', 'fish_remember', 'open_chapter', 'open_episode', 'recall', 'search_meme'], '摘掉社交代理不影响主人会话的工具')
   ctx.dispose()
 })
 

@@ -3624,30 +3624,65 @@ export function 结算关系(关系 = {}, 主人 = false, now = Date.now()) {
 }
 
 /**
- * 手动修复一份总关系（主人要求的“手一挥”）：没解开的账转已修，张力减半，疤降一档（20）。
- * 只动账目、张力、疤；暖/信按原来的归还机制慢慢回，不在这里直接拉。
+ * 手动改一份总关系（主人明确要求的“手一挥”）：可以只写其中几项，也可以一键修好。
+ * - 传熟/暖/信/张力/疤（0–100）就按值写；疤被写高时重新起算恢复时间。
+ * - 一键修好：没解开的账转已修，张力、疤清零，暖/信不低于按熟和疤算的基线。
+ * 只改这几项和账目，不动每间屋的相处记录，也不动认识天数。
  * @param {object} 关系 - 总关系数值。
- * @returns {{关系: object, 转了: number, 前张力: number, 后张力: number, 前疤: number, 后疤: number}} 修复后的关系与前后对比。
+ * @param {{熟?: number, 暖?: number, 信?: number, 张力?: number, 疤?: number, 一键?: boolean}} [改] - 要改的项。
+ * @param {boolean} [主人] - 主人有更高的暖/信基线。
+ * @param {number} [now] - 现在。
+ * @returns {{关系: object, 前: {熟: number, 暖: number, 信: number, 张力: number, 疤: number}, 后: {熟: number, 暖: number, 信: number, 张力: number, 疤: number}, 转了: number}} 改后的关系与前后对比。
  */
-export function 手动修关系(关系 = {}) {
+export function 改总关系(关系 = {}, 改 = {}, 主人 = false, now = Date.now()) {
   const 原 = 关系 && typeof 关系 === 'object' ? 关系 : {}
+  const 改项 = 改 && typeof 改 === 'object' ? 改 : {}
+  const 给 = (键) => Object.hasOwn(改项, 键) && 改项[键] !== undefined && 改项[键] !== null && 改项[键] !== ''
+  const 读 = (值, 兜) => {
+    const n = Number(值)
+    return Number.isFinite(n) ? 圆3(夹范围(n, 0, 100)) : 兜
+  }
   const 总 = {
     ...原,
     账: Array.isArray(原.账) ? 原.账.map((x) => (x && typeof x === 'object' ? { ...x } : x)) : [],
   }
-  const 前张力 = Math.round(Number(总.张力) || 0)
-  const 前疤 = Math.round(Number(总.疤) || 0)
-  let 转了 = 0
-  for (const 项 of 总.账) {
-    if (!项 || typeof 项 !== 'object') continue
-    if (!['未修', '再犯', '观察'].includes(项.修)) continue
-    项.修 = '已修'
-    项.观察At = 0
-    转了 += 1
+  const 前 = {
+    熟: 圆3(夹01(原.熟, 0)),
+    暖: 圆3(夹01(原.暖, 50)),
+    信: 圆3(夹01(原.信, 50)),
+    张力: 圆3(夹01(原.张力, 0)),
+    疤: 圆3(夹01(原.疤, 0)),
   }
-  总.张力 = 圆3(Math.max(0, (Number(总.张力) || 0) * 0.5))
-  if ((Number(总.疤) || 0) > 0) 总.疤 = 圆3(Math.max(0, (Number(总.疤) || 0) - 20))
-  return { 关系: 总, 转了, 前张力, 后张力: Math.round(Number(总.张力) || 0), 前疤, 后疤: Math.round(Number(总.疤) || 0) }
+  let 转了 = 0
+  if (改项.一键 === true) {
+    for (const 项 of 总.账) {
+      if (!项 || typeof 项 !== 'object') continue
+      if (!['未修', '再犯', '观察'].includes(项.修)) continue
+      项.修 = '已修'
+      项.观察At = 0
+      转了 += 1
+    }
+    总.张力 = 0
+    总.疤 = 0
+    总.疤At = 0
+  }
+  for (const 键 of ['熟', '暖', '信', '张力', '疤']) {
+    if (!给(键)) continue
+    总[键] = 读(改项[键], 前[键])
+    if (键 === '疤' && 总[键] > 前.疤) 总.疤At = now
+  }
+  if (改项.一键 === true) {
+    if (!给('暖')) 总.暖 = Math.max(Number(总.暖) || 0, 暖基线(总, 主人, now))
+    if (!给('信')) 总.信 = Math.max(Number(总.信) || 0, 信基线(总, 主人))
+  }
+  const 后 = {
+    熟: 圆3(夹01(总.熟, 0)),
+    暖: 圆3(夹01(总.暖, 50)),
+    信: 圆3(夹01(总.信, 50)),
+    张力: 圆3(夹01(总.张力, 0)),
+    疤: 圆3(夹01(总.疤, 0)),
+  }
+  return { 关系: { ...总, ...后 }, 前, 后, 转了 }
 }
 
 function 负面效果(类, 度) {
@@ -6972,7 +7007,7 @@ export function apply(ctx) {
   function 按名字找人(词) {
     const 净 = String(词 || '').trim().replace(/^[「『“"']|[」』”"']$/gu, '').trim()
     if (净 === '') return { ok: false, 说: '没写清是谁：给 QQ 号或她记住的名字' }
-    if (/^\d{4,12}$/.test(净)) {
+    if (/^\d{3,20}$/.test(净)) {
       const p = 找人(净)
       return p ? { ok: true, 号: 解号(净) } : { ok: false, 说: `人物志里还没有 QQ ${净}` }
     }
@@ -7047,21 +7082,65 @@ export function apply(ctx) {
       return { ok: true, 说: `去${叫}说了：${文本.length > 60 ? `${文本.slice(0, 60)}…` : 文本}` }
     }
     if (命令.类型 === '修关系') {
-      const 认 = 按名字找人(命令.目标)
-      if (!认.ok) return { ok: false, 说: 认.说 }
-      const p = 人物.get(认.号)
-      if (!p) return { ok: false, 说: '人物志里没有这个人' }
-      const 名 = String(p.名 || 认.号)
-      const 修 = 手动修关系(总关系of(p))
-      p.关系 = { ...修.关系, 最后结算At: Date.now() }
-      存人物(true)
-      记账(`主人手动修复和「${名}」的关系：账 ${修.转了} 笔转已修，张力 ${修.前张力}→${修.后张力}，疤 ${修.前疤}→${修.后疤}`)
-      if (修.转了 === 0 && 修.前张力 === 修.后张力 && 修.前疤 === 修.后疤) {
-        return { ok: true, 说: `和「${名}」之间本来就没结着账、也没张力，没动。` }
-      }
-      return { ok: true, 说: `和「${名}」的关系修好了：${修.转了} 笔没解开的账转成已修，张力 ${修.前张力}→${修.后张力}，疤 ${修.前疤}→${修.后疤}。她接下来按缓和后的关系说话。` }
+      const 出 = 改人物关系(命令.目标, { 一键: true })
+      if (!出.ok) return { ok: false, 说: 出.说 }
+      return { ok: true, 说: `${出.说}她接下来按改过的关系说话。` }
     }
     return { ok: false, 说: '这个命令我不认识' }
+  }
+
+  /**
+   * 读一个人现在的总关系（设置页和主人本机会话共用）。认不出人、重名都直接说，不猜。
+   * @param {string} 词 - 名字、别名或 QQ 号。
+   * @returns {{ok: boolean, 说?: string, 名?: string, 号?: string, 关系?: object, 维?: object, 维说明?: string}} 关系快照。
+   */
+  function 读人物关系(词) {
+    const 认 = 按名字找人(词)
+    if (!认.ok) return { ok: false, 说: 认.说 }
+    const p = 人物.get(认.号)
+    if (!p) return { ok: false, 说: '人物志里没有这个人' }
+    const 总 = 总关系of(p)
+    const 名 = String(p.名 || 认.号)
+    const 明细 = 关系明细(总, true, !!p.主人)
+    return {
+      ok: true,
+      名,
+      号: p.号,
+      说: `「${名}」现在的总关系：综合好感 ${明细.综合}/100，熟 ${明细.熟}，暖 ${明细.暖}，信 ${明细.信}，张力 ${明细.张力}，隔阂 ${明细.隔阂}，疤 ${明细.疤}。`,
+      关系: 明细,
+      维: 十维数(p.维, 总, p),
+      维说明: 十维说明(p.维, 总, p),
+    }
+  }
+
+  /**
+   * 改一个人现在的总关系（设置页和主人本机会话共用）：按名字/号找人，把数值写回总关系。
+   * 只按主人给的数改；找不到人、重名都直接说，不猜。
+   * @param {string} 词 - 名字、别名或 QQ 号。
+   * @param {object} 改 - 熟/暖/信/张力/疤（0–100）或一键修好。
+   * @returns {{ok: boolean, 说: string, 名?: string, 号?: string, 前?: object, 后?: object, 关系?: object}} 改后回执。
+   */
+  function 改人物关系(词, 改) {
+    const 认 = 按名字找人(词)
+    if (!认.ok) return { ok: false, 说: 认.说 }
+    const p = 人物.get(认.号)
+    if (!p) return { ok: false, 说: '人物志里没有这个人' }
+    const 修 = 改总关系(总关系of(p), 改, !!p.主人)
+    p.关系 = { ...修.关系, 最后结算At: Date.now() }
+    存人物(true)
+    const 名 = String(p.名 || 认.号)
+    const 一位 = (值) => Math.round((Number(值) || 0) * 10) / 10
+    const 变 = []
+    if (修.转了 > 0) 变.push(`${修.转了} 笔没解开的账算成已修`)
+    for (const 键 of ['熟', '暖', '信', '张力', '疤']) {
+      if (Math.abs(修.前[键] - 修.后[键]) < 0.05) continue
+      变.push(`${键} ${一位(修.前[键])}→${一位(修.后[键])}`)
+    }
+    const 说 = 变.length === 0
+      ? `和「${名}」的关系本来就没事，没动。`
+      : `和「${名}」的关系${改 && 改.一键 === true ? '修好了' : '改好了'}：${变.join('，')}。`
+    记账(`主人手动${改 && 改.一键 === true ? '修复' : '改'}和「${名}」的关系：${变.length ? 变.join('，') : '没变'}`)
+    return { ok: true, 说, 名, 号: p.号, 前: 修.前, 后: 修.后, 关系: 关系明细(p.关系, true, !!p.主人) }
   }
 
   读会话重置()
@@ -15472,6 +15551,28 @@ export function apply(ctx) {
     })
   })
 
+  路线(`${路由前缀}/people/relation`, async (req, res) => {
+    if (!要方法(req, 'POST', res)) return
+    const 来 = await 读体(req)
+    const 号 = 洗号(来 && 来.号)
+    if (号 === '') return 回(res, { ok: false, 说: '给一个人的 QQ 号（3–20 位数字）' })
+    const p = 人物.get(解号(号))
+    if (!p) return 回(res, { ok: false, 说: `人物志里还没有 QQ ${号}` })
+    const 来改 = 来 && 来.改 !== undefined && 来.改 !== null ? 来.改 : {}
+    if (typeof 来改 !== 'object' || Array.isArray(来改)) return 回(res, { ok: false, 说: '改的内容要是一个对象' })
+    const 改 = {}
+    if (来改.一键 === true) 改.一键 = true
+    for (const 键 of ['熟', '暖', '信', '张力', '疤']) {
+      const 值 = 来改[键]
+      if (值 === undefined || 值 === null || 值 === '') continue
+      const n = Number(值)
+      if (!Number.isFinite(n) || n < 0 || n > 100) return 回(res, { ok: false, 说: `${键} 要是 0–100 的数` })
+      改[键] = n
+    }
+    if (改.一键 !== true && Object.keys(改).length === 0) return 回(res, { ok: false, 说: '没有要改的项' })
+    回(res, 改人物关系(p.号, 改))
+  })
+
   路线(`${路由前缀}/trust`, async (req, res) => {
     if (!要方法(req, 'POST', res)) return
     const 来 = await 读体(req)
@@ -16476,6 +16577,14 @@ export function apply(ctx) {
         记账(`按主动搭话开房失败（${目标.叫}）：${String((error && error.message) || error)}`)
         return null
       }
+    },
+    /** 读一个人现在的总关系（设置页和主人本机会话用）；认不出人、重名都返回 ok:false，不猜。 */
+    看关系(词) {
+      return 读人物关系(词)
+    },
+    /** 改一个人现在的总关系（设置页和主人本机会话用）：0–100 的项，或一键修好。 */
+    改关系(词, 改) {
+      return 改人物关系(词, 改)
     },
   })
 

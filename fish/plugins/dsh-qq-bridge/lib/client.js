@@ -297,6 +297,9 @@ window.__ModuleLoader__.load({
       const [展开人, 设展开人] = React.useState('')
       const [全部人, 设全部人] = React.useState(false)
       const [全部关系, 设全部关系] = React.useState(false)
+      const [关系草稿, 设关系草稿] = React.useState({})
+      const [关系忙, 设关系忙] = React.useState('')
+      const [关系说, 设关系说] = React.useState(null)
       const [人号草稿, 设人号草稿] = React.useState({})
       const [信任号, 设信任号] = React.useState('')
       const [信任忙, 设信任忙] = React.useState(false)
@@ -382,6 +385,20 @@ window.__ModuleLoader__.load({
           设人物错('')
         } else {
           设人物错((s && s.说) || '读不到人物志')
+        }
+      }
+      // 关系数值直接改：按 QQ 号把这一张卡上的五个数（或一键修好）写回宿主；成功后清掉草稿重画。
+      const 改关系 = async (号, 改) => {
+        设关系忙(String(号))
+        设关系说(null)
+        const s = await post('/people/relation', { 号: String(号), 改 })
+        设关系忙('')
+        if (s && s.ok) {
+          设关系草稿((旧) => { const 新 = { ...旧 }; delete 新[String(号)]; return 新 })
+          设关系说({ 号: String(号), 说: s.说 || '改好了' })
+          await 拉人物()
+        } else {
+          设关系说({ 号: String(号), 说: '没改成：' + ((s && s.说) || '未知错误') })
         }
       }
       const 改信任 = async (动作, 号) => {
@@ -1072,6 +1089,27 @@ window.__ModuleLoader__.load({
         ? 人物态.账号数
         : 人物页.reduce((n, p) => n + (Number(p.账号数) || 0), 0)
       const 信任态 = (人物态 && 人物态.信任) || (态 && 态.信任) || null
+      const 关系字段 = ['熟', '暖', '信', '张力', '疤']
+      const 关系值 = (p, 键) => {
+        const 草 = 关系草稿[String(p.号)]
+        if (草 && Object.hasOwn(草, 键)) return 草[键]
+        return p.关系 && p.关系[键] !== undefined && p.关系[键] !== null ? p.关系[键] : 0
+      }
+      const 改关系草稿 = (p, 键, 值) =>
+        设关系草稿((旧) => ({ ...旧, [String(p.号)]: { ...(旧[String(p.号)] || {}), [键]: 值 } }))
+      const 存关系数 = (p) => {
+        const 原 = (p.关系 && typeof p.关系 === 'object') ? p.关系 : {}
+        const 改 = {}
+        for (const 键 of 关系字段) {
+          const 新 = Number(关系值(p, 键)) || 0
+          if (Math.abs(新 - (Number(原[键]) || 0)) > 0.0001) 改[键] = 新
+        }
+        if (Object.keys(改).length === 0) {
+          设关系说({ 号: String(p.号), 说: '数值没变化，没动。' })
+          return
+        }
+        void 改关系(p.号, 改)
+      }
       const 信任规 = 信任态 || (社交 && 社交.信任) || {}
       const 信任手动加 = Array.isArray(信任规.手动加) ? 信任规.手动加 : []
       const 信任手动禁 = Array.isArray(信任规.手动禁) ? 信任规.手动禁 : []
@@ -2445,6 +2483,32 @@ window.__ModuleLoader__.load({
                                '·' + (关系修名[x.修] || x.修) +
                                (x.房叫 ? '·' + x.房叫 : '')).join('；'),
                           )
+                        : null,
+                      h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 } },
+                        ['熟', '暖', '信', '张力', '疤'].map((键) => h('label', {
+                          key: 键,
+                          style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 },
+                        },
+                          h('span', { style: S.dim }, 键),
+                          h('input', {
+                            type: 'number',
+                            min: 0,
+                            max: 100,
+                            step: 1,
+                            style: { ...S.small, width: 62 },
+                            value: 关系值(p, 键),
+                            onChange: (e) => 改关系草稿(p, 键, e.target.value === '' ? '' : Number(e.target.value)),
+                          }),
+                        )),
+                        按钮('保存数值', () => 存关系数(p), false, 关系忙 === String(p.号)),
+                        按钮('一键修好', () => 改关系(p.号, { 一键: true }), false, 关系忙 === String(p.号)),
+                      ),
+                      h('div', { style: S.dim },
+                        '改的是她实际存着的总关系，0–100，改完下一轮就按新数说话。' +
+                          '暖、信会随着相处和时间慢慢回落到按熟悉度和疤算出的基线；' +
+                          '隔阂由还没解开的账算出来，「一键修好」会把这些账一次算清，并把张力、疤清零、暖信抬回基线。'),
+                      关系说 && 关系说.号 === String(p.号)
+                        ? h('div', { style: { ...S.dim, marginTop: 4, color: 'var(--dsw-alias-state-business-primary)' } }, 关系说.说)
                         : null,
                     )
                   : null,

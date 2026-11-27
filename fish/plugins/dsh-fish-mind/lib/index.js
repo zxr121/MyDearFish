@@ -3209,7 +3209,7 @@ export function apply(ctx) {
     }
     const toolRuntime = agentService(agent, 'tools')
     if (!social && toolRuntime && typeof toolRuntime.register === 'function') {
-      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition(), fishConfigToolDefinition(), fishQqRosterToolDefinition(), fishRememberToolDefinition()]) {
+      for (const definition of [recallToolDefinition(), openEpisodeToolDefinition(), openChapterToolDefinition(), searchMemeToolDefinition(), fishConfigToolDefinition(), fishQqRosterToolDefinition(), fishRelationToolDefinition(), fishRememberToolDefinition()]) {
         try {
           offs.push(toolRuntime.register(definition))
         } catch (error) {
@@ -3443,6 +3443,108 @@ export function apply(ctx) {
       },
       async execute() {
         return readQqRoster({ dshHome })
+      },
+    }
+  }
+
+  // 主人本机会话里读 / 改她对某人的关系数值（数据来自 QQ 桥的人物志）。
+  // 社交会话不注册这个工具；数值属于本机私事，不进群聊、好友、B 站或语音。
+  function fishRelationToolDefinition() {
+    return {
+      name: 'fish_relation',
+      description: '读 / 改她对某个人的关系数值，数据来自 QQ 桥的人物志（她认识的人）。'
+        + '不带数值、也不带 一键 时只读。主人明确让你把和某人的关系修好时，传 一键: true：'
+        + '把没解开的账算成已修，张力、疤清零，暖、信抬回按熟悉度和疤算的基线；'
+        + '主人给了具体数时也可以传 熟/暖/信/张力/疤（0–100）直接写。'
+        + '这是她实际存着的关系，改完下一轮就按新数说话。'
+        + '只在主人明确要求时改，不要自己主动调；找不到人、重名会返回 ok:false，不要猜。'
+        + '数值只在本机和主人说，不要报进 QQ、B 站或语音。',
+      parameters: {
+        type: 'object',
+        properties: {
+          谁: { type: 'string', description: '人物的名字、别名或 QQ 号。' },
+          一键: { type: 'boolean', description: '把关系修好：账算清、张力和疤清零、暖信抬回基线。' },
+          熟: { type: 'number', minimum: 0, maximum: 100, description: '熟悉度，0–100。' },
+          暖: { type: 'number', minimum: 0, maximum: 100, description: '亲近暖度，0–100。' },
+          信: { type: 'number', minimum: 0, maximum: 100, description: '信任分，0–100。' },
+          张力: { type: 'number', minimum: 0, maximum: 100, description: '正在闹的别扭，0–100。' },
+          疤: { type: 'number', minimum: 0, maximum: 100, description: '以前留下的伤害，0–100。' },
+        },
+        required: ['谁'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            说: { type: 'string' },
+            名: { type: 'string' },
+            号: { type: 'string' },
+            关系: {
+              type: 'object',
+              properties: {
+                综合: { type: 'number' },
+                熟: { type: 'number' },
+                暖: { type: 'number' },
+                信: { type: 'number' },
+                张力: { type: 'number' },
+                隔阂: { type: 'number' },
+                疤: { type: 'number' },
+                阶段: { type: 'string' },
+                状态: { type: 'string' },
+                口气: { type: 'string' },
+              },
+              required: ['综合', '熟', '暖', '信', '张力', '隔阂', '疤', '阶段', '状态', '口气'],
+              additionalProperties: false,
+            },
+          },
+          required: ['ok', '说'],
+          additionalProperties: false,
+        },
+        render(_args, value) {
+          if (value.ok !== true) return [{ type: 'text', text: value.说 || '没办成。' }]
+          const r = value.关系
+          const 行 = [value.说]
+          if (r) {
+            行.push(`现在的总关系：「${value.名}」（${value.号}）综合好感 ${r.综合}/100 · 熟 ${r.熟} · 暖 ${r.暖} · 信 ${r.信} · 张力 ${r.张力} · 隔阂 ${r.隔阂} · 疤 ${r.疤} · ${r.阶段} · ${r.状态} · 口气${r.口气}`)
+          }
+          return [{ type: 'text', text: 行.join('\n') }]
+        },
+      },
+      async execute(args) {
+        const 服务 = typeof ctx.get === 'function' ? ctx.get('qqSocial') : undefined
+        if (!服务 || typeof 服务.看关系 !== 'function' || typeof 服务.改关系 !== 'function') {
+          return { ok: false, 说: 'QQ 桥没装或没开：读不到人物志里的关系' }
+        }
+        const 谁 = String((args && args.谁) || '').trim()
+        if (谁 === '') return { ok: false, 说: '没写清是谁：给名字、别名或 QQ 号' }
+        const 改 = {}
+        if (args.一键 === true) 改.一键 = true
+        for (const 键 of ['熟', '暖', '信', '张力', '疤']) {
+          if (typeof args[键] === 'number' && Number.isFinite(args[键])) 改[键] = args[键]
+        }
+        const 出 = Object.keys(改).length > 0 ? 服务.改关系(谁, 改) : 服务.看关系(谁)
+        if (!出 || 出.ok !== true) return { ok: false, 说: (出 && 出.说) || '没查到这个人' }
+        const r = 出.关系 || {}
+        return {
+          ok: true,
+          说: String(出.说 || `「${出.名}」现在的总关系：综合好感 ${r.综合}/100，熟 ${r.熟}，暖 ${r.暖}，信 ${r.信}，张力 ${r.张力}，隔阂 ${r.隔阂}，疤 ${r.疤}。`),
+          名: String(出.名 || ''),
+          号: String(出.号 || ''),
+          关系: {
+            综合: Number(r.综合) || 0,
+            熟: Number(r.熟) || 0,
+            暖: Number(r.暖) || 0,
+            信: Number(r.信) || 0,
+            张力: Number(r.张力) || 0,
+            隔阂: Number(r.隔阂) || 0,
+            疤: Number(r.疤) || 0,
+            阶段: String(r.阶段 || ''),
+            状态: String(r.状态 || ''),
+            口气: String(r.口气 || ''),
+          },
+        }
       },
     }
   }
