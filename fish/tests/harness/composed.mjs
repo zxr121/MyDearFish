@@ -438,6 +438,7 @@ export function normalizeSurface(value, home) {
       .replace(/(?:今天|昨天|前天|上周[一二三四五六日]|\d+ 天前) \d{2}:\d{2}/g, '<when>')
       .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '<when>')
       .replace(/(上次(?:和主人|在这间屋)说话：)<when>，[^。\n]+/g, '$1<last>')
+      .replace(/现在已经是新的一天：[^\n]*\n?/g, '')
       .replace(/（(?:今天|昨天|前天|\d+ 天前|上周[一二三四五六日])）/g, '（<day>）')
   }
   if (typeof value === 'string') return replaceHome(value)
