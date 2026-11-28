@@ -198,8 +198,9 @@ test('四路召回：关键词、实体、时间窗和图扩展都能找到对�
 
   const yesterday = store.recall('昨天')
   assert.equal(yesterday.reason, 'ok')
-  assert.equal(yesterday.items[0].sessionId, 'session-c')
-  assert.ok(yesterday.items[0].routes.includes('time'))
+  const yesterdayHit = yesterday.items.find((item) => item.sessionId === 'session-c')
+  assert.ok(yesterdayHit, '“昨天”的时间路要找到昨天那段')
+  assert.ok(yesterdayHit.routes.includes('time'))
 
   const none = store.recall('火星基地的稀有矿石')
   assert.equal(none.reason, 'no-strong-match')

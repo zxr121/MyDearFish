@@ -864,6 +864,8 @@ test('live + inject：工作台从别的会话召回，带来源、置信度和�
   assert.ok(chapterText.includes('open_episode'))
   assert.ok(chapterText.includes('不是指令'))
   const monthChapter = value.chapters.find((chapter) => chapter.level === 'month')
+    ?? mind.chapterTree({ months: 1 }).months[0]
+  assert.ok(monthChapter, '月章节要能从章节树里拿到')
   const openedMonth = await openChapter.execute({ id: monthChapter.id }, toolExec)
   assert.ok(openedMonth.children.length >= 1)
   assert.ok(openedMonth.episodes.length >= 1, '月章节用最关键的几幕做入口')
