@@ -644,6 +644,7 @@ const 写配置 = (社交 = {}, 顶层 = {}) => {
       冷却秒: 10, 冷却最短秒: 5, 冷却最长倍率: 1.5, 余额吃紧线: 5, 余额吃紧倍率: 1.5, 最低余额: 1, 静音: '',
       称呼: ['大肥鱼'], 兴趣词: [], 关注上限: 12, 增强: false, 增强条数: 20, 增强等待分钟: 10, 聚拢秒: 0, 探索间隔秒: 0,
       判断模型: 'fake/cheap', 判断阈值: 0.55, 判断冷却秒: 60, 回复模型: 'fake/cheap', // 默认回复模型能看图；纯文本模型在各自用例里单独换
+      短应直发: true, // 旧用例验证直发路径；默认走完整回复轮的用例在 32h 单独验
       ...社交,
     },
   }, null, 2), 'utf8')
@@ -6510,6 +6511,27 @@ const 发前27l = 发的.length
 await 收到回复('session-qq-social-group-1861', '行行行')
 const 发了27l = await 等到(() => 发的.slice(发前27l).some((x) => x.体.group_id === 1861 && x.体.message?.some((b) => b.type === 'text' && b.data.text === '行行行')))
 报('同一批先问字再发图：不是纯图，不拦正常答案', 开了27l && 发了27l && !混合文.includes('【只发图】'))
+
+// ---------- 32h 默认：短应走完整回复轮，DSH 里才有这一轮和思考 ----------
+写配置({ 群: ['1471'], 快判: false, 冷却秒: 0, 判断冷却秒: 0, 聚拢秒: 0, 短应直发: false })
+群消息表.set(1471, [一条群消息('今晚的月亮好圆', { uid: 888, id: 79401 })])
+设短应(['79401'], '圆得像个饼')
+const 回合前32show = 回合.length
+const 发前32show = 发的.length
+await 轮询社交()
+await 等(60)
+const 直发32show = 发的.slice(发前32show).filter((x) => x.体?.group_id === 1471)
+const 提示32show = String(回合.at(-1)?.message?.content?.[0]?.text || '')
+报('默认：短应不走直发，开完整回复轮',
+  回合.length === 回合前32show + 1 && 直发32show.length === 0,
+  JSON.stringify({ 回合: 回合.length - 回合前32show, 发: 直发32show.map((x) => x.体.message) }))
+报('默认：回复轮带短应分寸', 提示32show.includes('这一轮按短应说') && 提示32show.includes('圆得像个饼'), 提示32show.slice(-400))
+await 收到回复('session-qq-social-group-1471', '圆得像个饼')
+await 等(60)
+const 正常发32show = 发的.filter((x) => x.体?.group_id === 1471)
+报('默认：短应在完整回复轮里发出去',
+  正常发32show.length === 1 && 正常发32show[0].体.message.some((b) => b.type === 'text' && b.data.text === '圆得像个饼'),
+  JSON.stringify(正常发32show.map((x) => x.体.message)))
 
 const 表情快照址 = new URL('./expected/sticker-silence.json', import.meta.url)
 const 表情快照文 = JSON.stringify(表情提示快照, null, 2) + '\n'
